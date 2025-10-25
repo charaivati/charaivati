@@ -161,3 +161,7 @@ button:focus {
 :focus:not(:focus-visible) {
   outline: none;
 }
+
+.header-title {
+  display: none !important;
+}

@@ -1,4 +1,3 @@
-// app/layout.tsx
 import "./globals.css"; // keep this if you have a global stylesheet
 import React from "react";
 

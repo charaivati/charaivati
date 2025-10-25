@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -40,7 +41,6 @@ export default function LandingPage() {
         }
 
         // 2) Not logged in -> see if guest language exists in storage
-        // check multiple candidate keys to be robust
         const candidateKeys = ["app.language", "charaivati.lang", "language", "preferredLanguage"];
         let savedLang: string | null = null;
         try {
@@ -59,7 +59,7 @@ export default function LandingPage() {
           // no guest language -> show language picker (so logged-out user picks one)
           setStatus("showPicker");
         } else {
-          // have guest language -> keep previous behavior: go to login
+          // have guest language -> go to login
           setStatus("redirect");
           router.replace("/login");
         }
@@ -101,14 +101,10 @@ export default function LandingPage() {
   // user selected language handler (keeps current provider behavior)
   async function onChoose(lang: { id: number; name: string }) {
     try {
-      // persist to same localStorage key your language provider expects
-      // adapt the key to what your LanguageProvider uses; here we use "app.language"
       try {
         localStorage.setItem("app.language", lang.name);
       } catch {}
-      // update provider
       await setLanguage(lang.name);
-      // after selecting language, go to login (user is still anonymous)
       router.replace("/login");
     } catch (e) {
       alert(`Failed to set language: ${e}`);

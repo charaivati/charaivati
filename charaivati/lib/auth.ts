@@ -1,4 +1,3 @@
-// lib/auth.ts
 import jwt from "jsonwebtoken";
 import type { NextRequest } from "next/server";
 
@@ -19,7 +18,7 @@ if (!JWT_SECRET && process.env.NODE_ENV === "production") {
   throw new Error("JWT_SECRET must be set in production environment");
 }
 
-const JWT_ALG = "HS256" as const;
+const JWT_ALG = "HS256";
 
 export type SessionPayload = {
   sub?: string; // standard subject

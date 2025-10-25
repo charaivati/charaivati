@@ -7,7 +7,7 @@ import sharp from "sharp";
 import { prisma } from "@/lib/prisma"; // use named import if your prisma exports named
 import getServerUser from "@/lib/serverAuth";
 
-export const runtime = "node"; // important for formidable to work
+export const runtime = "nodejs"; // important for formidable to work
 
 // we import formidable dynamically to be resilient to ESM/CJS shapes
 async function makeFormidable() {

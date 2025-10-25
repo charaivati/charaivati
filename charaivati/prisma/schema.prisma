@@ -6,7 +6,6 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
 /// ----------------------
 /// Existing application models (kept & slightly extended)
 /// ----------------------
@@ -468,7 +467,7 @@ model Post {
   id        Int      @id @default(autoincrement())
   authorId  String
   content   String?
-  images    String[] @default([])
+  images Json? @default("[]")
   videoName String?
   videoSize Int?
   videoUrl  String?

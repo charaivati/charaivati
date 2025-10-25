@@ -1,7 +1,8 @@
-// app/api/debug/cookies/route.ts
 import { NextResponse } from "next/server";
 import { verifySessionToken } from "@/lib/session"; // <- correct
-export const runtime = "edge" as const;
+
+// Use a plain named export (no `as const`)
+export const runtime = "edge";
 
 function parseCookiesFromReq(req: Request) {
   const map: Record<string, string> = {};
