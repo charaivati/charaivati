@@ -12,12 +12,19 @@ type Profile = {
   shortBio?: string | null;
 };
 
-export default function ProfileMenu({ profile, onLogout }: { profile: Profile | null; onLogout: () => Promise<void> | void }) {
+export default function ProfileMenu({
+  profile,
+  onLogout,
+  compact,
+}: {
+  profile: Profile | null;
+  onLogout: () => Promise<void> | void;
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const ref = useRef<HTMLDivElement | null>(null);
 
-  // close when clicked outside
   useEffect(() => {
     function onDoc(e: MouseEvent) {
       if (!ref.current) return;
@@ -31,16 +38,18 @@ export default function ProfileMenu({ profile, onLogout }: { profile: Profile | 
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white text-sm px-3 py-1 rounded-lg"
+        className={`flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white text-sm px-3 py-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-white/20 ${
+          compact ? "px-2 py-0.5" : ""
+        }`}
         aria-label="Open profile menu"
         type="button"
       >
         <img
           src={profile?.avatarUrl ?? "/avatar-placeholder.png"}
           alt="avatar"
-          className="w-8 h-8 rounded-full object-cover border border-white/10"
+          className={`w-8 h-8 rounded-full object-cover border border-white/10 ${compact ? "w-9 h-9" : ""}`}
         />
-        <span className="hidden sm:inline">{profile?.name ?? profile?.email ?? "Guest"}</span>
+        {!compact && <span className="hidden sm:inline">{profile?.name ?? profile?.email ?? "Guest"}</span>}
         <svg
           xmlns="http://www.w3.org/2000/svg"
           className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`}
@@ -54,7 +63,7 @@ export default function ProfileMenu({ profile, onLogout }: { profile: Profile | 
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 bg-black/80 rounded-lg shadow-lg py-1 px-1 min-w-[180px] z-40">
+        <div className="absolute right-0 mt-2 bg-black/90 rounded-lg shadow-lg py-1 px-1 min-w-[180px] z-40 border border-white/6">
           <button
             onClick={() => {
               setOpen(false);
@@ -83,7 +92,6 @@ export default function ProfileMenu({ profile, onLogout }: { profile: Profile | 
               try {
                 await onLogout();
               } catch (err) {
-                // still redirect on failure
                 console.warn("Logout handler error:", err);
                 router.replace("/");
               }

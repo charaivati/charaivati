@@ -1,12 +1,17 @@
 // app/(with-nav)/layout.tsx
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import ResponsiveWorldNav from "@/components/ResponsiveWorldNav";
 import { usePathname, useRouter } from "next/navigation";
-import NavControls from "@/components/NavControls";
 import HeaderTabs from "@/components/HeaderTabs";
 import { LayerProvider } from "@/components/LayerContext";
+import ProfileMenu from "@/components/ProfileMenu";
+
+/**
+ * WithNavLayout — client layout wrapping pages with nav/tabs.
+ * Top-right: only ProfileMenu (compact) to reduce clutter.
+ */
 
 export default function WithNavLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -20,7 +25,6 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() ?? "/";
 
-  // Detect active layer for side navigation
   const activeId = React.useMemo(() => {
     if (pathname.startsWith("/user") || pathname.startsWith("/self")) return "layer-self";
     if (pathname.startsWith("/society") || pathname.startsWith("/local")) return "layer-society-home";
@@ -32,8 +36,6 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
 
   function navigateToLayerById(id: string | undefined | null) {
     const layerId = String(id ?? "").trim();
-    console.debug("[navigateToLayerById] layerId:", layerId);
-
     switch (layerId) {
       case "layer-self":
         router.push("/self");
@@ -53,36 +55,76 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
         router.push("/universe");
         break;
       default:
-        console.warn("[navigateToLayerById] unknown layer, defaulting to /self:", layerId);
         router.push("/self");
     }
   }
 
   function mapNavIdToLayerId(id: string | undefined | null): string {
     const raw = String(id ?? "").trim().toLowerCase();
-    console.debug("[mapNavIdToLayerId] raw id:", id, "-> normalized:", raw);
-
     if (!raw) return "layer-self";
-
     if (raw.includes("you") || raw.includes("self")) return "layer-self";
     if (raw.includes("society") || raw.includes("state")) return "layer-society-home";
-    if (raw.includes("nation") || raw.includes("your_country") || raw.includes("yourcountry") || raw.includes("country")) {
-      return "layer-nation-birth";
-    }
+    if (raw.includes("nation") || raw.includes("country")) return "layer-nation-birth";
     if (raw.includes("earth") || raw.includes("world")) return "layer-earth";
     if (raw.includes("uni") || raw.includes("universe")) return "layer-universe";
-
     if (raw.startsWith("layer-")) return raw;
-
-    console.warn("[mapNavIdToLayerId] unknown id, defaulting to layer-self:", id);
     return "layer-self";
+  }
+
+  // ---------------------------
+  // Client-side profile fetch
+  // ---------------------------
+  const [profile, setProfile] = useState<any | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/user/profile", { credentials: "include" });
+        if (!alive) return;
+        if (!res.ok) {
+          setProfile(null);
+        } else {
+          const data = await res.json().catch(() => null);
+          if (data?.ok) setProfile(data.profile ?? null);
+        }
+      } catch (err) {
+        console.warn("[WithNavLayout] failed to load profile:", err);
+        setProfile(null);
+      } finally {
+        if (alive) setProfileLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Logout handler (passed to ProfileMenu)
+  async function handleLogout() {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.warn("Logout request failed:", err);
+    } finally {
+      if (typeof window !== "undefined") {
+        const keysToClear = ["app.language", "charaivati.lang", "language", "preferredLanguage"];
+        keysToClear.forEach((k) => localStorage.removeItem(k));
+        window.location.href = "/";
+      }
+    }
   }
 
   return (
     <div className="min-h-screen bg-black text-white">
-      {/* Fixed top controls (profile / language etc.) */}
-      <div className="fixed top-3 right-4 z-50">
-        <NavControls />
+      {/* Fixed top controls (compact) */}
+      <div className="fixed top-3 right-4 z-50 flex items-center gap-2">
+        {/* Profile menu receives current profile + logout handler */}
+        <ProfileMenu profile={profile} onLogout={handleLogout} compact />
       </div>
 
       <div className="flex">
@@ -108,9 +150,9 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
 
         {/* Main Content */}
         <main className="flex-1 w-full md:ml-56 lg:ml-64 transition-all">
-          {/* Header with Tabs - Sticky */}
+          {/* Sticky header — reduced vertical padding for compact look */}
           <div className="sticky top-0 z-30 bg-black/80 backdrop-blur-md border-b border-white/10">
-            <div className="w-full py-3">
+            <div className="w-full py-2"> {/* reduced py from 3 -> 2 */}
               <div className="flex items-start gap-4 px-4 md:px-0">
                 {/* Mobile world nav dropdown */}
                 <div className="md:hidden flex-shrink-0">
@@ -132,11 +174,9 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Actual page content */}
+          {/* Page content */}
           <div className="w-full">
-            <div className="max-w-6xl mx-auto px-4 py-8">
-              {children}
-            </div>
+            <div className="max-w-6xl mx-auto px-4 py-6">{children}</div> {/* reduced py from 8 -> 6 */}
           </div>
         </main>
       </div>
