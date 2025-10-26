@@ -1,0 +1,534 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// ----------------------
+/// Existing application models (kept & slightly extended)
+/// ----------------------
+model User {
+  id                      String              @id @default(cuid())
+  email                   String?             @unique
+  phone                   String?             @unique
+  passwordHash            String?
+  verified                Boolean             @default(false)
+  emailVerified           Boolean             @default(false)
+  avatarUrl               String?
+  avatarStorageKey        String?
+  status                  String              @default("active")
+  deletionScheduledAt     DateTime?
+  tokenVersion            Int                 @default(0)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  avatarAt                DateTime?
+  name                    String?
+  selectedCountry         String?
+  lastSelectedLocalAreaId Int?
+  shortBio                String?
+  title                   String?
+  preferredLanguage       String?             @default("en")
+  customTabs              CustomTab[]         @relation("UserCustomTabs")
+  embeddings              Embedding[]         @relation("UserEmbeddings")
+  events                  Event[]             @relation("UserEvents")
+  requestsReceived        FriendRequest[]     @relation("req_receiver")
+  requestsSent            FriendRequest[]     @relation("req_sender")
+  friendshipsA            Friendship[]        @relation("friendA")
+  friendshipsB            Friendship[]        @relation("friendB")
+  Hobby                   Hobby[]
+  magicLinks              MagicLink[]
+  moods                   Mood[]
+  pages                   Page[]              @relation("UserPages")
+  pageFollows             PageFollow[]
+  posts                   Post[]
+  profile                 Profile?
+  proposals               Proposal[]          @relation("UserProposals")
+  reviews                 Review[]            @relation("UserReviews")
+  Todo                    Todo[]
+  usage                   UsageLog[]          @relation("UserUsageLogs")
+  userTabs                UserTab[]           @relation("UserUserTabs")
+  verificationTokens      VerificationToken[]
+  votes                   Vote[]              @relation("UserVotes")
+
+  @@index([email])
+  @@index([phone])
+}
+
+/// *
+/// * Friend request (pending -> accepted/rejected)
+model FriendRequest {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  message    String?
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+  receiver   User     @relation("req_receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  sender     User     @relation("req_sender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+}
+
+/// *
+/// * Mutual friendship (canonical ordering enforced by application code)
+model Friendship {
+  id        String   @id @default(cuid())
+  userAId   String
+  userBId   String
+  createdAt DateTime @default(now())
+  userA     User     @relation("friendA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB     User     @relation("friendB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+}
+
+/// *
+/// * User profile / health
+model Profile {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  heightCm               Int?
+  weightKg               Float?
+  stepsToday             Int?     @default(0)
+  sleepHours             Float?
+  waterLitres            Float?
+  displayName            String?
+  bio                    String?
+  socialHandles          Json?
+  topics                 Json?
+  streakDays             Int?     @default(0)
+  learningNotes          String?
+  businesses             Json?
+  weeklyEarningsEstimate Float?
+  preferredPayment       String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MagicLink {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String
+  type      String
+  expiresAt DateTime
+  used      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+  ip        String?
+  meta      Json?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+}
+
+model Page {
+  id               String       @id @default(cuid())
+  ownerId          String?
+  title            String
+  description      String?
+  avatarUrl        String?
+  avatarStorageKey String?
+  status           String       @default("active")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  owner            User?        @relation("UserPages", fields: [ownerId], references: [id])
+  followers        PageFollow[]
+
+  @@index([ownerId])
+}
+
+/// *
+/// * Users following pages (one-way)
+model PageFollow {
+  id        String   @id @default(cuid())
+  userId    String
+  pageId    String
+  createdAt DateTime @default(now())
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pageId])
+  @@index([userId])
+  @@index([pageId])
+}
+
+model VerificationToken {
+  id         String   @id @default(cuid())
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([identifier])
+}
+
+model Country {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique
+  name        String
+  createdAt   DateTime     @default(now())
+  adminLevels AdminLevel[]
+  regions     Region[]
+}
+
+model AdminLevel {
+  id        Int     @id @default(autoincrement())
+  countryId Int
+  level     Int
+  label     String
+  slug      String?
+  country   Country @relation(fields: [countryId], references: [id], onDelete: Cascade)
+
+  @@unique([countryId, level])
+  @@index([countryId])
+}
+
+model Region {
+  id              Int              @id @default(autoincrement())
+  countryId       Int
+  parentId        Int?
+  name            String
+  code            String?
+  level           Int
+  population      Int?
+  areaSqKm        Float?
+  localAreas      LocalArea[]
+  country         Country          @relation(fields: [countryId], references: [id], onDelete: Cascade)
+  representatives Representative[]
+
+  @@index([countryId])
+  @@index([level])
+}
+
+model LocalArea {
+  id         Int     @id @default(autoincrement())
+  regionId   Int
+  name       String
+  population Int?
+  areaWorth  Float?
+  assets     Asset[]
+  region     Region  @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  @@unique([regionId, name])
+  @@index([regionId])
+}
+
+model Asset {
+  id          Int       @id @default(autoincrement())
+  localAreaId Int
+  name        String
+  category    String
+  value       Float
+  units       String?
+  notes       String?
+  adminUrl    String?
+  localArea   LocalArea @relation(fields: [localAreaId], references: [id], onDelete: Cascade)
+
+  @@index([localAreaId])
+}
+
+model Representative {
+  id        Int       @id @default(autoincrement())
+  regionId  Int
+  name      String
+  role      String
+  party     String?
+  startDate DateTime?
+  endDate   DateTime?
+  contact   String?
+  region    Region    @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  @@index([regionId])
+}
+
+/// Levels represent the five (or more) levels: Personal, Local, National, Global, Universal
+model Level {
+  id        Int       @id @default(autoincrement())
+  key       String    @unique
+  name      String
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  tabs      Tab[]
+  userTabs  UserTab[]
+
+  @@index([order])
+}
+
+/// Canonical Tab (defaults live here). Use is_default to mark defaults
+model Tab {
+  id           String           @id @default(cuid())
+  title        String
+  slug         String           @unique
+  description  String?
+  metadata     Json?
+  levelId      Int?
+  is_default   Boolean          @default(false)
+  is_custom    Boolean          @default(false)
+  createdById  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  category     String?
+  tags         Json?
+  usageCount   Int              @default(0)
+  gridCol      Int?
+  gridRow      Int?
+  position     Int?
+  proposals    Proposal[]       @relation("TabProposals")
+  level        Level?           @relation(fields: [levelId], references: [id])
+  translations TabTranslation[]
+  userTabs     UserTab[]
+
+  @@index([levelId])
+  @@index([is_default])
+}
+
+model TabTranslation {
+  id             String   @id @default(cuid())
+  tabId          String
+  locale         String
+  title          String
+  description    String?
+  slug           String?
+  autoTranslated Boolean  @default(false)
+  status         String   @default("needs_review")
+  suggestedBy    String?
+  reviewedBy     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  tab            Tab      @relation(fields: [tabId], references: [id], onDelete: Cascade)
+
+  @@unique([tabId, locale])
+  @@index([locale])
+  @@index([slug])
+}
+
+/// Per-user override / sparse representation (only store diffs)
+model UserTab {
+  id             String   @id @default(cuid())
+  userId         String
+  tabId          String?
+  levelId        Int?
+  defaultSlug    String?
+  position       Int?
+  visible        Boolean  @default(true)
+  customTitle    String?
+  customMetadata Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  level          Level?   @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  tab            Tab?     @relation(fields: [tabId], references: [id], onDelete: Cascade)
+  user           User     @relation("UserUserTabs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tabId], name: "unique_user_tab")
+  @@index([userId])
+  @@index([levelId])
+}
+
+/// Community proposal for adding/promoting tabs to defaults
+model Proposal {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  proposerId  String
+  tabId       String?
+  levelId     Int
+  status      String   @default("pending")
+  tags        Json?
+  wordCount   Int?
+  language    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  proposer    User     @relation("UserProposals", fields: [proposerId], references: [id], onDelete: Cascade)
+  tab         Tab?     @relation("TabProposals", fields: [tabId], references: [id])
+  review      Review?
+  votes       Vote[]
+
+  @@index([status])
+  @@index([levelId])
+  @@index([proposerId])
+}
+
+/// Votes for proposals (one vote per user per proposal)
+model Vote {
+  id         String   @id @default(cuid())
+  proposalId String
+  userId     String
+  value      Int
+  createdAt  DateTime @default(now())
+  proposal   Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  user       User     @relation("UserVotes", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, userId])
+  @@index([userId])
+  @@index([proposalId])
+}
+
+/// Admin/moderator review of proposals
+model Review {
+  id         String   @id @default(cuid())
+  proposalId String   @unique
+  reviewerId String
+  verdict    String
+  comment    String?
+  createdAt  DateTime @default(now())
+  proposal   Proposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  reviewer   User     @relation("UserReviews", fields: [reviewerId], references: [id], onDelete: Cascade)
+
+  @@index([reviewerId])
+}
+
+/// Audit log for critical actions
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String
+  data      Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entity, entityId])
+}
+
+/// Product / usage events for analytics and pipelines
+model Event {
+  id        String   @id @default(cuid())
+  userId    String?
+  type      String
+  payload   Json?
+  levelId   Int?
+  tabId     String?
+  createdAt DateTime @default(now())
+  user      User?    @relation("UserEvents", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([type])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([levelId])
+}
+
+/// Embeddings for semantic search / vector DB reference
+model Embedding {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  model      String
+  dimension  Int
+  vector     Bytes
+  vectorRef  String?
+  userId     String?
+  createdAt  DateTime @default(now())
+  user       User?    @relation("UserEmbeddings", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([entityType])
+  @@index([entityId])
+  @@index([userId])
+}
+
+/// Optional: user-created custom tabs (if you want to persist custom tabs separate from global Tab)
+model CustomTab {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  slug        String   @unique
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation("UserCustomTabs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Small model for languages (seed uses this)
+model Language {
+  name      String   @unique
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  updatedAt DateTime @default(now()) @updatedAt
+  code      String   @unique
+
+  @@index([enabled])
+  @@index([name])
+}
+
+model Post {
+  id        Int      @id @default(autoincrement())
+  authorId  String
+  content   String?
+  images    Json?    @default("[]")
+  videoName String?
+  videoSize Int?
+  videoUrl  String?
+  likes     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  author    User     @relation(fields: [authorId], references: [id])
+}
+
+model Hobby {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  todos       Todo[]
+
+  @@unique([userId, title])
+  @@index([userId])
+}
+
+model Todo {
+  id        String   @id @default(cuid())
+  hobbyId   String?
+  userId    String
+  title     String
+  freq      String?
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  hobby     Hobby?   @relation(fields: [hobbyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Mood {
+  id           String   @id @default(cuid())
+  userId       String
+  moodRating   Int?
+  healthRating Int?
+  notes        String?
+  recordedAt   DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recordedAt])
+}
+
+model UsageLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  section      String
+  durationMs   Int
+  interactions Int?
+  startedAt    DateTime
+  endedAt      DateTime
+  createdAt    DateTime @default(now())
+  user         User?    @relation("UserUsageLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, section, createdAt])
+}
