@@ -1,17 +1,21 @@
+// lib/session.ts
 import { SignJWT, jwtVerify, JWTPayload } from "jose";
 import { NextResponse } from "next/server";
 import { db } from "./db"; // your prisma client
+import { SITE_URL } from "./config";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) throw new Error("JWT_SECRET missing in .env");
+if (!JWT_SECRET && process.env.NODE_ENV === "production") {
+  throw new Error("JWT_SECRET missing in production environment");
+}
+const key = new TextEncoder().encode(JWT_SECRET ?? "dev_secret");
 
-const APP_ORIGIN = process.env.APP_ORIGIN; // e.g. "http://localhost:3000"
-const ISSUER = APP_ORIGIN || "app";
-const AUDIENCE = APP_ORIGIN || "app";
+// Use canonical SITE_URL for issuer/audience when available, otherwise fallback to 'app'
+const APP_ORIGIN = SITE_URL ?? process.env.APP_ORIGIN ?? "app";
+const ISSUER = APP_ORIGIN;
+const AUDIENCE = APP_ORIGIN;
 
-const key = new TextEncoder().encode(JWT_SECRET);
-
-// ✅ make this explicit so all modules agree
+// Use secure __Host- cookie prefix in production (requires path=/ and secure)
 export const COOKIE_NAME =
   process.env.NODE_ENV === "production" ? "__Host-session" : "charaivati.session";
 
@@ -40,7 +44,6 @@ export async function createSessionToken(
   opts?: { expiresIn?: string }
 ) {
   const exp = opts?.expiresIn ?? "7d";
-  console.log("[session] Creating JWT token for user:", payload.userId);
   return await new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
@@ -64,6 +67,7 @@ export async function verifySessionToken(
     if (!p.userId && typeof p.sub === "string") p.userId = p.sub;
     return p as SessionPayload;
   } catch (err) {
+    // eslint-disable-next-line no-console
     console.error("[session] verifySessionToken error:", err);
     return false;
   }
@@ -88,9 +92,6 @@ export function setSessionCookie<T = unknown>(
 ): NextResponse<T> {
   const maxAge = opts?.maxAge ?? 60 * 60 * 24 * 7;
   const secure = process.env.NODE_ENV === "production";
-  console.log(
-    `[session] setSessionCookie: name=${COOKIE_NAME}, secure=${secure}, maxAge=${maxAge}`
-  );
 
   res.headers.set("Cache-Control", "no-store");
   res.cookies.set(COOKIE_NAME, token, {
@@ -103,15 +104,10 @@ export function setSessionCookie<T = unknown>(
     priority: "high",
   });
 
-  // Log resulting headers
-  console.log("[session] After setSessionCookie, res headers:", Array.from(res.headers.entries()));
   return res;
 }
 
-export function clearSessionCookie<T = unknown>(
-  res: NextResponse<T>
-): NextResponse<T> {
-  console.log("[session] Clearing cookie:", COOKIE_NAME);
+export function clearSessionCookie<T = unknown>(res: NextResponse<T>): NextResponse<T> {
   res.headers.set("Cache-Control", "no-store");
   res.cookies.set(COOKIE_NAME, "", {
     httpOnly: true,
@@ -128,12 +124,13 @@ export function clearSessionCookie<T = unknown>(
 /* ------------------------
    Get current user (JWT-based)
    ------------------------ */
+import { getCurrentUser as _getCurrentUser } from "./session_helpers"; // if you have helpers
+// If not, keep the following as your existing db-based resolver:
 export async function getCurrentUser(req?: Request): Promise<CurrentUser | null> {
   try {
     if (!req) return null;
 
     const token = getTokenFromRequest(req);
-    console.log("[session] getCurrentUser - token present:", !!token);
     if (!token) return null;
 
     const payload = await verifySessionToken(token);
@@ -144,11 +141,12 @@ export async function getCurrentUser(req?: Request): Promise<CurrentUser | null>
       select: { id: true, name: true, email: true, avatarUrl: true },
     });
 
-    console.log("[session] getCurrentUser resolved user:", user?.id || "null");
     return (user as CurrentUser) ?? null;
   } catch (err) {
+    // eslint-disable-next-line no-console
     console.error("[session] getCurrentUser error:", err);
     return null;
   }
 }
+
 export const getUserFromRequest = getCurrentUser;
