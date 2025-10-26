@@ -12,15 +12,30 @@ import { useLanguage } from "@/components/LanguageProvider";
  *    - if a saved guest language exists (localStorage cookie) -> /login
  *    - if no saved language -> show language picker (so logged-out user picks language)
  *
- * This preserves your "clear language on logout" flow: after logout we clear localStorage,
- * user hits "/", no language found -> they see the picker.
+ * This file also provides a small UI to add a language (POST /api/languages)
+ * so you can bootstrap languages directly from the landing page while testing.
  */
+
+type Lang = { id: number; name: string; code?: string };
+
+function getBaseUrl(): string {
+  // Client: use current origin. Server/SSG/Edge: use env fallback
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  // NEXT_PUBLIC_SITE_URL must include protocol, e.g. "https://charaivati.vercel.app"
+  return process.env.NEXT_PUBLIC_SITE_URL || "";
+}
+
 export default function LandingPage() {
   const router = useRouter();
   const { setLanguage } = useLanguage();
+
   const [status, setStatus] = useState<"checking" | "showPicker" | "redirect">("checking");
-  const [langs, setLangs] = useState<{ id: number; name: string }[]>([]);
+  const [langs, setLangs] = useState<Lang[]>([]);
   const [loadingLangs, setLoadingLangs] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -28,7 +43,8 @@ export default function LandingPage() {
     (async () => {
       try {
         // 1) Quick auth check
-        const res = await fetch("/api/user/profile", { credentials: "include" });
+        const base = getBaseUrl();
+        const res = await fetch(`${base}/api/user/profile`, { credentials: "include" });
         if (!alive) return;
 
         if (res.ok) {
@@ -78,16 +94,20 @@ export default function LandingPage() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      setLoadingLangs(true);
       try {
-        const res = await fetch("/api/languages");
+        const base = getBaseUrl();
+        const res = await fetch(`${base}/api/languages`);
         const json = await res.json().catch(() => null);
         if (!alive) return;
         if (json?.ok && Array.isArray(json.data)) {
-          setLangs(json.data.map((r: any) => ({ id: r.id, name: r.name })));
+          // map to our type
+          setLangs(json.data.map((r: any) => ({ id: r.id, name: r.name, code: r.code })));
         } else {
           setLangs([]);
         }
       } catch (e) {
+        console.warn("[Landing] failed to load languages", e);
         setLangs([]);
       } finally {
         if (alive) setLoadingLangs(false);
@@ -99,7 +119,7 @@ export default function LandingPage() {
   }, []);
 
   // user selected language handler (keeps current provider behavior)
-  async function onChoose(lang: { id: number; name: string }) {
+  async function onChoose(lang: Lang) {
     try {
       try {
         localStorage.setItem("app.language", lang.name);
@@ -108,6 +128,45 @@ export default function LandingPage() {
       router.replace("/login");
     } catch (e) {
       alert(`Failed to set language: ${e}`);
+    }
+  }
+
+  // Add language via POST /api/languages
+  async function onAddLanguage() {
+    const name = prompt("Language name (e.g. English):")?.trim();
+    if (!name) return;
+    const code = prompt("Language code (optional, e.g. en):")?.trim() || undefined;
+
+    setAdding(true);
+    setAddError(null);
+    try {
+      const base = getBaseUrl();
+      const res = await fetch(`${base}/api/languages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, code }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok || !json?.ok) {
+        const msg = json?.error || `HTTP ${res.status}`;
+        setAddError(String(msg));
+        alert(`Failed to add language: ${msg}`);
+        return;
+      }
+      // success: append to list and auto-select it
+      const newLang: Lang = { id: json.data.id, name: json.data.name, code: json.data.code };
+      setLangs((prev) => [...prev, newLang]);
+      // optional: automatically select
+      try {
+        localStorage.setItem("app.language", newLang.name);
+      } catch {}
+      await setLanguage(newLang.name);
+      router.replace("/login");
+    } catch (e: any) {
+      setAddError(String(e?.message ?? e));
+      alert(`Failed to add language: ${e}`);
+    } finally {
+      setAdding(false);
     }
   }
 
@@ -128,6 +187,17 @@ export default function LandingPage() {
           <h1 className="text-4xl font-bold mb-2">Welcome to Charaivati</h1>
           <p className="text-gray-400 mb-6">Choose your language to continue</p>
 
+          <div className="mb-6">
+            <button
+              onClick={onAddLanguage}
+              disabled={adding}
+              className="px-4 py-2 rounded-md bg-white/6 hover:bg-white/10 border border-white/10 text-white inline-flex items-center gap-2"
+            >
+              {adding ? "Adding…" : "+"} Add language
+            </button>
+            {addError ? <div className="text-sm text-rose-400 mt-2">Last add error: {addError}</div> : null}
+          </div>
+
           {loadingLangs ? (
             <div className="flex justify-center gap-4">
               {Array.from({ length: 6 }).map((_, i) => (
@@ -135,7 +205,7 @@ export default function LandingPage() {
               ))}
             </div>
           ) : langs.length === 0 ? (
-            <div className="text-sm text-gray-400">No languages found. Please add one later.</div>
+            <div className="text-sm text-gray-400">No languages found. Use “+ Add language” to create one.</div>
           ) : (
             <div className="flex flex-wrap justify-center gap-6">
               {langs.map((l) => (
@@ -145,7 +215,7 @@ export default function LandingPage() {
                   className="w-44 h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform hover:scale-105 transition-all"
                 >
                   <div className="text-xl font-semibold">{l.name}</div>
-                  <div className="text-xs text-gray-400">ID: {l.id}</div>
+                  <div className="text-xs text-gray-400">ID: {l.id}{l.code ? ` • ${l.code}` : ""}</div>
                 </button>
               ))}
             </div>
