@@ -1,7 +1,7 @@
+// app/api/debug/cookies/route.ts
 import { NextResponse } from "next/server";
-import { verifySessionToken } from "@/lib/session"; // <- correct
 
-// Use a plain named export (no `as const`)
+// keep as edge so the bundle stays tiny
 export const runtime = "edge";
 
 function parseCookiesFromReq(req: Request) {
@@ -26,10 +26,31 @@ export async function GET(req: Request) {
 
     let sessionPayload: any = null;
     let sessionValid = false;
+
     if (session) {
       try {
-        sessionPayload = await verifySessionToken(session); // await here
-        sessionValid = !!(sessionPayload && sessionPayload.userId);
+        // Call internal server route to do heavy verification.
+        // Use same origin derived from incoming request (works in dev & prod).
+        const origin = new URL(req.url).origin;
+        const res = await fetch(`${origin}/api/server/verify-session`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // optional: internal header to help server route accept only internal calls
+            "x-internal-call": "1",
+          },
+          body: JSON.stringify({ token: session }),
+        });
+
+        if (res.ok) {
+          sessionPayload = await res.json();
+          sessionValid = !!(sessionPayload && sessionPayload.userId);
+        } else {
+          sessionPayload = {
+            error: `verifier returned status ${res.status}`,
+            body: await res.text().catch(() => null),
+          };
+        }
       } catch (e) {
         sessionPayload = { error: String(e) };
       }
