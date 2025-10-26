@@ -10,7 +10,7 @@ import { SITE_URL } from "./config";
  * - verifySessionToken(token): returns normalized payload or null
  * - createMagicToken(userId): short-lived token for magic link (15m)
  * - verifyMagicToken(token): returns payload or null
- * - getUserFromReq(req): helper to extract & verify token from NextRequest or plain request-like object
+ * - getTokenFromReq(req): helper to extract & verify token from request
  */
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -77,7 +77,6 @@ export function verifySessionToken(token: string): NormalizedSession | null {
   try {
     const payload = jwt.verify(token, JWT_SECRET ?? "dev_missing_secret", {
       algorithms: [JWT_ALG],
-      // jsonwebtoken verify can't enforce iss/aud easily without options unless you pass them
     }) as SessionPayload;
 
     const userId = payload?.sub ?? payload?.userId ?? null;

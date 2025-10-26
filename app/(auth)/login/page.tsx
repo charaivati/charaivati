@@ -1,7 +1,7 @@
 // app/(auth)/login/page.tsx
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type StatusResp = {
@@ -11,6 +11,18 @@ type StatusResp = {
   avatarUrl?: string | null;
   name?: string | null;
 };
+
+/**
+ * Helper to safely extract an error message from unknown
+ */
+function extractMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  try {
+    return String(err);
+  } catch {
+    return "Unknown error";
+  }
+}
 
 // Separate component that uses useSearchParams
 function AuthForm() {
@@ -51,6 +63,9 @@ function AuthForm() {
   const [registerAttempts, setRegisterAttempts] = useState(0);
   const [registerCooldown, setRegisterCooldown] = useState(0);
 
+  // Abort controller ref for checkStatus so fast repeated calls cancel previous
+  const statusAbortRef = useRef<AbortController | null>(null);
+
   // Prefill form + show message after registration
   useEffect(() => {
     if (registered) {
@@ -59,14 +74,15 @@ function AuthForm() {
     }
     if (prefillEmail) {
       setEmail(prefillEmail);
-      checkStatus(prefillEmail);
+      void checkStatus(prefillEmail);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registered, prefillEmail]);
 
   // Login cooldown timer
   useEffect(() => {
     if (loginCooldown > 0) {
-      const timer = setTimeout(() => setLoginCooldown(loginCooldown - 1), 1000);
+      const timer = setTimeout(() => setLoginCooldown((s) => s - 1), 1000);
       return () => clearTimeout(timer);
     } else if (loginCooldown === 0 && loginAttempts >= 3) {
       setLoginAttempts(0);
@@ -76,7 +92,7 @@ function AuthForm() {
   // Register cooldown timer
   useEffect(() => {
     if (registerCooldown > 0) {
-      const timer = setTimeout(() => setRegisterCooldown(registerCooldown - 1), 1000);
+      const timer = setTimeout(() => setRegisterCooldown((s) => s - 1), 1000);
       return () => clearTimeout(timer);
     } else if (registerCooldown === 0 && registerAttempts >= 3) {
       setRegisterAttempts(0);
@@ -92,44 +108,101 @@ function AuthForm() {
     return `${days}d ${hours}h remaining`;
   }
 
+  /**
+   * checkStatus:
+   * - Prefer POST /api/user/status with JSON body to avoid leaking email in URL.
+   * - If server doesn't accept POST, fallback to GET query param.
+   *
+   * Note: If you update server to accept POST, keep the POST branch.
+   */
   async function checkStatus(checkEmail?: string) {
     const e = checkEmail ?? email;
     if (!e) return;
+    // Abort previous request if still ongoing
+    statusAbortRef.current?.abort();
+    const ac = new AbortController();
+    statusAbortRef.current = ac;
+
     try {
       setCheckingStatus(true);
-      const res = await fetch(`/api/user/status?email=${encodeURIComponent(e)}`, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        credentials: "include",
+
+      // Try POST first (preferred for privacy). If server returns 405/4xx, fallback to GET.
+      const postRes = await fetch("/api/user/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ email: e }),
+        signal: ac.signal,
+      }).catch((err) => {
+        // network/abort error — rethrow for outer catch
+        throw err;
       });
-      const j: StatusResp = await res.json().catch(() => ({} as StatusResp));
+
+      let j: StatusResp = {};
+      if (postRes.ok) {
+        j = await postRes.json().catch(() => ({} as StatusResp));
+      } else if (postRes.status === 405 || postRes.status === 400) {
+        // Server doesn't support POST -> fallback to GET (legacy)
+        const getRes = await fetch(
+          `/api/user/status?email=${encodeURIComponent(e)}`,
+          {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            credentials: "include",
+            signal: ac.signal,
+          }
+        );
+        j = await getRes.json().catch(() => ({} as StatusResp));
+      } else {
+        // Server returned an error for POST; try to parse JSON body for an error message
+        try {
+          const errBody = await postRes.json().catch(() => null);
+          console.warn("status check POST error", postRes.status, errBody);
+        } catch {
+          /* ignore */
+        }
+        j = {};
+      }
+
       setStatus(j);
-    } catch (err) {
+    } catch (err: unknown) {
+      if ((err as any)?.name === "AbortError") {
+        // request was aborted — ignore
+        return;
+      }
       console.error("status check failed", err);
+      // don't show raw error to user; show friendly message
+      setMessage("Unable to check account status right now.");
     } finally {
       setCheckingStatus(false);
+      statusAbortRef.current = null;
     }
   }
 
   async function cancelDeletion() {
+    if (!email) {
+      setMessage("Please enter the account email to cancel deletion.");
+      return;
+    }
+
     try {
       setCancelling(true);
       const res = await fetch("/api/user/cancel-delete", {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({ email }),
       });
       const j = await res.json().catch(() => null);
       if (!res.ok) {
-        setMessage("❌ Could not cancel deletion: " + (j?.error || res.statusText));
+        const errMsg = (j && (j.error || j.message)) || res.statusText;
+        setMessage("❌ Could not cancel deletion: " + errMsg);
         return;
       }
       setMessage("✅ Account deletion cancelled. You can now login.");
       await checkStatus();
-    } catch (err) {
-      console.error(err);
-      setMessage("Network error while cancelling");
+    } catch (err: unknown) {
+      console.error("cancelDeletion error", err);
+      setMessage("Network error while cancelling. Please try again.");
     } finally {
       setCancelling(false);
     }
@@ -156,9 +229,12 @@ function AuthForm() {
 
       if (res.status === 429) {
         const retryAfterHeader = res.headers.get("Retry-After");
-        const retrySec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : null;
+        const retrySec =
+          retryAfterHeader && !Number.isNaN(Number(retryAfterHeader))
+            ? parseInt(retryAfterHeader, 10)
+            : null;
 
-        if (retrySec && !Number.isNaN(retrySec) && retrySec > 0) {
+        if (retrySec && retrySec > 0) {
           setLoginCooldown(retrySec);
           setMessage(`❌ Too many attempts. Please wait ${retrySec} seconds.`);
         } else {
@@ -174,12 +250,19 @@ function AuthForm() {
         data = null;
       }
 
-      if (res.status === 403 || data?.error === "account_locked" || data?.error === "Please verify your email first" || data?.error === "captcha_required") {
+      if (
+        res.status === 403 ||
+        data?.error === "account_locked" ||
+        data?.error === "Please verify your email first" ||
+        data?.error === "captcha_required"
+      ) {
         const retryAfterHeader = res.headers.get("Retry-After");
         const retrySec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : null;
 
         if (data?.error === "Please verify your email first") {
-          setMessage("❌ Please verify your email first. Check your inbox for the verification link.");
+          setMessage(
+            "❌ Please verify your email first. Check your inbox for the verification link."
+          );
         } else if (data?.error === "captcha_required") {
           setMessage("❌ Please complete the CAPTCHA to continue.");
         } else {
@@ -201,7 +284,9 @@ function AuthForm() {
           setLoginCooldown(cooldown);
           setMessage("❌ Too many failed attempts. Please wait 30 seconds.");
         } else {
-          setMessage(`❌ ${data?.error || "Login failed"}. ${3 - newAttempts} attempts remaining.`);
+          setMessage(
+            `❌ ${data?.error || "Login failed"}. ${3 - newAttempts} attempts remaining.`
+          );
         }
         return;
       }
@@ -209,10 +294,11 @@ function AuthForm() {
       setLoginAttempts(0);
       setMessage("✅ Login successful! Redirecting…");
       await new Promise((r) => setTimeout(r, 0));
+      // replace and refresh
       router.replace(redirectTo);
       router.refresh();
-    } catch (err) {
-      console.error(err);
+    } catch (err: unknown) {
+      console.error("login error", err);
       const newAttempts = loginAttempts + 1;
       setLoginAttempts(newAttempts);
 
@@ -242,7 +328,7 @@ function AuthForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password: registerPassword, name }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         const newAttempts = registerAttempts + 1;
@@ -252,7 +338,9 @@ function AuthForm() {
           setRegisterCooldown(30);
           setMessage("❌ Too many failed attempts. Please wait 30 seconds.");
         } else {
-          setMessage(`❌ ${data.error || "Registration failed"}. ${3 - newAttempts} attempts remaining.`);
+          setMessage(
+            `❌ ${data.error || "Registration failed"}. ${3 - newAttempts} attempts remaining.`
+          );
         }
       } else {
         setRegisterAttempts(0);
@@ -261,8 +349,8 @@ function AuthForm() {
         setName("");
         setTimeout(() => setActiveTab("login"), 2000);
       }
-    } catch (err: any) {
-      console.error(err);
+    } catch (err: unknown) {
+      console.error("register error", err);
       const newAttempts = registerAttempts + 1;
       setRegisterAttempts(newAttempts);
 
@@ -311,7 +399,7 @@ function AuthForm() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => checkStatus()}
+              onBlur={() => void checkStatus()}
               placeholder="Email"
               className="w-full p-2 rounded bg-black/50 border border-gray-600"
               required
@@ -334,10 +422,11 @@ function AuthForm() {
               </button>
               <button
                 type="button"
-                onClick={() => checkStatus()}
+                onClick={() => void checkStatus()}
                 className="px-3 py-2 bg-slate-700 rounded-lg hover:bg-slate-600"
+                disabled={checkingStatus}
               >
-                Check
+                {checkingStatus ? "Checking…" : "Check"}
               </button>
             </div>
           </form>
@@ -376,7 +465,11 @@ function AuthForm() {
               disabled={registerBusy || registerCooldown > 0}
               className="w-full bg-emerald-600 hover:bg-emerald-700 p-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {registerCooldown > 0 ? `Wait ${registerCooldown}s` : registerBusy ? "Registering..." : "Register"}
+              {registerCooldown > 0
+                ? `Wait ${registerCooldown}s`
+                : registerBusy
+                ? "Registering..."
+                : "Register"}
             </button>
           </form>
         )}
@@ -389,6 +482,7 @@ function AuthForm() {
           <div className="mt-4 p-3 border rounded bg-white/5">
             <div className="flex items-center gap-3">
               {status.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={status.avatarUrl} alt="avatar" className="w-12 h-12 rounded-full" />
               ) : (
                 <div className="w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center">
@@ -440,14 +534,16 @@ function AuthForm() {
 // Main export wrapped in Suspense
 export default function AuthPage() {
   return (
-    <Suspense fallback={
-      <main className="min-h-screen flex items-center justify-center bg-black text-white">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-400">Loading...</p>
-        </div>
-      </main>
-    }>
+    <Suspense
+      fallback={
+        <main className="min-h-screen flex items-center justify-center bg-black text-white">
+          <div className="text-center">
+            <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-sm text-gray-400">Loading...</p>
+          </div>
+        </main>
+      }
+    >
       <AuthForm />
     </Suspense>
   );

@@ -124,8 +124,7 @@ export function clearSessionCookie<T = unknown>(res: NextResponse<T>): NextRespo
 /* ------------------------
    Get current user (JWT-based)
    ------------------------ */
-import { getCurrentUser as _getCurrentUser } from "./session_helpers"; // if you have helpers
-// If not, keep the following as your existing db-based resolver:
+// If you have other helpers feel free to replace the below resolver.
 export async function getCurrentUser(req?: Request): Promise<CurrentUser | null> {
   try {
     if (!req) return null;
