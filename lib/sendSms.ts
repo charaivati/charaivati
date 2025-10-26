@@ -1,26 +1,41 @@
 // lib/sendSms.ts
-import Twilio from "twilio";
+type SendSmsOpts = { to: string; body: string };
 
-const SID = process.env.TWILIO_SID;
-const AUTH = process.env.TWILIO_AUTH_TOKEN;
-const FROM = process.env.TWILIO_PHONE_NUMBER;
+function getTwilioClient() {
+  const sid = process.env.TWILIO_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_PHONE_NUMBER;
 
-if (process.env.NODE_ENV === "production") {
-  if (!SID || !AUTH || !FROM) {
-    throw new Error("TWILIO_SID, TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER must be set in production");
+  if (!sid || !token || !from) {
+    // Return null if not configured; do NOT throw at module load time.
+    return null;
   }
+
+  // require lazily to avoid module evaluation during Next.js build
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Twilio = require("twilio");
+  const client = new Twilio(sid, token);
+  return { client, from };
 }
 
-const client = SID && AUTH ? new Twilio(SID, AUTH) : null;
-
-export default async function sendSms({ to, body }: { to: string; body: string }) {
-  if (!client) {
-    // dev-time helpful error (do not attempt to send in prod without client)
-    throw new Error("Twilio client not configured. Set TWILIO_SID and TWILIO_AUTH_TOKEN.");
+export default async function sendSms(opts: SendSmsOpts) {
+  const tw = getTwilioClient();
+  if (!tw) {
+    // In production you may want to return a failure object or throw an error
+    // but DO NOT throw at import time. Throwing here returns a runtime error only.
+    throw new Error("SMS provider not configured (TWILIO_SID/TWILIO_AUTH_TOKEN/TWILIO_PHONE_NUMBER)");
   }
-  await client.messages.create({
-    body,
-    from: FROM!,
-    to,
-  });
+
+  const { client, from } = tw;
+  try {
+    const msg = await client.messages.create({
+      to: opts.to,
+      from,
+      body: opts.body,
+    });
+    return { ok: true, sid: msg.sid };
+  } catch (err) {
+    console.error("sendSms error", (err as any)?.message || err);
+    throw err;
+  }
 }

@@ -5,7 +5,7 @@ import { createToken, hashToken } from "@/lib/token";
 import sendEmail from "@/lib/sendEmail";
 import sendSms from "@/lib/sendSms";
 import { checkRateLimit } from "@/lib/rateLimit";
-import { absoluteUrl } from "@/lib/config"; // uses NEXT_PUBLIC_SITE_URL in prod
+import { absoluteUrl } from "@/lib/config";
 
 type Body = {
   email?: string;
@@ -15,7 +15,6 @@ type Body = {
 };
 
 function extractIp(req: Request) {
-  // prefer x-forwarded-for (might contain "client, proxy1, proxy2")
   const xff = req.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0].trim();
   const cf = req.headers.get("cf-connecting-ip");
@@ -26,11 +25,10 @@ function extractIp(req: Request) {
 }
 
 export async function POST(req: Request) {
-  // Parse JSON body safely
   let body: Body;
   try {
     body = (await req.json()) as Body;
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
@@ -42,31 +40,29 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Provide email or phone" }, { status: 400 });
   }
 
-  // simple rate limiting per IP and per destination
+  // ---------------- Rate Limiting ----------------
   const ipKey = `send:${purpose}:ip:${ip}`;
   const targetKey = body.email
     ? `send:${purpose}:email:${body.email}`
     : `send:${purpose}:phone:${body.phone}`;
 
   try {
-    const ipCheck = await checkRateLimit(ipKey, 10, 3600); // max 10 per hour per IP
+    const ipCheck = await checkRateLimit(ipKey, 10, 3600);
     if (!ipCheck.ok)
       return NextResponse.json({ error: "Too many requests from IP" }, { status: 429 });
 
-    const targetCheck = await checkRateLimit(targetKey, 3, 3600); // max 3 per hour per email/phone
+    const targetCheck = await checkRateLimit(targetKey, 3, 3600);
     if (!targetCheck.ok)
       return NextResponse.json(
         { error: "Too many requests for this recipient" },
         { status: 429 }
       );
-  } catch (err) {
-    // rate limiter backend failure — don't leak details to user
+  } catch {
     console.warn("Rate limiter backend error");
-    // allow or deny? conservative approach: block when rate limiter fails
     return NextResponse.json({ error: "Service unavailable" }, { status: 503 });
   }
 
-  // find or create user (upsert by unique field)
+  // ---------------- User Upsert ----------------
   let user;
   try {
     if (body.email) {
@@ -83,13 +79,13 @@ export async function POST(req: Request) {
       });
     }
   } catch (err) {
-    console.error("DB upsert error (send-magic-link)");
+    console.error("DB upsert error (send-magic-link)", err);
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
 
   if (!user) return NextResponse.json({ error: "Unable to get user" }, { status: 500 });
 
-  // create token + store hashed
+  // ---------------- Token Creation ----------------
   const rawToken = createToken(32);
   const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + 1000 * 60 * 15); // 15 minutes
@@ -106,18 +102,17 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
-    console.error("DB create magic link error");
+    console.error("DB create magic link error", err);
     return NextResponse.json({ error: "Database error" }, { status: 500 });
   }
 
-  // Build canonical verify URL using absoluteUrl helper
-  // Note: use the same route your app uses to verify (here: /auth/verify)
   const verifyPath = "/auth/verify";
   const verifyBase = absoluteUrl(verifyPath);
   const verifyUrl = `${verifyBase}?token=${encodeURIComponent(
     rawToken
   )}&type=${encodeURIComponent(purpose)}&redirect=${encodeURIComponent(redirectTo)}`;
 
+  // ---------------- Send Email or SMS ----------------
   try {
     if (body.email) {
       await sendEmail({
@@ -133,7 +128,11 @@ export async function POST(req: Request) {
       });
     }
   } catch (err) {
-    console.error("Send failed (send-magic-link)", (err as any)?.message || err);
+    const msg = (err as any)?.message || "";
+    console.error("Send failed (send-magic-link)", msg);
+    if (msg.includes("not configured") || msg.includes("TWILIO")) {
+      return NextResponse.json({ error: "SMS provider not configured" }, { status: 503 });
+    }
     return NextResponse.json({ error: "Failed to send link" }, { status: 500 });
   }
 

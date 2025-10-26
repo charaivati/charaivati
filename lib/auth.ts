@@ -2,6 +2,8 @@
 import jwt from "jsonwebtoken";
 import type { NextRequest } from "next/server";
 import { SITE_URL } from "./config";
+import { prisma } from "./prisma";
+import type { User } from "@prisma/client";
 
 /**
  * Auth helpers (JWT session + magic link)
@@ -11,10 +13,12 @@ import { SITE_URL } from "./config";
  * - createMagicToken(userId): short-lived token for magic link (15m)
  * - verifyMagicToken(token): returns payload or null
  * - getTokenFromReq(req): helper to extract & verify token from request
+ * - getUserFromReq(req): resolves the logged-in user
  */
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET && process.env.NODE_ENV === "production") {
+  // In production, fail early if JWT_SECRET not set
   throw new Error("JWT_SECRET must be set in production environment");
 }
 
@@ -39,13 +43,16 @@ export type NormalizedSession = {
   type: "session" | "magic";
 };
 
+// ---------------------------------------------------------------------------
+// JWT token helpers
+// ---------------------------------------------------------------------------
+
 // Create a session JWT (7 days)
 export function createSessionToken(userId: string) {
   if (!JWT_SECRET) {
-    console.warn("Warning: JWT_SECRET is not set. Tokens are created insecurely.");
+    console.warn("Warning: JWT_SECRET is not set. Tokens created insecurely.");
   }
   const payload: any = { sub: userId, userId, type: "session" as const };
-  // include issuer/audience if SITE_URL available
   if (SITE_URL) {
     payload.iss = SITE_URL;
     payload.aud = SITE_URL;
@@ -59,7 +66,7 @@ export function createSessionToken(userId: string) {
 // Create a short-lived magic link token (15 minutes)
 export function createMagicToken(userId: string) {
   if (!JWT_SECRET) {
-    console.warn("Warning: JWT_SECRET is not set. Tokens are created insecurely.");
+    console.warn("Warning: JWT_SECRET is not set. Tokens created insecurely.");
   }
   const payload: any = { sub: userId, type: "magic" as const };
   if (SITE_URL) {
@@ -72,6 +79,7 @@ export function createMagicToken(userId: string) {
   });
 }
 
+// Verify a session token (for cookies, etc.)
 export function verifySessionToken(token: string): NormalizedSession | null {
   if (!token) return null;
   try {
@@ -81,7 +89,6 @@ export function verifySessionToken(token: string): NormalizedSession | null {
 
     const userId = payload?.sub ?? payload?.userId ?? null;
     const type = (payload?.type as SessionPayload["type"]) ?? "session";
-
     if (!userId) return null;
     if (type !== "session" && type !== undefined) return null;
 
@@ -92,11 +99,12 @@ export function verifySessionToken(token: string): NormalizedSession | null {
       exp: payload.exp,
       type: "session",
     };
-  } catch (_e) {
+  } catch {
     return null;
   }
 }
 
+// Verify a short-lived magic link token
 export function verifyMagicToken(token: string): SessionPayload | null {
   if (!token) return null;
   try {
@@ -105,46 +113,77 @@ export function verifyMagicToken(token: string): SessionPayload | null {
     }) as SessionPayload;
     if (payload?.type !== "magic") return null;
     return payload;
-  } catch (_e) {
+  } catch {
     return null;
   }
 }
 
-/* --------------------------- Request helpers --------------------------- */
+// ---------------------------------------------------------------------------
+// Request helpers
+// ---------------------------------------------------------------------------
 
 /**
  * Extract token from a request-like object.
  * Supports:
  * - Authorization: Bearer <token>
  * - cookie 'session' or 'token' (reads raw cookie header)
- *
- * Compatible with NextRequest (App Router) or Node/Express req objects.
  */
-export function getTokenFromReq(req: Request | { headers?: any; cookies?: any } | NextRequest): string | null {
+export function getTokenFromReq(
+  req: Request | { headers?: any; cookies?: any } | NextRequest
+): string | null {
   try {
-    const authHeader = (req as any).headers?.get ? (req as any).headers.get("authorization") : (req as any).headers?.authorization;
+    const authHeader =
+      (req as any).headers?.get?.("authorization") ??
+      (req as any).headers?.authorization;
     if (authHeader && typeof authHeader === "string") {
       const m = authHeader.match(/Bearer\s+(.+)/i);
       if (m) return m[1];
     }
 
     if ((req as NextRequest).cookies && typeof (req as NextRequest).cookies.get === "function") {
-      const c = (req as NextRequest).cookies.get("session") ?? (req as NextRequest).cookies.get("token");
-      if (c) {
-        return (c as any).value ?? null;
-      }
+      const c =
+        (req as NextRequest).cookies.get("session") ??
+        (req as NextRequest).cookies.get("token");
+      if (c) return (c as any).value ?? null;
     }
 
     const cookieHeader = (req as any).headers?.cookie ?? null;
     if (cookieHeader && typeof cookieHeader === "string") {
-      const cookies = Object.fromEntries(cookieHeader.split(";").map((c: string) => {
-        const [k, ...v] = c.split("=");
-        return [k.trim(), decodeURIComponent((v || []).join("="))];
-      }));
+      const cookies = Object.fromEntries(
+        cookieHeader.split(";").map((c: string) => {
+          const [k, ...v] = c.split("=");
+          return [k.trim(), decodeURIComponent((v || []).join("="))];
+        })
+      );
       return cookies["session"] ?? cookies["token"] ?? null;
     }
-  } catch (e) {
+  } catch {
     return null;
   }
   return null;
+}
+
+/**
+ * Get the currently authenticated user from a request.
+ */
+export async function getUserFromReq(
+  req?: Request | { headers?: any; cookies?: any } | NextRequest
+): Promise<User | null> {
+  try {
+    if (!req) return null;
+    const token = getTokenFromReq(req);
+    if (!token) return null;
+
+    const session = verifySessionToken(token);
+    if (!session?.id) return null;
+
+    const user = await prisma.user.findUnique({
+      where: { id: session.id },
+    });
+
+    return user ?? null;
+  } catch (err) {
+    console.error("getUserFromReq error:", (err as any)?.message || err);
+    return null;
+  }
 }
