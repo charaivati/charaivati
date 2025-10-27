@@ -2,6 +2,7 @@
 import "./globals.css";
 import React from "react";
 import ThemeClientLoader from "@/components/ThemeClientLoader";
+import LanguageProvider from "@/components/LanguageProvider";
 
 export const metadata = {
   title: "Charaivati",
@@ -16,7 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-black text-white min-h-screen antialiased">
         <ThemeClientLoader />
-        {children}
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
       </body>
     </html>
   );
