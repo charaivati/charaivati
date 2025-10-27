@@ -1,6 +1,6 @@
 // app/api/auth/send-magic-link/route.ts
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import {prisma} from "@/lib/prisma";
 import { createToken, hashToken } from "@/lib/token";
 import sendEmail from "@/lib/sendEmail";
 import sendSms from "@/lib/sendSms";
