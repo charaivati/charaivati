@@ -1,7 +1,7 @@
 // app/layout.tsx
 import "./globals.css";
 import React from "react";
-import Script from "next/script";
+import ThemeClientLoader from "@/components/ThemeClientLoader";
 
 export const metadata = {
   title: "Charaivati",
@@ -13,10 +13,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" />
-        {/* Load external theme script before hydration — allowed by CSP 'self' */}
-        <Script src="/theme.js" strategy="beforeInteractive" />
       </head>
       <body className="bg-black text-white min-h-screen antialiased">
+        <ThemeClientLoader />
         {children}
       </body>
     </html>

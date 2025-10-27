@@ -1,8 +1,6 @@
 // app/api/social/limits/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-// adjust import path to the module that actually exports verifySessionToken
-// If your project exposes verifySessionToken from "@/lib/session" then change accordingly.
 import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
 
 const MAX_PHOTOS_PER_DAY = 4;
@@ -26,11 +24,9 @@ function getCookieFromHeader(cookieHeader: string | null, name: string) {
 
 export async function GET(req: Request) {
   try {
-    // 1) extract session token string from cookie or Authorization header
     const cookieHeader = req.headers.get("cookie");
     let token = getCookieFromHeader(cookieHeader, COOKIE_NAME || "session");
 
-    // fallback to Authorization: Bearer <token>
     if (!token) {
       const auth = req.headers.get("authorization") || req.headers.get("Authorization");
       if (auth && auth.toLowerCase().startsWith("bearer ")) {
@@ -38,7 +34,6 @@ export async function GET(req: Request) {
       }
     }
 
-    // If no token, treat as unauthenticated and return default limits (or you can return 401)
     if (!token) {
       return NextResponse.json({
         ok: true,
@@ -51,10 +46,8 @@ export async function GET(req: Request) {
       });
     }
 
-    // 2) verify token — verifySessionToken expects a string token (not Request)
-    const session = await verifySessionToken(token);
+    const session = await verifySessionToken(token as string);
 
-    // Defensive check: verifySessionToken may return false or a payload
     if (!session || typeof session === "boolean" || (session as any).userId == null) {
       return NextResponse.json({
         ok: true,
@@ -67,9 +60,7 @@ export async function GET(req: Request) {
       });
     }
 
-    const userId = (session as { userId: string }).userId;
-
-    // 3) compute today's usage for this user
+    const userId = (session as any).userId as string;
     const { start, end } = todayDateRange();
 
     const posts = await prisma.post.findMany({
@@ -79,8 +70,18 @@ export async function GET(req: Request) {
 
     let photosUsed = 0;
     let videosUsed = 0;
+
     for (const p of posts) {
-      photosUsed += (p.images?.length || 0);
+      // images might be null or a JSON array stored in DB. Use Array.isArray safely.
+      if (Array.isArray((p as any).images)) {
+        photosUsed += (p as any).images.length;
+      } else if (typeof (p as any).images === "string") {
+        // If you store JSON string, attempt parse safely
+        try {
+          const parsed = JSON.parse((p as any).images);
+          if (Array.isArray(parsed)) photosUsed += parsed.length;
+        } catch (_e) {}
+      }
       if (p.videoName) videosUsed += 1;
     }
 

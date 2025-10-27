@@ -1,40 +1,36 @@
 // app/api/user/selection/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getUserFromRequest } from "@/lib/session"; // use your existing helper
+import { getTokenFromReq, verifySessionToken } from "@/lib/auth"; // adapt to your actual helpers
+
+type CurrentUser = {
+  id: string;
+  email?: string | null;
+  // add other fields you expect
+};
 
 export async function POST(req: Request) {
   try {
-    // get user from request using your existing session helper
-    const session = await getUserFromRequest(req);
-    if (!session?.userId) {
-      return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
-    }
+    // Example: get token from cookie/header (use your existing helper if present)
+    const token = getTokenFromReq(req as any);
+    if (!token) return NextResponse.json({ ok: false, error: "unauthenticated" }, { status: 401 });
 
-    const body = await req.json().catch(() => ({}));
-    const { localAreaId } = body;
+    const session = verifySessionToken(token);
+    if (!session) return NextResponse.json({ ok: false, error: "invalid" }, { status: 401 });
 
-    if (!localAreaId) {
-      return NextResponse.json({ error: "localAreaId required" }, { status: 400 });
-    }
+    const currentUser: CurrentUser = { id: session.id, email: session.email };
 
-    // update user with lastSelectedLocalAreaId
-    // NOTE: ensure you've run prisma migrate/db push + prisma generate so this field exists in the client
-    const updated = await prisma.user.update({
-      where: { id: session.userId },
-      data: {
-        lastSelectedLocalAreaId: Number(localAreaId),
-      },
-      select: {
-        id: true,
-        email: true,
-        lastSelectedLocalAreaId: true,
-      },
-    });
+    // Now use currentUser.id (not userId)
+    const body = await req.json();
+    // Sample selection logic — adjust fields as needed
+    const selection = body.selection ?? null;
 
-    return NextResponse.json({ ok: true, user: updated });
-  } catch (err) {
-    console.error("save selection error", err);
-    return NextResponse.json({ error: "server error" }, { status: 500 });
+    // persist as appropriate
+    await prisma.user.update({ where: { id: currentUser.id }, data: { preferredLanguage: selection } });
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    console.error("/api/user/selection error:", e);
+    return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
   }
 }
