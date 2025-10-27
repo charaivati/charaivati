@@ -1,35 +1,30 @@
 // middleware.ts
 import { NextRequest, NextResponse } from "next/server";
-import { absoluteUrl, SITE_URL } from "@/lib/config"; // requires lib/config.ts (we added this earlier)
+import { absoluteUrl, SITE_URL } from "@/lib/config";
 
 /**
  * Edge-safe nonce generator
  */
 function genNonce() {
   try {
-    // Edge runtime will have globalThis.crypto.getRandomValues
     const bytes = new Uint8Array(16);
     globalThis.crypto?.getRandomValues?.(bytes);
     let binary = "";
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    // base64
     if (typeof btoa === "function") return btoa(binary);
     if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64");
     return globalThis.btoa?.(binary) || "fallback-nonce";
   } catch (err) {
-    // don't leak error details in prod logs; log minimal info
-    // eslint-disable-next-line no-console
     console.warn("Nonce generation error - using fallback");
     return "fallback-nonce-" + Date.now();
   }
 }
 
 const isProd = process.env.NODE_ENV === "production";
+const CSP_REPORT_ONLY = process.env.CSP_REPORT_ONLY === "1"; // ADD THIS LINE
 
 /**
  * CORS allowlist
- * - Use CORS_ALLOWED_ORIGINS env var for a comma-separated list
- * - Add SITE_URL automatically if present
  */
 const DEFAULT_ALLOWED = new Set<string>([
   "http://localhost:3000",
@@ -81,23 +76,18 @@ function applyCors(req: NextRequest): NextResponse | null {
     }
     return null;
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("CORS check error (non-fatal)");
     return null;
   }
 }
 
 /**
- * Rate limiting:
- * - In-memory per-instance short window fallback (very conservative)
- * - If you run multiple instances, replace with a Redis-backed limiter (recommended)
- *
- * NOTE: in-memory is not safe for distributed deployment — use Redis/Upstash in prod.
+ * Rate limiting
  */
 type Bucket = { t: number[]; limit: number };
 const memStore = new Map<string, Bucket>();
 const WINDOW_MS = 60_000;
-const DEFAULT_LIMIT = 30; // per minute per IP (fallback)
+const DEFAULT_LIMIT = 30;
 const ROUTE_LIMITS: Record<string, number> = {
   "/api/auth/verify": 10,
 };
@@ -155,7 +145,6 @@ function rateLimitFallback(req: NextRequest): NextResponse | null {
     res.headers.set("RateLimit-Reset", String(Math.ceil(resetIn / 1000)));
     return res;
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("Rate limiter error (non-fatal)");
     return null;
   }
@@ -167,12 +156,9 @@ export function middleware(req: NextRequest) {
 
     // API: CORS and rate limiting
     if (url.pathname.startsWith("/api/")) {
-      // CORS
       const cors = applyCors(req);
       if (cors) return cors;
 
-      // Prefer Redis-backed limiter here (if available), otherwise fallback
-      // TODO: replace rateLimitFallback with a Redis-backed limiter for production
       const rl = rateLimitFallback(req);
       if (rl) return rl;
 
@@ -182,7 +168,7 @@ export function middleware(req: NextRequest) {
     // Non-API: inject per-request CSP nonce
     const nonce = genNonce();
 
-    // Build CSP: keep dev relaxations out of prod
+    // Build CSP with relaxed rules for development
     const connectSrcSite = SITE_URL ?? (isProd ? "" : "http://localhost:3000 ws://localhost:3000");
     const csp = [
       "default-src 'self'",
@@ -190,7 +176,7 @@ export function middleware(req: NextRequest) {
       "frame-ancestors 'none'",
       "form-action 'self'",
       "object-src 'none'",
-      `script-src 'self' 'nonce-${nonce}'${isProd ? "" : " 'unsafe-eval'"}`,
+      `script-src 'self' 'nonce-${nonce}'${isProd ? "" : " 'unsafe-eval' 'unsafe-inline'"}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
@@ -206,8 +192,13 @@ export function middleware(req: NextRequest) {
 
     const res = NextResponse.next({ request: { headers: reqHeaders } });
 
-    res.headers.set("Content-Security-Policy", csp);
-    // Helpful security headers (non-invasive)
+    // UPDATED: Use Report-Only mode if CSP_REPORT_ONLY=1
+    const cspHeader = CSP_REPORT_ONLY 
+      ? "Content-Security-Policy-Report-Only" 
+      : "Content-Security-Policy";
+    res.headers.set(cspHeader, csp);
+
+    // Security headers
     res.headers.set("X-Content-Type-Options", "nosniff");
     res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     res.headers.set("X-Frame-Options", "DENY");
@@ -215,9 +206,6 @@ export function middleware(req: NextRequest) {
 
     return res;
   } catch (err) {
-    // Do not leak headers/payloads in logs in production.
-    // Log minimal context and continue (open fail-safe).
-    // eslint-disable-next-line no-console
     if (isProd) {
       console.error("Middleware error (see server logs)");
     } else {
@@ -227,9 +215,6 @@ export function middleware(req: NextRequest) {
   }
 }
 
-/**
- * Matcher: include everything except next internals and static assets
- */
 export const config = {
   matcher: [
     "/((?!_next/static|_next/image|favicon.ico).*)",
