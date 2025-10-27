@@ -11,19 +11,14 @@ import { useLanguage } from "@/components/LanguageProvider";
  * - Not logged in:
  *    - if a saved guest language exists (localStorage cookie) -> /login
  *    - if no saved language -> show language picker (so logged-out user picks language)
- *
- * This file also provides a small UI to add a language (POST /api/languages)
- * so you can bootstrap languages directly from the landing page while testing.
  */
 
 type Lang = { id: number; name: string; code?: string };
 
 function getBaseUrl(): string {
-  // Client: use current origin. Server/SSG/Edge: use env fallback
   if (typeof window !== "undefined") {
     return window.location.origin;
   }
-  // NEXT_PUBLIC_SITE_URL must include protocol, e.g. "https://charaivati.vercel.app"
   return process.env.NEXT_PUBLIC_SITE_URL || "";
 }
 
@@ -47,6 +42,7 @@ export default function LandingPage() {
         const res = await fetch(`${base}/api/user/profile`, { credentials: "include" });
         if (!alive) return;
 
+        // 401 is expected for anonymous users - this is not an error
         if (res.ok) {
           const data = await res.json().catch(() => null);
           if (data?.ok && data.profile) {
@@ -68,11 +64,11 @@ export default function LandingPage() {
             }
           }
         } catch (e) {
-          // localStorage may be unavailable in some contexts — ignore
+          // localStorage may be unavailable in some contexts
         }
 
         if (!savedLang) {
-          // no guest language -> show language picker (so logged-out user picks one)
+          // no guest language -> show language picker
           setStatus("showPicker");
         } else {
           // have guest language -> go to login
@@ -80,7 +76,11 @@ export default function LandingPage() {
           router.replace("/login");
         }
       } catch (err) {
-        console.error("[Landing] Auth check failed:", err);
+        // Only log truly unexpected errors
+        if (!alive) return;
+        console.error("[Landing] Unexpected error:", err);
+        // On error, default to login page
+        setStatus("redirect");
         router.replace("/login");
       }
     })();
@@ -90,7 +90,7 @@ export default function LandingPage() {
     };
   }, [router]);
 
-  // load languages for the picker (only used when showing the picker)
+  // load languages for the picker
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -101,7 +101,6 @@ export default function LandingPage() {
         const json = await res.json().catch(() => null);
         if (!alive) return;
         if (json?.ok && Array.isArray(json.data)) {
-          // map to our type
           setLangs(json.data.map((r: any) => ({ id: r.id, name: r.name, code: r.code })));
         } else {
           setLangs([]);
@@ -118,7 +117,6 @@ export default function LandingPage() {
     };
   }, []);
 
-  // user selected language handler (keeps current provider behavior)
   async function onChoose(lang: Lang) {
     try {
       try {
@@ -131,7 +129,6 @@ export default function LandingPage() {
     }
   }
 
-  // Add language via POST /api/languages
   async function onAddLanguage() {
     const name = prompt("Language name (e.g. English):")?.trim();
     if (!name) return;
@@ -153,10 +150,8 @@ export default function LandingPage() {
         alert(`Failed to add language: ${msg}`);
         return;
       }
-      // success: append to list and auto-select it
       const newLang: Lang = { id: json.data.id, name: json.data.name, code: json.data.code };
       setLangs((prev) => [...prev, newLang]);
-      // optional: automatically select
       try {
         localStorage.setItem("app.language", newLang.name);
       } catch {}
@@ -205,7 +200,7 @@ export default function LandingPage() {
               ))}
             </div>
           ) : langs.length === 0 ? (
-            <div className="text-sm text-gray-400">No languages found. Use “+ Add language” to create one.</div>
+            <div className="text-sm text-gray-400">No languages found. Use "+ Add language" to create one.</div>
           ) : (
             <div className="flex flex-wrap justify-center gap-6">
               {langs.map((l) => (
@@ -225,6 +220,5 @@ export default function LandingPage() {
     );
   }
 
-  // fallback (shouldn't reach here because redirect already handled)
   return null;
 }

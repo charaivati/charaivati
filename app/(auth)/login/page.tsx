@@ -12,9 +12,6 @@ type StatusResp = {
   name?: string | null;
 };
 
-/**
- * Helper to safely extract an error message from unknown
- */
 function extractMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   try {
@@ -24,49 +21,33 @@ function extractMessage(err: unknown): string {
   }
 }
 
-// Separate component that uses useSearchParams
 function AuthForm() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  // Read params safely
   const registered = !!sp && sp.get("registered") === "1";
   const prefillEmail = !!sp ? sp.get("email") || "" : "";
   const redirectTo = !!sp ? sp.get("redirect") || "/self" : "/self";
 
-  // Tab state
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
-
-  // Shared email state
   const [email, setEmail] = useState("");
-
-  // Login form
   const [loginPassword, setLoginPassword] = useState("");
-
-  // Register form
   const [registerPassword, setRegisterPassword] = useState("");
   const [name, setName] = useState("");
-
   const [message, setMessage] = useState("");
 
-  // Status check state
   const [status, setStatus] = useState<StatusResp | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-
-  // Register busy state
   const [registerBusy, setRegisterBusy] = useState(false);
 
-  // Rate limiting state
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [loginCooldown, setLoginCooldown] = useState(0);
   const [registerAttempts, setRegisterAttempts] = useState(0);
   const [registerCooldown, setRegisterCooldown] = useState(0);
 
-  // Abort controller ref for checkStatus so fast repeated calls cancel previous
   const statusAbortRef = useRef<AbortController | null>(null);
 
-  // Prefill form + show message after registration
   useEffect(() => {
     if (registered) {
       setMessage(`📧 Verification link sent to ${prefillEmail || "your email"}.`);
@@ -79,7 +60,6 @@ function AuthForm() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registered, prefillEmail]);
 
-  // Login cooldown timer
   useEffect(() => {
     if (loginCooldown > 0) {
       const timer = setTimeout(() => setLoginCooldown((s) => s - 1), 1000);
@@ -89,7 +69,6 @@ function AuthForm() {
     }
   }, [loginCooldown, loginAttempts]);
 
-  // Register cooldown timer
   useEffect(() => {
     if (registerCooldown > 0) {
       const timer = setTimeout(() => setRegisterCooldown((s) => s - 1), 1000);
@@ -109,16 +88,12 @@ function AuthForm() {
   }
 
   /**
-   * checkStatus:
-   * - Prefer POST /api/user/status with JSON body to avoid leaking email in URL.
-   * - If server doesn't accept POST, fallback to GET query param.
-   *
-   * Note: If you update server to accept POST, keep the POST branch.
+   * FIXED: Use GET method - your API expects this
    */
   async function checkStatus(checkEmail?: string) {
     const e = checkEmail ?? email;
     if (!e) return;
-    // Abort previous request if still ongoing
+    
     statusAbortRef.current?.abort();
     const ac = new AbortController();
     statusAbortRef.current = ac;
@@ -126,52 +101,33 @@ function AuthForm() {
     try {
       setCheckingStatus(true);
 
-      // Try POST first (preferred for privacy). If server returns 405/4xx, fallback to GET.
-      const postRes = await fetch("/api/user/status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ email: e }),
-        signal: ac.signal,
-      }).catch((err) => {
-        // network/abort error — rethrow for outer catch
-        throw err;
-      });
+      // Use GET method with query parameter
+      const res = await fetch(
+        `/api/user/status?email=${encodeURIComponent(e)}`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          credentials: "include",
+          signal: ac.signal,
+        }
+      );
 
       let j: StatusResp = {};
-      if (postRes.ok) {
-        j = await postRes.json().catch(() => ({} as StatusResp));
-      } else if (postRes.status === 405 || postRes.status === 400) {
-        // Server doesn't support POST -> fallback to GET (legacy)
-        const getRes = await fetch(
-          `/api/user/status?email=${encodeURIComponent(e)}`,
-          {
-            method: "GET",
-            headers: { Accept: "application/json" },
-            credentials: "include",
-            signal: ac.signal,
-          }
-        );
-        j = await getRes.json().catch(() => ({} as StatusResp));
+      if (res.ok) {
+        j = await res.json().catch(() => ({} as StatusResp));
       } else {
-        // Server returned an error for POST; try to parse JSON body for an error message
-        try {
-          const errBody = await postRes.json().catch(() => null);
-          console.warn("status check POST error", postRes.status, errBody);
-        } catch {
-          /* ignore */
-        }
+        // Don't show error to user for failed status checks
+        console.warn("Status check returned:", res.status);
         j = {};
       }
 
       setStatus(j);
     } catch (err: unknown) {
       if ((err as any)?.name === "AbortError") {
-        // request was aborted — ignore
         return;
       }
-      console.error("status check failed", err);
-      // don't show raw error to user; show friendly message
-      setMessage("Unable to check account status right now.");
+      // Don't show error for status checks - they're optional
+      console.warn("Status check failed:", err);
     } finally {
       setCheckingStatus(false);
       statusAbortRef.current = null;
@@ -294,7 +250,6 @@ function AuthForm() {
       setLoginAttempts(0);
       setMessage("✅ Login successful! Redirecting…");
       await new Promise((r) => setTimeout(r, 0));
-      // replace and refresh
       router.replace(redirectTo);
       router.refresh();
     } catch (err: unknown) {
@@ -368,7 +323,6 @@ function AuthForm() {
   return (
     <main className="min-h-screen flex items-center justify-center bg-black text-white">
       <div className="w-full max-w-md bg-white/10 rounded-xl p-6 shadow-lg">
-        {/* Tab Switcher */}
         <div className="flex gap-2 mb-6 border-b border-white/20">
           <button
             onClick={() => setActiveTab("login")}
@@ -392,7 +346,6 @@ function AuthForm() {
           </button>
         </div>
 
-        {/* Login Form */}
         {activeTab === "login" && (
           <form onSubmit={handleLogin} className="space-y-4">
             <input
@@ -432,7 +385,6 @@ function AuthForm() {
           </form>
         )}
 
-        {/* Register Form */}
         {activeTab === "register" && (
           <form onSubmit={handleRegister} className="space-y-4">
             <input
@@ -474,10 +426,8 @@ function AuthForm() {
           </form>
         )}
 
-        {/* Status check indicator */}
         {checkingStatus && <p className="mt-3 text-sm">Checking account status…</p>}
 
-        {/* Status panel for scheduled deletion */}
         {status?.exists && status.deletionScheduledAt && (
           <div className="mt-4 p-3 border rounded bg-white/5">
             <div className="flex items-center gap-3">
@@ -520,7 +470,6 @@ function AuthForm() {
           </div>
         )}
 
-        {/* Message display */}
         {message && (
           <div className="mt-4 p-3 rounded bg-white/5 text-sm">
             {message}
@@ -531,7 +480,6 @@ function AuthForm() {
   );
 }
 
-// Main export wrapped in Suspense
 export default function AuthPage() {
   return (
     <Suspense
