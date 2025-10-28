@@ -177,7 +177,7 @@ export default function LandingPage() {
 
   if (status === "showPicker") {
     return (
-      <div className="relative min-h-screen bg-black text-white p-6">
+      <div className="relative min-h-screen p-6">
         <div className="max-w-4xl mx-auto pt-20 text-center">
           <h1 className="text-4xl font-bold mb-2">Welcome to Charaivati</h1>
           <p className="text-gray-400 mb-6">Choose your language to continue</p>
