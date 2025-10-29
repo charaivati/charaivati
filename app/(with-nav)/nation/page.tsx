@@ -1,10 +1,10 @@
-//app/(with-nav)/nation/page.tsx
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
+import FeatureGate from "@/components/FeatureGate";
 
 const LegislatureTab = dynamic(() => import("./tabs/legislature"), { ssr: false });
 const ExecutiveTab = dynamic(() => import("./tabs/executive"), { ssr: false });
@@ -29,6 +29,32 @@ function NationPageContent() {
   const [country, setCountry] = useState<CountrySelection | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
   const LS_KEY = "charaivati.selectedCountry";
+
+  // flags
+  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
+  const [flagsLoading, setFlagsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setFlagsLoading(true);
+        const res = await fetch("/api/feature-flags", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive) return;
+        if (json?.ok) setFlags(json.flags || {});
+        else setFlags({});
+      } catch (err) {
+        console.warn("Failed to load feature flags", err);
+        setFlags({});
+      } finally {
+        if (alive) setFlagsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (tabParam) {
@@ -94,8 +120,41 @@ function NationPageContent() {
     }
   }
 
-  function handleLeft() { router.push("/earth"); }
-  function handleRight() { router.push("/local"); }
+  function handleLeft() {
+    router.push("/earth");
+  }
+  function handleRight() {
+    router.push("/local");
+  }
+
+  const keys = {
+    layer: "layer.nation",
+    legislature: "layer.nation.legislature",
+    executive: "layer.nation.executive",
+    judiciary: "layer.nation.judiciary",
+    media: "layer.nation.media",
+  };
+
+  function isAllowed(perKey: string | null) {
+    if (!flags) return false;
+    const layerFlag = flags[keys.layer];
+    if (layerFlag && !layerFlag.enabled) return false;
+    if (!perKey) return true;
+    const pk = flags[perKey];
+    if (pk === undefined) return true;
+    return !!pk.enabled;
+  }
+
+  if (flagsLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-gray-400">Loading nation view...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white relative pb-16">
@@ -111,10 +170,26 @@ function NationPageContent() {
 
       <div className="max-w-4xl mx-auto pt-8 px-4">
         <div className="max-w-3xl mx-auto">
-          {active === "legislature" && <LegislatureTab value={country?.legislature ?? ""} onChange={(v: string) => updateCountry({ legislature: v })} />}
-          {active === "executive" && <ExecutiveTab value={country?.executive ?? ""} onChange={(v: string) => updateCountry({ executive: v })} />}
-          {active === "judiciary" && <JudiciaryTab value={country?.judiciary ?? ""} onChange={(v: string) => updateCountry({ judiciary: v })} />}
-          {active === "media" && <MediaTab value={country?.media ?? ""} onChange={(v: string) => updateCountry({ media: v })} />}
+          {active === "legislature" && (
+            <FeatureGate flagKey={keys.legislature} flags={flags} showPlaceholder={true}>
+              <LegislatureTab value={country?.legislature ?? ""} onChange={(v: string) => updateCountry({ legislature: v })} />
+            </FeatureGate>
+          )}
+          {active === "executive" && (
+            <FeatureGate flagKey={keys.executive} flags={flags} showPlaceholder={true}>
+              <ExecutiveTab value={country?.executive ?? ""} onChange={(v: string) => updateCountry({ executive: v })} />
+            </FeatureGate>
+          )}
+          {active === "judiciary" && (
+            <FeatureGate flagKey={keys.judiciary} flags={flags} showPlaceholder={true}>
+              <JudiciaryTab value={country?.judiciary ?? ""} onChange={(v: string) => updateCountry({ judiciary: v })} />
+            </FeatureGate>
+          )}
+          {active === "media" && (
+            <FeatureGate flagKey={keys.media} flags={flags} showPlaceholder={true}>
+              <MediaTab value={country?.media ?? ""} onChange={(v: string) => updateCountry({ media: v })} />
+            </FeatureGate>
+          )}
         </div>
 
         <div className="max-w-3xl mx-auto mt-6 p-4 bg-black/40 rounded">

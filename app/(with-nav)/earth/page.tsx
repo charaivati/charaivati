@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
+import FeatureGate from "@/components/FeatureGate";
 
 const WorldViewTab = dynamic(() => import("./tabs/WorldViewTab"), { ssr: false });
 const HumanStoriesTab = dynamic(() => import("./tabs/HumanStoriesTab"), { ssr: false });
@@ -22,6 +23,32 @@ function EarthPageContent() {
   const [selection, setSelection] = useState<GlobalSelection | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
   const LS_KEY = "charaivati.selectedGlobal";
+
+  // flags
+  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
+  const [flagsLoading, setFlagsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setFlagsLoading(true);
+        const res = await fetch("/api/feature-flags", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive) return;
+        if (json?.ok) setFlags(json.flags || {});
+        else setFlags({});
+      } catch (err) {
+        console.warn("Failed to load feature flags", err);
+        setFlags({});
+      } finally {
+        if (alive) setFlagsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (tabParam) {
@@ -84,8 +111,41 @@ function EarthPageContent() {
     }
   }
 
-  function handleLeft() { router.push("/universe"); }
-  function handleRight() { router.push("/nation"); }
+  function handleLeft() {
+    router.push("/universe");
+  }
+  function handleRight() {
+    router.push("/nation");
+  }
+
+  const keys = {
+    layer: "layer.earth",
+    worldview: "layer.earth.worldview",
+    human: "layer.earth.human",
+    collaborate: "layer.earth.collaborate",
+    knowledge: "layer.earth.knowledge",
+  };
+
+  function isAllowed(perKey: string | null) {
+    if (!flags) return false;
+    const layerFlag = flags[keys.layer];
+    if (layerFlag && !layerFlag.enabled) return false;
+    if (!perKey) return true;
+    const pk = flags[perKey];
+    if (pk === undefined) return true;
+    return !!pk.enabled;
+  }
+
+  if (flagsLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-gray-400">Loading Earth view...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-black text-white relative pb-16">
@@ -101,10 +161,26 @@ function EarthPageContent() {
 
       <div className="max-w-4xl mx-auto pt-8 px-4">
         <div className="max-w-3xl mx-auto">
-          {active === "worldview" && <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />}
-          {active === "human" && <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />}
-          {active === "collaborate" && <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />}
-          {active === "knowledge" && <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />}
+          {active === "worldview" && (
+            <FeatureGate flagKey={keys.worldview} flags={flags} showPlaceholder={true}>
+              <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
+          {active === "human" && (
+            <FeatureGate flagKey={keys.human} flags={flags} showPlaceholder={true}>
+              <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
+          {active === "collaborate" && (
+            <FeatureGate flagKey={keys.collaborate} flags={flags} showPlaceholder={true}>
+              <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
+          {active === "knowledge" && (
+            <FeatureGate flagKey={keys.knowledge} flags={flags} showPlaceholder={true}>
+              <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
         </div>
 
         <div className="max-w-3xl mx-auto mt-6 p-4 bg-black/40 rounded">
