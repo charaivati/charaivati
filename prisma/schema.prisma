@@ -461,11 +461,12 @@ model Language {
   @@index([enabled])
   @@index([name])
 }
+
 model FeatureFlag {
   id        Int      @id @default(autoincrement())
   key       String   @unique
   enabled   Boolean  @default(false)
   meta      Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 }
