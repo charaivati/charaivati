@@ -1,21 +1,20 @@
 // components/FeatureGate.tsx
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 
 export type FeatureGateProps = {
   flagKey: string;
   flags: Record<string, { enabled: boolean; meta?: any }> | null | undefined;
   fallback?: React.ReactNode;
   children?: React.ReactNode;
-  // if true, allow users to reveal hidden content locally with a button
   allowLocalOverride?: boolean;
   showPlaceholder?: boolean;
-  // optional message for placeholder
   placeholderTitle?: string;
   placeholderBody?: string;
 };
 
 const LOCAL_OVERRIDE_PREFIX = "charaivati.feature.override:";
+const AUTO_HIDE_MS = 100_000; // 10 seconds
 
 export default function FeatureGate({
   flagKey,
@@ -27,67 +26,103 @@ export default function FeatureGate({
   placeholderTitle = "Under development",
   placeholderBody = "This section is currently under development. You can view the current content locally if you want to inspect it.",
 }: FeatureGateProps) {
-  // compute canonical enabled state from flags map
   const enabled = !!(flags && flags[flagKey] && flags[flagKey].enabled);
 
-  // local override state persisted in localStorage per-flag
-  const [localOverride, setLocalOverride] = useState<boolean | null>(null);
+  const [localOverride, setLocalOverride] = useState(false);
+  const [timerVisible, setTimerVisible] = useState(false);
+  const inactivityTimer = useRef<NodeJS.Timeout | null>(null);
 
+  // Load stored override
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(LOCAL_OVERRIDE_PREFIX + flagKey);
-      if (raw === "1") setLocalOverride(true);
-      else setLocalOverride(false);
-    } catch (e) {
-      setLocalOverride(false);
-    }
+      const v = localStorage.getItem(LOCAL_OVERRIDE_PREFIX + flagKey);
+      setLocalOverride(v === "1");
+    } catch {}
   }, [flagKey]);
 
-  // if enabled by server or locally overridden, render children
-  const isVisible = enabled || !!localOverride;
+  // --- Inactivity tracking logic ---
+  useEffect(() => {
+    if (!localOverride) return;
 
-  // If visible, render children plus an optional small banner to indicate local override
+    let timer: NodeJS.Timeout | null = null;
+    let lastActivity = Date.now();
+
+    const resetTimer = () => {
+      lastActivity = Date.now();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const now = Date.now();
+        if (now - lastActivity >= AUTO_HIDE_MS) {
+          clearLocalView();
+        }
+      }, AUTO_HIDE_MS);
+    };
+
+    const handleActivity = () => resetTimer();
+
+    window.addEventListener("mousemove", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("scroll", handleActivity);
+    resetTimer();
+    setTimerVisible(true);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("scroll", handleActivity);
+      setTimerVisible(false);
+    };
+  }, [localOverride]);
+
+  // Toggle functions
+  function enableLocalView() {
+    try {
+      localStorage.setItem(LOCAL_OVERRIDE_PREFIX + flagKey, "1");
+      setLocalOverride(true);
+    } catch {}
+  }
+  function clearLocalView() {
+    try {
+      localStorage.removeItem(LOCAL_OVERRIDE_PREFIX + flagKey);
+      setLocalOverride(false);
+    } catch {}
+  }
+
+  const isVisible = enabled || localOverride;
+
   if (isVisible) {
     return (
-      <>
-        {/* If the flag is NOT enabled but user overrode locally, show a small dismissible notice */}
+      <div className="relative">
         {!enabled && localOverride && (
           <div className="mb-4 p-3 rounded bg-yellow-900/30 border border-yellow-900 text-yellow-200">
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm">
-                You are viewing content that is currently hidden by the site. This is a local override only.
+                Viewing via <strong>local override</strong> — will auto-hide after{" "}
+                <span className="font-semibold text-yellow-100">100s</span> of inactivity.
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  className="text-xs px-3 py-1 rounded bg-gray-700"
-                  onClick={() => {
-                    // hide content (clear override)
-                    try {
-                      localStorage.removeItem(LOCAL_OVERRIDE_PREFIX + flagKey);
-                    } catch {}
-                    setLocalOverride(false);
-                  }}
-                >
-                  Hide content
-                </button>
-                <span className="text-xs opacity-70">Local view</span>
-              </div>
+              <button
+                className="text-xs px-3 py-1 rounded bg-gray-700 hover:bg-gray-600"
+                onClick={clearLocalView}
+              >
+                Hide now
+              </button>
             </div>
           </div>
         )}
-
         {children}
-      </>
+        {timerVisible && localOverride && (
+          <div className="absolute bottom-2 right-2 text-xs text-yellow-400 opacity-70">
+            (Auto-hide timer active)
+          </div>
+        )}
+      </div>
     );
   }
 
-  // If a custom fallback is provided, show it
   if (fallback) return <>{fallback}</>;
-
-  // If placeholders are disabled, render nothing
   if (!showPlaceholder) return null;
 
-  // Default placeholder + "Show current content" CTA
   return (
     <div className="p-6 rounded-md bg-white/6 border border-white/6 text-gray-200">
       <div className="max-w-2xl mx-auto text-center">
@@ -97,46 +132,24 @@ export default function FeatureGate({
         <div className="flex justify-center gap-3">
           {allowLocalOverride ? (
             <button
-              className="px-3 py-1 rounded bg-blue-700 hover:bg-blue-600 text-sm"
-              onClick={() => {
-                try {
-                  localStorage.setItem(LOCAL_OVERRIDE_PREFIX + flagKey, "1");
-                } catch {}
-                // set state so UI updates immediately
-                setLocalOverride(true);
-              }}
+              className="px-3 py-1 rounded bg-blue-700 text-sm hover:bg-blue-600"
+              onClick={enableLocalView}
             >
               Show current content
             </button>
           ) : (
-            <button
-              className="px-3 py-1 rounded bg-gray-700 text-sm"
-              onClick={() => {
-                // fallback behaviour — no override allowed
-                try {
-                  window.location.href = "/contact";
-                } catch {}
-              }}
-            >
-              Notify me
-            </button>
+            <button className="px-3 py-1 rounded bg-gray-700 text-sm">Notify me</button>
           )}
-
-          <button
-            className="px-3 py-1 rounded bg-gray-700 text-sm"
-            onClick={() => {
-              try {
-                // small "learn more" or open help — you may change
-                window.location.href = "/help#features";
-              } catch {}
-            }}
+          <a
+            href="/help#features"
+            className="px-3 py-1 rounded bg-gray-700 text-sm hover:bg-gray-600"
           >
             Learn more
-          </button>
+          </a>
         </div>
 
         <div className="text-xs text-gray-400 mt-3">
-          Note: this is a local override stored in your browser. Other users won't see this content unless the feature is enabled globally.
+          Note: this view hides automatically after inactivity to keep things tidy.
         </div>
       </div>
     </div>
