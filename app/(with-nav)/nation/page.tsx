@@ -1,3 +1,4 @@
+//app/(with-nav)/nation/page.tsx
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";

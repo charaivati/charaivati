@@ -1,3 +1,5 @@
+//app/layout
+
 import "./globals.css";
 import React from "react";
 import { headers } from "next/headers";

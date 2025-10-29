@@ -1,41 +1,35 @@
-// lib/sendSms.ts
-type SendSmsOpts = { to: string; body: string };
+import type { SendSmsOpts, SendResult } from "./sms/types";
+import twilioProvider from "./sms/providers/twilioProvider";
+import localProvider from "./sms/providers/localProvider";
 
-function getTwilioClient() {
-  const sid = process.env.TWILIO_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_PHONE_NUMBER;
+const SMS_SEND_RETRY = Number(process.env.SMS_SEND_RETRY || 1);
 
-  if (!sid || !token || !from) {
-    // Return null if not configured; do NOT throw at module load time.
-    return null;
+async function _sendVia(providerName: string, opts: SendSmsOpts): Promise<SendResult> {
+  if (providerName === "twilio") return twilioProvider(opts);
+  if (providerName === "local") return localProvider(opts);
+  if (providerName === "noop") {
+    console.log("[sendSms noop]", opts);
+    return { ok: true, provider: "noop", providerId: "noop" };
   }
-
-  // require lazily to avoid module evaluation during Next.js build
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const Twilio = require("twilio");
-  const client = new Twilio(sid, token);
-  return { client, from };
+  return { ok: false, error: "Unknown sms provider", provider: providerName };
 }
 
-export default async function sendSms(opts: SendSmsOpts) {
-  const tw = getTwilioClient();
-  if (!tw) {
-    // In production you may want to return a failure object or throw an error
-    // but DO NOT throw at import time. Throwing here returns a runtime error only.
-    throw new Error("SMS provider not configured (TWILIO_SID/TWILIO_AUTH_TOKEN/TWILIO_PHONE_NUMBER)");
+export default async function sendSms(opts: SendSmsOpts): Promise<SendResult> {
+  const provider = process.env.SMS_PROVIDER || "local";
+
+  // Lightweight idempotency: if caller didn't pass id, we create one
+  const id = opts.id ?? `sms-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+  const payload = { ...opts, id };
+
+  let lastError = null;
+  for (let attempt = 0; attempt < SMS_SEND_RETRY; attempt++) {
+    const res = await _sendVia(provider, payload);
+    if (res.ok) return res;
+    lastError = res.error ?? res;
+    // small backoff
+    await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
   }
 
-  const { client, from } = tw;
-  try {
-    const msg = await client.messages.create({
-      to: opts.to,
-      from,
-      body: opts.body,
-    });
-    return { ok: true, sid: msg.sid };
-  } catch (err) {
-    console.error("sendSms error", (err as any)?.message || err);
-    throw err;
-  }
+  // final failure
+  return { ok: false, provider, error: `Failed after ${SMS_SEND_RETRY} attempts: ${String(lastError)}` };
 }
