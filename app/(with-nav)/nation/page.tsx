@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 // app/(with-nav)/nation/page.tsx
+=======
+>>>>>>> main
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
@@ -31,6 +34,32 @@ function NationPageContent() {
   const [detected, setDetected] = useState<string | null>(null);
 
   // Feature flags
+  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
+  const [flagsLoading, setFlagsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setFlagsLoading(true);
+        const res = await fetch("/api/feature-flags", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive) return;
+        if (json?.ok) setFlags(json.flags || {});
+        else setFlags({});
+      } catch (err) {
+        console.warn("Failed to load feature flags", err);
+        setFlags({});
+      } finally {
+        if (alive) setFlagsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // flags
   const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
   const [flagsLoading, setFlagsLoading] = useState(true);
 
@@ -120,6 +149,7 @@ function NationPageContent() {
     }
   }
 
+<<<<<<< HEAD
   const layerId = "layer-nation-birth";
   const activeTabId =
     ctx?.activeTabs?.[layerId] ?? ctx?.layers?.find((l) => l.id === layerId)?.tabs?.[0]?.id;
@@ -127,6 +157,43 @@ function NationPageContent() {
   const showExecutive = String(activeTabId || "").toLowerCase().includes("executive");
   const showJudiciary = String(activeTabId || "").toLowerCase().includes("judiciary");
   const showMedia = String(activeTabId || "").toLowerCase().includes("media");
+=======
+  function handleLeft() {
+    router.push("/earth");
+  }
+  function handleRight() {
+    router.push("/local");
+  }
+
+  const keys = {
+    layer: "layer.nation",
+    legislature: "layer.nation.legislature",
+    executive: "layer.nation.executive",
+    judiciary: "layer.nation.judiciary",
+    media: "layer.nation.media",
+  };
+
+  function isAllowed(perKey: string | null) {
+    if (!flags) return false;
+    const layerFlag = flags[keys.layer];
+    if (layerFlag && !layerFlag.enabled) return false;
+    if (!perKey) return true;
+    const pk = flags[perKey];
+    if (pk === undefined) return true;
+    return !!pk.enabled;
+  }
+
+  if (flagsLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-gray-400">Loading nation view...</p>
+        </div>
+      </div>
+    );
+  }
+>>>>>>> main
 
   // Flag keys
   const keys = {
@@ -137,12 +204,51 @@ function NationPageContent() {
     layer: "layer.nation",
   };
 
+<<<<<<< HEAD
   if (flagsLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
           <p className="text-sm text-gray-400">Loading nation features...</p>
+=======
+      <button onClick={handleRight} aria-label="Go to local" className="fixed top-4 right-4 z-50 p-2 rounded-full bg-white/6">
+        <span className="text-xs px-2 py-1 rounded-full bg-white/10">{detected ?? "India"}</span>
+        <ArrowRight size={18} />
+      </button>
+
+      <div className="max-w-4xl mx-auto pt-8 px-4">
+        <div className="max-w-3xl mx-auto">
+          {active === "legislature" && (
+            <FeatureGate flagKey={keys.legislature} flags={flags} showPlaceholder={true}>
+              <LegislatureTab value={country?.legislature ?? ""} onChange={(v: string) => updateCountry({ legislature: v })} />
+            </FeatureGate>
+          )}
+          {active === "executive" && (
+            <FeatureGate flagKey={keys.executive} flags={flags} showPlaceholder={true}>
+              <ExecutiveTab value={country?.executive ?? ""} onChange={(v: string) => updateCountry({ executive: v })} />
+            </FeatureGate>
+          )}
+          {active === "judiciary" && (
+            <FeatureGate flagKey={keys.judiciary} flags={flags} showPlaceholder={true}>
+              <JudiciaryTab value={country?.judiciary ?? ""} onChange={(v: string) => updateCountry({ judiciary: v })} />
+            </FeatureGate>
+          )}
+          {active === "media" && (
+            <FeatureGate flagKey={keys.media} flags={flags} showPlaceholder={true}>
+              <MediaTab value={country?.media ?? ""} onChange={(v: string) => updateCountry({ media: v })} />
+            </FeatureGate>
+          )}
+        </div>
+
+        <div className="max-w-3xl mx-auto mt-6 p-4 bg-black/40 rounded">
+          <div className="text-sm text-gray-300 mb-2">Current country selection (stored locally)</div>
+          <pre className="text-xs bg-white/6 p-3 rounded text-gray-200">{JSON.stringify(country, null, 2)}</pre>
+          <div className="flex justify-end mt-3 gap-2">
+            <button onClick={() => { localStorage.removeItem(LS_KEY); setCountry(null); setDetected(null); }} className="px-4 py-2 rounded bg-gray-700">Clear</button>
+            <button onClick={() => { if (country) localStorage.setItem(LS_KEY, JSON.stringify(country)); alert("Saved"); }} className="px-4 py-2 rounded bg-green-600">Save</button>
+          </div>
+>>>>>>> main
         </div>
       </div>
     );

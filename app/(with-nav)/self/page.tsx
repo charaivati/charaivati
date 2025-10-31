@@ -1,8 +1,10 @@
+//app/(with-nav)/page.tsx:
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
+import FeatureGate from "@/components/FeatureGate";
 import UserSearch from "@/components/UserSearch";
 
 const SelfTab = dynamic(() => import("./tabs/SelfTab"), { ssr: false });
@@ -17,14 +19,38 @@ function SelfPageContent() {
   const tabParamRaw = searchParams?.get("tab") ?? "";
   const ctx = useLayerContext();
   const layerId = "layer-self";
-  const router = useRouter();
-
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<ActiveKind>("personal");
+
+  // Feature flags
+  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
+  const [flagsLoading, setFlagsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setFlagsLoading(true);
+        const res = await fetch("/api/feature-flags", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive) return;
+        if (json?.ok) setFlags(json.flags || {});
+        else setFlags({});
+      } catch (err) {
+        console.warn("Failed to load feature flags", err);
+        setFlags({});
+      } finally {
+        if (alive) setFlagsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   function normalizeTabValue(raw: string): ActiveKind {
     const s = String(raw || "").toLowerCase().trim();
@@ -87,6 +113,29 @@ function SelfPageContent() {
     };
   }, []);
 
+  // flag keys
+  const keys = {
+    layer: "layer.self",
+    personal: "layer.self.personal",
+    social: "layer.self.social",
+    learn: "layer.self.learn",
+    earn: "layer.self.earn",
+  };
+
+  function isAllowed(perKey: string | null) {
+    if (!flags) return false;
+    const layerFlag = flags[keys.layer];
+    if (layerFlag && !layerFlag.enabled) return false;
+    if (!perKey) return true;
+    const pk = flags[perKey];
+    if (pk === undefined) return true; // default to true for backwards compatibility
+    return !!pk.enabled;
+  }
+
+  if (flagsLoading) {
+    return <div className="p-8 text-center text-gray-400">Loading self features…</div>;
+  }
+
   return (
     <>
       <div className="flex items-start justify-between mb-6">
@@ -105,18 +154,39 @@ function SelfPageContent() {
       </div>
 
       <div className="max-w-3xl mx-auto">
-        {active === "personal" && <SelfTab profile={profile} />}
-        {active === "social" && (
-          <>
-            <SocialTab profile={profile} />
-            <div className="mt-6">
-              <h4 className="text-sm text-gray-300 mb-3">Find people</h4>
-              <UserSearch />
-            </div>
-          </>
+        {/* Personal */}
+        {active === "personal" && (
+          <FeatureGate flagKey={keys.personal} flags={flags} showPlaceholder={true}>
+            <SelfTab profile={profile} />
+          </FeatureGate>
         )}
-        {active === "learn" && <LearningTab />}
-        {active === "earn" && <EarningTab />}
+
+        {/* Social */}
+        {active === "social" && (
+          <FeatureGate flagKey={keys.social} flags={flags} showPlaceholder={true}>
+            <>
+              <SocialTab profile={profile} />
+              <div className="mt-6">
+                <h4 className="text-sm text-gray-300 mb-3">Find people</h4>
+                <UserSearch />
+              </div>
+            </>
+          </FeatureGate>
+        )}
+
+        {/* Learn */}
+        {active === "learn" && (
+          <FeatureGate flagKey={keys.learn} flags={flags} showPlaceholder={true}>
+            <LearningTab />
+          </FeatureGate>
+        )}
+
+        {/* Earn */}
+        {active === "earn" && (
+          <FeatureGate flagKey={keys.earn} flags={flags} showPlaceholder={true}>
+            <EarningTab />
+          </FeatureGate>
+        )}
       </div>
     </>
   );

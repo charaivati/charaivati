@@ -14,7 +14,11 @@ export type FeatureGateProps = {
 };
 
 const LOCAL_OVERRIDE_PREFIX = "charaivati.feature.override:";
+<<<<<<< HEAD
 const AUTO_HIDE_MS = 100_000; // 100 seconds
+=======
+const AUTO_HIDE_MS = 100_000; // 10 seconds
+>>>>>>> main
 
 export default function FeatureGate({
   flagKey,
@@ -73,7 +77,11 @@ export default function FeatureGate({
       window.removeEventListener("scroll", handleActivity);
       setTimerVisible(false);
     };
+<<<<<<< HEAD
   }, [localOverride, flagKey]);
+=======
+  }, [localOverride]);
+>>>>>>> main
 
   // Toggle functions
   function enableLocalView() {

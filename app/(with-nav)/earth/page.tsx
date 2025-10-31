@@ -50,6 +50,32 @@ function EarthPageContent() {
     };
   }, []);
 
+  // flags
+  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
+  const [flagsLoading, setFlagsLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        setFlagsLoading(true);
+        const res = await fetch("/api/feature-flags", { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive) return;
+        if (json?.ok) setFlags(json.flags || {});
+        else setFlags({});
+      } catch (err) {
+        console.warn("Failed to load feature flags", err);
+        setFlags({});
+      } finally {
+        if (alive) setFlagsLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (tabParam) {
       switch (tabParam) {
@@ -110,6 +136,7 @@ function EarthPageContent() {
     }
   }
 
+<<<<<<< HEAD
   const layerId = "layer-earth";
   const activeTabId =
     ctx?.activeTabs?.[layerId] ?? ctx?.layers?.find((l) => l.id === layerId)?.tabs?.[0]?.id;
@@ -117,6 +144,43 @@ function EarthPageContent() {
   const showHuman = String(activeTabId || "").toLowerCase().includes("human");
   const showCollaborate = String(activeTabId || "").toLowerCase().includes("collab");
   const showKnowledge = String(activeTabId || "").toLowerCase().includes("knowledge");
+=======
+  function handleLeft() {
+    router.push("/universe");
+  }
+  function handleRight() {
+    router.push("/nation");
+  }
+
+  const keys = {
+    layer: "layer.earth",
+    worldview: "layer.earth.worldview",
+    human: "layer.earth.human",
+    collaborate: "layer.earth.collaborate",
+    knowledge: "layer.earth.knowledge",
+  };
+
+  function isAllowed(perKey: string | null) {
+    if (!flags) return false;
+    const layerFlag = flags[keys.layer];
+    if (layerFlag && !layerFlag.enabled) return false;
+    if (!perKey) return true;
+    const pk = flags[perKey];
+    if (pk === undefined) return true;
+    return !!pk.enabled;
+  }
+
+  if (flagsLoading) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-gray-400">Loading Earth view...</p>
+        </div>
+      </div>
+    );
+  }
+>>>>>>> main
 
   // Flag keys
   const keys = {
@@ -127,12 +191,51 @@ function EarthPageContent() {
     layer: "layer.earth",
   };
 
+<<<<<<< HEAD
   if (flagsLoading) {
     return (
       <div className="flex items-center justify-center p-8">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
           <p className="text-sm text-gray-400">Loading Earth features...</p>
+=======
+      <button onClick={handleRight} aria-label="Go to nation" className="fixed top-4 right-4 z-50 p-2 rounded-full bg-white/6">
+        <span className="text-xs px-2 py-1 rounded-full bg-white/10">{detected ?? "World"}</span>
+        <ArrowRight size={18} />
+      </button>
+
+      <div className="max-w-4xl mx-auto pt-8 px-4">
+        <div className="max-w-3xl mx-auto">
+          {active === "worldview" && (
+            <FeatureGate flagKey={keys.worldview} flags={flags} showPlaceholder={true}>
+              <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
+          {active === "human" && (
+            <FeatureGate flagKey={keys.human} flags={flags} showPlaceholder={true}>
+              <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
+          {active === "collaborate" && (
+            <FeatureGate flagKey={keys.collaborate} flags={flags} showPlaceholder={true}>
+              <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
+          {active === "knowledge" && (
+            <FeatureGate flagKey={keys.knowledge} flags={flags} showPlaceholder={true}>
+              <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+            </FeatureGate>
+          )}
+        </div>
+
+        <div className="max-w-3xl mx-auto mt-6 p-4 bg-black/40 rounded">
+          <div className="text-sm text-gray-300 mb-2">Global selection (stored locally)</div>
+          <pre className="text-xs bg-white/6 p-3 rounded text-gray-200">{JSON.stringify(selection, null, 2)}</pre>
+          <div className="flex justify-end mt-3 gap-2">
+            <button onClick={() => { localStorage.removeItem(LS_KEY); setSelection(null); setDetected("World"); }} className="px-4 py-2 rounded bg-gray-700">Clear</button>
+            <button onClick={() => { if (selection) localStorage.setItem(LS_KEY, JSON.stringify(selection)); alert("Saved"); }} className="px-4 py-2 rounded bg-green-600">Save</button>
+          </div>
+>>>>>>> main
         </div>
       </div>
     );
