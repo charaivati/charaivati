@@ -1,17 +1,12 @@
 // app/(with-nav)/layout.tsx
 "use client";
 
-import React, { useEffect, useState, Suspense } from "react";
+import React, { useEffect, useState, Suspense, useRef } from "react";
 import ResponsiveWorldNav from "@/components/ResponsiveWorldNav";
 import { usePathname, useRouter } from "next/navigation";
 import HeaderTabs from "@/components/HeaderTabs";
 import { LayerProvider } from "@/components/LayerContext";
 import ProfileMenu from "@/components/ProfileMenu";
-
-/**
- * WithNavLayout — client layout wrapping pages with nav/tabs.
- * Top-right: only ProfileMenu (compact) to reduce clutter.
- */
 
 export default function WithNavLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -24,6 +19,8 @@ export default function WithNavLayout({ children }: { children: React.ReactNode 
 function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() ?? "/";
+  const [showBottomNav, setShowBottomNav] = useState(true);
+  const lastScrollY = useRef(0);
 
   const activeId = React.useMemo(() => {
     if (pathname.startsWith("/user") || pathname.startsWith("/self")) return "layer-self";
@@ -33,6 +30,42 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     if (pathname.startsWith("/universe")) return "layer-universe";
     return "layer-self";
   }, [pathname]);
+
+  // Handle scroll to show/hide bottom nav (MOBILE ONLY)
+  useEffect(() => {
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (window.innerWidth >= 768) return; // Skip on desktop
+
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = window.scrollY;
+
+          // Scrolling down - hide
+          if (currentScrollY > lastScrollY.current && currentScrollY > 50) {
+            setShowBottomNav(false);
+          }
+          // Scrolling up - show
+          else if (currentScrollY < lastScrollY.current) {
+            setShowBottomNav(true);
+          }
+
+          // Always show when near top
+          if (currentScrollY < 50) {
+            setShowBottomNav(true);
+          }
+
+          lastScrollY.current = currentScrollY;
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   function navigateToLayerById(id: string | undefined | null) {
     const layerId = String(id ?? "").trim();
@@ -71,9 +104,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     return "layer-self";
   }
 
-  // ---------------------------
   // Client-side profile fetch
-  // ---------------------------
   const [profile, setProfile] = useState<any | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
 
@@ -101,7 +132,6 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Logout handler (passed to ProfileMenu)
   async function handleLogout() {
     try {
       await fetch("/api/auth/logout", {
@@ -120,72 +150,121 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Fixed top controls (compact) */}
-      <div className="fixed top-3 right-4 z-50 flex items-center gap-2">
-        {/* Profile menu receives current profile + logout handler */}
-        <ProfileMenu profile={profile} onLogout={handleLogout} compact />
-      </div>
+    <>
+      {/* ========== MOBILE LAYOUT ========== */}
+      <div className="md:hidden min-h-screen bg-black text-white pb-20">
+        {/* Top Bar - Sub-tabs (Fixed, Centered) */}
+        <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
+          <div className="flex items-center justify-between px-4 py-3 gap-3">
+            {/* Centered tabs container */}
+            <div className="flex-1 flex justify-center overflow-x-auto no-scrollbar">
+              <Suspense
+                fallback={
+                  <div className="h-10 flex items-center">
+                    <div className="text-xs text-gray-400">Loading...</div>
+                  </div>
+                }
+              >
+                <HeaderTabs onNavigate={navigateToLayerById} />
+              </Suspense>
+            </div>
 
-      <div className="flex">
-        {/* Sidebar Navigation - Desktop Only */}
-        <aside className="hidden md:fixed md:top-0 md:left-0 md:h-full md:w-56 lg:w-64 md:flex md:flex-col md:bg-black/40 md:backdrop-blur md:pt-6 md:pb-8 md:overflow-auto md:border-r md:border-white/10">
-          <div className="px-4">
-            <div className="text-2xl font-extrabold tracking-tight mb-6">Charaivati</div>
+            {/* Profile Menu */}
+            <div className="flex-shrink-0">
+              <ProfileMenu profile={profile} onLogout={handleLogout} compact />
+            </div>
+          </div>
+        </div>
 
+        {/* Spacer for fixed top nav */}
+        <div className="h-16" />
+
+        {/* Main Content */}
+        <main className="px-4 py-6">
+          <div className="max-w-6xl mx-auto">{children}</div>
+        </main>
+
+        {/* Bottom Bar - Layer Navigation (Hides on scroll) */}
+        <div
+          className={`fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-lg border-t border-white/10 transition-transform duration-300 ${
+            showBottomNav ? "translate-y-0" : "translate-y-full"
+          }`}
+        >
+          <div className="px-4 py-3">
             <ResponsiveWorldNav
               activeId={activeId}
               onSelect={(id) => {
                 const canonical = mapNavIdToLayerId(id);
                 navigateToLayerById(canonical);
               }}
-              compact={false}
+              compact={true}
             />
           </div>
+        </div>
+      </div>
 
-          <div className="mt-auto px-4 pt-4 border-t border-white/10">
-            <div className="text-xs text-gray-400">Build: production</div>
-          </div>
-        </aside>
+      {/* ========== DESKTOP LAYOUT ========== */}
+      <div className="hidden md:flex md:flex-col min-h-screen bg-black text-white">
+        {/* Top Bar - Sub-tabs + Profile (Fixed) */}
+        <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
+          <div className="flex items-center justify-between px-6 py-3 gap-4">
+            {/* Logo */}
+            <div className="flex-shrink-0">
+              <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+                Charaivati
+              </h1>
+            </div>
 
-        {/* Main Content */}
-        <main className="flex-1 w-full md:ml-56 lg:ml-64 transition-all">
-          {/* Sticky header — reduced vertical padding for compact look */}
-          <div className="sticky top-0 z-30 bg-black/80 backdrop-blur-md border-b border-white/10">
-            <div className="w-full py-2">
-              <div className="flex items-start gap-4 px-4 md:px-0">
-                {/* Mobile world nav dropdown */}
-                <div className="md:hidden flex-shrink-0">
-                  <ResponsiveWorldNav
-                    activeId={activeId}
-                    onSelect={(id) => {
-                      const canonical = mapNavIdToLayerId(id);
-                      navigateToLayerById(canonical);
-                    }}
-                    compact={true}
-                  />
-                </div>
+            {/* Centered Sub-tabs */}
+            <div className="flex-1 flex justify-center">
+              <Suspense
+                fallback={
+                  <div className="h-10 flex items-center">
+                    <div className="text-sm text-gray-400">Loading...</div>
+                  </div>
+                }
+              >
+                <HeaderTabs onNavigate={navigateToLayerById} />
+              </Suspense>
+            </div>
 
-                {/* Dynamic Tabs for current layer - Wrapped in Suspense */}
-                <div className="flex-1 min-w-0">
-                  <Suspense fallback={
-                    <div className="h-10 flex items-center">
-                      <div className="text-sm text-gray-400">Loading tabs...</div>
-                    </div>
-                  }>
-                    <HeaderTabs onNavigate={navigateToLayerById} />
-                  </Suspense>
-                </div>
-              </div>
+            {/* Profile Menu */}
+            <div className="flex-shrink-0">
+              <ProfileMenu profile={profile} onLogout={handleLogout} compact />
             </div>
           </div>
+        </div>
 
-          {/* Page content */}
-          <div className="w-full">
-            <div className="max-w-6xl mx-auto px-4 py-6">{children}</div>
-          </div>
-        </main>
+        {/* Spacer for fixed top nav */}
+        <div className="h-16" />
+
+        {/* Content area with sidebar */}
+        <div className="flex flex-1">
+          {/* Left Sidebar - Layer Navigation */}
+          <aside className="fixed top-16 left-0 h-[calc(100vh-4rem)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
+            <div className="p-4">
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                Navigate
+              </div>
+              <ResponsiveWorldNav
+                activeId={activeId}
+                onSelect={(id) => {
+                  const canonical = mapNavIdToLayerId(id);
+                  navigateToLayerById(canonical);
+                }}
+                compact={false}
+              />
+            </div>
+          </aside>
+
+          {/* Main Content */}
+          <main className="flex-1 ml-64">
+            <div className="p-6">
+              <div className="max-w-6xl mx-auto">{children}</div>
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
