@@ -1,3 +1,5 @@
+//app/(with-nav)/self/tabs/SelfTab.tsx
+
 "use client";
 
 import React, { useEffect, useState } from "react";

@@ -1,3 +1,4 @@
+//app/(with-nav)/self/tabs/SocialTab.tsx
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 import { Camera, Video, MessageSquare, Heart, Send, X } from "lucide-react";
