@@ -1,128 +1,157 @@
 // components/FeatureGate.tsx
 "use client";
+import React, { useEffect, useState, useRef } from "react";
 
-import React, { useEffect, useRef, useState } from "react";
+export type FeatureGateProps = {
+  flagKey: string;
+  flags: Record<string, { enabled: boolean; meta?: any }> | null | undefined;
+  fallback?: React.ReactNode;
+  children?: React.ReactNode;
+  allowLocalOverride?: boolean;
+  showPlaceholder?: boolean;
+  placeholderTitle?: string;
+  placeholderBody?: string;
+};
 
-type FlagsMap = Record<string, { enabled: boolean; meta?: any }>;
-
-const OVERRIDE_PREFIX = "feature_override:"; // localStorage key prefix
-const INACTIVITY_MS = 10000; // 10s
-
-function readOverride(key: string) {
-  try {
-    const raw = localStorage.getItem(OVERRIDE_PREFIX + key);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-function writeOverride(key: string, payload: any) {
-  try {
-    localStorage.setItem(OVERRIDE_PREFIX + key, JSON.stringify(payload));
-  } catch {}
-}
-
-function clearOverride(key: string) {
-  try {
-    localStorage.removeItem(OVERRIDE_PREFIX + key);
-  } catch {}
-}
+const LOCAL_OVERRIDE_PREFIX = "charaivati.feature.override:";
+const AUTO_HIDE_MS = 100_000; // 100 seconds
 
 export default function FeatureGate({
   flagKey,
   flags,
-  showPlaceholder = true,
+  fallback,
   children,
-}: {
-  flagKey: string;
-  flags: FlagsMap | null;
-  showPlaceholder?: boolean;
-  children: React.ReactNode;
-}) {
-  const [localEnabled, setLocalEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    const o = readOverride(flagKey);
-    return !!o?.enabled;
-  });
+  allowLocalOverride = true,
+  showPlaceholder = true,
+  placeholderTitle = "Under development",
+  placeholderBody = "This section is currently under development. You can view the current content locally if you want to inspect it.",
+}: FeatureGateProps) {
+  const enabled = !!(flags && flags[flagKey] && flags[flagKey].enabled);
 
-  // Inactivity timer
-  const lastActivityRef = useRef<number>(Date.now());
-  const timerRef = useRef<number | null>(null);
+  const [localOverride, setLocalOverride] = useState(false);
+  const [timerVisible, setTimerVisible] = useState(false);
+  const inactivityTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // start/clear inactivity timer
-  function startInactivityWatcher() {
-    if (timerRef.current) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
-      // if inactive for INACTIVITY_MS, clear override
-      clearOverride(flagKey);
-      setLocalEnabled(false);
-    }, INACTIVITY_MS);
-  }
-
-  function onActivity() {
-    lastActivityRef.current = Date.now();
-    if (localEnabled) startInactivityWatcher();
-  }
-
+  // Load stored override
   useEffect(() => {
-    if (!localEnabled) return;
-    // attach activity events to keep override alive while user interacts
-    const opts = { passive: true } as AddEventListenerOptions;
-    ["mousemove", "keydown", "touchstart", "scroll"].forEach((ev) =>
-      window.addEventListener(ev, onActivity, opts as any)
-    );
-    startInactivityWatcher();
-    return () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current);
-      ["mousemove", "keydown", "touchstart", "scroll"].forEach((ev) =>
-        window.removeEventListener(ev, onActivity, opts as any)
-      );
+    try {
+      const v = localStorage.getItem(LOCAL_OVERRIDE_PREFIX + flagKey);
+      setLocalOverride(v === "1");
+    } catch {}
+  }, [flagKey]);
+
+  // --- Inactivity tracking logic ---
+  useEffect(() => {
+    if (!localOverride) return;
+
+    let timer: NodeJS.Timeout | null = null;
+    let lastActivity = Date.now();
+
+    const resetTimer = () => {
+      lastActivity = Date.now();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const now = Date.now();
+        if (now - lastActivity >= AUTO_HIDE_MS) {
+          clearLocalView();
+        }
+      }, AUTO_HIDE_MS);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localEnabled]);
 
-  // compute effective allowed state:
-  const globalEnabled = flags?.[flagKey]?.enabled ?? undefined;
-  const effectiveAllowed = globalEnabled === undefined ? true : globalEnabled || localEnabled;
+    const handleActivity = () => resetTimer();
 
-  // show placeholder if not allowed
-  if (!effectiveAllowed) {
-    if (!showPlaceholder) return null;
+    window.addEventListener("mousemove", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("scroll", handleActivity);
+    resetTimer();
+    setTimerVisible(true);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("scroll", handleActivity);
+      setTimerVisible(false);
+    };
+  }, [localOverride, flagKey]);
+
+  // Toggle functions
+  function enableLocalView() {
+    try {
+      localStorage.setItem(LOCAL_OVERRIDE_PREFIX + flagKey, "1");
+      setLocalOverride(true);
+    } catch {}
+  }
+  function clearLocalView() {
+    try {
+      localStorage.removeItem(LOCAL_OVERRIDE_PREFIX + flagKey);
+      setLocalOverride(false);
+    } catch {}
+  }
+
+  const isVisible = enabled || localOverride;
+
+  if (isVisible) {
     return (
-      <div className="max-w-3xl mx-auto my-6 p-6 bg-white/5 rounded-lg border border-white/10">
-        <h3 className="text-lg font-semibold mb-2">Under development</h3>
-        <p className="text-sm text-gray-300 mb-4">
-          This section is currently under development. We plan to launch it soon.
-        </p>
-        <div className="flex gap-3">
-          <button
-            className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 transition-colors"
-            onClick={() => {
-              // set a local override for this user
-              writeOverride(flagKey, { enabled: true, ts: Date.now() });
-              setLocalEnabled(true);
-              // start the inactivity watcher
-              startInactivityWatcher();
-            }}
-          >
-            Show current content
-          </button>
-          <a
-            href="/help#features"
-            className="px-4 py-2 rounded-lg bg-transparent border border-white/10 hover:bg-white/5 transition-colors"
-          >
-            Learn more
-          </a>
-        </div>
-        <p className="text-xs text-gray-400 mt-3">
-          Visible for you temporarily. Will hide after 10 seconds of inactivity.
-        </p>
+      <div className="relative">
+        {!enabled && localOverride && (
+          <div className="mb-4 p-3 rounded bg-yellow-900/30 border border-yellow-900 text-yellow-200">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm">
+                Viewing via <strong>local override</strong> — will auto-hide after{" "}
+                <span className="font-semibold text-yellow-100">100s</span> of inactivity.
+              </div>
+              <button
+                className="text-xs px-3 py-1 rounded bg-gray-700 hover:bg-gray-600"
+                onClick={clearLocalView}
+              >
+                Hide now
+              </button>
+            </div>
+          </div>
+        )}
+        {children}
+        {timerVisible && localOverride && (
+          <div className="absolute bottom-2 right-2 text-xs text-yellow-400 opacity-70">
+            (Auto-hide timer active)
+          </div>
+        )}
       </div>
     );
   }
 
-  // allowed — render children
-  return <>{children}</>;
+  if (fallback) return <>{fallback}</>;
+  if (!showPlaceholder) return null;
+
+  return (
+    <div className="p-6 rounded-md bg-white/6 border border-white/6 text-gray-200">
+      <div className="max-w-2xl mx-auto text-center">
+        <div className="text-lg font-semibold mb-2">{placeholderTitle}</div>
+        <div className="text-sm text-gray-300 mb-4">{placeholderBody}</div>
+
+        <div className="flex justify-center gap-3">
+          {allowLocalOverride ? (
+            <button
+              className="px-3 py-1 rounded bg-blue-700 text-sm hover:bg-blue-600"
+              onClick={enableLocalView}
+            >
+              Show current content
+            </button>
+          ) : (
+            <button className="px-3 py-1 rounded bg-gray-700 text-sm">Notify me</button>
+          )}
+          <a
+            href="/help#features"
+            className="px-3 py-1 rounded bg-gray-700 text-sm hover:bg-gray-600"
+          >
+            Learn more
+          </a>
+        </div>
+
+        <div className="text-xs text-gray-400 mt-3">
+          Note: this view hides automatically after inactivity to keep things tidy.
+        </div>
+      </div>
+    </div>
+  );
 }

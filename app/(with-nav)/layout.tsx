@@ -25,7 +25,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
   const activeId = React.useMemo(() => {
     if (pathname.startsWith("/user") || pathname.startsWith("/self")) return "layer-self";
     if (pathname.startsWith("/society") || pathname.startsWith("/local")) return "layer-society-home";
-    if (pathname.startsWith("/nation") || pathname.startsWith("/your_country")) return "layer-nation-birth";
+    if (pathname.startsWith("/nation") || pathname.startsWith("/nation")) return "layer-nation-birth";
     if (pathname.startsWith("/earth")) return "layer-earth";
     if (pathname.startsWith("/universe")) return "layer-universe";
     return "layer-self";
