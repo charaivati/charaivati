@@ -38,15 +38,18 @@ export default function HeaderTabs({ onNavigate }: Props) {
   const tabParam = searchParams?.get("tab");
   let activeTabId = ctx.activeTabs[activeLayerId] || currentLayer.tabs[0]?.id;
 
-  // If URL has tab param, try to match it
+  // If URL has tab param, try to match it by label
   if (tabParam && mounted) {
+    const paramLower = String(tabParam || "").toLowerCase().trim();
     const matchedTab = currentLayer.tabs.find((t) => {
-      const tabLabel = String(t.label || "").toLowerCase().trim();
-      const paramLabel = String(tabParam || "").toLowerCase().trim();
-      return tabLabel === paramLabel || t.id.toLowerCase().includes(paramLabel);
+      const labelLower = String(t.label || "").toLowerCase().trim();
+      return labelLower === paramLower;
     });
     if (matchedTab) {
       activeTabId = matchedTab.id;
+      console.debug("[HeaderTabs] Matched tab by URL param:", { tabParam, matchedLabel: matchedTab.label, tabId: matchedTab.id });
+    } else {
+      console.warn("[HeaderTabs] Could not match tab for param:", { tabParam, availableTabs: currentLayer.tabs.map(t => t.label) });
     }
   }
 

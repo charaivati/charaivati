@@ -52,34 +52,39 @@ function SelfPageContent() {
     const s = String(raw || "").toLowerCase().trim();
     if (!s) return "personal";
 
-    // Check for exact matches or partial matches (case-insensitive)
-    // ORDER MATTERS: Check "earn" before "learn" to avoid partial match issues
-    if (s === "earn" || s.includes("earn")) return "earn";
-    if (s === "learn" || s.includes("learn")) return "learn";
-    if (s === "social" || s.includes("social")) return "social";
-    if (s === "personal" || s.includes("personal")) return "personal";
+    // Exact matches only to avoid substring collisions
+    if (s === "earn") return "earn";
+    if (s === "learn") return "learn";
+    if (s === "social") return "social";
+    if (s === "personal") return "personal";
     
     return "personal";
   }
 
   useEffect(() => {
     if (!mounted) return;
+    
+    // Priority 1: URL parameter (always takes precedence)
     if (tabParamRaw && tabParamRaw.length > 0) {
       const normalized = normalizeTabValue(tabParamRaw);
-      console.debug("[SelfPage] tab param from URL:", { raw: tabParamRaw, normalized });
+      console.debug("[SelfPage] URL tab param:", { raw: tabParamRaw, normalized });
       setActive(normalized);
       return;
     }
+    
+    // Priority 2: Context (fallback)
     try {
       const ctxTab = ctx?.activeTabs?.[layerId];
       if (ctxTab) {
         const normalized = normalizeTabValue(ctxTab);
-        console.debug("[SelfPage] tab from LayerContext:", { ctxTab, normalized });
+        console.debug("[SelfPage] Context tab:", { ctxTab, normalized });
         setActive(normalized);
       } else {
+        console.debug("[SelfPage] No tab found, defaulting to personal");
         setActive("personal");
       }
-    } catch {
+    } catch (e) {
+      console.error("[SelfPage] Error reading context:", e);
       setActive("personal");
     }
   }, [tabParamRaw, mounted, ctx?.activeTabs?.[layerId]]);
