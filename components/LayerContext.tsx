@@ -66,10 +66,10 @@ const defaultLayers: LayerItem[] = [
     label: "Nation",
     hint: "Country-wide",
     tabs: [
-      { id: "nat-legislature", label: "Legislature", route: "/your_country?tab=legislature" },
-      { id: "nat-executive", label: "Executive", route: "/your_country?tab=executive" },
-      { id: "nat-judiciary", label: "Judiciary", route: "/your_country?tab=judiciary" },
-      { id: "nat-media", label: "Media", route: "/your_country?tab=media" },
+      { id: "nat-legislature", label: "Legislature", route: "/nation?tab=legislature" },
+      { id: "nat-executive", label: "Executive", route: "/nation?tab=executive" },
+      { id: "nat-judiciary", label: "Judiciary", route: "/nation?tab=judiciary" },
+      { id: "nat-media", label: "Media", route: "/nation?tab=media" },
     ],
   },
   {
@@ -115,7 +115,7 @@ export function LayerProvider({ children }: { children: React.ReactNode }) {
     const p = (pathname || "").toLowerCase();
     if (p.startsWith("/self") || p === "/") return "layer-self";
     if (p.startsWith("/society") || p.startsWith("/local")) return "layer-society-home";
-    if (p.startsWith("/your_country") || p.startsWith("/nation")) return "layer-nation-birth";
+    if (p.startsWith("/nation") || p.startsWith("/nation")) return "layer-nation-birth";
     if (p.startsWith("/earth")) return "layer-earth";
     if (p.startsWith("/universe")) return "layer-universe";
     return "layer-self";
