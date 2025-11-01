@@ -1,3 +1,4 @@
+// app/layout.tsx
 "use client";
 
 import React, { useEffect, useState, Suspense, useRef } from "react";
@@ -195,7 +196,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
       if (status === "requested") {
         setFriendState((s) => (s.outgoing.includes(id) ? s : { ...s, outgoing: [...s.outgoing, id] }));
       } else if (status === "friends") {
-        setFriendState((s) => (s.friends.includes(id) ? s : { ...s, friends: [...s.friends, id] }));
+        setFriendState((s) => (s.friends.includes(id) ? s : { ...s, friends: [...s.friends, id] } ));
       }
     }
   }
@@ -207,36 +208,58 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     <>
       {/* ------------------ MOBILE ------------------ */}
       <div className="md:hidden min-h-screen bg-black text-white pb-20">
+        {/* fixed header: top row (logo | search | profile) and second row (tabs) */}
         <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
-          <div className="flex items-center justify-between px-4 py-3 gap-3">
-            <div className="flex-1 flex justify-center overflow-x-auto no-scrollbar">
-              <Suspense fallback={<div className="h-10 flex items-center text-xs text-gray-400">Loading...</div>}>
-                <HeaderTabs onNavigate={navigateToLayerById} />
-              </Suspense>
+          {/* TOP ROW: logo left, search centered, profile right */}
+          <div className="flex items-center px-4 py-2 gap-3">
+            <div className="flex-none">
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full flex items-center justify-center">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                    <path d="M3 18s4-6 9-6 9 6 9 6" stroke="#6CA8D9" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                    <circle cx="18" cy="6" r="2.2" fill="#6CA8D9"/>
+                  </svg>
+                </span>
+              </div>
             </div>
-            <ProfileMenu profile={profile?.profile} onLogout={handleLogout} compact />
+
+            {/* center search — flex-1 and min-w-0 so it can shrink and stay centered */}
+            <div className="flex-1 min-w-0 flex justify-center">
+              <UnifiedSearch
+                placeholder="Search people or pages…"
+                onFollowPage={onFollowPage}
+                onSendFriend={onSendFriend}
+                onActionComplete={onActionComplete}
+                friendState={friendState}
+                className="w-full max-w-lg"
+              />
+            </div>
+
+            <div className="flex-none">
+              <ProfileMenu profile={profile?.profile} onLogout={handleLogout} compact />
+            </div>
+          </div>
+
+          {/* SECOND ROW: page tabs centered and horizontally scrollable */}
+          <div className="px-3 pb-3">
+            <div className="flex justify-center">
+              <div className="w-full max-w-3xl overflow-x-auto no-scrollbar">
+                <Suspense fallback={<div className="h-10 flex items-center text-xs text-gray-400">Loading...</div>}>
+                  <HeaderTabs onNavigate={navigateToLayerById} />
+                </Suspense>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="h-16" />
-
-        {/* ---- Mobile Search ---- */}
-        <div className="px-4 mb-3">
-          <UnifiedSearch
-            placeholder="Search people or pages…"
-            onFollowPage={onFollowPage}
-            onSendFriend={onSendFriend}
-            onActionComplete={onActionComplete}
-            friendState={friendState}
-            className="mx-auto max-w-lg"
-          />
-        </div>
+        {/* spacer: adjust height so content not hidden behind header (top row + tabs) */}
+        <div className="h-[9.5rem]" />
 
         <main className="px-4 py-6">
           <div className="max-w-6xl mx-auto">{children}</div>
         </main>
 
-        {/* bottom nav */}
+        {/* bottom nav — keep global layer nav (different from page tabs) */}
         <div
           className={`fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-lg border-t border-white/10 transition-transform duration-300 ${
             showBottomNav ? "translate-y-0" : "translate-y-full"
@@ -254,40 +277,49 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* ------------------ DESKTOP ------------------ */}
       <div className="hidden md:flex md:flex-col min-h-screen bg-black text-white">
+        {/* fixed header: top row (logo | search | profile) and second row (tabs) */}
         <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
-          <div className="flex items-center justify-between px-6 py-3 gap-4">
-            <div className="flex-shrink-0">
+          {/* TOP ROW */}
+          <div className="flex items-center px-6 py-3">
+            <div className="flex-none">
               <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
                 Charaivati
               </h1>
             </div>
 
-            <div className="flex-1 flex justify-center">
+            {/* center search — flex-1 and min-w-0 keeps it centered and prevents wrap */}
+            <div className="flex-1 min-w-0 flex justify-center">
+              <UnifiedSearch
+                placeholder="Search people or pages…"
+                onFollowPage={onFollowPage}
+                onSendFriend={onSendFriend}
+                onActionComplete={onActionComplete}
+                friendState={friendState}
+                className="w-full max-w-xl"
+              />
+            </div>
+
+            <div className="flex-none">
+              <ProfileMenu profile={profile?.profile} onLogout={handleLogout} compact />
+            </div>
+          </div>
+
+          {/* SECOND ROW: centered tabs */}
+          <div className="flex justify-center px-6 pb-2">
+            <div className="w-full max-w-3xl">
               <Suspense fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}>
                 <HeaderTabs onNavigate={navigateToLayerById} />
               </Suspense>
             </div>
-
-            <ProfileMenu profile={profile?.profile} onLogout={handleLogout} compact />
           </div>
         </div>
 
-        <div className="h-16" />
+        {/* spacer: top header total height (top row + tabs) */}
+        <div className="h-20" />
 
-        {/* ---- Global Search ---- */}
-        <div className="px-6 py-4 border-b border-white/5">
-          <UnifiedSearch
-            placeholder="Search people or pages…"
-            onFollowPage={onFollowPage}
-            onSendFriend={onSendFriend}
-            onActionComplete={onActionComplete}
-            friendState={friendState}
-            className="mx-auto max-w-xl"
-          />
-        </div>
-
+        {/* left sidebar + content */}
         <div className="flex flex-1">
-          <aside className="fixed top-[calc(4rem+64px)] left-0 h-[calc(100vh-4rem-64px)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
+          <aside className="fixed top-[5rem] left-0 h-[calc(100vh-5rem)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
             <div className="p-4">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Navigate</div>
               <ResponsiveWorldNav
