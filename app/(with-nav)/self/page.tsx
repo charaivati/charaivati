@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
 import FeatureGate from "@/components/FeatureGate";
-import UserSearch from "@/components/UserSearch";
 
 const SelfTab = dynamic(() => import("./tabs/SelfTab"), { ssr: false });
 const SocialTab = dynamic(() => import("./tabs/SocialTab"), { ssr: false });
@@ -52,25 +51,48 @@ function SelfPageContent() {
   }, []);
 
   function normalizeTabValue(raw: string): ActiveKind {
+    // use robust matching to avoid substring collisions (e.g. "learn" vs "earn")
     const s = String(raw || "").toLowerCase().trim();
-    if (!s || s.includes("personal")) return "personal";
-    if (s.includes("social")) return "social";
-    if (s.includes("learn")) return "learn";
-    if (s.includes("earn")) return "earn";
+
+    if (!s) return "personal";
+
+    // exact word / boundary checks
+    if (/\b(personal|personal|personalized)\b/.test(s) || s === "personal") return "personal";
+    if (/\b(social)\b/.test(s) || s === "social") return "social";
+
+    // Check 'earn' before 'learn' is NOT necessary here because we use word boundaries,
+    // but keep clear order: detect exact 'earn' word or 'earn-' style tokens.
+    if (/\bearn\b/.test(s) || s === "earn") return "earn";
+
+    // 'learn' / 'learning' etc.
+    if (/\blearn\b/.test(s) || /\blearning\b/.test(s) || s === "learn") return "learn";
+
+    // fallback
     return "personal";
   }
 
   useEffect(() => {
     if (!mounted) return;
+
+    // debug: show what we're reading from URL / ctx
     if (tabParamRaw && tabParamRaw.length > 0) {
-      setActive(normalizeTabValue(tabParamRaw));
+      const normalized = normalizeTabValue(tabParamRaw);
+      console.debug("[SelfPage] tab param from URL:", { raw: tabParamRaw, normalized });
+      setActive(normalized);
       return;
     }
+
     try {
       const ctxTab = ctx?.activeTabs?.[layerId];
-      if (ctxTab) setActive(normalizeTabValue(ctxTab));
-      else setActive("personal");
-    } catch {
+      if (ctxTab) {
+        const normalized = normalizeTabValue(ctxTab);
+        console.debug("[SelfPage] tab from LayerContext:", { ctxTab, normalized });
+        setActive(normalized);
+      } else {
+        setActive("personal");
+      }
+    } catch (e) {
+      console.debug("[SelfPage] tab normalization error:", e);
       setActive("personal");
     }
   }, [tabParamRaw, mounted, ctx?.activeTabs?.[layerId]]);
@@ -163,13 +185,7 @@ function SelfPageContent() {
         {/* Social */}
         {active === "social" && (
           <FeatureGate flagKey={keys.social} flags={flags} showPlaceholder={true}>
-            <>
-              <SocialTab profile={profile} />
-              <div className="mt-6">
-                <h4 className="text-sm text-gray-300 mb-3">Find people</h4>
-                <UserSearch />
-              </div>
-            </>
+            <SocialTab profile={profile} />
           </FeatureGate>
         )}
 

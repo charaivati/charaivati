@@ -1,4 +1,3 @@
-// app/(with-nav)/layout.tsx
 "use client";
 
 import React, { useEffect, useState, Suspense, useRef } from "react";
@@ -7,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import HeaderTabs from "@/components/HeaderTabs";
 import { LayerProvider } from "@/components/LayerContext";
 import ProfileMenu from "@/components/ProfileMenu";
+import UnifiedSearch from "@/components/UnifiedSearch";
 
 export default function WithNavLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -31,30 +31,24 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     return "layer-self";
   }, [pathname]);
 
-  // Handle scroll to show/hide bottom nav (MOBILE ONLY)
+  // Hide/show bottom nav on scroll (mobile)
   useEffect(() => {
     let ticking = false;
 
     const handleScroll = () => {
-      if (window.innerWidth >= 768) return; // Skip on desktop
+      if (window.innerWidth >= 768) return; // skip desktop
 
       if (!ticking) {
         window.requestAnimationFrame(() => {
           const currentScrollY = window.scrollY;
 
-          // Scrolling down - hide
           if (currentScrollY > lastScrollY.current && currentScrollY > 50) {
             setShowBottomNav(false);
-          }
-          // Scrolling up - show
-          else if (currentScrollY < lastScrollY.current) {
+          } else if (currentScrollY < lastScrollY.current) {
             setShowBottomNav(true);
           }
 
-          // Always show when near top
-          if (currentScrollY < 50) {
-            setShowBottomNav(true);
-          }
+          if (currentScrollY < 50) setShowBottomNav(true);
 
           lastScrollY.current = currentScrollY;
           ticking = false;
@@ -67,6 +61,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Navigation helper
   function navigateToLayerById(id: string | undefined | null) {
     const layerId = String(id ?? "").trim();
     switch (layerId) {
@@ -104,7 +99,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     return "layer-self";
   }
 
-  // Client-side profile fetch
+  // --- PROFILE FETCH ---
   const [profile, setProfile] = useState<any | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
 
@@ -132,6 +127,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // --- LOGOUT ---
   async function handleLogout() {
     try {
       await fetch("/api/auth/logout", {
@@ -139,7 +135,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
         credentials: "include",
       });
     } catch (err) {
-      console.warn("Logout request failed:", err);
+      console.warn("Logout failed:", err);
     } finally {
       if (typeof window !== "undefined") {
         const keysToClear = ["app.language", "charaivati.lang", "language", "preferredLanguage"];
@@ -149,14 +145,94 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // --- FRIEND & FOLLOW STATE ---
+  const initialFriendState = React.useMemo(() => {
+    const friends = Array.isArray(profile?.friends) ? profile.friends : [];
+    const outgoing = Array.isArray(profile?.outgoingFriendRequests)
+      ? profile.outgoingFriendRequests
+      : Array.isArray(profile?.outgoing)
+      ? profile.outgoing
+      : [];
+    const incoming = Array.isArray(profile?.incomingFriendRequests)
+      ? profile.incomingFriendRequests
+      : Array.isArray(profile?.incoming)
+      ? profile.incoming
+      : [];
+    const following = Array.isArray(profile?.followingPages)
+      ? profile.followingPages
+      : Array.isArray(profile?.follows)
+      ? profile.follows
+      : [];
+    return { friends, outgoing, incoming, following };
+  }, [profile]);
+
+  const [friendState, setFriendState] = useState(initialFriendState);
+
+  useEffect(() => {
+    setFriendState(initialFriendState);
+  }, [initialFriendState]);
+
+  // --- ACTIONS ---
+  async function onFollowPage(pageId: string) {
+    const res = await fetch("/api/user/follows", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageId }),
+    });
+    if (!res.ok) throw new Error("Failed to follow");
+    setFriendState((s) =>
+      s.following.includes(pageId) ? s : { ...s, following: [...s.following, pageId] }
+    );
+  }
+
+  async function onSendFriend(userId: string) {
+    const res = await fetch("/api/user/friends", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ receiverId: userId }),
+    });
+    if (!res.ok) throw new Error("Failed to add friend");
+    setFriendState((s) =>
+      s.outgoing.includes(userId) ? s : { ...s, outgoing: [...s.outgoing, userId] }
+    );
+  }
+
+  function onActionComplete(
+    kind: "page" | "person",
+    id: string,
+    status: "following" | "requested" | "friends"
+  ) {
+    if (kind === "page" && status === "following") {
+      setFriendState((s) =>
+        s.following.includes(id) ? s : { ...s, following: [...s.following, id] }
+      );
+    } else if (kind === "person") {
+      if (status === "requested") {
+        setFriendState((s) =>
+          s.outgoing.includes(id) ? s : { ...s, outgoing: [...s.outgoing, id] }
+        );
+      } else if (status === "friends") {
+        setFriendState((s) =>
+          s.friends.includes(id) ? s : { ...s, friends: [...s.friends, id] }
+        );
+      }
+    }
+  }
+
+  // ==============================================================
+  //                       RENDER
+  // ==============================================================
+
   return (
     <>
-      {/* ========== MOBILE LAYOUT ========== */}
+      {/* ================= MOBILE ================= */}
       <div className="md:hidden min-h-screen bg-black text-white pb-20">
-        {/* Top Bar - Sub-tabs (Fixed, Centered) */}
+        {/* Fixed Top Nav */}
         <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
           <div className="flex items-center justify-between px-4 py-3 gap-3">
-            {/* Centered tabs container */}
+            {/* Center Tabs */}
             <div className="flex-1 flex justify-center overflow-x-auto no-scrollbar">
               <Suspense
                 fallback={
@@ -169,22 +245,34 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
               </Suspense>
             </div>
 
-            {/* Profile Menu */}
+            {/* Profile */}
             <div className="flex-shrink-0">
               <ProfileMenu profile={profile} onLogout={handleLogout} compact />
             </div>
           </div>
         </div>
 
-        {/* Spacer for fixed top nav */}
         <div className="h-16" />
+
+        {/* Search (mobile) */}
+        <div className="px-4 mb-3">
+          <div className="max-w-6xl mx-auto">
+            <UnifiedSearch
+              placeholder="Search people or pages…"
+              onFollowPage={onFollowPage}
+              onSendFriend={onSendFriend}
+              onActionComplete={onActionComplete}
+              friendState={friendState}
+            />
+          </div>
+        </div>
 
         {/* Main Content */}
         <main className="px-4 py-6">
           <div className="max-w-6xl mx-auto">{children}</div>
         </main>
 
-        {/* Bottom Bar - Layer Navigation (Hides on scroll) */}
+        {/* Bottom Navigation */}
         <div
           className={`fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-lg border-t border-white/10 transition-transform duration-300 ${
             showBottomNav ? "translate-y-0" : "translate-y-full"
@@ -193,19 +281,16 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
           <div className="px-4 py-3">
             <ResponsiveWorldNav
               activeId={activeId}
-              onSelect={(id) => {
-                const canonical = mapNavIdToLayerId(id);
-                navigateToLayerById(canonical);
-              }}
-              compact={true}
+              onSelect={(id) => navigateToLayerById(mapNavIdToLayerId(id))}
+              compact
             />
           </div>
         </div>
       </div>
 
-      {/* ========== DESKTOP LAYOUT ========== */}
+      {/* ================= DESKTOP ================= */}
       <div className="hidden md:flex md:flex-col min-h-screen bg-black text-white">
-        {/* Top Bar - Sub-tabs + Profile (Fixed) */}
+        {/* Fixed Header */}
         <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
           <div className="flex items-center justify-between px-6 py-3 gap-4">
             {/* Logo */}
@@ -215,7 +300,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
               </h1>
             </div>
 
-            {/* Centered Sub-tabs */}
+            {/* Tabs */}
             <div className="flex-1 flex justify-center">
               <Suspense
                 fallback={
@@ -228,30 +313,40 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
               </Suspense>
             </div>
 
-            {/* Profile Menu */}
+            {/* Profile */}
             <div className="flex-shrink-0">
               <ProfileMenu profile={profile} onLogout={handleLogout} compact />
             </div>
           </div>
         </div>
 
-        {/* Spacer for fixed top nav */}
+        {/* Spacer for Header */}
         <div className="h-16" />
 
-        {/* Content area with sidebar */}
+        {/* Global Search */}
+        <div className="px-6 py-4 border-b border-white/5">
+          <div className="max-w-6xl mx-auto">
+            <UnifiedSearch
+              placeholder="Search people or pages…"
+              onFollowPage={onFollowPage}
+              onSendFriend={onSendFriend}
+              onActionComplete={onActionComplete}
+              friendState={friendState}
+            />
+          </div>
+        </div>
+
+        {/* Sidebar + Main */}
         <div className="flex flex-1">
-          {/* Left Sidebar - Layer Navigation */}
-          <aside className="fixed top-16 left-0 h-[calc(100vh-4rem)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
+          {/* Left Sidebar */}
+          <aside className="fixed top-[calc(4rem+64px)] left-0 h-[calc(100vh-4rem-64px)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
             <div className="p-4">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
                 Navigate
               </div>
               <ResponsiveWorldNav
                 activeId={activeId}
-                onSelect={(id) => {
-                  const canonical = mapNavIdToLayerId(id);
-                  navigateToLayerById(canonical);
-                }}
+                onSelect={(id) => navigateToLayerById(mapNavIdToLayerId(id))}
                 compact={false}
               />
             </div>

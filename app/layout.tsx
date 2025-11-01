@@ -10,21 +10,18 @@ export const metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const h = await headers();
-  const nonce = h.get("x-nonce") ?? undefined;
+  const isProd = process.env.NODE_ENV === "production";
+  const h = isProd ? await headers() : null;
+  const nonce = isProd ? h?.get("x-nonce") ?? undefined : undefined;
 
-  // Read possible server cookie for theme so SSR can match returning user's preference.
-  // Note: cookies() is synchronous in next/headers.
-  const ck = cookies();
+  // IMPORTANT: cookies() can be async in this Next version -> await it.
+  const ck = await cookies();
   const serverTheme = ck.get("charaivati.theme")?.value ?? "dark";
 
-  // Build body class so server HTML includes the `dark` class when appropriate
   const bodyClass = `bg-black text-white min-h-screen antialiased${serverTheme === "dark" ? " dark" : ""}`;
 
-  // Inline script uses localStorage fallback and sets the same attribute before React hydrates.
-  // Use document.documentElement for the `dark` class (consistent with Tailwind default).
   const inlineScript = `
-    (function () {
+    (function() {
       try {
         var stored = null;
         try { stored = localStorage.getItem("charaivati.theme"); } catch(e) {}
@@ -42,8 +39,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="icon" href="/favicon.ico" />
       </head>
       <body className={bodyClass}>
-        {/* Inline theme initialization with nonce - runs before React hydrates */}
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: inlineScript }} />
+        {/* Inline theme init — only include nonce attribute in production when present */}
+        <script
+          {...(isProd && nonce ? { nonce } : {})}
+          dangerouslySetInnerHTML={{ __html: inlineScript }}
+        />
         <ClientProviders>{children}</ClientProviders>
       </body>
     </html>
