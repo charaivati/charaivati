@@ -1,3 +1,4 @@
+// app/(with-nav)/self/page.tsx
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
@@ -24,7 +25,6 @@ function SelfPageContent() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<ActiveKind>("personal");
 
-  // Feature flags
   const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
   const [flagsLoading, setFlagsLoading] = useState(true);
 
@@ -45,43 +45,31 @@ function SelfPageContent() {
         if (alive) setFlagsLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   function normalizeTabValue(raw: string): ActiveKind {
-    // use robust matching to avoid substring collisions (e.g. "learn" vs "earn")
     const s = String(raw || "").toLowerCase().trim();
-
     if (!s) return "personal";
 
-    // exact word / boundary checks
-    if (/\b(personal|personal|personalized)\b/.test(s) || s === "personal") return "personal";
-    if (/\b(social)\b/.test(s) || s === "social") return "social";
-
-    // Check 'earn' before 'learn' is NOT necessary here because we use word boundaries,
-    // but keep clear order: detect exact 'earn' word or 'earn-' style tokens.
-    if (/\bearn\b/.test(s) || s === "earn") return "earn";
-
-    // 'learn' / 'learning' etc.
-    if (/\blearn\b/.test(s) || /\blearning\b/.test(s) || s === "learn") return "learn";
-
-    // fallback
+    // Check for exact matches or partial matches (case-insensitive)
+    // ORDER MATTERS: Check "earn" before "learn" to avoid partial match issues
+    if (s === "earn" || s.includes("earn")) return "earn";
+    if (s === "learn" || s.includes("learn")) return "learn";
+    if (s === "social" || s.includes("social")) return "social";
+    if (s === "personal" || s.includes("personal")) return "personal";
+    
     return "personal";
   }
 
   useEffect(() => {
     if (!mounted) return;
-
-    // debug: show what we're reading from URL / ctx
     if (tabParamRaw && tabParamRaw.length > 0) {
       const normalized = normalizeTabValue(tabParamRaw);
       console.debug("[SelfPage] tab param from URL:", { raw: tabParamRaw, normalized });
       setActive(normalized);
       return;
     }
-
     try {
       const ctxTab = ctx?.activeTabs?.[layerId];
       if (ctxTab) {
@@ -91,8 +79,7 @@ function SelfPageContent() {
       } else {
         setActive("personal");
       }
-    } catch (e) {
-      console.debug("[SelfPage] tab normalization error:", e);
+    } catch {
       setActive("personal");
     }
   }, [tabParamRaw, mounted, ctx?.activeTabs?.[layerId]]);
@@ -120,7 +107,6 @@ function SelfPageContent() {
         if (data?.ok) setProfile(data.profile || null);
       } catch (err) {
         if ((err as any)?.name === "AbortError") {
-          /* aborted */
         } else {
           console.error("[SelfPage] profile fetch error", err);
         }
@@ -128,13 +114,9 @@ function SelfPageContent() {
         if (alive) setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-      controller.abort();
-    };
+    return () => { alive = false; controller.abort(); };
   }, []);
 
-  // flag keys
   const keys = {
     layer: "layer.self",
     personal: "layer.self.personal",
@@ -149,7 +131,7 @@ function SelfPageContent() {
     if (layerFlag && !layerFlag.enabled) return false;
     if (!perKey) return true;
     const pk = flags[perKey];
-    if (pk === undefined) return true; // default to true for backwards compatibility
+    if (pk === undefined) return true;
     return !!pk.enabled;
   }
 
@@ -175,28 +157,24 @@ function SelfPageContent() {
       </div>
 
       <div className="max-w-3xl mx-auto">
-        {/* Personal */}
         {active === "personal" && (
           <FeatureGate flagKey={keys.personal} flags={flags} showPlaceholder={true}>
             <SelfTab profile={profile} />
           </FeatureGate>
         )}
 
-        {/* Social */}
         {active === "social" && (
           <FeatureGate flagKey={keys.social} flags={flags} showPlaceholder={true}>
             <SocialTab profile={profile} />
           </FeatureGate>
         )}
 
-        {/* Learn */}
         {active === "learn" && (
           <FeatureGate flagKey={keys.learn} flags={flags} showPlaceholder={true}>
             <LearningTab />
           </FeatureGate>
         )}
 
-        {/* Earn */}
         {active === "earn" && (
           <FeatureGate flagKey={keys.earn} flags={flags} showPlaceholder={true}>
             <EarningTab />

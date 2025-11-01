@@ -15,10 +15,10 @@ export type SearchResult = {
 };
 
 type FriendState = {
-  friends: string[]; // user ids that are friends
-  outgoing: string[]; // outgoing friend requests
-  incoming: string[]; // incoming friend requests
-  following: string[]; // page ids that current user follows
+  friends: string[];
+  outgoing: string[];
+  incoming: string[];
+  following: string[];
 };
 
 type Props = {
@@ -33,6 +33,33 @@ type Props = {
 
 const DEBOUNCE_MS = 250;
 
+/** Clean incoming text for UI display */
+function sanitizeText(raw: any, maxLen = 80): string {
+  if (raw == null) return "";
+  let s = String(raw);
+  // remove control characters
+  s = s.replace(/[\x00-\x1F\x7F]/g, "");
+  // collapse whitespace
+  s = s.replace(/\s+/g, " ").trim();
+  if (s.length > maxLen) return s.slice(0, maxLen - 1).trim() + "…";
+  return s;
+}
+
+/** Normalize raw server results into SearchResult[] */
+function normalizeRawResults(rawResults: any[]): SearchResult[] {
+  if (!Array.isArray(rawResults)) return [];
+  return rawResults.map((r: any) => {
+    const rawId = r?.id ?? r?._id ?? r?.uuid ?? "";
+    const id = String(rawId);
+    const typeRaw = (r?.type ?? r?.kind ?? r?.resultType ?? "").toString().toLowerCase();
+    const type: ResultType = typeRaw === "person" || typeRaw === "user" ? "person" : typeRaw === "page" ? "page" : "unknown";
+    const name = sanitizeText(r?.name ?? r?.title ?? r?.displayName ?? r?.fullName ?? "");
+    const subtitle = sanitizeText(r?.subtitle ?? r?.meta?.subtitle ?? r?.description ?? r?.role ?? "", 120);
+    const avatarUrl = r?.avatarUrl ?? r?.image ?? r?.avatar ?? null;
+    return { id, type, name, subtitle, avatarUrl, ...r };
+  });
+}
+
 export default function UnifiedSearch({
   placeholder = "Search people or pages…",
   onFollowPage,
@@ -40,7 +67,7 @@ export default function UnifiedSearch({
   onActionComplete,
   friendState = { friends: [], outgoing: [], incoming: [], following: [] },
   initialQuery = "",
-  className = "",
+  className = "mx-auto max-w-xl",
 }: Props) {
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -48,40 +75,106 @@ export default function UnifiedSearch({
   const [open, setOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState<number>(-1);
   const [error, setError] = useState<string | null>(null);
-  const [actionPending, setActionPending] = useState(false);
+  const [actionPendingIds, setActionPendingIds] = useState<Record<string, boolean>>({});
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<number | undefined>(undefined);
 
-  // helpers
-  function pickActionTarget(): { type: ResultType | "query"; id?: string; name?: string } | null {
-    if (highlightIndex >= 0 && highlightIndex < results.length) {
-      const r = results[highlightIndex];
-      return { type: r.type, id: r.id, name: r.name };
-    }
-    if (results.length > 0) {
-      const lower = query.trim().toLowerCase();
-      const exact = results.find((r) => r.name?.toLowerCase() === lower);
-      if (exact) return { type: exact.type, id: exact.id, name: exact.name };
-    }
-    return null;
-  }
-
-  // get current action button state for given target
-  function actionButtonStateFor(target: { type: any; id?: string } | null) {
-    if (!target || !target.id) return { label: null, disabled: false };
-    if (target.type === "page") {
-      if ((friendState?.following ?? []).includes(target.id)) return { label: "Following", disabled: true };
+  function labelForItem(r: SearchResult) {
+    if (!r?.id) return { label: null, disabled: true };
+    if (r.type === "page") {
+      if ((friendState?.following ?? []).includes(r.id)) return { label: "Following", disabled: true };
       return { label: "Follow", disabled: false };
-    } else if (target.type === "person") {
-      if ((friendState?.friends ?? []).includes(target.id)) return { label: "Friends", disabled: true };
-      if ((friendState?.outgoing ?? []).includes(target.id)) return { label: "Requested", disabled: true };
-      if ((friendState?.incoming ?? []).includes(target.id)) return { label: "Respond", disabled: false };
+    } else if (r.type === "person") {
+      if ((friendState?.friends ?? []).includes(r.id)) return { label: "Friends", disabled: true };
+      if ((friendState?.outgoing ?? []).includes(r.id)) return { label: "Requested", disabled: true };
+      if ((friendState?.incoming ?? []).includes(r.id)) return { label: "Respond", disabled: false };
       return { label: "Add friend", disabled: false };
     }
-    return { label: null, disabled: false };
+    return { label: null, disabled: true };
+  }
+
+  /** Primary fetch: first try /api/search, fallback to /api/users + /api/user/pages */
+  async function fetchResultsRaw(q: string): Promise<SearchResult[]> {
+    // quick guard
+    if (!q || q.trim().length === 0) return [];
+
+    // Abort previous
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    // Try unified endpoint first (if it exists)
+    try {
+      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+        method: "GET",
+        credentials: "include",
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        // If data structure is list or { results: [...] } handle both
+        const raw = Array.isArray(data) ? data : data?.results ?? [];
+        if (Array.isArray(raw) && raw.length > 0) {
+          return normalizeRawResults(raw);
+        }
+        // if unified endpoint responds empty, fallthrough to fallback below
+      } else if (res.status === 404 || res.status === 501) {
+        // 404 means no unified endpoint — fall through
+      } else {
+        // non-fatal: still attempt fallback
+      }
+    } catch (err: any) {
+      if (err?.name === "AbortError") return [];
+      // continue to fallback on network/other errors
+      console.warn("Unified search (/api/search) failed, falling back to separate endpoints:", err);
+    }
+
+    // Fallback: query user and pages endpoints in parallel
+    try {
+      const [usersRes, pagesRes] = await Promise.allSettled([
+        fetch(`/api/users?q=${encodeURIComponent(q)}`, {
+          method: "GET",
+          credentials: "include",
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        }),
+        fetch(`/api/user/pages?q=${encodeURIComponent(q)}`, {
+          method: "GET",
+          credentials: "include",
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        }),
+      ]);
+
+      const usersArr: any[] =
+        usersRes.status === "fulfilled" && usersRes.value.ok
+          ? await usersRes.value.json().catch(() => [])
+          : usersRes.status === "fulfilled"
+          ? await usersRes.value.json().catch(() => [])
+          : [];
+
+      const pagesJson =
+        pagesRes.status === "fulfilled"
+          ? await pagesRes.value.json().catch(() => ({ pages: [] }))
+          : { pages: [] };
+
+      const users = (Array.isArray(usersArr) ? usersArr : []).map((u: any) => ({ ...u, type: "person" }));
+      // some pages endpoints return { pages: [...] }
+      const pages = Array.isArray(pagesJson) ? pagesJson : (pagesJson?.pages ?? []);
+      const pagesMapped = (Array.isArray(pages) ? pages : []).map((p: any) => ({ ...p, type: "page" }));
+
+      // Merge — preserve ordering: users then pages (you can change to interleave or sort)
+      const mergedRaw = [...users, ...pagesMapped];
+      return normalizeRawResults(mergedRaw);
+    } catch (err: any) {
+      if (err?.name === "AbortError") return [];
+      console.error("Fallback search error:", err);
+      throw err;
+    }
   }
 
   async function fetchResults(q: string) {
@@ -89,44 +182,24 @@ export default function UnifiedSearch({
       setResults([]);
       setError(null);
       setLoading(false);
+      setOpen(false);
       return;
     }
 
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-
-      // Expect /api/search?q=...
-      const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
-        signal: controller.signal,
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || `Search failed (${res.status})`);
-      }
-      const data = await res.json().catch(() => null);
-      const rawResults = Array.isArray(data?.results) ? data.results : [];
-
-      const normalized: SearchResult[] = rawResults.map((r: any) => ({
-        id: String(r.id ?? r._id ?? ""),
-        type: (r.type === "person" || r.type === "page") ? r.type : "unknown",
-        name: r.name ?? r.title ?? "",
-        subtitle: r.subtitle ?? r.meta?.subtitle ?? "",
-        avatarUrl: r.avatarUrl ?? r.image ?? null,
-        ...r,
-      }));
-
+      const normalized = await fetchResultsRaw(q);
       setResults(normalized);
+      setOpen(true);
+      setHighlightIndex(normalized.length > 0 ? 0 : -1);
     } catch (err: any) {
       if (err?.name === "AbortError") return;
       console.error("UnifiedSearch fetch error", err);
       setError(String(err?.message ?? "Search failed"));
       setResults([]);
+      setOpen(true);
+      setHighlightIndex(-1);
     } finally {
       setLoading(false);
     }
@@ -145,8 +218,6 @@ export default function UnifiedSearch({
 
     debounceRef.current = window.setTimeout(() => {
       fetchResults(query);
-      setOpen(true);
-      setHighlightIndex(-1);
     }, DEBOUNCE_MS);
 
     return () => {
@@ -181,9 +252,7 @@ export default function UnifiedSearch({
         setHighlightIndex((i) => Math.max(-1, i - 1));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (highlightIndex >= 0 && highlightIndex < results.length) {
-          selectResult(results[highlightIndex]);
-        }
+        if (highlightIndex >= 0 && highlightIndex < results.length) selectResult(results[highlightIndex]);
       } else if (e.key === "Escape") {
         setOpen(false);
         setHighlightIndex(-1);
@@ -200,31 +269,30 @@ export default function UnifiedSearch({
     setHighlightIndex(idx);
   }
 
-  async function handleAction() {
-    const target = pickActionTarget();
-    if (!target || !target.id) return;
-    setActionPending(true);
+  async function handleItemAction(r: SearchResult) {
+    if (!r || !r.id) return;
+    const id = r.id;
+    setActionPendingIds((s) => ({ ...s, [id]: true }));
     try {
-      if (target.type === "page") {
+      if (r.type === "page") {
         if (!onFollowPage) throw new Error("onFollowPage not provided");
-        await onFollowPage(target.id);
-        onActionComplete?.("page", target.id, "following");
-      } else if (target.type === "person") {
+        await onFollowPage(id);
+        onActionComplete?.("page", id, "following");
+      } else if (r.type === "person") {
         if (!onSendFriend) throw new Error("onSendFriend not provided");
-        await onSendFriend(target.id);
-        onActionComplete?.("person", target.id, "requested");
+        await onSendFriend(id);
+        onActionComplete?.("person", id, "requested");
       }
     } catch (err: any) {
-      console.error("Action failed", err);
-      setError(String(err?.message ?? "Action failed"));
-      setTimeout(() => setError(null), 3000);
+      console.error("UnifiedSearch item action failed", err);
     } finally {
-      setActionPending(false);
+      setActionPendingIds((s) => {
+        const nxt = { ...s };
+        delete nxt[id];
+        return nxt;
+      });
     }
   }
-
-  const actionTarget = pickActionTarget();
-  const actionState = actionButtonStateFor(actionTarget);
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
@@ -235,9 +303,7 @@ export default function UnifiedSearch({
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-            }}
+            onChange={(e) => setQuery(e.target.value)}
             onFocus={() => {
               if (results.length > 0) setOpen(true);
             }}
@@ -249,33 +315,26 @@ export default function UnifiedSearch({
             aria-activedescendant={highlightIndex >= 0 ? `us-item-${highlightIndex}` : undefined}
           />
         </div>
-
-        <div className="flex items-center space-x-2">
-          {actionState.label && (
-            <button
-              type="button"
-              onClick={handleAction}
-              disabled={actionState.disabled || actionPending}
-              className={`rounded-md border border-white/10 px-3 py-1 text-sm font-medium ${actionState.disabled ? "bg-white/3 text-gray-300" : "bg-white/5 text-white"}`}
-            >
-              {actionPending ? "..." : actionState.label}
-            </button>
-          )}
-        </div>
       </div>
 
-      {open && (results.length > 0 || loading || error) && (
-        <div id="unified-search-listbox" role="listbox" className="mt-2 max-h-72 w-full overflow-auto rounded-md border border-white/6 bg-black/95 py-1 text-sm shadow-lg">
+      {open && (loading || error || results.length > 0) && (
+        <div
+          id="unified-search-listbox"
+          role="listbox"
+          className="mt-2 max-h-72 w-full overflow-auto rounded-md border border-white/6 bg-black/95 py-1 text-sm shadow-lg"
+        >
           {loading && <div className="px-3 py-2 text-xs text-gray-400">Searching…</div>}
           {error && !loading && <div className="px-3 py-2 text-xs text-red-400">Error: {error}</div>}
-          {!loading && results.length === 0 && !error && <div className="px-3 py-2 text-xs text-gray-500">No results</div>}
+          {!loading && !error && results.length === 0 && <div className="px-3 py-2 text-xs text-gray-500">No results</div>}
 
           {results.map((r, idx) => {
             const isHighlighted = idx === highlightIndex;
+            const actionState = labelForItem(r);
+            const pending = Boolean(actionPendingIds[r.id]);
             return (
               <div
                 id={`us-item-${idx}`}
-                key={`${r.type}-${r.id}`}
+                key={`${r.type}-${r.id}-${idx}`}
                 role="option"
                 aria-selected={isHighlighted}
                 onMouseEnter={() => setHighlightIndex(idx)}
@@ -285,19 +344,41 @@ export default function UnifiedSearch({
                 className={`flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-white/2 ${isHighlighted ? "bg-white/3" : ""}`}
               >
                 <div className="flex-shrink-0">
-                  <div className="h-8 w-8 rounded-full bg-white/6 flex items-center justify-center text-xs font-medium text-white">
-                    {r.avatarUrl ? <img src={r.avatarUrl} alt={r.name} className="h-8 w-8 rounded-full object-cover" /> : (r.name || "?").slice(0, 1).toUpperCase()}
+                  <div className="h-8 w-8 rounded-full bg-white/6 flex items-center justify-center text-xs font-medium text-white overflow-hidden">
+                    {r.avatarUrl ? (
+                      <img src={String(r.avatarUrl)} alt={r.name} className="h-8 w-8 rounded-full object-cover" />
+                    ) : (
+                      (r.name || "?").slice(0, 1).toUpperCase()
+                    )}
                   </div>
                 </div>
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="truncate text-sm font-medium">{r.name}</div>
+                    <div className="truncate text-sm font-medium">{sanitizeText(r.name)}</div>
                     <div className="ml-3 shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-gray-300/80">
                       {r.type === "person" ? "Person" : r.type === "page" ? "Page" : "Other"}
                     </div>
                   </div>
-                  {r.subtitle && <div className="mt-0.5 truncate text-xs text-gray-400">{r.subtitle}</div>}
+                  {r.subtitle && <div className="mt-0.5 truncate text-xs text-gray-400">{sanitizeText(r.subtitle, 120)}</div>}
+                </div>
+
+                <div className="flex-shrink-0">
+                  {actionState.label ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleItemAction(r);
+                      }}
+                      disabled={actionState.disabled || pending}
+                      className={`rounded-md border border-white/10 px-3 py-1 text-sm font-medium ${
+                        actionState.disabled || pending ? "bg-white/3 text-gray-300" : "bg-white/5 text-white"
+                      }`}
+                    >
+                      {pending ? "..." : actionState.label}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );

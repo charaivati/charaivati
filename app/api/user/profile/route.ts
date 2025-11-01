@@ -22,8 +22,52 @@ export async function GET(req: Request) {
     const user = await getCurrentUser(req);
     if (!user?.id) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
+    // Fetch profile
     const profile = await prisma.profile.findUnique({ where: { userId: user.id } });
-    return NextResponse.json({ ok: true, profile: profile ?? null });
+
+    // Fetch friend relationships
+    const friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [{ userAId: user.id }, { userBId: user.id }],
+      },
+      select: {
+        userAId: true,
+        userBId: true,
+      },
+    });
+
+    // Extract friend IDs (the "other" user in each friendship)
+    const friends = friendships.map(f => f.userAId === user.id ? f.userBId : f.userAId);
+
+    // Fetch outgoing friend requests
+    const outgoingRequests = await prisma.friendRequest.findMany({
+      where: { senderId: user.id, status: "pending" },
+      select: { receiverId: true },
+    });
+    const outgoing = outgoingRequests.map(r => r.receiverId);
+
+    // Fetch incoming friend requests
+    const incomingRequests = await prisma.friendRequest.findMany({
+      where: { receiverId: user.id, status: "pending" },
+      select: { senderId: true },
+    });
+    const incoming = incomingRequests.map(r => r.senderId);
+
+    // Fetch following pages
+    const pageFollows = await prisma.pageFollow.findMany({
+      where: { userId: user.id },
+      select: { pageId: true },
+    });
+    const following = pageFollows.map(f => f.pageId);
+
+    return NextResponse.json({
+      ok: true,
+      profile: profile ?? null,
+      friends,
+      outgoing,
+      incoming,
+      following,
+    });
   } catch (err) {
     console.error("profile GET err", err);
     return NextResponse.json({ error: "server error" }, { status: 500 });

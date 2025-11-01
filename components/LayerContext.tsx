@@ -45,9 +45,9 @@ const defaultLayers: LayerItem[] = [
     hint: "Personal",
     tabs: [
       { id: "self-personal", label: "Personal", description: "Personal", route: "/self" },
-      { id: "self-social", label: "Social", description: "Friends & social", route: "/self?tab=social" },
-      { id: "self-learn", label: "Learn", description: "Learning", route: "/self?tab=learn" },
-      { id: "self-earn", label: "Earn", description: "Earning", route: "/self?tab=earn" },
+      { id: "self-social", label: "Social", description: "Friends & social", route: "/self" },
+      { id: "self-learn", label: "Learn", description: "Learning", route: "/self" },
+      { id: "self-earn", label: "Earn", description: "Earning", route: "/self" },
     ],
   },
   {
@@ -55,10 +55,10 @@ const defaultLayers: LayerItem[] = [
     label: "Society",
     hint: "Local & State",
     tabs: [
-      { id: "soc-panchayat", label: "Panchayat/Ward", route: "/society?tab=panchayat" },
-      { id: "soc-legislative", label: "Legislative constituency", route: "/society?tab=legislative" },
-      { id: "soc-parliamentary", label: "Parliamentary constituency", route: "/society?tab=parliamentary" },
-      { id: "soc-state", label: "State", route: "/society?tab=state" },
+      { id: "soc-panchayat", label: "Panchayat/Ward", route: "/society" },
+      { id: "soc-legislative", label: "Legislative constituency", route: "/society" },
+      { id: "soc-parliamentary", label: "Parliamentary constituency", route: "/society" },
+      { id: "soc-state", label: "State", route: "/society" },
     ],
   },
   {
@@ -66,10 +66,10 @@ const defaultLayers: LayerItem[] = [
     label: "Nation",
     hint: "Country-wide",
     tabs: [
-      { id: "nat-legislature", label: "Legislature", route: "/nation?tab=legislature" },
-      { id: "nat-executive", label: "Executive", route: "/nation?tab=executive" },
-      { id: "nat-judiciary", label: "Judiciary", route: "/nation?tab=judiciary" },
-      { id: "nat-media", label: "Media", route: "/nation?tab=media" },
+      { id: "nat-legislature", label: "Legislature", route: "/nation" },
+      { id: "nat-executive", label: "Executive", route: "/nation" },
+      { id: "nat-judiciary", label: "Judiciary", route: "/nation" },
+      { id: "nat-media", label: "Media", route: "/nation" },
     ],
   },
   {
@@ -77,10 +77,10 @@ const defaultLayers: LayerItem[] = [
     label: "Earth",
     hint: "Global",
     tabs: [
-      { id: "earth-worldview", label: "World View", route: "/earth?tab=worldview" },
-      { id: "earth-humanstories", label: "Human stories", route: "/earth?tab=humanstories" },
-      { id: "earth-collab", label: "Collaborate / Act Now", route: "/earth?tab=collaborate" },
-      { id: "earth-knowledge", label: "Knowledge / Tools", route: "/earth?tab=knowledge" },
+      { id: "earth-worldview", label: "World View", route: "/earth" },
+      { id: "earth-humanstories", label: "Human stories", route: "/earth" },
+      { id: "earth-collab", label: "Collaborate / Act Now", route: "/earth" },
+      { id: "earth-knowledge", label: "Knowledge / Tools", route: "/earth" },
     ],
   },
   {
@@ -88,10 +88,10 @@ const defaultLayers: LayerItem[] = [
     label: "Universe",
     hint: "Beyond",
     tabs: [
-      { id: "uni-spirit", label: "Spirituality", route: "/universe?tab=spirituality" },
-      { id: "uni-science", label: "Science", route: "/universe?tab=science" },
-      { id: "uni-ideas", label: "Ideas", route: "/universe?tab=ideas" },
-      { id: "uni-other", label: "Other", route: "/universe?tab=other" },
+      { id: "uni-spirit", label: "Spirituality", route: "/universe" },
+      { id: "uni-science", label: "Science", route: "/universe" },
+      { id: "uni-ideas", label: "Ideas", route: "/universe" },
+      { id: "uni-other", label: "Other", route: "/universe" },
     ],
   },
 ];

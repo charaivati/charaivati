@@ -14,7 +14,6 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close menu when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -28,7 +27,6 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
     }
   }, [isOpen]);
 
-  // If no profile, show login button
   if (!profile) {
     return (
       <a
@@ -49,7 +47,6 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
     .toUpperCase()
     .slice(0, 2);
 
-  // Compact version for mobile
   if (compact) {
     return (
       <div className="relative" ref={menuRef}>
@@ -62,13 +59,11 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
 
         {isOpen && (
           <div className="absolute top-full right-0 mt-2 w-56 bg-black border border-white/20 rounded-lg shadow-xl overflow-hidden z-50">
-            {/* User info header */}
             <div className="px-4 py-3 border-b border-white/10">
               <div className="text-sm font-medium text-white">{userName}</div>
               {userEmail && <div className="text-xs text-gray-400 mt-0.5">{userEmail}</div>}
             </div>
 
-            {/* Menu items */}
             <div className="py-1">
               <button
                 onClick={() => {
@@ -93,7 +88,6 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
               </button>
             </div>
 
-            {/* Logout */}
             <div className="border-t border-white/10">
               <button
                 onClick={() => {
@@ -112,7 +106,6 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
     );
   }
 
-  // Full version for desktop sidebar
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -126,14 +119,11 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
           <div className="text-sm font-medium text-white truncate">{userName}</div>
           {userEmail && <div className="text-xs text-gray-400 truncate">{userEmail}</div>}
         </div>
-        <ChevronDown
-          className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${isOpen ? "rotate-180" : ""}`}
-        />
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {isOpen && (
         <div className="absolute bottom-full left-0 right-0 mb-2 bg-black border border-white/20 rounded-lg shadow-xl overflow-hidden z-50">
-          {/* Menu items */}
           <div className="py-1">
             <button
               onClick={() => {
@@ -158,7 +148,6 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
             </button>
           </div>
 
-          {/* Logout */}
           <div className="border-t border-white/10">
             <button
               onClick={() => {

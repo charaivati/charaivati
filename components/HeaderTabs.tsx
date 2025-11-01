@@ -40,9 +40,11 @@ export default function HeaderTabs({ onNavigate }: Props) {
 
   // If URL has tab param, try to match it
   if (tabParam && mounted) {
-    const matchedTab = currentLayer.tabs.find((t) =>
-      t.id.toLowerCase().includes(tabParam.toLowerCase())
-    );
+    const matchedTab = currentLayer.tabs.find((t) => {
+      const tabLabel = String(t.label || "").toLowerCase().trim();
+      const paramLabel = String(tabParam || "").toLowerCase().trim();
+      return tabLabel === paramLabel || t.id.toLowerCase().includes(paramLabel);
+    });
     if (matchedTab) {
       activeTabId = matchedTab.id;
     }
@@ -55,10 +57,16 @@ export default function HeaderTabs({ onNavigate }: Props) {
     // Update context
     ctx.setActiveTab(activeLayerId, tabId);
 
-    // Navigate to tab's route
-    if (tab.route) {
-      router.push(tab.route);
-    }
+    // Build URL with tab parameter
+    // Use tab.label as the query param (normalize to lowercase)
+    const tabLabel = String(tab.label || "").toLowerCase();
+    const baseRoute = tab.route || `/self`;
+    
+    // Ensure we're setting the ?tab parameter
+    const separator = baseRoute.includes("?") ? "&" : "?";
+    const urlWithTab = `${baseRoute}${separator}tab=${tabLabel}`;
+    
+    router.push(urlWithTab);
   }
 
   // Horizontal tabs for both mobile and desktop (always centered)

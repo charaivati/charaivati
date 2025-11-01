@@ -70,6 +70,7 @@ export function middleware(req: NextRequest) {
     res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     res.headers.set("X-Frame-Options", "DENY");
     res.headers.set("X-XSS-Protection", "0");
+
     return res;
   } catch (err) {
     console.error("Middleware error:", err);

@@ -14,7 +14,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const h = isProd ? await headers() : null;
   const nonce = isProd ? h?.get("x-nonce") ?? undefined : undefined;
 
-  // IMPORTANT: cookies() can be async in this Next version -> await it.
+  // IMPORTANT: cookies() may be async in this Next version -> await it.
   const ck = await cookies();
   const serverTheme = ck.get("charaivati.theme")?.value ?? "dark";
 
@@ -39,7 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="icon" href="/favicon.ico" />
       </head>
       <body className={bodyClass}>
-        {/* Inline theme init — only include nonce attribute in production when present */}
+        {/* Inline theme init — include nonce attribute in production when present */}
         <script
           {...(isProd && nonce ? { nonce } : {})}
           dangerouslySetInnerHTML={{ __html: inlineScript }}
