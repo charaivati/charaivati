@@ -1,7 +1,7 @@
-// components/UnifiedSearch.tsx
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type ResultType = "person" | "page" | "unknown";
 
@@ -37,9 +37,7 @@ const DEBOUNCE_MS = 250;
 function sanitizeText(raw: any, maxLen = 80): string {
   if (raw == null) return "";
   let s = String(raw);
-  // remove control characters
   s = s.replace(/[\x00-\x1F\x7F]/g, "");
-  // collapse whitespace
   s = s.replace(/\s+/g, " ").trim();
   if (s.length > maxLen) return s.slice(0, maxLen - 1).trim() + "…";
   return s;
@@ -49,15 +47,23 @@ function sanitizeText(raw: any, maxLen = 80): string {
 function normalizeRawResults(rawResults: any[]): SearchResult[] {
   if (!Array.isArray(rawResults)) return [];
   return rawResults.map((r: any) => {
-    const rawId = r?.id ?? r?._id ?? r?.uuid ?? "";
+    const rawId = r?.id ?? r?._id ?? r?.uuid ?? r?.uid ?? r?.pageId ?? "";
     const id = String(rawId);
-    const typeRaw = (r?.type ?? r?.kind ?? r?.resultType ?? "").toString().toLowerCase();
-    const type: ResultType = typeRaw === "person" || typeRaw === "user" ? "person" : typeRaw === "page" ? "page" : "unknown";
+    const typeRaw = String(r?.type ?? r?.kind ?? r?.resultType ?? "").toLowerCase();
+    const type: ResultType =
+      typeRaw === "person" || typeRaw === "user" ? "person" : typeRaw === "page" ? "page" : "unknown";
     const name = sanitizeText(r?.name ?? r?.title ?? r?.displayName ?? r?.fullName ?? "");
     const subtitle = sanitizeText(r?.subtitle ?? r?.meta?.subtitle ?? r?.description ?? r?.role ?? "", 120);
     const avatarUrl = r?.avatarUrl ?? r?.image ?? r?.avatar ?? null;
     return { id, type, name, subtitle, avatarUrl, ...r };
   });
+}
+
+function looksLikeDevMockId(id: string) {
+  if (!id) return true;
+  if (/^u\d+$/.test(id) || /^p\d+$/.test(id)) return true;
+  if (id.length <= 3) return true;
+  return false;
 }
 
 export default function UnifiedSearch({
@@ -82,6 +88,8 @@ export default function UnifiedSearch({
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<number | undefined>(undefined);
 
+  const [portalStyle, setPortalStyle] = useState<{ top: number; left: number; width: number } | null>(null);
+
   function labelForItem(r: SearchResult) {
     if (!r?.id) return { label: null, disabled: true };
     if (r.type === "page") {
@@ -96,17 +104,12 @@ export default function UnifiedSearch({
     return { label: null, disabled: true };
   }
 
-  /** Primary fetch: first try /api/search, fallback to /api/users + /api/user/pages */
   async function fetchResultsRaw(q: string): Promise<SearchResult[]> {
-    // quick guard
     if (!q || q.trim().length === 0) return [];
-
-    // Abort previous
     abortControllerRef.current?.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    // Try unified endpoint first (if it exists)
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
         method: "GET",
@@ -116,24 +119,13 @@ export default function UnifiedSearch({
       });
       if (res.ok) {
         const data = await res.json().catch(() => null);
-        // If data structure is list or { results: [...] } handle both
         const raw = Array.isArray(data) ? data : data?.results ?? [];
-        if (Array.isArray(raw) && raw.length > 0) {
-          return normalizeRawResults(raw);
-        }
-        // if unified endpoint responds empty, fallthrough to fallback below
-      } else if (res.status === 404 || res.status === 501) {
-        // 404 means no unified endpoint — fall through
-      } else {
-        // non-fatal: still attempt fallback
+        if (Array.isArray(raw) && raw.length > 0) return normalizeRawResults(raw);
       }
     } catch (err: any) {
       if (err?.name === "AbortError") return [];
-      // continue to fallback on network/other errors
-      console.warn("Unified search (/api/search) failed, falling back to separate endpoints:", err);
     }
 
-    // Fallback: query user and pages endpoints in parallel
     try {
       const [usersRes, pagesRes] = await Promise.allSettled([
         fetch(`/api/users?q=${encodeURIComponent(q)}`, {
@@ -158,21 +150,16 @@ export default function UnifiedSearch({
           : [];
 
       const pagesJson =
-        pagesRes.status === "fulfilled"
-          ? await pagesRes.value.json().catch(() => ({ pages: [] }))
-          : { pages: [] };
+        pagesRes.status === "fulfilled" ? await pagesRes.value.json().catch(() => ({ pages: [] })) : { pages: [] };
 
       const users = (Array.isArray(usersArr) ? usersArr : []).map((u: any) => ({ ...u, type: "person" }));
-      // some pages endpoints return { pages: [...] }
-      const pages = Array.isArray(pagesJson) ? pagesJson : (pagesJson?.pages ?? []);
+      const pages = Array.isArray(pagesJson) ? pagesJson : pagesJson?.pages ?? [];
       const pagesMapped = (Array.isArray(pages) ? pages : []).map((p: any) => ({ ...p, type: "page" }));
 
-      // Merge — preserve ordering: users then pages (you can change to interleave or sort)
       const mergedRaw = [...users, ...pagesMapped];
       return normalizeRawResults(mergedRaw);
     } catch (err: any) {
       if (err?.name === "AbortError") return [];
-      console.error("Fallback search error:", err);
       throw err;
     }
   }
@@ -195,7 +182,6 @@ export default function UnifiedSearch({
       setHighlightIndex(normalized.length > 0 ? 0 : -1);
     } catch (err: any) {
       if (err?.name === "AbortError") return;
-      console.error("UnifiedSearch fetch error", err);
       setError(String(err?.message ?? "Search failed"));
       setResults([]);
       setOpen(true);
@@ -271,6 +257,12 @@ export default function UnifiedSearch({
 
   async function handleItemAction(r: SearchResult) {
     if (!r || !r.id) return;
+    if (looksLikeDevMockId(r.id)) {
+      console.warn("[UnifiedSearch] blocked action on dev/mock id:", r.id);
+      alert("This item looks like a developer mock and cannot be acted on.");
+      return;
+    }
+
     const id = r.id;
     setActionPendingIds((s) => ({ ...s, [id]: true }));
     try {
@@ -285,6 +277,7 @@ export default function UnifiedSearch({
       }
     } catch (err: any) {
       console.error("UnifiedSearch item action failed", err);
+      alert("Action failed: " + String(err?.message ?? "server error"));
     } finally {
       setActionPendingIds((s) => {
         const nxt = { ...s };
@@ -294,10 +287,35 @@ export default function UnifiedSearch({
     }
   }
 
-  return (
+  // recalc dropdown position
+  useEffect(() => {
+    function compute() {
+      const el = inputRef.current;
+      if (!el) {
+        setPortalStyle(null);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const top = Math.max(rect.bottom + 6 + window.scrollY, 0);
+      const left = rect.left + window.scrollX;
+      const width = Math.max(rect.width, 200);
+      setPortalStyle({ top, left, width });
+    }
+    if (open && (results.length > 0 || loading || error)) {
+      compute();
+      window.addEventListener("resize", compute);
+      window.addEventListener("scroll", compute, true);
+      return () => {
+        window.removeEventListener("resize", compute);
+        window.removeEventListener("scroll", compute, true);
+      };
+    }
+    setPortalStyle(null);
+  }, [open, results, loading, error]);
+
+  const inputEl = (
     <div ref={containerRef} className={`relative ${className}`}>
       <label className="sr-only">Search</label>
-
       <div className="flex items-center gap-3">
         <div className="flex-1 relative">
           <input
@@ -316,13 +334,23 @@ export default function UnifiedSearch({
           />
         </div>
       </div>
+    </div>
+  );
 
-      {open && (loading || error || results.length > 0) && (
-        <div
-          id="unified-search-listbox"
-          role="listbox"
-          className="mt-2 max-h-72 w-full overflow-auto rounded-md border border-white/6 bg-black/95 py-1 text-sm shadow-lg"
-        >
+  const dropdownEl =
+    portalStyle && (open && (loading || error || results.length > 0)) ? (
+      <div
+        id="unified-search-listbox"
+        role="listbox"
+        style={{
+          position: "absolute",
+          top: portalStyle.top,
+          left: portalStyle.left,
+          width: portalStyle.width,
+          zIndex: 9999,
+        }}
+      >
+        <div className="mt-0 max-h-72 w-full overflow-auto rounded-md border border-white/6 bg-black/95 py-1 text-sm shadow-lg">
           {loading && <div className="px-3 py-2 text-xs text-gray-400">Searching…</div>}
           {error && !loading && <div className="px-3 py-2 text-xs text-red-400">Error: {error}</div>}
           {!loading && !error && results.length === 0 && <div className="px-3 py-2 text-xs text-gray-500">No results</div>}
@@ -346,6 +374,7 @@ export default function UnifiedSearch({
                 <div className="flex-shrink-0">
                   <div className="h-8 w-8 rounded-full bg-white/6 flex items-center justify-center text-xs font-medium text-white overflow-hidden">
                     {r.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
                       <img src={String(r.avatarUrl)} alt={r.name} className="h-8 w-8 rounded-full object-cover" />
                     ) : (
                       (r.name || "?").slice(0, 1).toUpperCase()
@@ -354,13 +383,10 @@ export default function UnifiedSearch({
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="truncate text-sm font-medium">{sanitizeText(r.name)}</div>
-                    <div className="ml-3 shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-gray-300/80">
-                      {r.type === "person" ? "Person" : r.type === "page" ? "Page" : "Other"}
-                    </div>
-                  </div>
-                  {r.subtitle && <div className="mt-0.5 truncate text-xs text-gray-400">{sanitizeText(r.subtitle, 120)}</div>}
+                  <div className="truncate text-sm font-medium">{sanitizeText(r.name)}</div>
+                  {r.subtitle && (
+                    <div className="mt-0.5 truncate text-xs text-gray-400">{sanitizeText(r.subtitle, 120)}</div>
+                  )}
                 </div>
 
                 <div className="flex-shrink-0">
@@ -384,7 +410,13 @@ export default function UnifiedSearch({
             );
           })}
         </div>
-      )}
-    </div>
+      </div>
+    ) : null;
+
+  return (
+    <>
+      {inputEl}
+      {dropdownEl ? createPortal(dropdownEl, document.body) : null}
+    </>
   );
 }
