@@ -1,7 +1,7 @@
+// app/(with-nav)/earth/page.tsx
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
 import FeatureGate from "@/components/FeatureGate";
@@ -18,13 +18,13 @@ function EarthPageContent() {
   const searchParams = useSearchParams();
   const tabParam = (searchParams?.get("tab") || "").toLowerCase().trim();
   const ctx = useLayerContext();
+  const LS_KEY = "charaivati.selectedGlobal";
 
   const [active, setActive] = useState<"worldview" | "human" | "collaborate" | "knowledge">("worldview");
   const [selection, setSelection] = useState<GlobalSelection | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
-  const LS_KEY = "charaivati.selectedGlobal";
 
-  // flags
+  // Feature flags
   const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
   const [flagsLoading, setFlagsLoading] = useState(true);
 
@@ -54,12 +54,11 @@ function EarthPageContent() {
     if (tabParam) {
       switch (tabParam) {
         case "human":
-        case "human-stories":
+        case "humanstories":
           setActive("human");
           break;
         case "collaborate":
         case "act":
-        case "act-now":
           setActive("collaborate");
           break;
         case "knowledge":
@@ -111,101 +110,102 @@ function EarthPageContent() {
     }
   }
 
-  function handleLeft() {
-    router.push("/universe");
-  }
-  function handleRight() {
-    router.push("/nation");
-  }
+  const layerId = "layer-earth";
+  const activeTabId =
+    ctx?.activeTabs?.[layerId] ?? ctx?.layers?.find((l) => l.id === layerId)?.tabs?.[0]?.id;
+  const showWorldView = String(activeTabId || "").toLowerCase().includes("worldview");
+  const showHuman = String(activeTabId || "").toLowerCase().includes("human");
+  const showCollaborate = String(activeTabId || "").toLowerCase().includes("collab");
+  const showKnowledge = String(activeTabId || "").toLowerCase().includes("knowledge");
 
+  // Flag keys
   const keys = {
-    layer: "layer.earth",
     worldview: "layer.earth.worldview",
-    human: "layer.earth.human",
+    human: "layer.earth.humanstories",
     collaborate: "layer.earth.collaborate",
     knowledge: "layer.earth.knowledge",
+    layer: "layer.earth",
   };
-
-  function isAllowed(perKey: string | null) {
-    if (!flags) return false;
-    const layerFlag = flags[keys.layer];
-    if (layerFlag && !layerFlag.enabled) return false;
-    if (!perKey) return true;
-    const pk = flags[perKey];
-    if (pk === undefined) return true;
-    return !!pk.enabled;
-  }
 
   if (flagsLoading) {
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+      <div className="flex items-center justify-center p-8">
         <div className="text-center">
           <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-400">Loading Earth view...</p>
+          <p className="text-sm text-gray-400">Loading Earth features...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-white relative pb-16">
-      <button onClick={handleLeft} aria-label="Back to universe" className="fixed top-4 left-4 z-50 p-2 rounded-full bg-white/6">
-        <ArrowLeft size={18} />
-        <span className="text-xs px-2 py-1 rounded-full bg-white/10">{detected ?? "World"}</span>
-      </button>
+    <>
+      {/* Page Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold mb-2">Earth</h1>
+        <p className="text-sm text-gray-400">
+          Global perspectives and collective action
+          {detected && <span className="ml-2 text-gray-300">• {detected}</span>}
+        </p>
+      </div>
 
-      <button onClick={handleRight} aria-label="Go to nation" className="fixed top-4 right-4 z-50 p-2 rounded-full bg-white/6">
-        <span className="text-xs px-2 py-1 rounded-full bg-white/10">{detected ?? "World"}</span>
-        <ArrowRight size={18} />
-      </button>
+      {/* Tab Content */}
+      <div className="space-y-6">
+        {/* World View */}
+        {showWorldView && (
+          <FeatureGate flagKey={keys.worldview} flags={flags} showPlaceholder={true}>
+            <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+          </FeatureGate>
+        )}
 
-      <div className="max-w-4xl mx-auto pt-8 px-4">
-        <div className="max-w-3xl mx-auto">
-          {active === "worldview" && (
-            <FeatureGate flagKey={keys.worldview} flags={flags} showPlaceholder={true}>
-              <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-            </FeatureGate>
-          )}
-          {active === "human" && (
-            <FeatureGate flagKey={keys.human} flags={flags} showPlaceholder={true}>
-              <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-            </FeatureGate>
-          )}
-          {active === "collaborate" && (
-            <FeatureGate flagKey={keys.collaborate} flags={flags} showPlaceholder={true}>
-              <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-            </FeatureGate>
-          )}
-          {active === "knowledge" && (
-            <FeatureGate flagKey={keys.knowledge} flags={flags} showPlaceholder={true}>
-              <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-            </FeatureGate>
-          )}
-        </div>
+        {/* Human Stories */}
+        {showHuman && (
+          <FeatureGate flagKey={keys.human} flags={flags} showPlaceholder={true}>
+            <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+          </FeatureGate>
+        )}
 
-        <div className="max-w-3xl mx-auto mt-6 p-4 bg-black/40 rounded">
-          <div className="text-sm text-gray-300 mb-2">Global selection (stored locally)</div>
-          <pre className="text-xs bg-white/6 p-3 rounded text-gray-200">{JSON.stringify(selection, null, 2)}</pre>
-          <div className="flex justify-end mt-3 gap-2">
-            <button onClick={() => { localStorage.removeItem(LS_KEY); setSelection(null); setDetected("World"); }} className="px-4 py-2 rounded bg-gray-700">Clear</button>
-            <button onClick={() => { if (selection) localStorage.setItem(LS_KEY, JSON.stringify(selection)); alert("Saved"); }} className="px-4 py-2 rounded bg-green-600">Save</button>
+        {/* Collaborate */}
+        {showCollaborate && (
+          <FeatureGate flagKey={keys.collaborate} flags={flags} showPlaceholder={true}>
+            <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+          </FeatureGate>
+        )}
+
+        {/* Knowledge */}
+        {showKnowledge && (
+          <FeatureGate flagKey={keys.knowledge} flags={flags} showPlaceholder={true}>
+            <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />
+          </FeatureGate>
+        )}
+      </div>
+
+      {/* Debug Section */}
+      {selection && (
+        <div className="mt-8 p-4 bg-white/5 rounded-lg border border-white/10">
+          <div className="text-sm font-medium text-gray-400 mb-2">Global Selection</div>
+          <div className="space-y-1 text-xs text-gray-300">
+            {selection.region && <div>Region: {selection.region}</div>}
+            {selection.focus && <div>Focus: {selection.focus}</div>}
           </div>
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }
 
 export default function EarthPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-400">Loading Earth view...</p>
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center p-8">
+          <div className="text-center">
+            <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-sm text-gray-400">Loading Earth view...</p>
+          </div>
         </div>
-      </div>
-    }>
+      }
+    >
       <EarthPageContent />
     </Suspense>
   );
