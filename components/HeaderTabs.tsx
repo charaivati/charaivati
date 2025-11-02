@@ -1,4 +1,3 @@
-// components/HeaderTabs.tsx
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -14,23 +13,18 @@ export default function HeaderTabs({ onNavigate }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // basic hooks (always declared)
   const [mounted, setMounted] = useState(false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  
+  // Touch tracking
+  const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // compute active layer and candidate active tab (no hooks here)
   const activeLayerId = ctx.activeLayerId || "layer-self";
   const currentLayer = ctx.getLayerById(activeLayerId);
 
-  // determine activeTabId from context or URL param (safe even if currentLayer undefined)
   const tabParam = searchParams?.get("tab");
   let activeTabId = ctx.activeTabs[activeLayerId] || (currentLayer?.tabs?.[0]?.id ?? "");
-
   if (tabParam && mounted && currentLayer?.tabs) {
     const paramLower = String(tabParam || "").toLowerCase().trim();
     const matchedTab = currentLayer.tabs.find((t) => {
@@ -40,25 +34,110 @@ export default function HeaderTabs({ onNavigate }: Props) {
     if (matchedTab) activeTabId = matchedTab.id;
   }
 
-  // ----- Always declare this effect (unconditionally) -----
   useEffect(() => {
-    // center active tab if present
+    setMounted(true);
+  }, []);
+
+  // Listen for swipe events from layout header
+  useEffect(() => {
+    const handleSwipe = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      console.log("[HeaderTabs] Swipe received:", customEvent.detail.direction);
+      
+      if (customEvent.detail.direction === "left") {
+        goToNextTab();
+      } else {
+        goToPrevTab();
+      }
+    };
+
+    window.addEventListener("headerSwipe", handleSwipe);
+    return () => window.removeEventListener("headerSwipe", handleSwipe);
+  }, [currentLayer, activeTabId]);
+
+  // Center selected tab
+  useEffect(() => {
     const el = tabRefs.current[activeTabId];
-    if (!el) return;
-    if (el.scrollIntoView) {
-      el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-      return;
-    }
-    // fallback centering if scrollIntoView not available
-    const scroller = scrollerRef.current;
-    if (!scroller) return;
-    const scrollerRect = scroller.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    const delta = elRect.left - scrollerRect.left - (scrollerRect.width - elRect.width) / 2;
-    scroller.scrollBy({ left: delta, behavior: "smooth" });
+    if (!el || !scrollerRef.current) return;
+
+    const relativeLeft = el.offsetLeft;
+    const centerTarget = relativeLeft - scrollerRef.current.clientWidth / 2 + el.offsetWidth / 2;
+    const nudge = Math.min(56, Math.floor(el.offsetWidth / 2) + 12);
+    let target = Math.max(0, Math.floor(centerTarget - nudge));
+    const maxScroll = Math.max(0, scrollerRef.current.scrollWidth - scrollerRef.current.clientWidth);
+    if (target > maxScroll) target = maxScroll;
+
+    scrollerRef.current.scrollTo({ left: target, behavior: "smooth" });
   }, [activeTabId]);
 
-  // early returns that happen *after* all hooks were declared
+  function handleTabClick(tabId: string) {
+    const tab = ctx.getTabById(activeLayerId, tabId);
+    if (!tab) return;
+
+    ctx.setActiveTab(activeLayerId, tabId);
+    const tabLabel = String(tab.label || "").toLowerCase();
+    const baseRoute = tab.route || `/self`;
+    const separator = baseRoute.includes("?") ? "&" : "?";
+    const urlWithTab = `${baseRoute}${separator}tab=${encodeURIComponent(tabLabel)}`;
+    router.push(urlWithTab);
+  }
+
+  function goToNextTab() {
+    const tabs = currentLayer?.tabs ?? [];
+    const idx = tabs.findIndex((t) => t.id === activeTabId);
+    if (idx >= 0 && idx < tabs.length - 1) {
+      handleTabClick(tabs[idx + 1].id);
+    }
+  }
+
+  function goToPrevTab() {
+    const tabs = currentLayer?.tabs ?? [];
+    const idx = tabs.findIndex((t) => t.id === activeTabId);
+    if (idx > 0) {
+      handleTabClick(tabs[idx - 1].id);
+    }
+  }
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    touchStart.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      time: Date.now(),
+    };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStart.current || e.changedTouches.length !== 1) return;
+
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const dx = endX - touchStart.current.x;
+    const dy = endY - touchStart.current.y;
+    const dt = Date.now() - touchStart.current.time;
+
+    touchStart.current = null;
+
+    // Thresholds
+    const MIN_DISTANCE = 20;
+    const MAX_TIME = 1000;
+    const MAX_VERTICAL = 50;
+
+    // Check if it's a valid horizontal swipe
+    if (
+      Math.abs(dx) > MIN_DISTANCE &&
+      Math.abs(dx) > Math.abs(dy) &&
+      Math.abs(dy) < MAX_VERTICAL &&
+      dt < MAX_TIME
+    ) {
+      if (dx > 0) {
+        goToPrevTab();
+      } else {
+        goToNextTab();
+      }
+    }
+  };
+
   if (!mounted) {
     return (
       <div className="flex items-center justify-center h-10">
@@ -71,61 +150,42 @@ export default function HeaderTabs({ onNavigate }: Props) {
     return null;
   }
 
-  // click handler (uses refs & router)
-  function handleTabClick(tabId: string) {
-    const tab = ctx.getTabById(activeLayerId, tabId);
-    if (!tab) return;
-
-    ctx.setActiveTab(activeLayerId, tabId);
-
-    const tabLabel = String(tab.label || "").toLowerCase();
-    const baseRoute = tab.route || `/self`;
-    const separator = baseRoute.includes("?") ? "&" : "?";
-    const urlWithTab = `${baseRoute}${separator}tab=${encodeURIComponent(tabLabel)}`;
-    router.push(urlWithTab);
-
-    // scroll clicked tab into center immediately
-    const el = tabRefs.current[tabId];
-    if (el?.scrollIntoView) {
-      el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-    } else if (scrollerRef.current && el) {
-      const scroller = scrollerRef.current;
-      const scrollerRect = scroller.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const delta = elRect.left - scrollerRect.left - (scrollerRect.width - elRect.width) / 2;
-      scroller.scrollBy({ left: delta, behavior: "smooth" });
-    }
-  }
-
-  // render
   return (
-    <div className="flex justify-center w-full">
+    <div 
+      className="w-full flex justify-center"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      style={{ touchAction: "manipulation" }}
+    >
       <div
+        className="overflow-x-auto no-scrollbar flex justify-center w-full"
         ref={scrollerRef}
-        className="flex items-center gap-2 px-2 py-1 overflow-x-auto no-scrollbar"
         role="tablist"
         aria-label="Page tabs"
       >
-        {currentLayer.tabs.map((tab) => {
-          const isActive = tab.id === activeTabId;
-          return (
-            <button
-              key={tab.id}
-              ref={(el: HTMLButtonElement | null) => {
-                tabRefs.current[tab.id] = el; // callback ref returns void — type-safe
-              }}
-              onClick={() => handleTabClick(tab.id)}
-              aria-selected={isActive}
-              role="tab"
-              className={`inline-flex items-center whitespace-nowrap px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-                isActive ? "bg-white text-black shadow-sm" : "text-gray-300 hover:text-white hover:bg-white/5"
-              }`}
-              type="button"
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+        <div className="flex items-end justify-center gap-4 px-4 py-0 min-w-max h-12">
+          {currentLayer.tabs.map((tab) => {
+            const isActive = tab.id === activeTabId;
+            return (
+              <button
+                key={tab.id}
+                ref={(el) => {
+                  tabRefs.current[tab.id] = el;
+                }}
+                onClick={() => handleTabClick(tab.id)}
+                aria-selected={isActive}
+                role="tab"
+                className={`inline-flex items-center justify-center whitespace-nowrap px-5 text-sm font-medium transition-all h-9 self-end ${
+                  isActive ? "bg-black text-white rounded-none -mb-px" : "text-white/80 hover:text-white"
+                }`}
+                type="button"
+                style={{ lineHeight: "2rem" }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

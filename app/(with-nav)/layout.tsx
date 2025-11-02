@@ -1,4 +1,3 @@
-// app/layout.tsx
 "use client";
 
 import React, { useEffect, useState, Suspense, useRef } from "react";
@@ -171,7 +170,9 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ pageId }),
     });
     if (!res.ok) throw new Error("Failed to follow");
-    setFriendState((s) => (s.following.includes(pageId) ? s : { ...s, following: [...s.following, pageId] }));
+    setFriendState((s) =>
+      s.following.includes(pageId) ? s : { ...s, following: [...s.following, pageId] }
+    );
   }
 
   async function onSendFriend(userId: string) {
@@ -182,21 +183,25 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
       body: JSON.stringify({ receiverId: userId }),
     });
     if (!res.ok) throw new Error("Failed to add friend");
-    setFriendState((s) => (s.outgoing.includes(userId) ? s : { ...s, outgoing: [...s.outgoing, userId] }));
+    setFriendState((s) =>
+      s.outgoing.includes(userId) ? s : { ...s, outgoing: [...s.outgoing, userId] }
+    );
   }
 
-  function onActionComplete(
-    kind: "page" | "person",
-    id: string,
-    status: "following" | "requested" | "friends"
-  ) {
+  function onActionComplete(kind: "page" | "person", id: string, status: "following" | "requested" | "friends") {
     if (kind === "page" && status === "following") {
-      setFriendState((s) => (s.following.includes(id) ? s : { ...s, following: [...s.following, id] }));
+      setFriendState((s) =>
+        s.following.includes(id) ? s : { ...s, following: [...s.following, id] }
+      );
     } else if (kind === "person") {
       if (status === "requested") {
-        setFriendState((s) => (s.outgoing.includes(id) ? s : { ...s, outgoing: [...s.outgoing, id] }));
+        setFriendState((s) =>
+          s.outgoing.includes(id) ? s : { ...s, outgoing: [...s.outgoing, id] }
+        );
       } else if (status === "friends") {
-        setFriendState((s) => (s.friends.includes(id) ? s : { ...s, friends: [...s.friends, id] } ));
+        setFriendState((s) =>
+          s.friends.includes(id) ? s : { ...s, friends: [...s.friends, id] }
+        );
       }
     }
   }
@@ -208,22 +213,32 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
     <>
       {/* ------------------ MOBILE ------------------ */}
       <div className="md:hidden min-h-screen bg-black text-white pb-20">
-        {/* fixed header: top row (logo | search | profile) and second row (tabs) */}
-        <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
-          {/* TOP ROW: logo left, search centered, profile right */}
+        <div className="fixed top-0 left-0 right-0 z-50 bg-gray-700/95 backdrop-blur-lg">
           <div className="flex items-center px-4 py-2 gap-3">
             <div className="flex-none">
               <div className="flex items-center gap-2">
                 <span className="w-8 h-8 rounded-full flex items-center justify-center">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-                    <path d="M3 18s4-6 9-6 9 6 9 6" stroke="#6CA8D9" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                    <circle cx="18" cy="6" r="2.2" fill="#6CA8D9"/>
+                  <svg
+                    width="24"
+                    height="24"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path
+                      d="M3 18s4-6 9-6 9 6 9 6"
+                      stroke="#6CA8D9"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <circle cx="18" cy="6" r="2.2" fill="#6CA8D9" />
                   </svg>
                 </span>
               </div>
             </div>
 
-            {/* center search — flex-1 and min-w-0 so it can shrink and stay centered */}
             <div className="flex-1 min-w-0 flex justify-center">
               <UnifiedSearch
                 placeholder="Search people or pages…"
@@ -240,11 +255,12 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* SECOND ROW: page tabs centered and horizontally scrollable */}
-          <div className="px-3 pb-3">
+          <div className="px-3 pb-0">
             <div className="flex justify-center">
               <div className="w-full max-w-3xl overflow-x-auto no-scrollbar">
-                <Suspense fallback={<div className="h-10 flex items-center text-xs text-gray-400">Loading...</div>}>
+                <Suspense
+                  fallback={<div className="h-10 flex items-center text-xs text-gray-400">Loading...</div>}
+                >
                   <HeaderTabs onNavigate={navigateToLayerById} />
                 </Suspense>
               </div>
@@ -252,14 +268,11 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        {/* spacer: adjust height so content not hidden behind header (top row + tabs) */}
         <div className="h-[9.5rem]" />
-
         <main className="px-4 py-6">
           <div className="max-w-6xl mx-auto">{children}</div>
         </main>
 
-        {/* bottom nav — keep global layer nav (different from page tabs) */}
         <div
           className={`fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-lg border-t border-white/10 transition-transform duration-300 ${
             showBottomNav ? "translate-y-0" : "translate-y-full"
@@ -277,9 +290,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
 
       {/* ------------------ DESKTOP ------------------ */}
       <div className="hidden md:flex md:flex-col min-h-screen bg-black text-white">
-        {/* fixed header: top row (logo | search | profile) and second row (tabs) */}
-        <div className="fixed top-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-lg border-b border-white/10">
-          {/* TOP ROW */}
+        <div className="fixed top-0 left-0 right-0 z-50 bg-gray-700/95 backdrop-blur-lg border-b border-black">
           <div className="flex items-center px-6 py-3">
             <div className="flex-none">
               <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
@@ -287,7 +298,6 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
               </h1>
             </div>
 
-            {/* center search — flex-1 and min-w-0 keeps it centered and prevents wrap */}
             <div className="flex-1 min-w-0 flex justify-center">
               <UnifiedSearch
                 placeholder="Search people or pages…"
@@ -304,24 +314,24 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* SECOND ROW: centered tabs */}
-          <div className="flex justify-center px-6 pb-2">
+          <div className="flex justify-center px-6 pb-0">
             <div className="w-full max-w-3xl">
-              <Suspense fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}>
+              <Suspense
+                fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}
+              >
                 <HeaderTabs onNavigate={navigateToLayerById} />
               </Suspense>
             </div>
           </div>
         </div>
 
-        {/* spacer: top header total height (top row + tabs) */}
         <div className="h-20" />
-
-        {/* left sidebar + content */}
         <div className="flex flex-1">
           <aside className="fixed top-[5rem] left-0 h-[calc(100vh-5rem)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
             <div className="p-4">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Navigate</div>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                Navigate
+              </div>
               <ResponsiveWorldNav
                 activeId={activeId}
                 onSelect={(id) => navigateToLayerById(mapNavIdToLayerId(id))}
