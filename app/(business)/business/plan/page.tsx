@@ -1,3 +1,5 @@
+//app/(business)/business/plan/[token]/page.tsx
+
 "use client";
 import React, { useState } from "react";
 
@@ -76,7 +78,7 @@ export default function BusinessPlanPage() {
         throw new Error(text || "Server error");
       }
       const json = await res.json();
-      if (json.success) {
+      if (json.ok) {
         setResult({ planId: json.planId, retrievalToken: json.retrievalToken, shareUrl: json.shareUrl });
       } else {
         setError(json.message || "Unknown error");
