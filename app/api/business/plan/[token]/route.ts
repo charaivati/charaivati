@@ -1,40 +1,44 @@
 // app/api/business/plan/[token]/route.ts
 import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import prisma from "@/lib/prisma"; // or a relative path if alias not configured
 
-export async function GET(
-  request: Request,
-  { params }: { params: { token: string } }
-) {
+export async function GET(req: Request, context: { params: Promise<Record<string,string>> | Record<string,string> }) {
   try {
-    const token = params.token;
+    // IMPORTANT: await context.params before using it
+    const params = await context.params;
+    const token = params?.token;
+
     if (!token) {
       return NextResponse.json({ error: "Missing token" }, { status: 400 });
     }
 
-    const plan = await prisma.businessPlan.findUnique({
+    // fetch plan from DB
+    const plan = await prisma.businessPlan.findFirst({
       where: { retrievalToken: token },
+      select: {
+        id: true,
+        title: true,
+        ownerEmail: true,
+        ownerPhone: true,
+        ownerUserId: true,
+        ownerVerified: true,
+        retrievalToken: true,
+        dataJson: true,
+        pdfPath: true,
+        status: true,
+        ipAddress: true,
+        userAgent: true,
+        createdAt: true,
+        updatedAt: true,
+        expiresAt: true,
+      },
     });
 
     if (!plan) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    // optionally: remove sensitive fields
-    const safePlan = {
-      id: plan.id,
-      title: plan.title,
-      ownerEmail: plan.ownerEmail,
-      ownerPhone: plan.ownerPhone,
-      ownerVerified: plan.ownerVerified,
-      dataJson: plan.dataJson,
-      pdfPath: plan.pdfPath,
-      status: plan.status,
-      createdAt: plan.createdAt,
-      updatedAt: plan.updatedAt,
-    };
-
-    return NextResponse.json(safePlan, { status: 200 });
+    return NextResponse.json({ ok: true, plan });
   } catch (err) {
     console.error("GET /api/business/plan/[token] error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
