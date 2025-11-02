@@ -4,10 +4,10 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
-
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  
   extensions = [uuid_ossp(map: "uuid-ossp", schema: "extensions")]
 }
 
@@ -474,24 +474,24 @@ model FeatureFlag {
 }
 
 model BusinessPlan {
-  id             String    @id @default(uuid())
+  id             String   @id @default(uuid())
   title          String
   ownerEmail     String?
   ownerPhone     String?
-  ownerUserId    String? // optional FK to User.id if the owner later claims it
-  ownerVerified  Boolean   @default(false)
-  retrievalToken String    @unique
+  ownerUserId    String?   // optional FK to User.id if the owner later claims it
+  ownerVerified  Boolean  @default(false)
+  retrievalToken String   @unique
   dataJson       Json
   pdfPath        String?
-  status         String    @default("draft")
+  status         String   @default("draft")
   ipAddress      String?
   userAgent      String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
   expiresAt      DateTime?
 
   // relation named "UserBusinessPlans"
-  ownerUser User? @relation("UserBusinessPlans", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  ownerUser      User?    @relation("UserBusinessPlans", fields: [ownerUserId], references: [id], onDelete: SetNull)
 
   @@index([ownerEmail])
   @@index([ownerPhone])
@@ -501,8 +501,8 @@ model BusinessPlan {
 
 model Otp {
   id         String   @id @default(uuid())
-  target     String // email or phone (normalized)
-  targetType String // "email" | "phone"
+  target     String   // email or phone (normalized)
+  targetType String   // "email" | "phone"
   codeHash   String
   codeSalt   String?
   attempts   Int      @default(0)
