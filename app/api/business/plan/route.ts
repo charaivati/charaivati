@@ -5,6 +5,7 @@ import prisma from "../../../../lib/prisma"; // <-- relative path to lib/prisma
 
 export async function POST(req: Request) {
   try {
+    console.log("📦 Incoming business plan create request");
     const body = await req.json().catch(() => ({}));
     // minimal validation
     const token = crypto.randomBytes(6).toString("base64url");
@@ -27,10 +28,7 @@ export async function POST(req: Request) {
       shareUrl: `${process.env.NEXT_PUBLIC_BASE_URL ?? ""}/business/plan/${plan.retrievalToken}`,
     });
   } catch (err: any) {
-    console.error("POST /api/business/plan error:", err);
-    return NextResponse.json(
-      { ok: false, error: "server_error", message: String(err?.message ?? err) },
-      { status: 500 }
-    );
+    console.error("❌ POST /api/business/plan error:", err);
+    return NextResponse.json({ error: "server_error", message: err?.message || "Unknown error" }, { status: 500 });
   }
 }
