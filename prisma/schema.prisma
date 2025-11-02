@@ -7,6 +7,7 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
+  
   extensions = [uuid_ossp(map: "uuid-ossp", schema: "extensions")]
 }
 
@@ -50,6 +51,7 @@ model User {
   userTabs                UserTab[]           @relation("UserUserTabs")
   verificationTokens      VerificationToken[]
   votes                   Vote[]              @relation("UserVotes")
+  businessPlans           BusinessPlan[]      @relation("UserBusinessPlans")
 
   @@index([email])
   @@index([phone])
@@ -469,4 +471,84 @@ model FeatureFlag {
   meta      Json?
   createdAt DateTime @default(now()) @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+}
+
+model BusinessPlan {
+  id             String    @id @default(uuid())
+  title          String
+  ownerEmail     String?
+  ownerPhone     String?
+  ownerUserId    String? // optional FK to User.id if they claim it later
+  ownerVerified  Boolean   @default(false)
+  retrievalToken String    @unique
+  dataJson       Json
+  pdfPath        String?
+  status         String    @default("draft")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  expiresAt      DateTime?
+
+  // relation named "UserBusinessPlans"
+  ownerUser User? @relation("UserBusinessPlans", fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  @@index([ownerEmail])
+  @@index([ownerPhone])
+  @@index([createdAt])
+  @@index([ownerUserId])
+}
+
+model Otp {
+  id        String   @id @default(uuid())
+  target    String // phone or email (normalized)
+  code      String
+  purpose   String // "verify-owner", "recover-plan", etc
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  attempts  Int      @default(0)
+
+  @@index([target])
+  @@index([purpose])
+  @@index([createdAt])
+}
+model BusinessPlan {
+  id             String   @id @default(uuid())
+  title          String
+  ownerEmail     String?
+  ownerPhone     String?
+  ownerUserId    String?   // optional FK to User.id if the owner later claims it
+  ownerVerified  Boolean  @default(false)
+  retrievalToken String   @unique
+  dataJson       Json
+  pdfPath        String?
+  status         String   @default("draft")
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  expiresAt      DateTime?
+
+  // relation named "UserBusinessPlans"
+  ownerUser      User?    @relation("UserBusinessPlans", fields: [ownerUserId], references: [id], onDelete: SetNull)
+
+  @@index([ownerEmail])
+  @@index([ownerPhone])
+  @@index([createdAt])
+  @@index([ownerUserId])
+}
+model Otp {
+  id         String   @id @default(uuid())
+  target     String   // email or phone
+  targetType String   // "email" | "phone"
+  codeHash   String
+  codeSalt   String?
+  attempts   Int      @default(0)
+  used       Boolean  @default(false)
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([target])
+  @@index([targetType])
+  @@index([expiresAt])
 }
