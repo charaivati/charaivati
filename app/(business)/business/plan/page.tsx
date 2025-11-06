@@ -1,5 +1,4 @@
-//app/(business)/business/plan/[token]/page.tsx
-
+// app/(business)/business/plan/page.tsx
 "use client";
 import React, { useState } from "react";
 
