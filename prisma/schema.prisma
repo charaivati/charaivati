@@ -514,3 +514,80 @@ model Otp {
   @@index([targetType])
   @@index([expiresAt])
 }
+
+model BusinessIdea {
+  id              String    @id @default(uuid())
+  title           String
+  description     String    // 2-3 sentence problem statement
+  userEmail       String?
+  userPhone       String?
+  userId          String?   // Optional if logged in
+  
+  // Scoring dimensions
+  problemClarity      Int     @default(0)     // -2 to +2
+  marketNeed          Int     @default(0)
+  targetAudience      Int     @default(0)
+  uniqueValue         Int     @default(0)
+  feasibility         Int     @default(0)
+  monetization        Int     @default(0)
+  
+  // Raw responses (store all Q&A)
+  responses           Json    // { questionId: answer, ... }
+  
+  // Metadata
+  status              String  @default("draft")  // draft, submitted, shared
+  shareToken          String? @unique            // For public sharing
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  expiresAt           DateTime? // Optional: auto-delete after 90 days
+  
+  // Link to BusinessPlan if they later upgrade
+  businessPlanId      String?
+  
+  user                User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  @@index([userEmail])
+  @@index([userId])
+  @@index([status])
+}
+
+model IdeaQuestion {
+  id              String    @id @default(uuid())
+  order           Int       // Question sequence
+  text            String    // E.g., "What problem are you solving?"
+  type            String    // "text", "select", "multiselect", "rating"
+  category        String    // "problem", "market", "feasibility", "monetization"
+  scoringDim      String    // Which dimension does this score? "problemClarity", etc.
+  
+  // For select/multiselect
+  options         Json?     // [{ value, label }, ...]
+  
+  // Branching logic (if needed later)
+  dependsOn       String?   // Previous questionId that triggers this
+  dependsOnValue  String?   // Value that triggers this
+  
+  helpText        String?
+  examples        String?   // Show 2-3 examples
+  
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([order])
+  @@index([category])
+}
+
+model IdeaResponse {
+  id              String    @id @default(uuid())
+  ideaId          String
+  questionId      String
+  answer          String    // Raw answer
+  score           Int?      // -2 to +2 (calculated after submission)
+  feedback        String?   // AI or manual feedback on this answer
+  
+  createdAt       DateTime  @default(now())
+  
+  idea            BusinessIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  
+  @@unique([ideaId, questionId])
+  @@index([ideaId])
+}
