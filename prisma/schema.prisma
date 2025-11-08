@@ -52,6 +52,7 @@ model User {
   verificationTokens      VerificationToken[]
   votes                   Vote[]              @relation("UserVotes")
   businessPlans           BusinessPlan[]      @relation("UserBusinessPlans")
+  businessIdeas       BusinessIdea[] @relation("UserBusinessIdeas")
 
   @@index([email])
   @@index([phone])
@@ -523,8 +524,8 @@ model BusinessIdea {
   userPhone       String?
   userId          String?   // Optional if logged in
   
-  // Scoring dimensions
-  problemClarity      Int     @default(0)     // -2 to +2
+  // Scoring dimensions (-2 to +2)
+  problemClarity      Int     @default(0)
   marketNeed          Int     @default(0)
   targetAudience      Int     @default(0)
   uniqueValue         Int     @default(0)
@@ -544,7 +545,9 @@ model BusinessIdea {
   // Link to BusinessPlan if they later upgrade
   businessPlanId      String?
   
-  user                User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Relations
+  user                User? @relation("UserBusinessIdeas", fields: [userId], references: [id], onDelete: SetNull)
+  ideaResponses       IdeaResponse[] @relation("IdeaResponses")
   
   @@index([userEmail])
   @@index([userId])
@@ -561,6 +564,7 @@ model IdeaQuestion {
   
   // For select/multiselect
   options         Json?     // [{ value, label }, ...]
+  randomizeOptions Boolean  @default(true)
   
   // Branching logic (if needed later)
   dependsOn       String?   // Previous questionId that triggers this
@@ -586,7 +590,8 @@ model IdeaResponse {
   
   createdAt       DateTime  @default(now())
   
-  idea            BusinessIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  // Relations
+  idea            BusinessIdea @relation("IdeaResponses", fields: [ideaId], references: [id], onDelete: Cascade)
   
   @@unique([ideaId, questionId])
   @@index([ideaId])

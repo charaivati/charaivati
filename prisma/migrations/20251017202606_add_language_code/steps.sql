@@ -1,1 +1,0 @@
-ALTER TABLE "Language" ADD COLUMN "code" TEXT;
