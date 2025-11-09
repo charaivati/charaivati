@@ -1,4 +1,3 @@
-//components/TopBar
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -38,16 +37,13 @@ export default function TopBar() {
     } catch (err) {
       console.warn("Logout failed:", err);
     } finally {
-      // Clear profile immediately
       setProfile(null);
-
-      // Clear any cached auth and language data
       const keysToClear = [
         "charaivati.redirect",
         "app.language",
         "charaivati.lang",
         "language",
-        "preferredLanguage"
+        "preferredLanguage",
       ];
       keysToClear.forEach((k) => {
         try {
@@ -56,7 +52,6 @@ export default function TopBar() {
         } catch {}
       });
 
-      // Always redirect to homepage (happens in finally so always runs)
       if (typeof window !== "undefined") {
         window.location.href = "/";
       }
@@ -64,7 +59,7 @@ export default function TopBar() {
   }
 
   return (
-    <header className="flex items-center justify-between px-4 py-2 bg-black text-white">
+    <div className="flex items-center justify-between w-full">
       <div className="text-lg font-semibold">Charaivati</div>
 
       {profile ? (
@@ -100,6 +95,6 @@ export default function TopBar() {
           </button>
         </div>
       )}
-    </header>
+    </div>
   );
 }

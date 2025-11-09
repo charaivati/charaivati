@@ -1,4 +1,4 @@
-// app/(business)/business/idea/page.tsx
+// app/(business)/business/idea-batch/page.tsx
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -71,6 +71,10 @@ export default function IdeaBatchPage() {
   const questionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const scoringTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // New: only enable auto-scroll after user navigates with Next.
+  // Start disabled to avoid auto-scrolling on initial load.
+  const [enableAutoScroll, setEnableAutoScroll] = useState(false);
+
   // Fetch questions on mount
   useEffect(() => {
     let alive = true;
@@ -91,7 +95,9 @@ export default function IdeaBatchPage() {
         setQuestions(parsedQuestions);
 
         if (parsedQuestions.length > 0) {
+          // expand first question but DO NOT enable auto-scroll
           setExpandedQuestion(parsedQuestions[0].id);
+          setEnableAutoScroll(false);
         }
       } catch (error) {
         console.error("Failed to fetch questions:", error);
@@ -149,27 +155,28 @@ export default function IdeaBatchPage() {
     })();
   }, [questionsLoading]);
 
-  // Scroll expanded question smoothly near top with ~5px gap
+  // Scroll expanded question **to top** with a 5px gap (only when enabled)
   useEffect(() => {
-    if (!expandedQuestion) return;
+    if (!expandedQuestion || !enableAutoScroll) return;
 
-    const scrollToQuestion = () => {
+    const scrollToQuestionTop = () => {
       const el = questionRefs.current.get(expandedQuestion);
       if (!el) return;
 
       try {
+        // compute position and scroll so the element top sits 5px below viewport top
         const rect = el.getBoundingClientRect();
-        const absoluteY = window.scrollY + rect.top - 5; // 5px gap from top
+        const absoluteY = window.scrollY + rect.top - 5; // 5px gap
         window.scrollTo({ top: absoluteY, behavior: "smooth" });
       } catch (err) {
         // ignore measurement/scroll failures
       }
     };
 
-    // Delay slightly to ensure DOM has painted / layout stabilized
-    const t = setTimeout(scrollToQuestion, 50);
+    // small delay so DOM updates and CSS transitions settle
+    const t = setTimeout(scrollToQuestionTop, 50);
     return () => clearTimeout(t);
-  }, [expandedQuestion]);
+  }, [expandedQuestion, enableAutoScroll]);
 
   // Real-time scoring with debounce
   useEffect(() => {
@@ -299,6 +306,9 @@ export default function IdeaBatchPage() {
   const handleNextQuestion = () => {
     const currentQuestionIndex = questions.findIndex((q) => q.id === expandedQuestion);
     const nextQuestion = questions[currentQuestionIndex + 1];
+
+    // Enable auto-scroll now that the user explicitly moved forward
+    setEnableAutoScroll(true);
 
     if (nextQuestion) {
       setExpandedQuestion(nextQuestion.id);
@@ -434,8 +444,6 @@ export default function IdeaBatchPage() {
               );
             })}
           </div>
-
-
         </div>
 
         <div className="lg:col-span-1">

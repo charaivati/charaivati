@@ -1,4 +1,3 @@
-// components/business/CollapsibleQuestionCard.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -28,7 +27,6 @@ interface CollapsibleQuestionCardProps {
   onToggleExpand: () => void;
   isAnswered: boolean;
   onNext?: () => void;
-  // future: autoAdvance?: boolean;
 }
 
 export default function CollapsibleQuestionCard({
@@ -42,7 +40,6 @@ export default function CollapsibleQuestionCard({
 }: CollapsibleQuestionCardProps) {
   const [shuffledOptions, setShuffledOptions] = useState<Option[]>([]);
 
-  // Randomize options when question loads
   useEffect(() => {
     if (question.type === "select" && question.options) {
       if (question.randomizeOptions) {
@@ -60,27 +57,19 @@ export default function CollapsibleQuestionCard({
     if (!answer) return "Not answered";
 
     if (question.type === "select") {
-      // prefer original options for stable labels if available
       const option =
         question.options?.find((opt) => opt.value === answer) ||
         shuffledOptions.find((opt) => opt.value === answer);
       return option?.label || answer;
     }
 
-    // For text answers, show first 50 chars
     return answer.length > 50 ? answer.substring(0, 50) + "..." : answer;
   };
 
   const handleOptionClick = (value: string) => {
     onAnswerChange(value);
-
-    // Optional: auto-advance after a short delay when selecting an option.
-    // Uncomment the lines below to enable auto-advance:
-    // if (onNext) {
-    //   setTimeout(() => {
-    //     onNext();
-    //   }, 200);
-    // }
+    // optional auto-advance: uncomment to enable
+    // if (onNext) setTimeout(() => onNext(), 200);
   };
 
   return (
@@ -119,15 +108,10 @@ export default function CollapsibleQuestionCard({
         </button>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isAnswered && (
-            <span className="text-green-400 text-sm">✓</span>
-          )}
-          {!isAnswered && !isExpanded && (
-            <span className="text-blue-400 text-sm">►</span>
-          )}
+          {isAnswered && <span className="text-green-400 text-sm">✓</span>}
+          {!isAnswered && !isExpanded && <span className="text-blue-400 text-sm">►</span>}
           {isExpanded && <span className="text-purple-400 text-sm">▼</span>}
 
-          {/* Quick Next button in header when answered (and not expanded) */}
           {!isExpanded && isAnswered && onNext && (
             <button
               onClick={onNext}
@@ -148,9 +132,7 @@ export default function CollapsibleQuestionCard({
           )}
 
           {question.examples && (
-            <p className="text-slate-500 text-xs italic">
-              💡 Example: {question.examples}
-            </p>
+            <p className="text-slate-500 text-xs italic">💡 Example: {question.examples}</p>
           )}
 
           {question.type === "text" && (
@@ -181,9 +163,7 @@ export default function CollapsibleQuestionCard({
             </div>
           )}
 
-          {/* Actions row */}
           <div className="flex justify-end gap-3">
-            {/* Save/skip could go here in future */}
             {onNext && (
               <button
                 onClick={onNext}
