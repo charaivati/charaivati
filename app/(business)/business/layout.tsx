@@ -1,3 +1,5 @@
+//app/(business)/business/idea/layout
+
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";

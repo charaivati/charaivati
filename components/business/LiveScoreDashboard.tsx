@@ -67,11 +67,11 @@ export default function LiveScoreDashboard({
   );
 
   return (
-    <div className="sticky top-20 bg-slate-800/80 backdrop-blur border border-slate-700 rounded-lg p-6 shadow-lg max-h-[calc(100vh-100px)] overflow-y-auto">
+    <div className="sticky top-4 bg-slate-800/80 backdrop-blur border border-slate-700 rounded-lg p-6 shadow-lg">
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-lg font-bold text-white mb-1">Live Evaluation</h2>
-        <p className="text-slate-400 text-xs">
+        <h2 className="text-xl font-bold text-white mb-2">Live Evaluation</h2>
+        <p className="text-slate-400 text-sm">
           Updates as you answer questions
         </p>
       </div>
