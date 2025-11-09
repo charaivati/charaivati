@@ -1,8 +1,8 @@
-// app/(auth)/login/page.tsx
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { ChevronRight, Mail, Lock, User } from "lucide-react";
 
 type StatusResp = {
   exists?: boolean;
@@ -12,167 +12,138 @@ type StatusResp = {
   name?: string | null;
 };
 
-function extractMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  try {
-    return String(err);
-  } catch {
-    return "Unknown error";
-  }
-}
-
 function AuthForm() {
   const router = useRouter();
   const sp = useSearchParams();
 
-  const registered = !!sp && sp.get("registered") === "1";
-  const prefillEmail = !!sp ? sp.get("email") || "" : "";
-  const redirectTo = !!sp ? sp.get("redirect") || "/self" : "/self";
+  const prefillEmail = sp?.get("email") || "";
 
-  const [activeTab, setActiveTab] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [registerPassword, setRegisterPassword] = useState("");
+  // --- redirect management ---
+  function validateRedirect(candidate?: string | null): string | null {
+    if (!candidate || typeof candidate !== "string") return null;
+    if (!candidate.startsWith("/")) return null;
+    if (candidate.startsWith("//")) return null;
+    if (candidate.length > 2048) return null;
+    try {
+      const u = new URL(candidate, "http://example.invalid");
+      return u.pathname + (u.search || "") + (u.hash || "");
+    } catch {
+      return null;
+    }
+  }
+
+  let initialRedirect = sp?.get("redirect") || null;
+  if (!initialRedirect) {
+    try {
+      initialRedirect = sessionStorage.getItem("charaivati.redirect");
+    } catch {
+      initialRedirect = null;
+    }
+  }
+
+  let redirectTo = validateRedirect(initialRedirect) || "/self";
+  if (redirectTo === "/login" || redirectTo.startsWith("/login?"))
+    redirectTo = "/self";
+
+  useEffect(() => {
+    try {
+      if (redirectTo)
+        sessionStorage.setItem("charaivati.redirect", redirectTo);
+    } catch {}
+  }, [redirectTo]);
+
+  // State machine
+  const [step, setStep] = useState<"email" | "login" | "register">("email");
+  const [email, setEmail] = useState(prefillEmail);
+  const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
 
   const [status, setStatus] = useState<StatusResp | null>(null);
   const [checkingStatus, setCheckingStatus] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [registerBusy, setRegisterBusy] = useState(false);
-
-  const [loginAttempts, setLoginAttempts] = useState(0);
-  const [loginCooldown, setLoginCooldown] = useState(0);
-  const [registerAttempts, setRegisterAttempts] = useState(0);
-  const [registerCooldown, setRegisterCooldown] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [attempts, setAttempts] = useState(0);
+  const [cooldown, setCooldown] = useState(0);
 
   const statusAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    if (registered) {
-      setMessage(`📧 Verification link sent to ${prefillEmail || "your email"}.`);
-      setActiveTab("login");
-    }
-    if (prefillEmail) {
-      setEmail(prefillEmail);
-      void checkStatus(prefillEmail);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [registered, prefillEmail]);
-
-  useEffect(() => {
-    if (loginCooldown > 0) {
-      const timer = setTimeout(() => setLoginCooldown((s) => s - 1), 1000);
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
       return () => clearTimeout(timer);
-    } else if (loginCooldown === 0 && loginAttempts >= 3) {
-      setLoginAttempts(0);
-    }
-  }, [loginCooldown, loginAttempts]);
+    } else if (cooldown === 0 && attempts >= 3) setAttempts(0);
+  }, [cooldown, attempts]);
 
-  useEffect(() => {
-    if (registerCooldown > 0) {
-      const timer = setTimeout(() => setRegisterCooldown((s) => s - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (registerCooldown === 0 && registerAttempts >= 3) {
-      setRegisterAttempts(0);
-    }
-  }, [registerCooldown, registerAttempts]);
-
-  function remainingString(dateStr?: string | null) {
-    if (!dateStr) return null;
-    const ms = new Date(dateStr).getTime() - Date.now();
-    if (ms <= 0) return "less than an hour";
-    const days = Math.floor(ms / (24 * 3600 * 1000));
-    const hours = Math.floor((ms % (24 * 3600 * 1000)) / 3600000);
-    return `${days}d ${hours}h remaining`;
-  }
-
-  /**
-   * FIXED: Use GET method - your API expects this
-   */
   async function checkStatus(checkEmail?: string) {
     const e = checkEmail ?? email;
     if (!e) return;
-    
+
     statusAbortRef.current?.abort();
     const ac = new AbortController();
     statusAbortRef.current = ac;
 
     try {
       setCheckingStatus(true);
+      const res = await fetch(`/api/user/status?email=${encodeURIComponent(e)}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "include",
+        signal: ac.signal,
+      });
 
-      // Use GET method with query parameter
-      const res = await fetch(
-        `/api/user/status?email=${encodeURIComponent(e)}`,
-        {
-          method: "GET",
-          headers: { Accept: "application/json" },
-          credentials: "include",
-          signal: ac.signal,
-        }
-      );
-
-      let j: StatusResp = {};
-      if (res.ok) {
-        j = await res.json().catch(() => ({} as StatusResp));
-      } else {
-        // Don't show error to user for failed status checks
-        console.warn("Status check returned:", res.status);
-        j = {};
-      }
-
+      const j: StatusResp = res.ok ? await res.json().catch(() => ({})) : {};
       setStatus(j);
-    } catch (err: unknown) {
-      if ((err as any)?.name === "AbortError") {
-        return;
-      }
-      // Don't show error for status checks - they're optional
-      console.warn("Status check failed:", err);
+    } catch (err: any) {
+      if (err?.name !== "AbortError") console.warn("Status check failed:", err);
     } finally {
       setCheckingStatus(false);
       statusAbortRef.current = null;
     }
   }
 
-  async function cancelDeletion() {
-    if (!email) {
-      setMessage("Please enter the account email to cancel deletion.");
+  async function handleEmailSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!email.trim()) {
+      setMessage("Please enter your email");
       return;
     }
 
+    setMessage("");
+    setIsSubmitting(true);
+    
     try {
-      setCancelling(true);
-      const res = await fetch("/api/user/cancel-delete", {
-        method: "POST",
+      const res = await fetch(`/api/user/status?email=${encodeURIComponent(email)}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
         credentials: "include",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ email }),
       });
-      const j = await res.json().catch(() => null);
-      if (!res.ok) {
-        const errMsg = (j && (j.error || j.message)) || res.statusText;
-        setMessage("❌ Could not cancel deletion: " + errMsg);
-        return;
+
+      const userData = res && res.ok ? await res.json().catch(() => ({})) : {};
+
+      if (userData.exists && userData.emailVerified) {
+        setStep("login");
+        setMessage("");
+      } else if (userData.exists && !userData.emailVerified) {
+        setStep("register");
+        setMessage("Your account is pending verification. Complete your registration:");
+      } else {
+        setStep("register");
+        setMessage("");
       }
-      setMessage("✅ Account deletion cancelled. You can now login.");
-      await checkStatus();
-    } catch (err: unknown) {
-      console.error("cancelDeletion error", err);
-      setMessage("Network error while cancelling. Please try again.");
+    } catch (err) {
+      setMessage("Error checking email. Please try again.");
+      console.error(err);
     } finally {
-      setCancelling(false);
+      setIsSubmitting(false);
     }
   }
 
-  async function handleLogin(e: React.FormEvent) {
-    e.preventDefault();
-
-    if (loginCooldown > 0) {
-      setMessage(`⏳ Too many attempts. Please wait ${loginCooldown} seconds.`);
-      return;
-    }
+  async function handleLogin() {
+    if (cooldown > 0)
+      return setMessage(`⏳ Wait ${cooldown}s before retrying.`);
 
     setMessage("Logging in...");
+    setIsSubmitting(true);
 
     try {
       const res = await fetch("/api/user/login", {
@@ -180,301 +151,307 @@ function AuthForm() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         redirect: "manual",
-        body: JSON.stringify({ email, password: loginPassword }),
+        body: JSON.stringify({ email, password }),
       });
 
-      if (res.status === 429) {
-        const retryAfterHeader = res.headers.get("Retry-After");
-        const retrySec =
-          retryAfterHeader && !Number.isNaN(Number(retryAfterHeader))
-            ? parseInt(retryAfterHeader, 10)
-            : null;
-
-        if (retrySec && retrySec > 0) {
-          setLoginCooldown(retrySec);
-          setMessage(`❌ Too many attempts. Please wait ${retrySec} seconds.`);
-        } else {
-          setMessage("❌ Too many requests. Please try again later.");
-        }
-        return;
-      }
-
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
-
-      if (
-        res.status === 403 ||
-        data?.error === "account_locked" ||
-        data?.error === "Please verify your email first" ||
-        data?.error === "captcha_required"
-      ) {
-        const retryAfterHeader = res.headers.get("Retry-After");
-        const retrySec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : null;
-
-        if (data?.error === "Please verify your email first") {
-          setMessage(
-            "❌ Please verify your email first. Check your inbox for the verification link."
-          );
-        } else if (data?.error === "captcha_required") {
-          setMessage("❌ Please complete the CAPTCHA to continue.");
-        } else {
-          setMessage(data?.message || "❌ Account locked. Try again later.");
-        }
-
-        if (retrySec && !Number.isNaN(retrySec) && retrySec > 0) {
-          setLoginCooldown(retrySec);
-        }
-        return;
-      }
+      const data = await res.json().catch(() => null);
 
       if (!res.ok || !data?.ok) {
-        const newAttempts = loginAttempts + 1;
-        setLoginAttempts(newAttempts);
-
-        if (newAttempts >= 3) {
-          const cooldown = 30;
-          setLoginCooldown(cooldown);
-          setMessage("❌ Too many failed attempts. Please wait 30 seconds.");
-        } else {
-          setMessage(
-            `❌ ${data?.error || "Login failed"}. ${3 - newAttempts} attempts remaining.`
-          );
-        }
+        setAttempts((n) => n + 1);
+        if (attempts + 1 >= 3) setCooldown(60);
+        setMessage("❌ " + (data?.error || "Login failed"));
         return;
       }
 
-      setLoginAttempts(0);
-      setMessage("✅ Login successful! Redirecting…");
-      await new Promise((r) => setTimeout(r, 0));
-      router.replace(redirectTo);
+      setMessage("✅ Login successful! Redirecting...");
+      await new Promise((r) => setTimeout(r, 200));
+      await router.replace(redirectTo);
+      try {
+        sessionStorage.removeItem("charaivati.redirect");
+      } catch {}
       router.refresh();
-    } catch (err: unknown) {
+    } catch (err) {
       console.error("login error", err);
-      const newAttempts = loginAttempts + 1;
-      setLoginAttempts(newAttempts);
-
-      if (newAttempts >= 3) {
-        setLoginCooldown(30);
-        setMessage("❌ Too many failed attempts. Please wait 30 seconds.");
-      } else {
-        setMessage(`❌ Network error. ${3 - newAttempts} attempts remaining.`);
-      }
+      setMessage("Network error. Please retry.");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
-  async function handleRegister(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleRegister() {
+    if (cooldown > 0)
+      return setMessage(`⏳ Wait ${cooldown}s before retrying.`);
 
-    if (registerCooldown > 0) {
-      setMessage(`⏳ Too many attempts. Please wait ${registerCooldown} seconds.`);
-      return;
-    }
-
-    setMessage("");
-    setRegisterBusy(true);
+    setMessage("Creating your account...");
+    setIsSubmitting(true);
 
     try {
       const res = await fetch("/api/user/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password: registerPassword, name }),
+        body: JSON.stringify({
+          email,
+          password,
+          name,
+          redirect: redirectTo,
+        }),
       });
+
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const newAttempts = registerAttempts + 1;
-        setRegisterAttempts(newAttempts);
-
-        if (newAttempts >= 3) {
-          setRegisterCooldown(30);
-          setMessage("❌ Too many failed attempts. Please wait 30 seconds.");
-        } else {
-          setMessage(
-            `❌ ${data.error || "Registration failed"}. ${3 - newAttempts} attempts remaining.`
-          );
-        }
-      } else {
-        setRegisterAttempts(0);
-        setMessage("✅ Registration successful! Check your email for verification link.");
-        setRegisterPassword("");
-        setName("");
-        setTimeout(() => setActiveTab("login"), 2000);
+        setAttempts((n) => n + 1);
+        if (attempts + 1 >= 3) setCooldown(60);
+        setMessage("❌ " + (data.error || "Registration failed"));
+        return;
       }
-    } catch (err: unknown) {
-      console.error("register error", err);
-      const newAttempts = registerAttempts + 1;
-      setRegisterAttempts(newAttempts);
 
-      if (newAttempts >= 3) {
-        setRegisterCooldown(30);
-        setMessage("❌ Too many failed attempts. Please wait 30 seconds.");
-      } else {
-        setMessage(`❌ Network error. ${3 - newAttempts} attempts remaining.`);
-      }
+      setMessage("✅ Check your email for a verification link. Redirecting you to login...");
+      setPassword("");
+      setName("");
+      await new Promise((r) => setTimeout(r, 2000));
+      setStep("email");
+      setEmail("");
+      setMessage("");
     } finally {
-      setRegisterBusy(false);
+      setIsSubmitting(false);
     }
   }
 
+  function handleBackToEmail() {
+    setStep("email");
+    setPassword("");
+    setName("");
+    setMessage("");
+    setAttempts(0);
+    setCooldown(0);
+  }
+
   return (
-    <main className="min-h-screen flex items-center justify-center bg-black text-white">
-      <div className="w-full max-w-md bg-white/10 rounded-xl p-6 shadow-lg">
-        <div className="flex gap-2 mb-6 border-b border-white/20">
-          <button
-            onClick={() => setActiveTab("login")}
-            className={`flex-1 pb-3 font-semibold transition-colors ${
-              activeTab === "login"
-                ? "text-white border-b-2 border-blue-500"
-                : "text-gray-400 hover:text-gray-200"
-            }`}
-          >
-            Login
-          </button>
-          <button
-            onClick={() => setActiveTab("register")}
-            className={`flex-1 pb-3 font-semibold transition-colors ${
-              activeTab === "register"
-                ? "text-white border-b-2 border-emerald-500"
-                : "text-gray-400 hover:text-gray-200"
-            }`}
-          >
-            Register
-          </button>
+    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-black via-gray-900 to-black text-white p-4">
+      <div className="w-full max-w-md">
+        {/* Logo/Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold mb-2">Welcome</h1>
+          <p className="text-gray-400">Sign in or create an account to continue</p>
         </div>
 
-        {activeTab === "login" && (
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onBlur={() => void checkStatus()}
-              placeholder="Email"
-              className="w-full p-2 rounded bg-black/50 border border-gray-600"
-              required
-            />
-            <input
-              type="password"
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder="Password"
-              className="w-full p-2 rounded bg-black/50 border border-gray-600"
-              required
-            />
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={loginCooldown > 0}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 p-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loginCooldown > 0 ? `Wait ${loginCooldown}s` : "Login"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void checkStatus()}
-                className="px-3 py-2 bg-slate-700 rounded-lg hover:bg-slate-600"
-                disabled={checkingStatus}
-              >
-                {checkingStatus ? "Checking…" : "Check"}
-              </button>
+        {/* Email Step */}
+        {step === "email" && (
+          <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleEmailSubmit()}
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
+                  required
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                We'll check if you have an account or help you create one
+              </p>
             </div>
-          </form>
-        )}
 
-        {activeTab === "register" && (
-          <form onSubmit={handleRegister} className="space-y-4">
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Name"
-              className="w-full p-2 rounded bg-black/50 border border-gray-600"
-              required
-            />
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              className="w-full p-2 rounded bg-black/50 border border-gray-600"
-              required
-            />
-            <input
-              type="password"
-              value={registerPassword}
-              onChange={(e) => setRegisterPassword(e.target.value)}
-              placeholder="Password (min 8 characters)"
-              className="w-full p-2 rounded bg-black/50 border border-gray-600"
-              minLength={8}
-              required
-            />
+            {message && (
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm text-blue-200">
+                {message}
+              </div>
+            )}
+
             <button
-              type="submit"
-              disabled={registerBusy || registerCooldown > 0}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 p-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleEmailSubmit}
+              disabled={isSubmitting || checkingStatus}
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition"
             >
-              {registerCooldown > 0
-                ? `Wait ${registerCooldown}s`
-                : registerBusy
-                ? "Registering..."
-                : "Register"}
+              {isSubmitting || checkingStatus ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  Continue
+                  <ChevronRight className="w-4 h-4" />
+                </>
+              )}
             </button>
-          </form>
+          </div>
         )}
 
-        {checkingStatus && <p className="mt-3 text-sm">Checking account status…</p>}
+        {/* Login Step */}
+        {step === "login" && (
+          <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+            <h2 className="text-xl font-semibold text-center mb-6">Welcome Back!</h2>
 
-        {status?.exists && status.deletionScheduledAt && (
-          <div className="mt-4 p-3 border rounded bg-white/5">
-            <div className="flex items-center gap-3">
-              {status.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={status.avatarUrl} alt="avatar" className="w-12 h-12 rounded-full" />
-              ) : (
-                <div className="w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center">
-                  ?
-                </div>
-              )}
-              <div>
-                <div className="font-medium">{status.name ?? "Account"}</div>
-                <div className="text-sm text-slate-300">
-                  Scheduled deletion: {new Date(status.deletionScheduledAt).toLocaleString()}
-                </div>
-                <div className="text-sm text-slate-300">
-                  {remainingString(status.deletionScheduledAt)}
-                </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 text-gray-400 cursor-not-allowed"
+                />
               </div>
             </div>
 
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={cancelDeletion}
-                disabled={cancelling}
-                className="flex-1 bg-green-600 hover:bg-green-700 p-2 rounded disabled:opacity-50"
-              >
-                {cancelling ? "Cancelling…" : "Keep my account"}
-              </button>
-              <button
-                onClick={() => {
-                  setMessage("You can still login to cancel deletion from your account page.");
-                }}
-                className="px-3 py-2 bg-slate-700 rounded hover:bg-slate-600"
-              >
-                Continue to login
-              </button>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                  placeholder="Enter your password"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
+                  required
+                />
+              </div>
             </div>
+
+            {message && (
+              <div className={`p-3 rounded-lg text-sm ${
+                message.includes("❌")
+                  ? "bg-red-500/10 border border-red-500/20 text-red-200"
+                  : "bg-green-500/10 border border-green-500/20 text-green-200"
+              }`}>
+                {message}
+              </div>
+            )}
+
+            {cooldown > 0 && (
+              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm text-yellow-200">
+                Too many attempts. Please wait {cooldown} seconds.
+              </div>
+            )}
+
+            <button
+              onClick={handleLogin}
+              disabled={isSubmitting || cooldown > 0}
+              className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold transition"
+            >
+              {isSubmitting ? "Logging in..." : "Login"}
+            </button>
+
+            <button
+              onClick={handleBackToEmail}
+              className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
+            >
+              Use different email
+            </button>
           </div>
         )}
 
-        {message && (
-          <div className="mt-4 p-3 rounded bg-white/5 text-sm">
-            {message}
+        {/* Register Step */}
+        {step === "register" && (
+          <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+            <h2 className="text-xl font-semibold text-center mb-2">Create Your Account</h2>
+            {message && (
+              <p className="text-center text-sm text-gray-300 mb-4">{message}</p>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">
+                Full Name
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="John Doe"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-emerald-500 focus:outline-none transition"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  disabled
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 text-gray-400 cursor-not-allowed"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-300">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleRegister()}
+                  placeholder="At least 8 characters"
+                  className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-emerald-500 focus:outline-none transition"
+                  minLength={8}
+                  required
+                />
+              </div>
+              <p className="text-xs text-gray-500">Must be at least 8 characters</p>
+            </div>
+
+            {message && message.includes("❌") && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-200">
+                {message}
+              </div>
+            )}
+
+            {cooldown > 0 && (
+              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm text-yellow-200">
+                Too many attempts. Please wait {cooldown} seconds.
+              </div>
+            )}
+
+            <button
+              onClick={handleRegister}
+              disabled={isSubmitting || cooldown > 0}
+              className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold transition"
+            >
+              {isSubmitting ? "Creating account..." : "Create Account"}
+            </button>
+
+            <button
+              onClick={handleBackToEmail}
+              className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
+            >
+              Use different email
+            </button>
           </div>
         )}
+
+        {/* Footer */}
+        <p className="text-center text-xs text-gray-500 mt-6">
+          By continuing, you agree to our terms of service
+        </p>
       </div>
     </main>
   );

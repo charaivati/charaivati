@@ -1,15 +1,14 @@
-// app/api/user/register/route.ts
+// ============================================
+// 1. app/api/user/register/route.ts (UPDATED)
+// ============================================
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/hash";
 import { createToken, hashToken } from "@/lib/token";
 import sendEmail from "@/lib/sendEmail";
 
-/**
- * Config
- */
-const MAGIC_EXPIRES_MS = 1000 * 60 * 15; // 15 minutes
-const RESEND_COOLDOWN_MS = 1000 * 60 * 1; // 1 minute cooldown to avoid spam
+const MAGIC_EXPIRES_MS = 1000 * 60 * 15;
+const RESEND_COOLDOWN_MS = 1000 * 60 * 1;
 
 function sanitizeName(n: string) {
   return n
@@ -19,12 +18,24 @@ function sanitizeName(n: string) {
     .slice(0, 30);
 }
 
+function sanitizeRedirect(path: string) {
+  if (!path || typeof path !== "string") return "/self";
+  try {
+    const u = new URL(path, "https://example.com");
+    if (u.origin !== "https://example.com") return "/self";
+    return u.pathname + u.search + u.hash;
+  } catch {
+    return "/self";
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const email = String(body.email || "").trim().toLowerCase();
     const password = String(body.password || "");
     const rawName = String(body.name || "").trim();
+    const redirect = String(body.redirect || "").trim(); // ← NEW
 
     if (!email || !password) {
       return NextResponse.json({ error: "Email and password required" }, { status: 400 });
@@ -35,7 +46,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid name" }, { status: 400 });
     }
 
-    // 1) Find existing user by email (and include recent magic links)
     const existingUser = await prisma.user.findUnique({
       where: { email },
       include: {
@@ -47,7 +57,6 @@ export async function POST(req: Request) {
       },
     });
 
-    // 2) If user exists and already verified => instruct to login/reset
     if (existingUser && existingUser.emailVerified) {
       return NextResponse.json(
         { error: "user_exists", message: "Account already exists — please log in or reset your password." },
@@ -55,7 +64,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3) Username uniqueness (case-insensitive)
     const nameTaken = await prisma.user.findFirst({
       where: { name: { equals: displayName, mode: "insensitive" } },
       select: { id: true },
@@ -64,7 +72,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "username_taken", message: "Username already taken" }, { status: 409 });
     }
 
-    // 4) If user exists and unverified: check for outstanding magic link
     if (existingUser && !existingUser.emailVerified) {
       const latest = existingUser.magicLinks?.[0] ?? null;
       if (latest && !latest.used) {
@@ -73,10 +80,8 @@ export async function POST(req: Request) {
         const createdAt = new Date(latest.createdAt).getTime();
 
         if (expiresAt > now) {
-          // still valid token exists
           const ageMs = now - createdAt;
           if (ageMs < RESEND_COOLDOWN_MS) {
-            // too soon to resend - inform front-end to show friendly message
             const retryAfter = Math.ceil((RESEND_COOLDOWN_MS - ageMs) / 1000);
             return NextResponse.json(
               {
@@ -87,12 +92,10 @@ export async function POST(req: Request) {
               { status: 409 }
             );
           }
-          // else: token is still valid but cooldown passed -> allow generating a new one below
         }
       }
     }
 
-    // 5) Create or update user
     let user;
     if (!existingUser) {
       const passwordHash = await hashPassword(password);
@@ -106,10 +109,8 @@ export async function POST(req: Request) {
         },
       });
     } else {
-      // existing unverified user: update missing fields (do not overwrite verified flags)
       const updateData: Record<string, any> = {};
       if (!existingUser.name) updateData.name = displayName;
-      // update passwordHash if not present (so user can log in later)
       if (!existingUser.passwordHash) updateData.passwordHash = await hashPassword(password);
       if (Object.keys(updateData).length > 0) {
         user = await prisma.user.update({ where: { id: existingUser.id }, data: updateData });
@@ -118,12 +119,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // 6) Create new magic link (raw token + hash) and store
     const rawToken = createToken(32);
     const tokenHash = hashToken(rawToken);
     const expiresAt = new Date(Date.now() + MAGIC_EXPIRES_MS);
     const ip = (req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown").split(",")[0].trim();
 
+    // ← VALIDATE AND STORE REDIRECT
+    const redirectPath = sanitizeRedirect(redirect);
+    
     await prisma.magicLink.create({
       data: {
         userId: user.id,
@@ -131,13 +134,13 @@ export async function POST(req: Request) {
         type: "verify-email",
         expiresAt,
         ip,
-        meta: { from: "register" },
+        meta: { from: "register", redirect: redirectPath }, // ← STORE IN META
       },
     });
 
-    // 7) Send verification email (best effort)
     const base = process.env.BASE_URL || `http://localhost:3000`;
-    const link = `${base}/api/user/magic?token=${encodeURIComponent(rawToken)}&redirect=${encodeURIComponent("/login")}`;
+    const link = `${base}/api/user/magic?token=${encodeURIComponent(rawToken)}&redirect=${encodeURIComponent(redirectPath)}`;
+    
     try {
       if (user.email) {
         await sendEmail({
@@ -151,7 +154,6 @@ export async function POST(req: Request) {
       }
     } catch (e) {
       console.error("[register] sendEmail failed:", e);
-      // respond success (so UX isn't blocked) but include note for dev
       return NextResponse.json({ ok: true, note: "email_send_failed", name: user.name ?? displayName }, { status: 200 });
     }
 

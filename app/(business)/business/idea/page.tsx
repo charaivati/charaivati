@@ -1,11 +1,11 @@
-// app/business/idea/page.tsx
+// app/(business)/business/idea/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import QuestionCard from "@/components/business/QuestionCard";
+import { useState, useEffect, useRef } from "react";
 import ResultsReport from "@/components/business/ResultsReport";
-import StartScreen from "@/components/business/StartScreen";
+import StartScreenBatch from "@/components/business/StartScreenBatch";
+import CollapsibleQuestionCard from "@/components/business/CollapsibleQuestionCard";
+import LiveScoreDashboard from "@/components/business/LiveScoreDashboard";
 
 interface Question {
   id: string;
@@ -13,9 +13,17 @@ interface Question {
   text: string;
   type: string;
   category: string;
-  options?: Array<{ value: string; label: string }>;
+  options?: Array<{ value: string; label: string; score?: number }>;
   helpText?: string;
   examples?: string;
+  randomizeOptions?: boolean;
+}
+
+interface LiveScore {
+  scores: Record<string, number>;
+  overallScore: number;
+  report: any;
+  answeredCount: number;
 }
 
 interface IdeaState {
@@ -24,73 +32,240 @@ interface IdeaState {
   description: string;
   email: string;
   phone: string;
-  currentStep: number;
   responses: Record<string, string>;
   scores: Record<string, number>;
   overallScore: number;
   report: any;
   loading: boolean;
+  submitted: boolean;
+  error?: string;
 }
 
-export default function IdeaValidationPage() {
-  const router = useRouter();
+export default function IdeaBatchPage() {
+  // -------------------------
+  // Hooks (top-level only)
+  // -------------------------
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(true);
+  const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
+  const autoStartedRef = useRef(false);
+
   const [state, setState] = useState<IdeaState>({
     ideaId: null,
     title: "",
     description: "",
     email: "",
     phone: "",
-    currentStep: 0,
     responses: {},
     scores: {},
     overallScore: 0,
     report: null,
     loading: false,
+    submitted: false,
   });
 
+  const [liveScore, setLiveScore] = useState<LiveScore>({
+    scores: {},
+    overallScore: 0,
+    report: null,
+    answeredCount: 0,
+  });
+
+  const questionRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const scoringTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // -------------------------
+  // Effects
+  // -------------------------
+  // Fetch questions on mount
   useEffect(() => {
+    let alive = true;
     const fetchQuestions = async () => {
       try {
+        setQuestionsLoading(true);
         const res = await fetch("/api/business/questions");
+        if (!res.ok) throw new Error("Failed to fetch questions");
+
         const data = await res.json();
-        setQuestions(data);
+
+        const parsedQuestions = data.map((q: any) => ({
+          ...q,
+          options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+        }));
+
+        if (!alive) return;
+        setQuestions(parsedQuestions);
+
+        // Auto-expand first question
+        if (parsedQuestions.length > 0) {
+          setExpandedQuestion(parsedQuestions[0].id);
+        }
       } catch (error) {
         console.error("Failed to fetch questions:", error);
+        setState((prev) => ({
+          ...prev,
+          error: "Failed to load questions. Please refresh the page.",
+        }));
+      } finally {
+        if (alive) setQuestionsLoading(false);
       }
     };
 
     fetchQuestions();
+    return () => {
+      alive = false;
+    };
   }, []);
 
+  // Auto-start without start screen
   useEffect(() => {
-    if (state.ideaId && Object.keys(state.responses).length > 0) {
-      const timeout = setTimeout(async () => {
-        try {
-          await fetch("/api/business/idea", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ideaId: state.ideaId,
-              responses: state.responses,
-            }),
-          });
-        } catch (error) {
-          console.error("Failed to auto-save:", error);
-        }
-      }, 3000);
+    if (questionsLoading || autoStartedRef.current) return;
 
-      return () => clearTimeout(timeout);
+    autoStartedRef.current = true;
+
+    (async () => {
+      try {
+        const res = await fetch("/api/business/idea", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: "Student",
+            description: "Testing my idea",
+            userEmail: "test@charaivati.com",
+            userPhone: "",
+          }),
+        });
+
+        if (!res.ok) {
+          console.error("Auto-start create idea failed:", res.status);
+          return;
+        }
+
+        const idea = await res.json();
+        setState((prev) => ({
+          ...prev,
+          ideaId: idea.id,
+          title: "Student",
+          description: "Testing my idea",
+          email: "test@charaivati.com",
+          phone: "",
+        }));
+      } catch (error) {
+        console.error("Error auto-starting:", error);
+      }
+    })();
+  }, [questionsLoading]);
+
+  // Scroll expanded question into center of viewport
+  useEffect(() => {
+    if (!expandedQuestion) return;
+
+    const el = questionRefs.current.get(expandedQuestion);
+    if (!el) {
+      const t = setTimeout(() => {
+        const el2 = questionRefs.current.get(expandedQuestion);
+        if (el2) {
+          try {
+            el2.scrollIntoView({ behavior: "smooth", block: "center" });
+          } catch {}
+        }
+      }, 50);
+      return () => clearTimeout(t);
     }
+
+    try {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    } catch (err) {
+      // ignore scroll failures
+    }
+  }, [expandedQuestion]);
+
+  // Real-time scoring with debounce
+  useEffect(() => {
+    if (!state.ideaId || Object.keys(state.responses).length === 0) {
+      setLiveScore({
+        scores: {},
+        overallScore: 0,
+        report: null,
+        answeredCount: 0,
+      });
+      return;
+    }
+
+    // Clear previous timeout
+    if (scoringTimeoutRef.current) {
+      clearTimeout(scoringTimeoutRef.current);
+    }
+
+    // Debounce scoring call by 500ms
+    scoringTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/business/idea/score-live", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ideaId: state.ideaId,
+            responses: state.responses,
+          }),
+        });
+
+        if (!res.ok) {
+          console.error("Failed to fetch live score:", res.status);
+          return;
+        }
+
+        const data = await res.json();
+        setLiveScore({
+          scores: data.scores,
+          overallScore: data.overallScore,
+          report: data.report,
+          answeredCount: data.answeredCount,
+        });
+      } catch (error) {
+        console.error("Failed to calculate live score:", error);
+      }
+    }, 500);
+
+    return () => {
+      if (scoringTimeoutRef.current) {
+        clearTimeout(scoringTimeoutRef.current);
+      }
+    };
   }, [state.responses, state.ideaId]);
 
+  // Auto-save responses (only if idea exists)
+  useEffect(() => {
+    if (!state.ideaId) return;
+    if (Object.keys(state.responses).length === 0) return;
+
+    const timeout = setTimeout(async () => {
+      try {
+        await fetch("/api/business/idea", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ideaId: state.ideaId,
+            responses: state.responses,
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to auto-save:", error);
+      }
+    }, 2000);
+
+    return () => clearTimeout(timeout);
+  }, [state.responses, state.ideaId]);
+
+  // -------------------------
+  // Handlers
+  // -------------------------
   const handleStartIdea = async (
     title: string,
     description: string,
     email: string,
     phone: string
   ) => {
-    setState((prev) => ({ ...prev, loading: true }));
+    setState((prev) => ({ ...prev, loading: true, error: undefined }));
     try {
       const res = await fetch("/api/business/idea", {
         method: "POST",
@@ -113,42 +288,41 @@ export default function IdeaValidationPage() {
         description,
         email,
         phone,
-        currentStep: 1,
         loading: false,
       }));
     } catch (error) {
       console.error("Error:", error);
-      setState((prev) => ({ ...prev, loading: false }));
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Failed to start validation. Please try again.",
+      }));
     }
   };
 
-  const handleAnswerQuestion = (answer: string) => {
-    const currentQuestion = questions[state.currentStep - 1];
+  const handleAnswerQuestion = (questionId: string, answer: string) => {
     setState((prev) => ({
       ...prev,
       responses: {
         ...prev.responses,
-        [currentQuestion.id]: answer,
+        [questionId]: answer,
       },
     }));
   };
 
   const handleNextQuestion = () => {
-    if (state.currentStep < questions.length) {
-      setState((prev) => ({ ...prev, currentStep: prev.currentStep + 1 }));
-    } else if (state.currentStep === questions.length) {
-      submitResponses();
-    }
-  };
+    const currentQuestionIndex = questions.findIndex((q) => q.id === expandedQuestion);
+    const nextQuestion = questions[currentQuestionIndex + 1];
 
-  const handlePreviousQuestion = () => {
-    if (state.currentStep > 0) {
-      setState((prev) => ({ ...prev, currentStep: prev.currentStep - 1 }));
+    if (nextQuestion) {
+      setExpandedQuestion(nextQuestion.id);
+    } else {
+      setExpandedQuestion(null);
     }
   };
 
   const submitResponses = async () => {
-    setState((prev) => ({ ...prev, loading: true }));
+    setState((prev) => ({ ...prev, loading: true, error: undefined }));
     try {
       const res = await fetch("/api/business/idea/score", {
         method: "POST",
@@ -167,78 +341,34 @@ export default function IdeaValidationPage() {
         scores,
         overallScore,
         report,
-        currentStep: questions.length + 1,
+        submitted: true,
         loading: false,
       }));
     } catch (error) {
       console.error("Error:", error);
-      setState((prev) => ({ ...prev, loading: false }));
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        error: "Failed to generate report. Please try again.",
+      }));
     }
   };
 
-  if (state.currentStep === 0) {
-    return <StartScreen onStart={handleStartIdea} loading={state.loading} />;
-  }
-
-  if (state.currentStep > 0 && state.currentStep <= questions.length) {
-    const currentQuestion = questions[state.currentStep - 1];
-    const currentAnswer = state.responses[currentQuestion.id] || "";
-    const isAnswered = currentAnswer.trim() !== "";
-
+  // -------------------------
+  // Render logic
+  // -------------------------
+  if (questionsLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
-        <div className="max-w-2xl mx-auto">
-          <div className="mb-8">
-            <div className="flex justify-between mb-2">
-              <span className="text-sm text-slate-400">
-                Question {state.currentStep} of {questions.length}
-              </span>
-              <span className="text-sm text-purple-400">
-                {Math.round((state.currentStep / questions.length) * 100)}%
-              </span>
-            </div>
-            <div className="w-full bg-slate-700 rounded-full h-2">
-              <div
-                className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
-                style={{
-                  width: `${(state.currentStep / questions.length) * 100}%`,
-                }}
-              />
-            </div>
-          </div>
-
-          <QuestionCard
-            question={currentQuestion}
-            answer={currentAnswer}
-            onAnswerChange={handleAnswerQuestion}
-          />
-
-          <div className="flex gap-4 mt-8">
-            <button
-              onClick={handlePreviousQuestion}
-              disabled={state.currentStep === 1}
-              className="px-6 py-3 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition"
-            >
-              ← Back
-            </button>
-            <button
-              onClick={handleNextQuestion}
-              disabled={!isAnswered || state.loading}
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition"
-            >
-              {state.loading
-                ? "Saving..."
-                : state.currentStep === questions.length
-                  ? "See Results"
-                  : "Next →"}
-            </button>
-          </div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+        <div className="text-center">
+          <p className="text-white text-xl mb-4">Loading questions...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto"></div>
         </div>
       </div>
     );
   }
 
-  if (state.currentStep > questions.length) {
+  if (state.submitted) {
     return (
       <ResultsReport
         title={state.title}
@@ -251,5 +381,118 @@ export default function IdeaValidationPage() {
     );
   }
 
-  return null;
+  const answeredCount = Object.keys(state.responses).length;
+  const totalQuestions = questions.length;
+  const allAnswered = answeredCount === totalQuestions;
+  const showSticky = !expandedQuestion;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Main Content */}
+        <div className="lg:col-span-2">
+          {/* Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-white mb-2">Validate Your Idea</h1>
+            <p className="text-slate-400">
+              Answer all questions below. You can edit your answers anytime.
+            </p>
+          </div>
+
+          {/* Progress */}
+          <div className="mb-6 bg-slate-800/50 backdrop-blur border border-slate-700 rounded-lg p-4">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-slate-300">Progress</span>
+              <span className="text-purple-400 font-bold">
+                {answeredCount}/{totalQuestions}
+              </span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-2">
+              <div
+                className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+                style={{
+                  width: `${(answeredCount / Math.max(1, totalQuestions)) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Error message */}
+          {state.error && (
+            <div className="mb-6 p-4 bg-red-500/20 border border-red-500 rounded-lg text-red-200">
+              {state.error}
+            </div>
+          )}
+
+          {/* Questions list */}
+          <div className="space-y-3 mb-8">
+            {questions.map((question) => {
+              const isAnswered = !!state.responses[question.id];
+              const isExpanded = expandedQuestion === question.id;
+
+              if (!isAnswered && !isExpanded) return null;
+
+              return (
+                <div
+                  key={question.id}
+                  ref={(el) => {
+                    if (el) questionRefs.current.set(question.id, el);
+                    else questionRefs.current.delete(question.id);
+                  }}
+                >
+                  <CollapsibleQuestionCard
+                    question={question}
+                    answer={state.responses[question.id] || ""}
+                    onAnswerChange={(answer) =>
+                      handleAnswerQuestion(question.id, answer)
+                    }
+                    isExpanded={isExpanded}
+                    onToggleExpand={() =>
+                      setExpandedQuestion(isExpanded ? null : question.id)
+                    }
+                    isAnswered={isAnswered}
+                    onNext={handleNextQuestion}
+                  />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Sticky bottom controls */}
+          {showSticky && (
+            <div className="sticky bottom-4 flex gap-4">
+              <button
+                onClick={() => setExpandedQuestion(null)}
+                className="px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium transition"
+              >
+                Collapse All
+              </button>
+              <button
+                onClick={submitResponses}
+                disabled={!allAnswered || state.loading}
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition"
+              >
+                {state.loading
+                  ? "Generating Report..."
+                  : allAnswered
+                  ? "✨ See Your Results"
+                  : `Answer all questions (${answeredCount}/${totalQuestions})`}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Live Score Dashboard (Sticky Sidebar) */}
+        <div className="lg:col-span-1">
+          <LiveScoreDashboard
+            scores={liveScore.scores}
+            overallScore={liveScore.overallScore}
+            report={liveScore.report}
+            answeredCount={liveScore.answeredCount}
+            totalQuestions={totalQuestions}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }

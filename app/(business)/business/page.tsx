@@ -12,7 +12,7 @@ export default function BusinessHome() {
         We’ll help you find real opportunities, estimate costs, and create an action plan.
       </p>
       <Link
-        href="/business/plan"
+        href="/business/idea"
         className="inline-block px-6 py-3 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
       >
         Start your Business Plan →

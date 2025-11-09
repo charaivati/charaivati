@@ -41,28 +41,25 @@ export default function CollapsibleQuestionCard({
 }: CollapsibleQuestionCardProps) {
   const [shuffledOptions, setShuffledOptions] = useState<Option[]>([]);
 
-  // Randomize options when question loads (or when options change)
+  // Randomize options when question loads
   useEffect(() => {
     if (question.type === "select" && question.options) {
       if (question.randomizeOptions) {
-        const shuffled = [...question.options].sort(() => Math.random() - 0.5);
+        const shuffled = [...question.options].sort(
+          () => Math.random() - 0.5
+        );
         setShuffledOptions(shuffled);
       } else {
         setShuffledOptions(question.options);
       }
-    } else {
-      setShuffledOptions([]);
     }
-  }, [question.id, question.options, question.randomizeOptions, question.type]);
+  }, [question.id, question.options, question.randomizeOptions]);
 
   const getPreviewText = () => {
     if (!answer) return "Not answered";
 
     if (question.type === "select") {
-      // Prefer shuffledOptions (what user saw) to find the label
-      const option =
-        shuffledOptions.find((opt) => opt.value === answer) ||
-        question.options?.find((opt) => opt.value === answer);
+      const option = question.options?.find((opt) => opt.value === answer);
       return option?.label || answer;
     }
 
@@ -76,8 +73,8 @@ export default function CollapsibleQuestionCard({
         isExpanded
           ? "border-purple-500/50 shadow-lg"
           : isAnswered
-          ? "border-slate-700 hover:border-slate-600 cursor-pointer"
-          : "border-blue-500/50 hover:border-blue-500"
+            ? "border-slate-700 hover:border-slate-600 cursor-pointer"
+            : "border-blue-500/50 hover:border-blue-500"
       } rounded-xl overflow-hidden`}
     >
       {/* Header - always visible */}
@@ -90,7 +87,9 @@ export default function CollapsibleQuestionCard({
             <span className="text-sm font-bold text-purple-400 flex-shrink-0">
               Q{question.order}
             </span>
-            <h3 className="text-white font-medium truncate">{question.text}</h3>
+            <h3 className="text-white font-medium truncate">
+              {question.text}
+            </h3>
           </div>
           {isAnswered && (
             <p className="text-sm mt-1 truncate text-slate-400">
@@ -105,11 +104,15 @@ export default function CollapsibleQuestionCard({
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {isAnswered && <span className="text-green-400 text-sm">✓</span>}
+          {isAnswered && (
+            <span className="text-green-400 text-sm">✓</span>
+          )}
           {!isAnswered && !isExpanded && (
             <span className="text-blue-400 text-sm">►</span>
           )}
-          {isExpanded && <span className="text-purple-400 text-sm">▼</span>}
+          {isExpanded && (
+            <span className="text-purple-400 text-sm">▼</span>
+          )}
         </div>
       </button>
 
@@ -154,17 +157,12 @@ export default function CollapsibleQuestionCard({
             </div>
           )}
 
-          <div className="pt-4 border-t border-slate-700 flex gap-3 items-center justify-between">
-            <button
-              onClick={onToggleExpand}
-              className="text-sm text-purple-400 hover:text-purple-300 transition"
-            >
-              ▲ Collapse
-            </button>
+          <div className="pt-4 border-t border-slate-700 flex gap-3 items-center justify-between sticky bottom-0 bg-slate-800/30">
+            {/* Next button stays sticky at bottom of expanded content */}
             {answer && onNext && (
               <button
                 onClick={onNext}
-                className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-lg text-white text-sm font-bold transition"
+                className="ml-auto px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-lg text-white text-sm font-bold transition"
               >
                 Next →
               </button>
