@@ -42,9 +42,6 @@ interface IdeaState {
 }
 
 export default function IdeaBatchPage() {
-  // -------------------------
-  // Hooks (top-level only)
-  // -------------------------
   const [questions, setQuestions] = useState<Question[]>([]);
   const [questionsLoading, setQuestionsLoading] = useState(true);
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
@@ -74,9 +71,6 @@ export default function IdeaBatchPage() {
   const questionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const scoringTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // -------------------------
-  // Effects
-  // -------------------------
   // Fetch questions on mount
   useEffect(() => {
     let alive = true;
@@ -96,7 +90,6 @@ export default function IdeaBatchPage() {
         if (!alive) return;
         setQuestions(parsedQuestions);
 
-        // Auto-expand first question
         if (parsedQuestions.length > 0) {
           setExpandedQuestion(parsedQuestions[0].id);
         }
@@ -156,28 +149,26 @@ export default function IdeaBatchPage() {
     })();
   }, [questionsLoading]);
 
-  // Scroll expanded question into center of viewport
+  // Scroll expanded question smoothly near top with ~5px gap
   useEffect(() => {
     if (!expandedQuestion) return;
 
-    const el = questionRefs.current.get(expandedQuestion);
-    if (!el) {
-      const t = setTimeout(() => {
-        const el2 = questionRefs.current.get(expandedQuestion);
-        if (el2) {
-          try {
-            el2.scrollIntoView({ behavior: "smooth", block: "center" });
-          } catch {}
-        }
-      }, 50);
-      return () => clearTimeout(t);
-    }
+    const scrollToQuestion = () => {
+      const el = questionRefs.current.get(expandedQuestion);
+      if (!el) return;
 
-    try {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-    } catch (err) {
-      // ignore scroll failures
-    }
+      try {
+        const rect = el.getBoundingClientRect();
+        const absoluteY = window.scrollY + rect.top - 5; // 5px gap from top
+        window.scrollTo({ top: absoluteY, behavior: "smooth" });
+      } catch (err) {
+        // ignore measurement/scroll failures
+      }
+    };
+
+    // Delay slightly to ensure DOM has painted / layout stabilized
+    const t = setTimeout(scrollToQuestion, 50);
+    return () => clearTimeout(t);
   }, [expandedQuestion]);
 
   // Real-time scoring with debounce
@@ -192,12 +183,10 @@ export default function IdeaBatchPage() {
       return;
     }
 
-    // Clear previous timeout
     if (scoringTimeoutRef.current) {
       clearTimeout(scoringTimeoutRef.current);
     }
 
-    // Debounce scoring call by 500ms
     scoringTimeoutRef.current = setTimeout(async () => {
       try {
         const res = await fetch("/api/business/idea/score-live", {
@@ -233,7 +222,7 @@ export default function IdeaBatchPage() {
     };
   }, [state.responses, state.ideaId]);
 
-  // Auto-save responses (only if idea exists)
+  // Auto-save responses
   useEffect(() => {
     if (!state.ideaId) return;
     if (Object.keys(state.responses).length === 0) return;
@@ -256,9 +245,6 @@ export default function IdeaBatchPage() {
     return () => clearTimeout(timeout);
   }, [state.responses, state.ideaId]);
 
-  // -------------------------
-  // Handlers
-  // -------------------------
   const handleStartIdea = async (
     title: string,
     description: string,
@@ -354,9 +340,6 @@ export default function IdeaBatchPage() {
     }
   };
 
-  // -------------------------
-  // Render logic
-  // -------------------------
   if (questionsLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
@@ -384,14 +367,11 @@ export default function IdeaBatchPage() {
   const answeredCount = Object.keys(state.responses).length;
   const totalQuestions = questions.length;
   const allAnswered = answeredCount === totalQuestions;
-  const showSticky = true; // Always show sticky button
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content */}
         <div className="lg:col-span-2">
-          {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-white mb-2">Validate Your Idea</h1>
             <p className="text-slate-400">
@@ -399,7 +379,6 @@ export default function IdeaBatchPage() {
             </p>
           </div>
 
-          {/* Progress */}
           <div className="mb-6 bg-slate-800/50 backdrop-blur border border-slate-700 rounded-lg p-4">
             <div className="flex justify-between items-center mb-2">
               <span className="text-slate-300">Progress</span>
@@ -417,14 +396,12 @@ export default function IdeaBatchPage() {
             </div>
           </div>
 
-          {/* Error message */}
           {state.error && (
             <div className="mb-6 p-4 bg-red-500/20 border border-red-500 rounded-lg text-red-200">
               {state.error}
             </div>
           )}
 
-          {/* Questions list */}
           <div className="space-y-3 mb-8">
             {questions.map((question) => {
               const isAnswered = !!state.responses[question.id];
@@ -458,31 +435,9 @@ export default function IdeaBatchPage() {
             })}
           </div>
 
-          {/* Sticky bottom controls */}
-          {showSticky && (
-            <div className="sticky bottom-4 flex gap-4">
-              <button
-                onClick={() => setExpandedQuestion(null)}
-                className="px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg text-white font-medium transition"
-              >
-                Collapse All
-              </button>
-              <button
-                onClick={submitResponses}
-                disabled={!allAnswered || state.loading}
-                className="flex-1 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-medium transition"
-              >
-                {state.loading
-                  ? "Generating Report..."
-                  : allAnswered
-                  ? "✨ See Your Results"
-                  : `Answer all questions (${answeredCount}/${totalQuestions})`}
-              </button>
-            </div>
-          )}
+
         </div>
 
-        {/* Live Score Dashboard (Sticky Sidebar) */}
         <div className="lg:col-span-1">
           <LiveScoreDashboard
             scores={liveScore.scores}
