@@ -90,11 +90,8 @@ export default function CollapsibleQuestionCard({
           aria-expanded={isExpanded}
         >
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-purple-400 flex-shrink-0">
-              Q{question.order}
-            </span>
             <h3 className="text-white font-medium truncate">{question.text}</h3>
-          </div>
+            </div>
           {isAnswered && (
             <p className="text-sm mt-1 truncate text-slate-400">
               {getPreviewText()}

@@ -4,18 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-/**
- * Admin Questions editor page
- *
- * - Fixed TypeScript `next` implicit any by giving explicit helper types.
- * - Avoids sending `null` for `options` to the API (send `undefined` when absent).
- * - Handles opt.score possibly undefined by using `opt.score ?? 0`.
- * - Supports inline edit: clicking "Edit" turns the question card into an editable form.
- *
- * Drop this file in place of your existing admin questions page.
- */
-
-type Option = { value: string; label: string; score?: number };
+type Option = { value: string; label: string; score?: number; nextQuestionId?: string };
 
 type Question = {
   id: string;
@@ -38,11 +27,9 @@ export default function AdminQuestionsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminUser, setAdminUser] = useState<{ id?: string; email?: string } | null>(null);
 
-  // Inline editing state per-question (editingId = question.id)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingForm, setEditingForm] = useState<Partial<Question> | null>(null);
 
-  // Create new question UI state
   const [creating, setCreating] = useState(false);
   const [newForm, setNewForm] = useState<Partial<Question>>({
     order: undefined,
@@ -80,7 +67,6 @@ export default function AdminQuestionsPage() {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchQuestions = async () => {
@@ -89,7 +75,6 @@ export default function AdminQuestionsPage() {
       const res = await fetch("/api/admin/questions");
       if (!res.ok) throw new Error("Failed to fetch");
       const data: Question[] = await res.json();
-      // Ensure options are parsed/normalized
       const normalized = data.map((q) => ({
         ...q,
         options: Array.isArray(q.options) ? q.options : q.options === null ? [] : (q.options as any) ?? [],
@@ -100,35 +85,6 @@ export default function AdminQuestionsPage() {
       setError("Failed to load questions");
     }
   };
-
-  /* ========== Helpers for option editing (typed) ========== */
-  type OptionsSetter = (next: Option[] | undefined) => void;
-
-  const addOptionTo = (setter: OptionsSetter, current?: Option[] | null) => {
-    const next = current ? [...current] : [];
-    next.push({ value: "", label: "", score: 0 });
-    setter(next);
-  };
-
-  const updateOptionIn = (
-    setter: OptionsSetter,
-    current: Option[] | undefined | null,
-    index: number,
-    field: keyof Option,
-    value: string | number | undefined
-  ) => {
-    const next = current ? [...current] : [];
-    const existing = next[index] ?? { value: "", label: "", score: 0 };
-    next[index] = { ...existing, [field]: value } as Option;
-    setter(next);
-  };
-
-  const removeOptionFrom = (setter: OptionsSetter, current: Option[] | undefined | null, index: number) => {
-    const next = (current ?? []).filter((_, i) => i !== index);
-    setter(next);
-  };
-
-  /* ========== Create / Save / Delete handlers ========== */
 
   const handleStartCreate = () => {
     setCreating(true);
@@ -165,7 +121,6 @@ export default function AdminQuestionsPage() {
         return;
       }
 
-      // Build payload, send `options` as object/array or undefined (avoid sending null)
       const payload: any = {
         order: Number(newForm.order ?? (questions.length ? Math.max(...questions.map((q) => q.order)) + 1 : 1)),
         text: newForm.text,
@@ -199,7 +154,6 @@ export default function AdminQuestionsPage() {
         randomizeOptions: true,
         options: [],
       });
-      // reload questions
       setTimeout(fetchQuestions, 300);
     } catch (err: any) {
       console.error(err);
@@ -209,7 +163,6 @@ export default function AdminQuestionsPage() {
 
   const handleEditClick = (q: Question) => {
     setEditingId(q.id);
-    // clone to local editing form
     setEditingForm({
       ...q,
       options: Array.isArray(q.options) ? q.options.map((o) => ({ ...o })) : [],
@@ -425,65 +378,90 @@ export default function AdminQuestionsPage() {
                 />
               </div>
 
-              {/* Options editor */}
+              {/* Options editor with BRANCHING */}
               {newForm.type === "select" && (
                 <div>
-                  <label className="text-slate-300 block mb-2">Options</label>
-                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                  <label className="text-slate-300 block mb-2">Options (with optional branching)</label>
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
                     {(newForm.options ?? []).map((opt, idx) => (
-                      <div key={idx} className="flex gap-2 items-end bg-slate-700/40 p-2 rounded">
-                        <input
-                          placeholder="value"
-                          value={opt.value}
-                          onChange={(e) =>
-                            setNewForm((f) => {
-                              const opts = (f.options ?? []).slice();
-                              opts[idx] = { ...(opts[idx] ?? { value: "", label: "", score: 0 }), value: e.target.value };
-                              return { ...f, options: opts };
-                            })
-                          }
-                          className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
-                        />
-                        <input
-                          placeholder="label"
-                          value={opt.label}
-                          onChange={(e) =>
-                            setNewForm((f) => {
-                              const opts = (f.options ?? []).slice();
-                              opts[idx] = { ...(opts[idx] ?? { value: "", label: "", score: 0 }), label: e.target.value };
-                              return { ...f, options: opts };
-                            })
-                          }
-                          className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
-                        />
-                        <select
-                          value={opt.score ?? 0}
-                          onChange={(e) =>
-                            setNewForm((f) => {
-                              const opts = (f.options ?? []).slice();
-                              opts[idx] = { ...(opts[idx] ?? { value: "", label: "", score: 0 }), score: parseInt(e.target.value) };
-                              return { ...f, options: opts };
-                            })
-                          }
-                          className="w-24 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
-                        >
-                          <option value={-2}>-2</option>
-                          <option value={-1}>-1</option>
-                          <option value={0}>0</option>
-                          <option value={1}>1</option>
-                          <option value={2}>2</option>
-                        </select>
-                        <button
-                          onClick={() =>
-                            setNewForm((f) => {
-                              const opts = (f.options ?? []).filter((_, i) => i !== idx);
-                              return { ...f, options: opts };
-                            })
-                          }
-                          className="px-3 py-2 bg-red-500/20 text-red-400 rounded"
-                        >
-                          ✕
-                        </button>
+                      <div key={idx} className="bg-slate-700/40 p-3 rounded border border-slate-600">
+                        <div className="flex gap-2 items-end mb-2">
+                          <input
+                            placeholder="value"
+                            value={opt.value}
+                            onChange={(e) =>
+                              setNewForm((f) => {
+                                const opts = (f.options ?? []).slice();
+                                opts[idx] = { ...(opts[idx] ?? { value: "", label: "", score: 0 }), value: e.target.value };
+                                return { ...f, options: opts };
+                              })
+                            }
+                            className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                          />
+                          <input
+                            placeholder="label"
+                            value={opt.label}
+                            onChange={(e) =>
+                              setNewForm((f) => {
+                                const opts = (f.options ?? []).slice();
+                                opts[idx] = { ...(opts[idx] ?? { value: "", label: "", score: 0 }), label: e.target.value };
+                                return { ...f, options: opts };
+                              })
+                            }
+                            className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                          />
+                          <select
+                            value={opt.score ?? 0}
+                            onChange={(e) =>
+                              setNewForm((f) => {
+                                const opts = (f.options ?? []).slice();
+                                opts[idx] = { ...(opts[idx] ?? { value: "", label: "", score: 0 }), score: parseInt(e.target.value) };
+                                return { ...f, options: opts };
+                              })
+                            }
+                            className="w-20 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                          >
+                            <option value={-2}>-2</option>
+                            <option value={-1}>-1</option>
+                            <option value={0}>0</option>
+                            <option value={1}>1</option>
+                            <option value={2}>2</option>
+                          </select>
+                          <button
+                            onClick={() =>
+                              setNewForm((f) => {
+                                const opts = (f.options ?? []).filter((_, i) => i !== idx);
+                                return { ...f, options: opts };
+                              })
+                            }
+                            className="px-3 py-2 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30"
+                          >
+                            ✕
+                          </button>
+                        </div>
+
+                        {/* BRANCHING: Next Question */}
+                        <div>
+                          <label className="text-slate-400 text-xs block mb-1">→ Jump to question (branching):</label>
+                          <select
+                            value={opt.nextQuestionId ?? ""}
+                            onChange={(e) =>
+                              setNewForm((f) => {
+                                const opts = (f.options ?? []).slice();
+                                opts[idx] = { ...(opts[idx] ?? { value: "", label: "", score: 0 }), nextQuestionId: e.target.value || undefined };
+                                return { ...f, options: opts };
+                              })
+                            }
+                            className="w-full px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                          >
+                            <option value="">— Continue to next in sequence —</option>
+                            {questions.map((q) => (
+                              <option key={q.id} value={q.id}>
+                                Q{q.order}: {q.text.substring(0, 40)}...
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -492,7 +470,7 @@ export default function AdminQuestionsPage() {
                     onClick={() =>
                       setNewForm((f) => ({ ...f, options: [...(f.options ?? []), { value: "", label: "", score: 0 }] }))
                     }
-                    className="mt-2 px-3 py-2 bg-blue-500/20 text-blue-300 rounded"
+                    className="mt-2 px-3 py-2 bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30"
                   >
                     + Add option
                   </button>
@@ -500,10 +478,10 @@ export default function AdminQuestionsPage() {
               )}
 
               <div className="flex gap-2 pt-4 border-t border-slate-700">
-                <button onClick={handleCreateSave} className="px-4 py-2 bg-green-500 text-white rounded">
+                <button onClick={handleCreateSave} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
                   Save
                 </button>
-                <button onClick={handleCancelCreate} className="px-4 py-2 bg-slate-700 text-white rounded">
+                <button onClick={handleCancelCreate} className="px-4 py-2 bg-slate-700 text-white rounded hover:bg-slate-600">
                   Cancel
                 </button>
               </div>
@@ -530,10 +508,10 @@ export default function AdminQuestionsPage() {
 
                       {q.type === "select" && Array.isArray(q.options) && q.options.length > 0 && (
                         <div className="mt-3 text-sm bg-slate-700/50 p-3 rounded">
-                          <p className="text-slate-300 font-medium mb-2">Answers & Scoring:</p>
+                          <p className="text-slate-300 font-medium mb-2">Options:</p>
                           <div className="space-y-1">
                             {q.options.map((opt, idx) => (
-                              <p key={idx} className="text-slate-400">
+                              <p key={idx} className="text-slate-400 text-xs">
                                 • <span className="text-slate-300">{opt.label}</span>{" "}
                                 <span
                                   className={`font-bold ${
@@ -550,6 +528,11 @@ export default function AdminQuestionsPage() {
                                 >
                                   ({(opt.score ?? 0) >= 0 ? "+" : ""}{opt.score ?? 0})
                                 </span>
+                                {opt.nextQuestionId && (
+                                  <span className="text-purple-400 text-xs ml-2">
+                                    → Jump to Q{questions.find((x) => x.id === opt.nextQuestionId)?.order}
+                                  </span>
+                                )}
                               </p>
                             ))}
                           </div>
@@ -645,65 +628,90 @@ export default function AdminQuestionsPage() {
                       />
                     </div>
 
-                    {/* Options editor when select */}
+                    {/* Options editor when select with BRANCHING */}
                     {editingForm?.type === "select" && (
                       <div>
-                        <label className="text-slate-300 block mb-2">Options</label>
-                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                        <label className="text-slate-300 block mb-2">Options (with optional branching)</label>
+                        <div className="space-y-3 max-h-96 overflow-y-auto">
                           {(editingForm.options ?? []).map((opt, i) => (
-                            <div key={i} className="flex gap-2 items-end bg-slate-700/40 p-2 rounded">
-                              <input
-                                className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
-                                placeholder="value"
-                                value={opt.value}
-                                onChange={(e) =>
-                                  setEditingForm((f) => {
-                                    const opts = (f?.options ?? []).slice();
-                                    opts[i] = { ...(opts[i] ?? { value: "", label: "", score: 0 }), value: e.target.value };
-                                    return { ...(f ?? {}), options: opts };
-                                  })
-                                }
-                              />
-                              <input
-                                className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
-                                placeholder="label"
-                                value={opt.label}
-                                onChange={(e) =>
-                                  setEditingForm((f) => {
-                                    const opts = (f?.options ?? []).slice();
-                                    opts[i] = { ...(opts[i] ?? { value: "", label: "", score: 0 }), label: e.target.value };
-                                    return { ...(f ?? {}), options: opts };
-                                  })
-                                }
-                              />
-                              <select
-                                value={opt.score ?? 0}
-                                onChange={(e) =>
-                                  setEditingForm((f) => {
-                                    const opts = (f?.options ?? []).slice();
-                                    opts[i] = { ...(opts[i] ?? { value: "", label: "", score: 0 }), score: parseInt(e.target.value) };
-                                    return { ...(f ?? {}), options: opts };
-                                  })
-                                }
-                                className="w-24 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
-                              >
-                                <option value={-2}>-2</option>
-                                <option value={-1}>-1</option>
-                                <option value={0}>0</option>
-                                <option value={1}>1</option>
-                                <option value={2}>2</option>
-                              </select>
-                              <button
-                                onClick={() =>
-                                  setEditingForm((f) => {
-                                    const opts = (f?.options ?? []).filter((_, idx) => idx !== i);
-                                    return { ...(f ?? {}), options: opts };
-                                  })
-                                }
-                                className="px-3 py-2 bg-red-500/20 text-red-400 rounded"
-                              >
-                                ✕
-                              </button>
+                            <div key={i} className="bg-slate-700/40 p-3 rounded border border-slate-600">
+                              <div className="flex gap-2 items-end mb-2">
+                                <input
+                                  className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                                  placeholder="value"
+                                  value={opt.value}
+                                  onChange={(e) =>
+                                    setEditingForm((f) => {
+                                      const opts = (f?.options ?? []).slice();
+                                      opts[i] = { ...(opts[i] ?? { value: "", label: "", score: 0 }), value: e.target.value };
+                                      return { ...(f ?? {}), options: opts };
+                                    })
+                                  }
+                                />
+                                <input
+                                  className="flex-1 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                                  placeholder="label"
+                                  value={opt.label}
+                                  onChange={(e) =>
+                                    setEditingForm((f) => {
+                                      const opts = (f?.options ?? []).slice();
+                                      opts[i] = { ...(opts[i] ?? { value: "", label: "", score: 0 }), label: e.target.value };
+                                      return { ...(f ?? {}), options: opts };
+                                    })
+                                  }
+                                />
+                                <select
+                                  value={opt.score ?? 0}
+                                  onChange={(e) =>
+                                    setEditingForm((f) => {
+                                      const opts = (f?.options ?? []).slice();
+                                      opts[i] = { ...(opts[i] ?? { value: "", label: "", score: 0 }), score: parseInt(e.target.value) };
+                                      return { ...(f ?? {}), options: opts };
+                                    })
+                                  }
+                                  className="w-20 px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                                >
+                                  <option value={-2}>-2</option>
+                                  <option value={-1}>-1</option>
+                                  <option value={0}>0</option>
+                                  <option value={1}>1</option>
+                                  <option value={2}>2</option>
+                                </select>
+                                <button
+                                  onClick={() =>
+                                    setEditingForm((f) => {
+                                      const opts = (f?.options ?? []).filter((_, idx) => idx !== i);
+                                      return { ...(f ?? {}), options: opts };
+                                    })
+                                  }
+                                  className="px-3 py-2 bg-red-500/20 text-red-400 rounded hover:bg-red-500/30"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+
+                              {/* BRANCHING: Next Question */}
+                              <div>
+                                <label className="text-slate-400 text-xs block mb-1">→ Jump to question (branching):</label>
+                                <select
+                                  value={opt.nextQuestionId ?? ""}
+                                  onChange={(e) =>
+                                    setEditingForm((f) => {
+                                      const opts = (f?.options ?? []).slice();
+                                      opts[i] = { ...(opts[i] ?? { value: "", label: "", score: 0 }), nextQuestionId: e.target.value || undefined };
+                                      return { ...(f ?? {}), options: opts };
+                                    })
+                                  }
+                                  className="w-full px-2 py-2 bg-slate-700 border border-slate-600 rounded text-white text-sm"
+                                >
+                                  <option value="">— Continue to next in sequence —</option>
+                                  {questions.map((q) => (
+                                    <option key={q.id} value={q.id}>
+                                      Q{q.order}: {q.text.substring(0, 40)}...
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -712,7 +720,7 @@ export default function AdminQuestionsPage() {
                           onClick={() =>
                             setEditingForm((f) => ({ ...(f ?? {}), options: [...(f?.options ?? []), { value: "", label: "", score: 0 }] }))
                           }
-                          className="mt-2 px-3 py-2 bg-blue-500/20 text-blue-300 rounded"
+                          className="mt-2 px-3 py-2 bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30"
                         >
                           + Add option
                         </button>
@@ -720,10 +728,10 @@ export default function AdminQuestionsPage() {
                     )}
 
                     <div className="flex gap-2 pt-4 border-t border-slate-700">
-                      <button onClick={handleSaveEdit} className="px-4 py-2 bg-green-500 text-white rounded">
+                      <button onClick={handleSaveEdit} className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
                         Save
                       </button>
-                      <button onClick={handleCancelEdit} className="px-4 py-2 bg-slate-700 text-white rounded">
+                      <button onClick={handleCancelEdit} className="px-4 py-2 bg-slate-700 text-white rounded hover:bg-slate-600">
                         Cancel
                       </button>
                     </div>

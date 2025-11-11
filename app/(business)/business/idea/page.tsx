@@ -1,19 +1,28 @@
-// app/(business)/business/idea-batch/page.tsx
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ResultsReport from "@/components/business/ResultsReport";
 import StartScreenBatch from "@/components/business/StartScreenBatch";
 import CollapsibleQuestionCard from "@/components/business/CollapsibleQuestionCard";
 import LiveScoreDashboard from "@/components/business/LiveScoreDashboard";
 
-interface Question {
+/* -------------------- Types (renamed to avoid collisions) -------------------- */
+
+interface BusinessOption {
+  id?: string;
+  value: string;
+  label: string;
+  score?: number;
+  nextQuestionId?: string;
+}
+
+interface BusinessQuestion {
   id: string;
   order: number;
   text: string;
   type: string;
-  category: string;
-  options?: Array<{ value: string; label: string; score?: number }>;
+  category?: string;
+  options?: BusinessOption[]; // optional, never null
   helpText?: string;
   examples?: string;
   randomizeOptions?: boolean;
@@ -41,11 +50,15 @@ interface IdeaState {
   error?: string;
 }
 
-export default function IdeaBatchPage() {
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [questionsLoading, setQuestionsLoading] = useState(true);
+/* -------------------- Component -------------------- */
+
+export default function IdeaBatchPage(): React.ReactElement {
+  const [allQuestions, setAllQuestions] = useState<BusinessQuestion[]>([]);
+  const [visibleQuestions, setVisibleQuestions] = useState<BusinessQuestion[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState<boolean>(true);
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
-  const autoStartedRef = useRef(false);
+  const autoStartedRef = useRef<boolean>(false);
+  const [enableAutoScroll, setEnableAutoScroll] = useState<boolean>(false);
 
   const [state, setState] = useState<IdeaState>({
     ideaId: null,
@@ -71,11 +84,7 @@ export default function IdeaBatchPage() {
   const questionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const scoringTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // New: only enable auto-scroll after user navigates with Next.
-  // Start disabled to avoid auto-scrolling on initial load.
-  const [enableAutoScroll, setEnableAutoScroll] = useState(false);
-
-  // Fetch questions on mount
+  /* -------------------- Fetch questions -------------------- */
   useEffect(() => {
     let alive = true;
     const fetchQuestions = async () => {
@@ -84,19 +93,22 @@ export default function IdeaBatchPage() {
         const res = await fetch("/api/business/questions");
         if (!res.ok) throw new Error("Failed to fetch questions");
 
-        const data = await res.json();
+        const data: unknown = await res.json();
 
-        const parsedQuestions = data.map((q: any) => ({
+        const parsedQuestions: BusinessQuestion[] = (Array.isArray(data) ? data : []).map((q: any) => ({
           ...q,
-          options: typeof q.options === "string" ? JSON.parse(q.options) : q.options,
+          options:
+            typeof q.options === "string"
+              ? (JSON.parse(q.options) as BusinessOption[])
+              : (q.options as BusinessOption[] | undefined),
         }));
 
         if (!alive) return;
-        setQuestions(parsedQuestions);
+        setAllQuestions(parsedQuestions);
 
         if (parsedQuestions.length > 0) {
-          // expand first question but DO NOT enable auto-scroll
           setExpandedQuestion(parsedQuestions[0].id);
+          setVisibleQuestions([parsedQuestions[0]]);
           setEnableAutoScroll(false);
         }
       } catch (error) {
@@ -116,7 +128,7 @@ export default function IdeaBatchPage() {
     };
   }, []);
 
-  // Auto-start without start screen
+  /* -------------------- Auto-create idea (optional) -------------------- */
   useEffect(() => {
     if (questionsLoading || autoStartedRef.current) return;
 
@@ -155,7 +167,68 @@ export default function IdeaBatchPage() {
     })();
   }, [questionsLoading]);
 
-  // Scroll expanded question **to top** with a 5px gap (only when enabled)
+  /* ==================== BRANCHING LOGIC ====================
+     Build visibleQuestions from allQuestions + state.responses
+  */
+  useEffect(() => {
+    const calculateVisibleQuestions = (): BusinessQuestion[] => {
+      if (allQuestions.length === 0) return [];
+
+      const visible: BusinessQuestion[] = [];
+      const visited = new Set<string>();
+
+      // Track by index to avoid undefined currentQ
+      let currentIndex = 0;
+
+      // Safety guard to prevent infinite loops if graph has a cycle
+      const MAX_ITER = Math.max(10000, allQuestions.length * 10);
+      let iter = 0;
+
+      while (currentIndex >= 0 && currentIndex < allQuestions.length) {
+        if (++iter > MAX_ITER) {
+          console.warn("Branch calculation stopped: iteration limit reached");
+          break;
+        }
+
+        const currentQ: BusinessQuestion = allQuestions[currentIndex];
+
+        if (visited.has(currentQ.id)) {
+          // cycle detected — exit gracefully
+          break;
+        }
+        visited.add(currentQ.id);
+
+        visible.push(currentQ);
+
+        const answer: string | undefined = state.responses[currentQ.id];
+
+        // If not answered yet, stop the path here
+        if (!answer) break;
+
+        // Look for option matching the saved answer
+        const selectedOption = currentQ.options?.find((opt) => opt.value === answer);
+
+        if (selectedOption?.nextQuestionId) {
+          // Jump to branched question; find its index
+          const nextIndex = allQuestions.findIndex((q) => q.id === selectedOption.nextQuestionId);
+          if (nextIndex === -1) {
+            // Branch points to unknown question — stop gracefully
+            break;
+          }
+          currentIndex = nextIndex;
+        } else {
+          // Default: next by order (sequential)
+          currentIndex = currentIndex + 1;
+        }
+      }
+
+      return visible;
+    };
+
+    setVisibleQuestions(calculateVisibleQuestions());
+  }, [state.responses, allQuestions]);
+
+  /* -------------------- Scroll expanded question to top -------------------- */
   useEffect(() => {
     if (!expandedQuestion || !enableAutoScroll) return;
 
@@ -164,21 +237,19 @@ export default function IdeaBatchPage() {
       if (!el) return;
 
       try {
-        // compute position and scroll so the element top sits 5px below viewport top
         const rect = el.getBoundingClientRect();
-        const absoluteY = window.scrollY + rect.top - 5; // 5px gap
+        const absoluteY = window.scrollY + rect.top - 5;
         window.scrollTo({ top: absoluteY, behavior: "smooth" });
       } catch (err) {
-        // ignore measurement/scroll failures
+        // ignore
       }
     };
 
-    // small delay so DOM updates and CSS transitions settle
     const t = setTimeout(scrollToQuestionTop, 50);
     return () => clearTimeout(t);
   }, [expandedQuestion, enableAutoScroll]);
 
-  // Real-time scoring with debounce
+  /* -------------------- Live scoring (debounced) -------------------- */
   useEffect(() => {
     if (!state.ideaId || Object.keys(state.responses).length === 0) {
       setLiveScore({
@@ -210,7 +281,13 @@ export default function IdeaBatchPage() {
           return;
         }
 
-        const data = await res.json();
+        const data: {
+          scores: Record<string, number>;
+          overallScore: number;
+          report: any;
+          answeredCount: number;
+        } = await res.json();
+
         setLiveScore({
           scores: data.scores,
           overallScore: data.overallScore,
@@ -229,7 +306,7 @@ export default function IdeaBatchPage() {
     };
   }, [state.responses, state.ideaId]);
 
-  // Auto-save responses
+  /* -------------------- Auto-save responses -------------------- */
   useEffect(() => {
     if (!state.ideaId) return;
     if (Object.keys(state.responses).length === 0) return;
@@ -252,12 +329,14 @@ export default function IdeaBatchPage() {
     return () => clearTimeout(timeout);
   }, [state.responses, state.ideaId]);
 
+  /* -------------------- Handlers -------------------- */
+
   const handleStartIdea = async (
     title: string,
     description: string,
     email: string,
     phone: string
-  ) => {
+  ): Promise<void> => {
     setState((prev) => ({ ...prev, loading: true, error: undefined }));
     try {
       const res = await fetch("/api/business/idea", {
@@ -293,7 +372,7 @@ export default function IdeaBatchPage() {
     }
   };
 
-  const handleAnswerQuestion = (questionId: string, answer: string) => {
+  const handleAnswerQuestion = (questionId: string, answer: string): void => {
     setState((prev) => ({
       ...prev,
       responses: {
@@ -303,9 +382,9 @@ export default function IdeaBatchPage() {
     }));
   };
 
-  const handleNextQuestion = () => {
-    const currentQuestionIndex = questions.findIndex((q) => q.id === expandedQuestion);
-    const nextQuestion = questions[currentQuestionIndex + 1];
+  const handleNextQuestion = (): void => {
+    const currentIndex = visibleQuestions.findIndex((q) => q.id === expandedQuestion);
+    const nextQuestion = visibleQuestions[currentIndex + 1];
 
     // Enable auto-scroll now that the user explicitly moved forward
     setEnableAutoScroll(true);
@@ -317,7 +396,7 @@ export default function IdeaBatchPage() {
     }
   };
 
-  const submitResponses = async () => {
+  const submitResponses = async (): Promise<void> => {
     setState((prev) => ({ ...prev, loading: true, error: undefined }));
     try {
       const res = await fetch("/api/business/idea/score", {
@@ -350,12 +429,14 @@ export default function IdeaBatchPage() {
     }
   };
 
+  /* -------------------- Render -------------------- */
+
   if (questionsLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
         <div className="text-center">
           <p className="text-white text-xl mb-4">Loading questions...</p>
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto" />
         </div>
       </div>
     );
@@ -375,8 +456,8 @@ export default function IdeaBatchPage() {
   }
 
   const answeredCount = Object.keys(state.responses).length;
-  const totalQuestions = questions.length;
-  const allAnswered = answeredCount === totalQuestions;
+  const totalQuestions = visibleQuestions.length;
+  const allAnswered = answeredCount === totalQuestions && totalQuestions > 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
@@ -385,7 +466,7 @@ export default function IdeaBatchPage() {
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-white mb-2">Validate Your Idea</h1>
             <p className="text-slate-400">
-              Answer all questions below. You can edit your answers anytime.
+              Answer all questions below. Your path adapts based on your answers.
             </p>
           </div>
 
@@ -400,7 +481,7 @@ export default function IdeaBatchPage() {
               <div
                 className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
                 style={{
-                  width: `${(answeredCount / Math.max(1, totalQuestions)) * 100}%`,
+                  width: `${totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0}%`,
                 }}
               />
             </div>
@@ -413,7 +494,7 @@ export default function IdeaBatchPage() {
           )}
 
           <div className="space-y-3 mb-8">
-            {questions.map((question) => {
+            {visibleQuestions.map((question) => {
               const isAnswered = !!state.responses[question.id];
               const isExpanded = expandedQuestion === question.id;
 
@@ -430,13 +511,9 @@ export default function IdeaBatchPage() {
                   <CollapsibleQuestionCard
                     question={question}
                     answer={state.responses[question.id] || ""}
-                    onAnswerChange={(answer) =>
-                      handleAnswerQuestion(question.id, answer)
-                    }
+                    onAnswerChange={(answer) => handleAnswerQuestion(question.id, answer)}
                     isExpanded={isExpanded}
-                    onToggleExpand={() =>
-                      setExpandedQuestion(isExpanded ? null : question.id)
-                    }
+                    onToggleExpand={() => setExpandedQuestion(isExpanded ? null : question.id)}
                     isAnswered={isAnswered}
                     onNext={handleNextQuestion}
                   />
@@ -444,6 +521,16 @@ export default function IdeaBatchPage() {
               );
             })}
           </div>
+
+          {allAnswered && (
+            <button
+              onClick={submitResponses}
+              disabled={state.loading}
+              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 transition"
+            >
+              {state.loading ? "Generating Report..." : "Get Results"}
+            </button>
+          )}
         </div>
 
         <div className="lg:col-span-1">
