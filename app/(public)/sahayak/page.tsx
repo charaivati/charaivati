@@ -36,18 +36,18 @@ export default function SahayakPage() {
 
   const epfoLinks: HelpLink[] = [
     { slug: "epfo login", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo change-password", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo download-uan", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo check-claim", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo update-contact", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo change password", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo download uan", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo check claim", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo update contact", url: "https://www.epfindia.gov.in/" },
   ];
 
   const irctcLinks: HelpLink[] = [
     { slug: "irctc login", url: "https://www.irctc.co.in/" },
     { slug: "irctc register", url: "https://www.irctc.co.in/nget/profile/user-registration" },
-    { slug: "irctc forgot-password", url: "https://www.irctc.co.in/nget/profile/user-registration" },
-    { slug: "irctc check-pnr", url: "https://www.irctc.co.in/nget/pnr" },
-    { slug: "irctc cancel-ticket", url: "https://www.irctc.co.in/nget/booking/cancel" },
+    { slug: "irctc forgot password", url: "https://www.irctc.co.in/nget/profile/user-registration" },
+    { slug: "irctc check pnr", url: "https://www.irctc.co.in/nget/pnr" },
+    { slug: "irctc cancel ticket", url: "https://www.irctc.co.in/nget/booking/cancel" },
   ];
 
   useEffect(() => {
