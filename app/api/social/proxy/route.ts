@@ -1,18 +1,19 @@
+// app/api/social/proxy/route.ts
+
 import { NextRequest, NextResponse } from "next/server";
 
 const CACHE_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
 const fileCache = new Map<string, { data: Buffer; timestamp: number }>();
 
 /**
- * GET /api/social/proxy?id=FILE_ID&type=image|json|video&token=ACCESS_TOKEN
- * Fetches from Google Drive using authenticated API
+ * GET /api/social/proxy?id=FILE_ID&type=image|json|video
+ * Fetches from Google Drive using the public thumbnail endpoint (no auth needed!)
  */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const fileId = searchParams.get("id");
     const type = (searchParams.get("type") || "image").toLowerCase();
-    const token = searchParams.get("token"); // Must be provided
 
     if (!fileId) {
       console.warn("[Proxy] Missing file ID");
@@ -29,22 +30,25 @@ export async function GET(req: NextRequest) {
       const uint8 = new Uint8Array(cached.data);
 
       return new NextResponse(uint8, {
+        status: 200,
         headers: {
           "Content-Type": contentType,
           "Cache-Control": `public, max-age=${CACHE_DURATION}`,
           "X-Cache": "HIT",
+          "Access-Control-Allow-Origin": "*",
         },
       });
     }
 
-    // Fetch using the new 2024 Google Drive thumbnail format (no auth needed!)
+    // Fetch using the 2024 Google Drive thumbnail format (works without auth!)
     const driveUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w2000`;
     console.log(`[Proxy] Fetching from: ${driveUrl}`);
 
     const response = await fetch(driveUrl, {
+      method: "GET",
       headers: {
         "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
     });
 
@@ -79,10 +83,13 @@ export async function GET(req: NextRequest) {
         : response.headers.get("content-type") || "application/octet-stream";
 
     return new NextResponse(uint8Array, {
+      status: 200,
       headers: {
         "Content-Type": contentType,
         "Cache-Control": `public, max-age=${CACHE_DURATION}`,
         "X-Cache": "MISS",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
       },
     });
   } catch (err) {
@@ -106,12 +113,13 @@ export async function POST(req: NextRequest) {
       if (fileId) {
         fileCache.delete(fileId);
         console.log(`[Proxy] Cache cleared for: ${fileId}`);
+        return NextResponse.json({ ok: true, message: `Cache cleared for ${fileId}` });
       } else {
         const size = fileCache.size;
         fileCache.clear();
         console.log(`[Proxy] Entire cache cleared (was ${size} items)`);
+        return NextResponse.json({ ok: true, message: `Cache cleared (was ${size} items)` });
       }
-      return NextResponse.json({ ok: true, message: "Cache cleared" });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
@@ -122,12 +130,16 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * OPTIONS /api/social/proxy - Get cache stats
+ * OPTIONS /api/social/proxy - CORS preflight & cache stats
  */
 export async function OPTIONS() {
-  return NextResponse.json({
-    cacheSize: fileCache.size,
-    cacheStatus: "ok",
-    cacheItems: Array.from(fileCache.keys()),
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, HEAD, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Max-Age": "86400",
+    },
   });
 }
