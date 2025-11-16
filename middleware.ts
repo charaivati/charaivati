@@ -55,13 +55,13 @@ export function middleware(req: NextRequest) {
       "form-action 'self'",
       "object-src 'none'",
       // Script-src: Allow Google scripts and nonce in production
-      `script-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}${isProd ? "" : " 'unsafe-eval' 'unsafe-inline'"} https://accounts.google.com https://apis.google.com`,
-      "style-src 'self' 'unsafe-inline'",
+      `script-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}${isProd ? "" : " 'unsafe-eval' 'unsafe-inline'"} https://accounts.google.com https://apis.google.com https://accounts.google.com/gsi/client`,
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com",
       // Img-src: Allow Google Drive and other image sources
       "img-src 'self' data: blob: https: https://drive.google.com https://lh3.googleusercontent.com",
       "font-src 'self' data:",
-      // Connect-src: Allow Google APIs and auth
-      `connect-src 'self' ${connectSrcSite} https://accounts.google.com https://www.googleapis.com https://drive.google.com`,
+      // Connect-src: Allow Google APIs and auth (no Access-Control-Allow-Origin needed for CSP)
+      `connect-src 'self' ${connectSrcSite} https://accounts.google.com https://www.googleapis.com https://drive.google.com https://*.google.com`,
       "worker-src 'self' blob:",
       // Frame-src: Allow Google OAuth frames
       "frame-src 'self' blob: data: https://accounts.google.com",

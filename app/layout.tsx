@@ -44,7 +44,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           src="https://accounts.google.com/gsi/client"
           async
           defer
-          crossOrigin="anonymous"
           {...(nonce ? { nonce } : {})}
         ></script>
       </head>
