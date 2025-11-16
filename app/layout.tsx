@@ -1,4 +1,6 @@
-// app/layout.tsx
+// ============================================================================
+// FILE 1: app/layout.tsx
+// ============================================================================
 import "./globals.css";
 import React from "react";
 import { headers, cookies } from "next/headers";
@@ -37,6 +39,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" data-theme={serverTheme} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" />
+        {/* Allow Google Identity Services Script */}
+        <script
+          src="https://accounts.google.com/gsi/client"
+          async
+          defer
+          crossOrigin="anonymous"
+          {...(nonce ? { nonce } : {})}
+        ></script>
       </head>
       <body className={bodyClass}>
         {/* Inline theme init — include nonce attribute in production when present */}

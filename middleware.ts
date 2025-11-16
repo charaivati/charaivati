@@ -1,4 +1,6 @@
-// middleware.ts
+// ============================================================================
+// FILE 2: middleware.ts
+// ============================================================================
 import { NextRequest, NextResponse } from "next/server";
 import { SITE_URL } from "@/lib/config";
 
@@ -44,19 +46,25 @@ export function middleware(req: NextRequest) {
     const nonce = isProd ? genNonce() : undefined;
 
     const connectSrcSite = SITE_URL ?? (isProd ? "" : "http://localhost:3000 ws://localhost:3000");
+    
+    // Build CSP with Google APIs allowed
     const csp = [
       "default-src 'self'",
       "base-uri 'self'",
       "frame-ancestors 'none'",
       "form-action 'self'",
       "object-src 'none'",
-      `script-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}${isProd ? "" : " 'unsafe-eval' 'unsafe-inline'"}`,
+      // Script-src: Allow Google scripts and nonce in production
+      `script-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}${isProd ? "" : " 'unsafe-eval' 'unsafe-inline'"} https://accounts.google.com https://apis.google.com`,
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https:",
+      // Img-src: Allow Google Drive and other image sources
+      "img-src 'self' data: blob: https: https://drive.google.com https://lh3.googleusercontent.com",
       "font-src 'self' data:",
-      `connect-src 'self' ${connectSrcSite}`,
+      // Connect-src: Allow Google APIs and auth
+      `connect-src 'self' ${connectSrcSite} https://accounts.google.com https://www.googleapis.com https://drive.google.com`,
       "worker-src 'self' blob:",
-      "frame-src 'self' blob: data:",
+      // Frame-src: Allow Google OAuth frames
+      "frame-src 'self' blob: data: https://accounts.google.com",
       "manifest-src 'self'",
       ...(isProd ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
