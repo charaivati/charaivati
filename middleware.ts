@@ -63,8 +63,8 @@ export function middleware(req: NextRequest) {
       // Connect-src: Allow Google APIs and auth (no Access-Control-Allow-Origin needed for CSP)
       `connect-src 'self' ${connectSrcSite} https://accounts.google.com https://www.googleapis.com https://drive.google.com https://*.google.com`,
       "worker-src 'self' blob:",
-      // Frame-src: Allow Google OAuth frames
-      "frame-src 'self' blob: data: https://accounts.google.com",
+      // Frame-src: Allow Google OAuth frames and YouTube embeds
+      "frame-src 'self' blob: data: https://accounts.google.com https://www.youtube.com https://youtube.com",
       "manifest-src 'self'",
       ...(isProd ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
