@@ -1,4 +1,3 @@
-// app/(with-nav)/self/page.tsx
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
@@ -6,11 +5,30 @@ import { useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
 import FeatureGate from "@/components/FeatureGate";
 
-const SelfTab = dynamic(() => import("./tabs/SelfTab"), { ssr: false });
-const SocialTab = dynamic(() => import("./tabs/SocialTab"), { ssr: false });
-const LearningTab = dynamic(() => import("./tabs/LearningTab"), { ssr: false });
-const EarningTab = dynamic(() => import("./tabs/EarningTab"), { ssr: false });
+// ---------------------------
+// Types for tab props
+// ---------------------------
 
+
+// ---------------------------
+// Dynamic imports
+// ---------------------------
+// Note: loader returns `mod.default as React.FC<Props>` so the returned type
+// matches the generic `React.FC<Props>`.
+// types for tab props
+type ProfileProp = { profile?: any };
+
+// import dynamic normally, then assert the resulting component type
+const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
+
+const SocialTab = dynamic(() => import("./tabs/SocialTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
+
+const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<{}>;
+
+const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<{}>;
+
+
+// ---------------------------
 type ActiveKind = "personal" | "social" | "learn" | "earn";
 
 function SelfPageContent() {
@@ -51,28 +69,23 @@ function SelfPageContent() {
   function normalizeTabValue(raw: string): ActiveKind {
     const s = String(raw || "").toLowerCase().trim();
     if (!s) return "personal";
-
-    // Exact matches only to avoid substring collisions
     if (s === "earn") return "earn";
     if (s === "learn") return "learn";
     if (s === "social") return "social";
     if (s === "personal") return "personal";
-    
     return "personal";
   }
 
   useEffect(() => {
     if (!mounted) return;
-    
-    // Priority 1: URL parameter (always takes precedence)
+
     if (tabParamRaw && tabParamRaw.length > 0) {
       const normalized = normalizeTabValue(tabParamRaw);
       console.debug("[SelfPage] URL tab param:", { raw: tabParamRaw, normalized });
       setActive(normalized);
       return;
     }
-    
-    // Priority 2: Context (fallback)
+
     try {
       const ctxTab = ctx?.activeTabs?.[layerId];
       if (ctxTab) {
@@ -169,9 +182,7 @@ function SelfPageContent() {
         )}
 
         {active === "social" && (
-          <FeatureGate flagKey={keys.social} flags={flags} showPlaceholder={true}>
-            <SocialTab profile={profile} />
-          </FeatureGate>
+          <SocialTab profile={profile} />
         )}
 
         {active === "learn" && (
@@ -181,9 +192,7 @@ function SelfPageContent() {
         )}
 
         {active === "earn" && (
-          <FeatureGate flagKey={keys.earn} flags={flags} showPlaceholder={true}>
-            <EarningTab />
-          </FeatureGate>
+          <EarningTab />
         )}
       </div>
     </>

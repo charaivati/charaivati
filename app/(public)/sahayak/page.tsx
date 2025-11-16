@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+import { useLanguage } from "@/components/LanguageProvider";
 
 interface TabData {
   tabId: string;
@@ -26,13 +27,35 @@ interface HelpLink {
 }
 
 export default function SahayakPage() {
-  const [locale, setLocale] = useState("en");
+  const { locale: contextLocale, setLocale } = useLanguage();
+  const [locale, setLocaleState] = useState<string>("en");
   const [tabs, setTabs] = useState<TabData[]>([]);
   const [languages, setLanguages] = useState<Language[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showLangs, setShowLangs] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false);
+
+  // Check if language is already saved
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("lang") : null;
+    if (!saved) {
+      setShowLanguagePicker(true);
+    }
+  }, []);
+
+  // Sync context locale to local state, converting name to code if needed
+  useEffect(() => {
+    if (languages.length === 0) return;
+    
+    // Check if contextLocale is a code (like "hi") or a name (like "Hindi")
+    const matchByCode = languages.find((l) => l.code.toLowerCase() === contextLocale.toLowerCase());
+    const matchByName = languages.find((l) => l.name.toLowerCase() === contextLocale.toLowerCase());
+    
+    const actualCode = matchByCode?.code || matchByName?.code || "en";
+    setLocaleState(actualCode);
+  }, [contextLocale, languages]);
 
   const epfoLinks: HelpLink[] = [
     { slug: "epfo login", url: "https://www.epfindia.gov.in/" },
@@ -177,6 +200,7 @@ export default function SahayakPage() {
                     key={l.code}
                     onClick={() => {
                       setLocale(l.code);
+                      setLocaleState(l.code);
                       setShowLangs(false);
                     }}
                     className={`block w-full text-left px-4 py-2 hover:bg-blue-700 transition ${
@@ -280,6 +304,36 @@ export default function SahayakPage() {
           </div>
         )}
       </div>
+
+      {/* Language Picker Popup */}
+      {showLanguagePicker && (
+        <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-6">
+          <div className="max-w-4xl w-full text-center">
+            <p className="text-gray-400 mb-12">Choose your language to continue</p>
+
+            {languages.length === 0 ? (
+              <div className="text-gray-400">Loading languages...</div>
+            ) : (
+              <div className="flex flex-wrap justify-center gap-6">
+                {languages.map((l) => (
+                  <button
+                    key={l.code}
+                    onClick={() => {
+                      setLocale(l.code);
+                      setLocaleState(l.code);
+                      setShowLanguagePicker(false);
+                    }}
+                    className="w-44 h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform hover:scale-105 transition-all"
+                  >
+                    <div className="text-xl font-semibold">{l.name}</div>
+                    <div className="text-xs text-gray-400">{l.code}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

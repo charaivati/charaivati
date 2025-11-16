@@ -1,0 +1,5 @@
+# CODEOWNERS for Charaivati
+# All files should be reviewed and approved by the main maintainer.
+
+*       @charaivati
+.github/* @charaivati
