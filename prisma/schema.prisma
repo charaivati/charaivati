@@ -52,7 +52,8 @@ model User {
   verificationTokens      VerificationToken[]
   votes                   Vote[]              @relation("UserVotes")
   businessPlans           BusinessPlan[]      @relation("UserBusinessPlans")
-  businessIdeas       BusinessIdea[] @relation("UserBusinessIdeas")
+  businessIdeas           BusinessIdea[]      @relation("UserBusinessIdeas")
+  posts                   Post[]              @relation("UserPosts")
 
   @@index([email])
   @@index([phone])
@@ -517,82 +518,116 @@ model Otp {
 }
 
 model BusinessIdea {
-  id              String    @id @default(uuid())
-  title           String
-  description     String    // 2-3 sentence problem statement
-  userEmail       String?
-  userPhone       String?
-  userId          String?   // Optional if logged in
-  
+  id          String  @id @default(uuid())
+  title       String
+  description String // 2-3 sentence problem statement
+  userEmail   String?
+  userPhone   String?
+  userId      String? // Optional if logged in
+
   // Scoring dimensions (-2 to +2)
-  problemClarity      Int     @default(0)
-  marketNeed          Int     @default(0)
-  targetAudience      Int     @default(0)
-  uniqueValue         Int     @default(0)
-  feasibility         Int     @default(0)
-  monetization        Int     @default(0)
-  
+  problemClarity Int @default(0)
+  marketNeed     Int @default(0)
+  targetAudience Int @default(0)
+  uniqueValue    Int @default(0)
+  feasibility    Int @default(0)
+  monetization   Int @default(0)
+
   // Raw responses (store all Q&A)
-  responses           Json    // { questionId: answer, ... }
-  
+  responses Json // { questionId: answer, ... }
+
   // Metadata
-  status              String  @default("draft")  // draft, submitted, shared
-  shareToken          String? @unique            // For public sharing
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  expiresAt           DateTime? // Optional: auto-delete after 90 days
-  
+  status     String    @default("draft") // draft, submitted, shared
+  shareToken String?   @unique // For public sharing
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  expiresAt  DateTime? // Optional: auto-delete after 90 days
+
   // Link to BusinessPlan if they later upgrade
-  businessPlanId      String?
-  
+  businessPlanId String?
+
   // Relations
-  user                User? @relation("UserBusinessIdeas", fields: [userId], references: [id], onDelete: SetNull)
-  ideaResponses       IdeaResponse[] @relation("IdeaResponses")
-  
+  user          User?          @relation("UserBusinessIdeas", fields: [userId], references: [id], onDelete: SetNull)
+  ideaResponses IdeaResponse[] @relation("IdeaResponses")
+
   @@index([userEmail])
   @@index([userId])
   @@index([status])
 }
 
 model IdeaQuestion {
-  id              String    @id @default(uuid())
-  order           Int       // Question sequence
-  text            String    // E.g., "What problem are you solving?"
-  type            String    // "text", "select", "multiselect", "rating"
-  category        String    // "problem", "market", "feasibility", "monetization"
-  scoringDim      String    // Which dimension does this score? "problemClarity", etc.
-  
+  id         String @id @default(uuid())
+  order      Int // Question sequence
+  text       String // E.g., "What problem are you solving?"
+  type       String // "text", "select", "multiselect", "rating"
+  category   String // "problem", "market", "feasibility", "monetization"
+  scoringDim String // Which dimension does this score? "problemClarity", etc.
+
   // For select/multiselect
-  options         Json?     // [{ value, label }, ...]
-  randomizeOptions Boolean  @default(true)
-  
+  options          Json? // [{ value, label }, ...]
+  randomizeOptions Boolean @default(true)
+
   // Branching logic (if needed later)
-  dependsOn       String?   // Previous questionId that triggers this
-  dependsOnValue  String?   // Value that triggers this
-  
-  helpText        String?
-  examples        String?   // Show 2-3 examples
-  
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
+  dependsOn      String? // Previous questionId that triggers this
+  dependsOnValue String? // Value that triggers this
+
+  helpText String?
+  examples String? // Show 2-3 examples
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   @@index([order])
   @@index([category])
 }
 
 model IdeaResponse {
-  id              String    @id @default(uuid())
-  ideaId          String
-  questionId      String
-  answer          String    // Raw answer
-  score           Int?      // -2 to +2 (calculated after submission)
-  feedback        String?   // AI or manual feedback on this answer
-  
-  createdAt       DateTime  @default(now())
-  
+  id         String  @id @default(uuid())
+  ideaId     String
+  questionId String
+  answer     String // Raw answer
+  score      Int? // -2 to +2 (calculated after submission)
+  feedback   String? // AI or manual feedback on this answer
+
+  createdAt DateTime @default(now())
+
   // Relations
-  idea            BusinessIdea @relation("IdeaResponses", fields: [ideaId], references: [id], onDelete: Cascade)
-  
+  idea BusinessIdea @relation("IdeaResponses", fields: [ideaId], references: [id], onDelete: Cascade)
+
   @@unique([ideaId, questionId])
   @@index([ideaId])
+}
+
+model Post {
+  id      String  @id @default(cuid())
+  userId  String
+  pageId  String?
+  content String?
+
+  // Media - just store Google Drive file IDs
+  imageFileIds String[] // Google Drive file IDs
+  videoFileId  String? // Google Drive file ID
+  youtubeLinks String[]
+
+  // Tagging
+  slugTags String[] // ["epfo-login", "hindi", "video"]
+
+  // Engagement - anonymous voting
+  likes    Int @default(0)
+  dislikes Int @default(0)
+
+  // Metadata
+  gdriveFolder String? // Parent folder ID for this post's assets
+  status       String  @default("active") // active, hidden
+  visibility   String  @default("public") // public, friends, private
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserPosts", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([pageId])
+  @@index([createdAt])
+  @@index([slugTags])
 }

@@ -1,3 +1,5 @@
+//app/(with-nav)/layout
+
 "use client";
 
 import React, { useEffect, useState, Suspense, useRef } from "react";
@@ -214,7 +216,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
       {/* ------------------ MOBILE ------------------ */}
       <div className="md:hidden min-h-screen bg-black text-white pb-20">
         <div className="fixed top-0 left-0 right-0 z-50 bg-gray-700/95 backdrop-blur-lg">
-          <div className="flex items-center px-4 py-2 gap-3">
+          <div className="flex items-center px-4 py-1.5 gap-3">
             <div className="flex-none">
               <div className="flex items-center gap-2">
                 <span className="w-8 h-8 rounded-full flex items-center justify-center">
@@ -268,7 +270,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <div className="h-[9.5rem]" />
+        <div className="h-[136px]" />
         <main className="px-4 py-6">
           <div className="max-w-6xl mx-auto">{children}</div>
         </main>
@@ -291,7 +293,7 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
       {/* ------------------ DESKTOP ------------------ */}
       <div className="hidden md:flex md:flex-col min-h-screen bg-black text-white">
         <div className="fixed top-0 left-0 right-0 z-50 bg-gray-700/95 backdrop-blur-lg border-b border-black">
-          <div className="flex items-center px-6 py-3">
+          <div className="flex items-center px-6 py-2">
             <div className="flex-none">
               <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
                 Charaivati
@@ -313,8 +315,10 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
               <ProfileMenu profile={profile?.profile} onLogout={handleLogout} compact />
             </div>
           </div>
+        </div>
 
-          <div className="flex justify-center px-6 pb-0">
+        <div className="fixed top-[56px] left-0 right-0 z-40 bg-gray-700/95 backdrop-blur-lg">
+          <div className="flex justify-center px-6">
             <div className="w-full max-w-3xl">
               <Suspense
                 fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}
@@ -325,9 +329,9 @@ function WithNavLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         </div>
 
-        <div className="h-20" />
+        <div className="h-[104px]" />
         <div className="flex flex-1">
-          <aside className="fixed top-[5rem] left-0 h-[calc(100vh-5rem)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
+          <aside className="fixed top-[72px] left-0 h-[calc(100vh-72px)] w-64 bg-black border-r border-white/10 flex flex-col overflow-y-auto">
             <div className="p-4">
               <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
                 Navigate
