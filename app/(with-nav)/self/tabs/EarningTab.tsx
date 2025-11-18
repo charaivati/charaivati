@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Plus,
   Trash2,
+  LogOut,
 } from "lucide-react";
 import { useGoogleDrive, type PostData } from "@/hooks/useGoogleDrive";
 
@@ -28,6 +29,8 @@ type StoredPost = PostData & {
   youtubeLinks?: string[];
 };
 
+type DriveStatus = "idle" | "checking" | "connected" | "disconnected" | "error";
+
 const LS_POSTS_KEY = "ch_social_posts_v3";
 
 async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
@@ -41,7 +44,6 @@ async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   return { ok: res.ok, status: res.status, json };
 }
 
-// Extract YouTube video ID from URL
 function extractYouTubeId(url: string): string | null {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
@@ -82,7 +84,57 @@ export default function EarningTab() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [postingInProgress, setPostingInProgress] = useState(false);
 
+  // Drive connection state
+  const [driveStatus, setDriveStatus] = useState<DriveStatus>("idle");
+  const [driveError, setDriveError] = useState<string | null>(null);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Check drive connection on mount and when gDrive state changes
+  useEffect(() => {
+    let alive = true;
+
+    function checkDriveConnection() {
+      setDriveStatus("checking");
+      setDriveError(null);
+
+      try {
+        if (!gDrive.isAuthenticated && !gDrive.accessToken) {
+          if (alive) {
+            setDriveStatus("disconnected");
+          }
+          return;
+        }
+
+        // If we have a token and user info, consider it connected
+        if (gDrive.accessToken && gDrive.userInfo) {
+          if (alive) {
+            setDriveStatus("connected");
+          }
+        } else if (gDrive.accessToken) {
+          // Has token but no user info yet, still connecting
+          if (alive) {
+            setDriveStatus("checking");
+          }
+        } else {
+          if (alive) {
+            setDriveStatus("disconnected");
+          }
+        }
+      } catch (err: any) {
+        if (!alive) return;
+        console.error("Drive connection check error:", err);
+        setDriveStatus("error");
+        setDriveError(err?.message || "Failed to verify drive connection");
+      }
+    }
+
+    checkDriveConnection();
+
+    return () => {
+      alive = false;
+    };
+  }, [gDrive.isAuthenticated, gDrive.accessToken, gDrive.userInfo]);
 
   // Load pages
   useEffect(() => {
@@ -107,6 +159,7 @@ export default function EarningTab() {
         setError("Could not load pages");
       })
       .finally(() => alive && setLoading(false));
+
     return () => {
       alive = false;
     };
@@ -239,6 +292,14 @@ export default function EarningTab() {
       return;
     }
 
+    // Warn if drive not connected but allow posting
+    if (driveStatus !== "connected") {
+      const proceed = confirm(
+        "Google Drive is not connected. Your media won't be uploaded. Continue?"
+      );
+      if (!proceed) return;
+    }
+
     setPostingInProgress(true);
     setSyncStatus("syncing");
 
@@ -253,7 +314,7 @@ export default function EarningTab() {
     };
 
     try {
-      if (gDrive.isAuthenticated || gDrive.accessToken) {
+      if (driveStatus === "connected" && (gDrive.isAuthenticated || gDrive.accessToken)) {
         const saved = await gDrive.uploadPost(nextPost, images, videoFile);
         if (saved) {
           nextPost.gdriveId = saved.gdriveId;
@@ -263,7 +324,7 @@ export default function EarningTab() {
           console.log("Post uploaded successfully:", nextPost);
         }
       } else {
-        console.warn("Not connected to Drive: post saved locally without media");
+        console.warn("Drive not connected: post saved locally without media");
       }
 
       handleClearComposer();
@@ -278,6 +339,25 @@ export default function EarningTab() {
     }
   }
 
+  async function handleConnectDrive() {
+    try {
+      setDriveStatus("checking");
+      setDriveError(null);
+      await gDrive.connectDrive();
+    } catch (err: any) {
+      console.error("Connect drive error:", err);
+      setDriveStatus("error");
+      setDriveError(err?.message || "Failed to connect to Google Drive");
+    }
+  }
+
+  async function handleDisconnectDrive() {
+    setDriveStatus("disconnected");
+    setDriveError(null);
+    // The hook will handle clearing tokens on next authentication check
+    // Optionally: reload page or trigger hook reset if needed
+  }
+
   return (
     <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
       {/* Header */}
@@ -289,22 +369,56 @@ export default function EarningTab() {
             {syncStatus === "synced" && <CheckCircle className="w-5 h-5 text-green-400" />}
             {syncStatus === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
 
-            {!gDrive.isAuthenticated && !gDrive.accessToken && (
+            {driveStatus === "checking" && (
+              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30">
+                <Cloud className="w-4 h-4 text-blue-400 animate-spin" />
+                <span className="text-xs text-blue-300 font-medium">Checking...</span>
+              </div>
+            )}
+
+            {driveStatus === "disconnected" && (
               <button
-                onClick={() => gDrive.connectDrive()}
+                onClick={handleConnectDrive}
                 className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm hover:from-blue-600 hover:to-blue-700 transition-all font-medium"
               >
                 Connect Drive
               </button>
             )}
 
-            {(gDrive.isAuthenticated || gDrive.accessToken) && (
-              <div className="text-xs text-green-400 font-medium px-3 py-1 rounded-full bg-green-500/10">
-                ✓ Connected
+            {driveStatus === "connected" && (
+              <div className="flex items-center gap-2">
+                <div className="text-xs text-green-400 font-medium px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30">
+                  ✓ Connected
+                </div>
+                <button
+                  onClick={handleDisconnectDrive}
+                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 transition-colors"
+                  title="Disconnect Google Drive"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {driveStatus === "error" && (
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400" />
+                <button
+                  onClick={handleConnectDrive}
+                  className="text-xs text-red-400 hover:text-red-300 font-medium"
+                >
+                  Reconnect
+                </button>
               </div>
             )}
           </div>
         </div>
+
+        {driveError && (
+          <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/20">
+            <p className="text-xs text-red-300 max-w-4xl mx-auto">{driveError}</p>
+          </div>
+        )}
 
         {gDrive.uploadProgress && (
           <div className="h-1 bg-gray-700">
@@ -422,8 +536,12 @@ export default function EarningTab() {
                     disabled={postingInProgress}
                     className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm"
                   />
-                  {youtubeLink && extractYouTubeId(youtubeLink) && <p className="text-xs text-green-400 mt-1">✓ Valid YouTube link</p>}
-                  {youtubeLink && !extractYouTubeId(youtubeLink) && <p className="text-xs text-red-400 mt-1">✗ Invalid YouTube link</p>}
+                  {youtubeLink && extractYouTubeId(youtubeLink) && (
+                    <p className="text-xs text-green-400 mt-1">✓ Valid YouTube link</p>
+                  )}
+                  {youtubeLink && !extractYouTubeId(youtubeLink) && (
+                    <p className="text-xs text-red-400 mt-1">✗ Invalid YouTube link</p>
+                  )}
                 </div>
               </div>
 
@@ -490,12 +608,17 @@ export default function EarningTab() {
               <div className="col-span-2 p-4 bg-white/5 rounded-lg">Loading...</div>
             ) : pages && pages.length > 0 ? (
               pages.map((page) => (
-                <div key={page.id} className="p-4 bg-gradient-to-br from-white/10 to-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-all">
+                <div
+                  key={page.id}
+                  className="p-4 bg-gradient-to-br from-white/10 to-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-all"
+                >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <h3 className="font-semibold text-white text-lg">{page.title}</h3>
                       {page.description && <p className="text-sm text-gray-400 mt-1">{page.description}</p>}
-                      <p className="text-xs text-gray-500 mt-3">Created {new Date(page.createdAt).toLocaleDateString()}</p>
+                      <p className="text-xs text-gray-500 mt-3">
+                        Created {new Date(page.createdAt).toLocaleDateString()}
+                      </p>
                     </div>
                     <div className="flex flex-col gap-2">
                       <button className="px-3 py-1 rounded text-xs bg-white/10 hover:bg-white/20 text-white transition-colors">

@@ -45,3 +45,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
+
+export async function GET(req: NextRequest) {
+  try {
+    const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 20, 100);
+    const offset = Number(req.nextUrl.searchParams.get("offset")) || 0;
+    const sortBy = req.nextUrl.searchParams.get("sortBy") || "recent"; // recent | popular
+
+    const orderBy: any = sortBy === "popular" 
+      ? { likes: "desc" } 
+      : { createdAt: "desc" };
+
+    const posts = await prisma.post.findMany({
+      where: {
+        visibility: "public",
+      },
+      orderBy,
+      take: limit,
+      skip: offset,
+      include: {
+        user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+      },
+    });
+
+    return NextResponse.json({
+      ok: true,
+      data: posts,
+      count: posts.length,
+    });
+  } catch (e: any) {
+    console.error("GET /api/posts error:", e);
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
