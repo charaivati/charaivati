@@ -70,6 +70,7 @@ export default function EarningTab() {
   const [newTitle, setNewTitle] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   // Post creation state
   const [composerText, setComposerText] = useState("");
@@ -95,10 +96,15 @@ export default function EarningTab() {
     let alive = true;
 
     function checkDriveConnection() {
-      setDriveStatus("checking");
       setDriveError(null);
 
       try {
+        // Still loading, don't update status
+        if (gDrive.loading) {
+          return;
+        }
+
+        // No token and not authenticated
         if (!gDrive.isAuthenticated && !gDrive.accessToken) {
           if (alive) {
             setDriveStatus("disconnected");
@@ -112,7 +118,7 @@ export default function EarningTab() {
             setDriveStatus("connected");
           }
         } else if (gDrive.accessToken) {
-          // Has token but no user info yet, still connecting
+          // Has token but loading user info
           if (alive) {
             setDriveStatus("checking");
           }
@@ -134,7 +140,7 @@ export default function EarningTab() {
     return () => {
       alive = false;
     };
-  }, [gDrive.isAuthenticated, gDrive.accessToken, gDrive.userInfo]);
+  }, [gDrive.isAuthenticated, gDrive.accessToken, gDrive.userInfo, gDrive.loading]);
 
   // Load pages
   useEffect(() => {
@@ -145,7 +151,7 @@ export default function EarningTab() {
         if (!alive) return;
         if (r.ok && r.json?.ok) {
           setPages(r.json.pages || []);
-          if (r.json.pages?.length > 0) {
+          if (r.json.pages?.length > 0 && !selectedBusiness) {
             setSelectedBusiness(r.json.pages[0].id);
           }
         } else {
@@ -219,10 +225,30 @@ export default function EarningTab() {
     }
   }
 
+  // Delete page with API call
   async function deletePage(id: string) {
-    setPages((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
-    if (selectedBusiness === id) {
-      setSelectedBusiness(pages?.[0]?.id || "");
+    if (!confirm("Are you sure you want to delete this business?")) return;
+
+    setDeleting(id);
+    try {
+      const resp = await safeFetchJson(`/api/user/pages/${id}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (resp.ok && resp.json?.ok) {
+        setPages((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
+        if (selectedBusiness === id) {
+          setSelectedBusiness(pages?.find((p) => p.id !== id)?.id || "");
+        }
+      } else {
+        alert(resp.json?.error || "Failed to delete page");
+      }
+    } catch (err) {
+      console.error("delete page error", err);
+      alert("Failed to delete page");
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -293,7 +319,7 @@ export default function EarningTab() {
     }
 
     // Warn if drive not connected but allow posting
-    if (driveStatus !== "connected") {
+    if (driveStatus !== "connected" && (images.length > 0 || videoFile)) {
       const proceed = confirm(
         "Google Drive is not connected. Your media won't be uploaded. Continue?"
       );
@@ -303,6 +329,8 @@ export default function EarningTab() {
     setPostingInProgress(true);
     setSyncStatus("syncing");
 
+    const youtubeId = youtubeLink.trim() ? extractYouTubeId(youtubeLink.trim()) : null;
+
     const nextPost: StoredPost = {
       id: Date.now().toString(),
       author: selectedBusiness,
@@ -310,11 +338,11 @@ export default function EarningTab() {
       content: txt,
       likes: 0,
       synced: false,
-      youtubeLinks: youtubeLink.trim() ? [youtubeLink.trim()] : [],
+      youtubeLinks: youtubeId ? [youtubeLink.trim()] : [],
     };
 
     try {
-      if (driveStatus === "connected" && (gDrive.isAuthenticated || gDrive.accessToken)) {
+      if (driveStatus === "connected" && (images.length > 0 || videoFile)) {
         const saved = await gDrive.uploadPost(nextPost, images, videoFile);
         if (saved) {
           nextPost.gdriveId = saved.gdriveId;
@@ -324,7 +352,16 @@ export default function EarningTab() {
           console.log("Post uploaded successfully:", nextPost);
         }
       } else {
-        console.warn("Drive not connected: post saved locally without media");
+        console.log("Post saved locally (no drive or no media):", nextPost);
+      }
+
+      // Save to localStorage
+      try {
+        const stored = localStorage.getItem(LS_POSTS_KEY);
+        const existing = stored ? JSON.parse(stored) : [];
+        localStorage.setItem(LS_POSTS_KEY, JSON.stringify([nextPost, ...existing]));
+      } catch (e) {
+        console.warn("Failed to save to localStorage:", e);
       }
 
       handleClearComposer();
@@ -352,10 +389,14 @@ export default function EarningTab() {
   }
 
   async function handleDisconnectDrive() {
-    setDriveStatus("disconnected");
-    setDriveError(null);
-    // The hook will handle clearing tokens on next authentication check
-    // Optionally: reload page or trigger hook reset if needed
+    try {
+      gDrive.disconnect();
+      setDriveStatus("disconnected");
+      setDriveError(null);
+    } catch (err: any) {
+      console.error("Disconnect drive error:", err);
+      setDriveError(err?.message || "Failed to disconnect");
+    }
   }
 
   return (
@@ -626,10 +667,11 @@ export default function EarningTab() {
                       </button>
                       <button
                         onClick={() => deletePage(page.id)}
-                        className="px-3 py-1 rounded text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors flex items-center gap-1"
+                        disabled={deleting === page.id}
+                        className="px-3 py-1 rounded text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors flex items-center gap-1 disabled:opacity-50"
                       >
                         <Trash2 className="w-3 h-3" />
-                        Delete
+                        {deleting === page.id ? "Deleting..." : "Delete"}
                       </button>
                     </div>
                   </div>
@@ -649,12 +691,14 @@ export default function EarningTab() {
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="Business name"
+              disabled={adding}
               className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm mb-3"
             />
             <textarea
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
               placeholder="Description (optional)"
+              disabled={adding}
               className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm resize-none min-h-[80px] mb-3"
               rows={3}
             />
