@@ -230,8 +230,16 @@ export function useGoogleDrive() {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
         body,
       });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("uploadFileMultipart HTTP error:", res.status, errorText);
+        throw new Error(`Upload failed: ${res.status} ${errorText}`);
+      }
+      
       const data = await res.json();
       if (data?.id) {
+        console.log("File uploaded successfully:", data.id, file.name);
         // Make file publicly readable (so drive.uc?id= works). Optional.
         try {
           await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, {
@@ -244,7 +252,7 @@ export function useGoogleDrive() {
         }
         return data.id;
       }
-      console.warn("uploadFileMultipart failed/no id:", data);
+      console.error("uploadFileMultipart failed/no id in response:", data);
       return null;
     } catch (e) {
       console.error("uploadFileMultipart failed:", e);
