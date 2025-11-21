@@ -431,22 +431,24 @@ export default function SahayakPage() {
 
       {/* Language Picker Popup */}
       {showLanguagePicker && (
-        <div className="fixed inset-0 bg-black flex items-center justify-center z-50 p-6">
-          <div className="max-w-4xl w-full text-center">
-            <p className="text-gray-400 mb-12">{t("Choose your language to continue")}</p>
+        <div className="fixed inset-0 bg-black z-50 overflow-y-auto">
+          <div className="w-full min-h-full flex flex-col items-center p-4 md:p-6 pt-8 md:pt-12">
+            <div className="max-w-4xl w-full text-center">
+              <p className="text-gray-400 mb-6 md:mb-12">{t("Choose your language to continue")}</p>
 
-            {languages.length === 0 ? (
-              <div className="text-gray-400">Loading languages...</div>
-            ) : (
-              <div className="flex flex-wrap justify-center gap-6">
-                {languages.map((l) => (
-                  <button key={l.code} onClick={() => { setLocale(l.code); setLocaleState(l.code); setShowLanguagePicker(false); }} className="w-44 h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform hover:scale-105 transition-all">
-                    <div className="text-xl font-semibold">{l.name}</div>
-                    <div className="text-xs text-gray-400">{l.code}</div>
-                  </button>
-                ))}
-              </div>
-            )}
+              {languages.length === 0 ? (
+                <div className="text-gray-400">Loading languages...</div>
+              ) : (
+                <div className="flex flex-wrap justify-center gap-4 md:gap-6 pb-8">
+                  {languages.map((l) => (
+                    <button key={l.code} onClick={() => { setLocale(l.code); setLocaleState(l.code); setShowLanguagePicker(false); }} className="w-36 h-24 md:w-44 md:h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 active:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform active:scale-95 transition-all">
+                      <div className="text-lg md:text-xl font-semibold">{l.name}</div>
+                      <div className="text-xs text-gray-400">{l.code}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
