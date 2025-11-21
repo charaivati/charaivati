@@ -69,3 +69,43 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const user = await getServerUser(req);
+    if (!user) {
+      return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const pageId = (body.id || body.pageId || "").trim();
+
+    if (!pageId) {
+      return NextResponse.json({ error: "page_id_required" }, { status: 400 });
+    }
+
+    // Check if page exists and belongs to user
+    const page = await prisma.page.findUnique({
+      where: { id: pageId },
+      select: { ownerId: true },
+    });
+
+    if (!page) {
+      return NextResponse.json({ error: "page_not_found" }, { status: 404 });
+    }
+
+    if (page.ownerId !== user.id) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 403 });
+    }
+
+    // Delete the page (cascade will handle related records like PageFollow)
+    await prisma.page.delete({
+      where: { id: pageId },
+    });
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err: any) {
+    console.error("DELETE /api/user/pages error:", err);
+    return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
+  }
+}

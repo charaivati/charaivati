@@ -13,9 +13,12 @@ import { useGoogleDrive, type PostData } from "@/hooks/useGoogleDrive";
 
 type StoredPost = PostData & {
   youtubeLinks?: string[];
+  youtubeVideoId?: string | null; // YouTube video ID from EarningTab
+  pageId?: string; // Page ID from EarningTab
 };
 
 const LS_POSTS_KEY = "ch_social_posts_v3";
+const LS_EARN_POSTS_KEY = "earn_posts_v1"; // EarningTab posts key
 
 // Extract YouTube video ID from URL
 function extractYouTubeId(url: string): string | null {
@@ -96,17 +99,41 @@ export default function SocialTab() {
     const init = async () => {
       setLoadingFeed(true);
       try {
-        const raw = localStorage.getItem(LS_POSTS_KEY);
-        if (raw) {
+        const allPosts: StoredPost[] = [];
+
+        // Load from SocialTab's localStorage
+        const socialRaw = localStorage.getItem(LS_POSTS_KEY);
+        if (socialRaw) {
           try {
-            const parsed = JSON.parse(raw) as StoredPost[];
+            const parsed = JSON.parse(socialRaw) as StoredPost[];
             if (Array.isArray(parsed)) {
-              setPosts(parsed);
-              console.log("Loaded posts from localStorage:", parsed.length);
+              allPosts.push(...parsed);
+              console.log("Loaded posts from SocialTab localStorage:", parsed.length);
             }
           } catch (e) {
-            console.warn("Failed to parse localStorage posts:", e);
+            console.warn("Failed to parse SocialTab localStorage posts:", e);
           }
+        }
+
+        // Load from EarningTab's localStorage
+        const earnRaw = localStorage.getItem(LS_EARN_POSTS_KEY);
+        if (earnRaw) {
+          try {
+            const parsed = JSON.parse(earnRaw) as StoredPost[];
+            if (Array.isArray(parsed)) {
+              allPosts.push(...parsed);
+              console.log("Loaded posts from EarningTab localStorage:", parsed.length);
+            }
+          } catch (e) {
+            console.warn("Failed to parse EarningTab localStorage posts:", e);
+          }
+        }
+
+        // Sort by time (newest first)
+        allPosts.sort((a, b) => new Date(b.timeISO).getTime() - new Date(a.timeISO).getTime());
+
+        if (allPosts.length > 0) {
+          setPosts(allPosts);
         }
 
         if (gDrive.isAuthenticated || gDrive.accessToken) {
@@ -114,7 +141,10 @@ export default function SocialTab() {
           setSyncStatus("syncing");
           const drivePosts = await gDrive.fetchPosts();
           if (drivePosts && drivePosts.length > 0) {
-            setPosts(drivePosts);
+            // Merge with existing posts
+            const merged = [...allPosts, ...drivePosts];
+            merged.sort((a, b) => new Date(b.timeISO).getTime() - new Date(a.timeISO).getTime());
+            setPosts(merged);
             localStorage.setItem(LS_POSTS_KEY, JSON.stringify(drivePosts));
             console.log("Loaded posts from Drive:", drivePosts.length);
           }
@@ -132,6 +162,51 @@ export default function SocialTab() {
 
     init();
   }, [gDrive.isAuthenticated, gDrive.accessToken]);
+
+  // Listen for changes to EarningTab posts
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const earnRaw = localStorage.getItem(LS_EARN_POSTS_KEY);
+      if (earnRaw) {
+        try {
+          const parsed = JSON.parse(earnRaw) as StoredPost[];
+          if (Array.isArray(parsed)) {
+            // Merge with existing posts
+            const socialRaw = localStorage.getItem(LS_POSTS_KEY);
+            let allPosts: StoredPost[] = [];
+            
+            if (socialRaw) {
+              try {
+                const socialParsed = JSON.parse(socialRaw) as StoredPost[];
+                if (Array.isArray(socialParsed)) {
+                  allPosts.push(...socialParsed);
+                }
+              } catch (e) {
+                console.warn("Failed to parse SocialTab posts:", e);
+              }
+            }
+            
+            allPosts.push(...parsed);
+            allPosts.sort((a, b) => new Date(b.timeISO).getTime() - new Date(a.timeISO).getTime());
+            setPosts(allPosts);
+          }
+        } catch (e) {
+          console.warn("Failed to parse EarningTab posts on storage change:", e);
+        }
+      }
+    };
+
+    // Listen for storage events (when EarningTab saves posts)
+    window.addEventListener("storage", handleStorageChange);
+    
+    // Also check periodically (for same-tab updates)
+    const interval = setInterval(handleStorageChange, 1000);
+
+    return () => {
+      window.removeEventListener("storage", handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleLike = (postId: string) => {
     setPosts((prev) =>
@@ -279,23 +354,44 @@ export default function SocialTab() {
                   />
                 )}
 
+                {/* YouTube video from EarningTab (youtubeVideoId) */}
+                {post.youtubeVideoId && (
+                  <div className="px-6 pb-4">
+                    <div className="rounded-lg overflow-hidden">
+                      <div className="aspect-video w-full">
+                        <iframe
+                          title="YouTube video"
+                          src={`https://www.youtube.com/embed/${post.youtubeVideoId}`}
+                          frameBorder="0"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                          className="w-full h-full rounded-lg"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* YouTube links from SocialTab (youtubeLinks) */}
                 {post.youtubeLinks && post.youtubeLinks.length > 0 && (
-                  <div className="space-y-3">
+                  <div className="px-6 pb-4 space-y-3">
                     {post.youtubeLinks.map((link, i) => {
                       const videoId = extractYouTubeId(link);
                       if (!videoId) return null;
                       return (
                         <div key={i} className="rounded-lg overflow-hidden">
-                          <iframe
-                            width="100%"
-                            height="315"
-                            src={getYouTubeEmbedUrl(videoId)}
-                            title="YouTube video player"
-                            frameBorder="0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                            className="rounded-lg"
-                          />
+                          <div className="aspect-video w-full">
+                            <iframe
+                              width="100%"
+                              height="315"
+                              src={getYouTubeEmbedUrl(videoId)}
+                              title="YouTube video player"
+                              frameBorder="0"
+                              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                              allowFullScreen
+                              className="w-full h-full rounded-lg"
+                            />
+                          </div>
                         </div>
                       );
                     })}

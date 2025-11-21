@@ -6,7 +6,7 @@
 "use client";
 import React, { useEffect, useState, useRef } from "react";
 import { useGoogleDrive, type PostData } from "@/hooks/useGoogleDrive"; // <- assumes your hook is at this path
-import { Camera, Video, Upload, X, CheckCircle } from "lucide-react";
+import { Camera, Video, Upload, X, CheckCircle, Youtube } from "lucide-react";
 
 type PageItem = {
   id: string;
@@ -16,9 +16,11 @@ type PageItem = {
   createdAt: string;
 };
 
-type EarnPost = PostData & { pageId: string }; // reuse PostData shape and add page link
+type EarnPost = PostData & { 
+  pageId: string;
+  youtubeVideoId?: string | null; // YouTube video ID for embedding
+}; // reuse PostData shape and add page link
 
-const LS_PAGES_KEY = "earn_pages_v1";
 const LS_POSTS_KEY = "earn_posts_v1";
 
 async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
@@ -48,33 +50,41 @@ export default function EarningTab() {
   const [loadingPosts, setLoadingPosts] = useState(false);
 
   // composer (post)
-  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(true); // Open by default
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
   const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [youtubeVideoId, setYoutubeVideoId] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // load pages & posts from localStorage on mount
+  // load pages from database API and posts from localStorage on mount
   useEffect(() => {
-    setLoadingPages(true);
-    try {
-      const raw = localStorage.getItem(LS_PAGES_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as PageItem[];
-        if (Array.isArray(parsed)) setPages(parsed);
+    async function loadPages() {
+      setLoadingPages(true);
+      try {
+        const res = await fetch("/api/user/pages");
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.pages)) {
+          setPages(data.pages);
+        } else {
+          console.warn("Failed to load pages from API:", data.error);
+        }
+      } catch (e) {
+        console.error("Failed to load pages:", e);
+      } finally {
+        setLoadingPages(false);
       }
-    } catch (e) {
-      console.warn("Failed to load pages", e);
-    } finally {
-      setLoadingPages(false);
     }
+
+    loadPages();
 
     setLoadingPosts(true);
     try {
@@ -89,15 +99,6 @@ export default function EarningTab() {
       setLoadingPosts(false);
     }
   }, []);
-
-  // persist pages
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_PAGES_KEY, JSON.stringify(pages));
-    } catch (e) {
-      console.error("Failed saving pages", e);
-    }
-  }, [pages]);
 
   // persist posts
   useEffect(() => {
@@ -131,31 +132,55 @@ export default function EarningTab() {
     }
 
     setAddingPage(true);
-    const temp: PageItem = {
-      id: `page-${Date.now()}`,
-      title,
-      description,
-      avatarUrl: null,
-      createdAt: new Date().toISOString(),
-    };
-    setPages((prev) => [temp, ...prev]);
     try {
-      // if you have server route to persist pages, call it here.
-      setNewTitle("");
-      setNewDesc("");
+      const res = await fetch("/api/user/pages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description }),
+      });
+
+      const data = await res.json();
+      if (data.ok && data.page) {
+        // Add the page from the database response
+        setPages((prev) => [data.page, ...prev]);
+        setNewTitle("");
+        setNewDesc("");
+      } else {
+        setPageError(data.error || "Failed to create page");
+      }
     } catch (e) {
       console.error("addPage error", e);
-      setPages((prev) => prev.filter((p) => p.id !== temp.id));
-      setPageError("Failed to create page");
+      setPageError("Failed to create page. Please try again.");
     } finally {
       setAddingPage(false);
     }
   }
 
-  function deletePage(id: string) {
-    // remove page and its posts locally
-    setPages((prev) => prev.filter((p) => p.id !== id));
-    setPosts((prev) => prev.filter((pt) => pt.pageId !== id));
+  async function deletePage(id: string) {
+    if (!confirm("Are you sure you want to delete this page? This will also delete all posts associated with it.")) {
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/user/pages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json();
+      if (data.ok) {
+        // Remove page and its posts locally
+        setPages((prev) => prev.filter((p) => p.id !== id));
+        setPosts((prev) => prev.filter((pt) => pt.pageId !== id));
+      } else {
+        console.error("Failed to delete page:", data.error);
+        alert("Failed to delete page: " + (data.error || "Unknown error"));
+      }
+    } catch (e) {
+      console.error("deletePage error", e);
+      alert("Failed to delete page. Please try again.");
+    }
   }
 
   // ---------- POST COMPOSER helpers ----------
@@ -195,13 +220,37 @@ export default function EarningTab() {
     setVideoPreview(null);
   };
 
+  // Extract YouTube video ID from URL
+  const extractYoutubeId = (url: string): string | null => {
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
+      /youtube\.com\/watch\?.*v=([^&\n?#]+)/,
+    ];
+    for (const pattern of patterns) {
+      const match = url.match(pattern);
+      if (match && match[1]) return match[1];
+    }
+    return null;
+  };
+
+  const handleYoutubeUrlChange = (url: string) => {
+    setYoutubeUrl(url);
+    const videoId = extractYoutubeId(url);
+    setYoutubeVideoId(videoId);
+  };
+
+  const removeYoutube = () => {
+    setYoutubeUrl("");
+    setYoutubeVideoId(null);
+  };
+
   const clearComposer = () => {
     setComposerText("");
     imagePreviews.forEach((p) => URL.revokeObjectURL(p));
     setImageFiles([]);
     setImagePreviews([]);
     removeVideo();
-    setComposerOpen(false);
+    removeYoutube();
     setLocalError(null);
   };
 
@@ -214,7 +263,7 @@ export default function EarningTab() {
       return;
     }
 
-    if (!composerText.trim() && imageFiles.length === 0 && !videoFile) {
+    if (!composerText.trim() && imageFiles.length === 0 && !videoFile && !youtubeVideoId) {
       setLocalError("Write something or attach media before posting.");
       return;
     }
@@ -227,6 +276,7 @@ export default function EarningTab() {
       content: composerText.trim(),
       images: imageFiles.length ? imagePreviews.map((p) => p) : undefined,
       video: videoFile ? { name: videoFile.name, size: videoFile.size, url: videoPreview || "", gdriveId: undefined } : undefined,
+      youtubeVideoId: youtubeVideoId || null,
       likes: 0,
       synced: false,
       gdriveId: undefined,
@@ -269,11 +319,10 @@ export default function EarningTab() {
     }
   };
 
-  // small helper: posts for currently selected page
-  const postsFor = (pageId: string) => posts.filter((p) => p.pageId === pageId);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-2xl font-semibold">Earning — Pages & Posts</h3>
         <div className="flex items-center gap-3">
@@ -290,37 +339,145 @@ export default function EarningTab() {
         </div>
       </div>
 
-      {/* Pages grid */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
+      {/* Business/Page Selection - At Top */}
+      <div className="mb-6 p-5 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-xl border border-blue-500/30">
+        <h4 className="text-lg font-semibold mb-3">Select Business/Page to Tag Your Post</h4>
         {pages.length === 0 ? (
-          <div className="col-span-2 p-4 bg-white/6 rounded">No pages yet — create one below.</div>
+          <div className="p-4 bg-white/6 rounded text-center">
+            <p className="text-gray-300 mb-3">No pages yet. Create one below to get started.</p>
+          </div>
         ) : (
-          pages.map((p) => (
-            <div key={p.id} className="p-4 bg-black/40 rounded">
-              <div className="flex items-start gap-3">
-                <div className="flex-1">
-                  <div className="font-semibold">{p.title}</div>
-                  {p.description && <div className="text-sm text-gray-400 mt-1">{p.description}</div>}
-                  <div className="text-xs text-gray-500 mt-2">Created {new Date(p.createdAt).toLocaleString()}</div>
-                  <div className="mt-3 text-sm">
-                    <strong>{postsFor(p.id).length}</strong> post(s)
-                  </div>
-                </div>
-                <div className="flex flex-col gap-2 text-right">
-                  <button className="text-xs px-2 py-1 rounded bg-white/6" onClick={() => { setSelectedPageId(p.id); setComposerOpen(true); }}>
-                    Post
-                  </button>
-                  <button onClick={() => deletePage(p.id)} className="text-xs px-2 py-1 rounded bg-red-600">Delete</button>
-                </div>
-              </div>
-            </div>
-          ))
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {pages.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedPageId(p.id)}
+                className={`p-4 rounded-lg border-2 transition-all ${
+                  selectedPageId === p.id
+                    ? "border-blue-500 bg-blue-500/20 shadow-lg"
+                    : "border-gray-600 bg-black/40 hover:border-blue-400 hover:bg-blue-500/10"
+                }`}
+              >
+                <div className="font-semibold text-left">{p.title}</div>
+                {p.description && <div className="text-xs text-gray-400 mt-1 text-left">{p.description}</div>}
+                <div className="text-xs text-gray-500 mt-2 text-left">{posts.filter((pt) => pt.pageId === p.id).length} post(s)</div>
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Create page form */}
-      <div className="p-4 bg-black/40 rounded mb-6">
-        <div className="mb-2 text-sm text-gray-300">Create a new page/business</div>
+      {/* Post Composer Box - Prominent */}
+      <div className="mb-6 p-5 bg-black/60 rounded-xl border border-gray-700 shadow-xl">
+        <h4 className="text-lg font-semibold mb-4">Create New Post</h4>
+        
+        <textarea 
+          value={composerText} 
+          onChange={(e) => setComposerText(e.target.value)} 
+          placeholder="What's on your mind? Write your post here..." 
+          className="w-full min-h-[120px] p-4 rounded-lg bg-white/5 border border-gray-600 mb-4 focus:outline-none focus:border-blue-500" 
+        />
+
+        {/* Image Previews */}
+        {imagePreviews.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {imagePreviews.map((src, i) => (
+              <div key={i} className="relative rounded-lg overflow-hidden">
+                <img src={src} className="w-full h-32 object-cover" alt="" />
+                <button onClick={() => removeImageAt(i)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/80 flex items-center justify-center hover:bg-red-600 transition">
+                  <X className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Video Preview */}
+        {videoPreview && (
+          <div className="mb-4 relative rounded-lg overflow-hidden">
+            <video src={videoPreview} controls className="w-full max-h-80 rounded-lg" />
+            <button onClick={removeVideo} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/80 flex items-center justify-center hover:bg-red-600 transition">
+              <X className="w-4 h-4 text-white" />
+            </button>
+          </div>
+        )}
+
+        {/* YouTube Embed Preview */}
+        {youtubeVideoId && (
+          <div className="mb-4 relative rounded-lg overflow-hidden">
+            <div className="aspect-video w-full">
+              <iframe
+                title="YouTube video"
+                src={`https://www.youtube.com/embed/${youtubeVideoId}`}
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="w-full h-full rounded-lg"
+              />
+            </div>
+            <button onClick={removeYoutube} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/80 flex items-center justify-center hover:bg-red-600 transition">
+              <X className="w-4 h-4 text-white" />
+            </button>
+          </div>
+        )}
+
+        {/* Media Action Buttons */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <label className="px-4 py-2 bg-white/10 rounded-lg cursor-pointer inline-flex items-center gap-2 hover:bg-white/20 transition">
+            <Camera className="w-4 h-4" />
+            <span className="text-sm">Images</span>
+            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleAddImages(e.target.files)} className="hidden" />
+          </label>
+
+          <label className="px-4 py-2 bg-white/10 rounded-lg cursor-pointer inline-flex items-center gap-2 hover:bg-white/20 transition">
+            <Video className="w-4 h-4" />
+            <span className="text-sm">Video</span>
+            <input ref={videoInputRef} type="file" accept="video/*" onChange={(e) => pickVideo(e.target.files)} className="hidden" />
+          </label>
+
+          <div className="flex-1 flex items-center gap-2">
+            <Youtube className="w-4 h-4 text-red-500" />
+            <input
+              type="text"
+              value={youtubeUrl}
+              onChange={(e) => handleYoutubeUrlChange(e.target.value)}
+              placeholder="Paste YouTube URL here..."
+              className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-gray-600 focus:outline-none focus:border-red-500 text-sm"
+            />
+          </div>
+        </div>
+
+        {/* Error Messages */}
+        {localError && <div className="text-red-400 text-sm mb-3">{localError}</div>}
+        {!gDrive.isAuthenticated && <div className="text-yellow-300 text-sm mb-3">Connect Drive to upload media; otherwise posts remain local only.</div>}
+
+        {/* Post Actions */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {gDrive.uploadProgress && (
+              <div className="text-sm text-gray-300">
+                Upload: {gDrive.uploadProgress.percent}% 
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <button onClick={clearComposer} className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 transition">
+              Clear
+            </button>
+            <button 
+              onClick={handlePost} 
+              disabled={posting || !selectedPageId} 
+              className="px-6 py-2 rounded-lg bg-blue-600 text-white flex items-center gap-2 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {posting ? "Posting…" : (<><Upload className="w-4 h-4" />Post</>)}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Create Page Form */}
+      <div className="p-4 bg-black/40 rounded-lg mb-6">
+        <div className="mb-2 text-sm text-gray-300 font-semibold">Create a new page/business</div>
         <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Page or business name" className="w-full p-2 rounded bg-white/6 mb-2" />
         <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Short description (optional)" className="w-full p-2 rounded bg-white/6 mb-2" rows={3} />
         {pageError && <div className="text-red-400 text-sm mb-2">{pageError}</div>}
@@ -334,111 +491,6 @@ export default function EarningTab() {
         </div>
       </div>
 
-      {/* Composer (for posts) */}
-      <div className="mb-6 p-4 bg-black/40 rounded">
-        <div className="flex items-center gap-3 mb-3">
-          <select value={selectedPageId ?? ""} onChange={(e) => setSelectedPageId(e.target.value || null)} className="p-2 rounded bg-white/6">
-            <option value="">Select page to post under...</option>
-            {pages.map((p) => <option value={p.id} key={p.id}>{p.title}</option>)}
-          </select>
-
-          <button onClick={() => { setComposerOpen((v) => !v); }} className="px-3 py-2 rounded bg-white/6">
-            {composerOpen ? "Hide composer" : "New post"}
-          </button>
-        </div>
-
-        {composerOpen && (
-          <>
-            <textarea value={composerText} onChange={(e) => setComposerText(e.target.value)} placeholder="Write your post..." className="w-full min-h-[100px] p-3 rounded bg-white/5 mb-3" />
-            {imagePreviews.length > 0 && (
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                {imagePreviews.map((src, i) => (
-                  <div key={i} className="relative rounded overflow-hidden">
-                    <img src={src} className="w-full h-28 object-cover" alt="" />
-                    <button onClick={() => removeImageAt(i)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center">
-                      <X className="w-4 h-4 text-white" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {videoPreview && (
-              <div className="mb-3 relative">
-                <video src={videoPreview} controls className="w-full max-h-60" />
-                <button onClick={removeVideo} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
-                  <X className="w-4 h-4 text-white" />
-                </button>
-              </div>
-            )}
-
-            <div className="flex items-center gap-2">
-              <label className="p-2 bg-white/6 rounded cursor-pointer inline-flex items-center gap-2">
-                <Camera className="w-4 h-4" />
-                <span className="text-sm">Add images</span>
-                <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleAddImages(e.target.files)} className="hidden" />
-              </label>
-
-              <label className="p-2 bg-white/6 rounded cursor-pointer inline-flex items-center gap-2">
-                <Video className="w-4 h-4" />
-                <span className="text-sm">Add video</span>
-                <input ref={videoInputRef} type="file" accept="video/*" onChange={(e) => pickVideo(e.target.files)} className="hidden" />
-              </label>
-
-              <div className="ml-auto flex items-center gap-2">
-                {gDrive.uploadProgress && (
-                  <div className="text-sm text-gray-300 mr-2">
-                    Upload: {gDrive.uploadProgress.percent}% 
-                  </div>
-                )}
-                <button onClick={clearComposer} className="px-3 py-2 rounded bg-gray-700">Clear</button>
-                <button onClick={handlePost} disabled={posting} className="px-4 py-2 rounded bg-blue-600 text-white flex items-center gap-2">
-                  {posting ? "Posting…" : (<><Upload className="w-4 h-4" />Post</>)}
-                </button>
-              </div>
-            </div>
-
-            {localError && <div className="text-red-400 text-sm mt-2">{localError}</div>}
-            {!gDrive.isAuthenticated && <div className="text-yellow-300 text-sm mt-2">Connect Drive to upload media; otherwise posts remain local only.</div>}
-          </>
-        )}
-      </div>
-
-      {/* Posts list (grouped by page) */}
-      <div className="space-y-6">
-        {pages.map((p) => (
-          <section key={p.id}>
-            <h4 className="text-lg font-medium mb-2">{p.title}</h4>
-            <div className="space-y-3">
-              {postsFor(p.id).length === 0 ? (
-                <div className="p-4 bg-white/6 rounded">No posts for this page yet.</div>
-              ) : (
-                postsFor(p.id).map((pt) => (
-                  <article key={pt.id} className="p-4 bg-black/40 rounded">
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1">
-                        <div className="text-sm text-gray-300 mb-2">{pt.content}</div>
-                        {pt.images && pt.images.length > 0 && (
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
-                            {pt.images.map((u, i) => <img key={i} src={u} className="w-full h-40 object-cover rounded" alt="" />)}
-                          </div>
-                        )}
-                        {pt.video && <video src={pt.video.url || pt.video.name} controls className="w-full max-h-72 rounded mb-2" />}
-                        <div className="text-xs text-gray-500">
-                          {new Date(pt.timeISO).toLocaleString()} {pt.synced ? <span className="ml-2 text-green-400">✓ synced</span> : <span className="ml-2 text-yellow-400">local</span>}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <button className="px-2 py-1 rounded bg-white/6 text-xs">Edit</button>
-                      </div>
-                    </div>
-                  </article>
-                ))
-              )}
-            </div>
-          </section>
-        ))}
-      </div>
     </div>
   );
 }
