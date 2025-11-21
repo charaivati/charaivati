@@ -1,3 +1,7 @@
+// Route /module identification: hooks/useGoogleDrive.ts
+// Purpose: obtain Drive OAuth access token (client-side token client), upload small images with multipart and videos with resumable,
+// ensure a Drive folder exists, fetch posts JSON files from Drive, and expose helper functions.
+
 import { useEffect, useState, useCallback } from "react";
 
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
@@ -22,7 +26,7 @@ export type UserInfo = { name?: string; email?: string };
 declare global {
   interface Window {
     google?: any;
-    __charaivati_token_client?: any;
+    __charaivati_token_client?: any; // token client attached here
   }
 }
 
@@ -34,9 +38,11 @@ export function useGoogleDrive() {
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number; percent: number } | null>(null);
 
+  // debug fetch helper (logs response body)
   async function debugFetch(url: string, opts: RequestInit = {}) {
     try {
       const resp = await fetch(url, opts);
+      // read as text so we can show anything
       const text = await resp.text();
       let body: any = null;
       try {
@@ -55,15 +61,14 @@ export function useGoogleDrive() {
     }
   }
 
+  // initialize google script and token client
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const existingToken = localStorage.getItem("gdrive_token");
     const existingFolder = localStorage.getItem("gdrive_folder_id");
     const existingUser = localStorage.getItem("gdrive_user_info");
-    
     if (existingToken) {
-      console.log("Restoring token from localStorage");
       setAccessToken(existingToken);
       setIsAuthenticated(true);
     }
@@ -76,6 +81,7 @@ export function useGoogleDrive() {
       }
     }
 
+    // load google identity script if needed
     if (!window.google) {
       const s = document.createElement("script");
       s.src = "https://accounts.google.com/gsi/client";
@@ -108,12 +114,12 @@ export function useGoogleDrive() {
               localStorage.setItem("gdrive_user_info", JSON.stringify(u));
             }
           } catch (e) {
-            console.warn("Failed to decode ID token:", e);
+            // ignore decode errors
           }
         },
       });
-    } catch (e) {
-      console.warn("Failed to init ID client:", e);
+    } catch {
+      // noop
     }
 
     try {
@@ -126,7 +132,6 @@ export function useGoogleDrive() {
             console.error("Token client error:", tokenResponse);
             return;
           }
-          console.log("Token received, setting authenticated state");
           setAccessToken(tokenResponse.access_token);
           setIsAuthenticated(true);
           localStorage.setItem("gdrive_token", tokenResponse.access_token);
@@ -146,7 +151,6 @@ export function useGoogleDrive() {
       return;
     }
     try {
-      console.log("Requesting access token...");
       tc.requestAccessToken({ prompt: "consent" });
     } catch (e) {
       console.error("tokenClient.requestAccessToken() failed:", e);
@@ -154,7 +158,6 @@ export function useGoogleDrive() {
   }, []);
 
   const disconnect = useCallback(() => {
-    console.log("Disconnecting Drive...");
     setIsAuthenticated(false);
     setAccessToken(null);
     setFolderId(null);
@@ -205,46 +208,7 @@ export function useGoogleDrive() {
     [accessToken]
   );
 
-  // Make file publicly readable with retries - try multiple approaches
-  const makeFilePublic = async (fileId: string, token: string, retries = 5) => {
-    for (let attempt = 0; attempt < retries; attempt++) {
-      try {
-        console.log(`[Permission] Attempt ${attempt + 1}/${retries} for file ${fileId}`);
-        
-        const resp = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions?supportsAllDrives=true`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ 
-            role: "reader", 
-            type: "anyone",
-            allowFileDiscovery: false,
-          }),
-        });
-
-        if (resp.ok) {
-          console.log(`✓ [Permission] File ${fileId} is now public!`);
-          return true;
-        }
-
-        const text = await resp.text();
-        console.warn(`[Permission] Attempt ${attempt + 1} failed:`, resp.status, text.substring(0, 200));
-      } catch (e) {
-        console.warn(`[Permission] Attempt ${attempt + 1} error:`, String(e).substring(0, 150));
-      }
-
-      // Wait before retry
-      if (attempt < retries - 1) {
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
-    
-    console.error(`[Permission] Failed to make file ${fileId} public after ${retries} attempts`);
-    return false;
-  };
-
+  // upload file with multipart (for small images/JSON/meta)
   const uploadFileMultipart = async (file: File, folderIdParam: string, token: string, namePrefix: string) => {
     if (!token || !folderIdParam) {
       console.warn("uploadFileMultipart missing token/folderId");
@@ -266,19 +230,17 @@ export function useGoogleDrive() {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
         body,
       });
-
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error("Multipart upload failed:", res.status, errorText);
-        return null;
-      }
-
       const data = await res.json();
       if (data?.id) {
-        console.log(`Image uploaded: ${data.id}, now making public...`);
-        const isPublic = await makeFilePublic(data.id, token);
-        if (isPublic) {
-          console.log(`✓ Image is now public: https://drive.google.com/uc?id=${data.id}`);
+        // Make file publicly readable (so drive.uc?id= works). Optional.
+        try {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ role: "reader", type: "anyone" }),
+          });
+        } catch (permErr) {
+          console.warn("Failed to set permission for file:", data.id, permErr);
         }
         return data.id;
       }
@@ -290,6 +252,7 @@ export function useGoogleDrive() {
     }
   };
 
+  // resumable upload for videos
   const resumableUpload = async (file: File, token: string, folderIdParam: string, onProgress?: (p: { loaded: number; total: number; percent: number }) => void) => {
     if (!token || !folderIdParam) {
       console.warn("resumableUpload missing token/folderId");
@@ -330,15 +293,20 @@ export function useGoogleDrive() {
 
         if (putResp.status === 200 || putResp.status === 201) {
           const result = await putResp.json();
-          console.log(`Video uploaded: ${result.id}, now making public...`);
-          const isPublic = await makeFilePublic(result.id, token);
-          if (isPublic) {
-            console.log(`✓ Video is now public: https://drive.google.com/uc?id=${result.id}`);
+          // attempt to make file public
+          try {
+            await fetch(`https://www.googleapis.com/drive/v3/files/${result.id}/permissions`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ role: "reader", type: "anyone" }),
+            });
+          } catch (permErr) {
+            console.warn("resumable: permission set failed", permErr);
           }
           return result.id;
         } else if (putResp.status !== 308) {
           const text = await putResp.text();
-          console.error("Resumable upload chunk failed:", putResp.status, text);
+          console.error("Resumable chunk failed:", putResp.status, text);
           return null;
         }
         uploaded = end;
@@ -351,6 +319,7 @@ export function useGoogleDrive() {
     }
   };
 
+  // uploadPost
   const uploadPost = useCallback(
     async (post: PostData, imageFiles: File[], videoFile: File | null) => {
       const t = accessToken ?? localStorage.getItem("gdrive_token");
@@ -375,30 +344,21 @@ export function useGoogleDrive() {
           const urls: string[] = [];
           for (const f of imageFiles) {
             const id = await uploadFileMultipart(f, fId, t, `img_${Date.now()}`);
-            if (id) {
-              urls.push(`https://drive.google.com/uc?id=${id}`);
-              console.log("Image uploaded and shared:", id);
-            }
+            if (id) urls.push(`https://drive.google.com/uc?id=${id}`);
           }
           if (urls.length) updated.images = urls;
         }
 
         if (videoFile) {
           const vidId = await resumableUpload(videoFile, t, fId, (p) => setUploadProgress(p));
-          if (vidId) {
-            updated.video = { name: videoFile.name, size: videoFile.size, url: `https://drive.google.com/uc?id=${vidId}`, gdriveId: vidId };
-            console.log("Video uploaded and shared:", vidId);
-          }
+          if (vidId) updated.video = { name: videoFile.name, size: videoFile.size, url: `https://drive.google.com/uc?id=${vidId}`, gdriveId: vidId };
         }
 
         try {
           const blob = new Blob([JSON.stringify(updated)], { type: "application/json" });
           const metaFile = new File([blob], `post_${post.id}.json`, { type: "application/json" });
           const metaId = await uploadFileMultipart(metaFile, fId, t, `post_${post.id}`);
-          if (metaId) {
-            updated.gdriveId = metaId;
-            console.log("Post metadata uploaded:", metaId);
-          }
+          if (metaId) updated.gdriveId = metaId;
         } catch (e) {
           console.warn("metadata upload failed", e);
         }
@@ -416,10 +376,10 @@ export function useGoogleDrive() {
     [accessToken, folderId, ensureFolder]
   );
 
+  // fetchPosts - list post_*.json files in folder and fetch them
   const fetchPosts = useCallback(async (): Promise<PostData[] | null> => {
     const t = accessToken ?? localStorage.getItem("gdrive_token");
     const fId = folderId ?? localStorage.getItem("gdrive_folder_id");
-
     if (!t) {
       console.warn("fetchPosts: no access token");
       return null;
@@ -431,29 +391,21 @@ export function useGoogleDrive() {
 
     try {
       const q = `'${fId}' in parents and name contains 'post_' and trashed=false`;
-      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)&pageSize=100&orderBy=modifiedTime desc`;
-
+      const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&spaces=drive&fields=files(id,name)&pageSize=100`;
       const resp = await debugFetch(url, { headers: { Authorization: `Bearer ${t}` } });
       const posts: PostData[] = [];
-
-      console.log("Found post files:", resp?.files?.length || 0);
-
       if (resp?.files && Array.isArray(resp.files)) {
         for (const f of resp.files) {
           try {
+            // Always fetch file content via files/{id}?alt=media with Authorization (reliable)
             const contentUrl = `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`;
-            const contentResp = await fetch(contentUrl, { headers: { Authorization: `Bearer ${t}` } });
-
-            if (!contentResp.ok) {
-              console.warn(`Failed to fetch post ${f.id}: ${contentResp.status}`);
-              continue;
-            }
-
-            const txt = await contentResp.text();
+            const txt = await fetch(contentUrl, { headers: { Authorization: `Bearer ${t}` } }).then((r) => {
+              if (!r.ok) throw { status: r.status, text: r.statusText };
+              return r.text();
+            });
             try {
-              const parsed = JSON.parse(txt) as PostData;
+              const parsed = JSON.parse(txt);
               posts.push(parsed);
-              console.log("Parsed post:", parsed.id);
             } catch {
               console.warn("Could not parse drive post JSON:", f.name);
             }
@@ -462,8 +414,6 @@ export function useGoogleDrive() {
           }
         }
       }
-
-      console.log("Total posts loaded:", posts.length);
       return posts.sort((a, b) => new Date(b.timeISO).getTime() - new Date(a.timeISO).getTime());
     } catch (e) {
       console.error("fetchPosts error:", e);

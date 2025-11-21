@@ -1,21 +1,39 @@
 // ============================================================================
-// FILE 3: next.config.mjs
+// FILE 1: next.config.mjs (UPDATED)
 // ============================================================================
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
   eslint: {
-    ignoreDuringBuilds: true,          // TEMP: remove after fixing lint errors
+    ignoreDuringBuilds: true,
   },
   typescript: {
-    ignoreBuildErrors: true,           // TEMP: remove after fixing TS errors
+    ignoreBuildErrors: true,
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'drive.google.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'lh3.googleusercontent.com',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.googleapis.com',
+      },
+    ],
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    formats: ['image/avif', 'image/webp'],
   },
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
-          // CSP is handled by middleware.ts - don't duplicate here
           { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains; preload" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
@@ -23,8 +41,18 @@ const nextConfig = {
           { key: "Permissions-Policy", value: "geolocation=(), microphone=(), camera=()" },
         ],
       },
+      {
+        source: "/api/social/proxy",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=604800, immutable" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+        ],
+      },
     ];
   },
 };
 
 export default nextConfig;
+

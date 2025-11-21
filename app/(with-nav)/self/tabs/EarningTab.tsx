@@ -1,21 +1,12 @@
+// app/user/tabs/EarningTab.tsx
+// Route /module identification: app/user/tabs/EarningTab.tsx
+// Purpose: Earning page — manage pages/businesses and create posts (with images/video) attached to a selected page.
+// Posts upload media to Google Drive via useGoogleDrive; metadata kept locally (and later can be sent to server).
+
 "use client";
-import React, { useEffect, useRef, useState } from "react";
-import {
-  Camera,
-  Video,
-  MessageSquare,
-  Heart,
-  Send,
-  X,
-  Cloud,
-  AlertCircle,
-  Upload,
-  CheckCircle,
-  Plus,
-  Trash2,
-  LogOut,
-} from "lucide-react";
-import { useGoogleDrive, type PostData } from "@/hooks/useGoogleDrive";
+import React, { useEffect, useState, useRef } from "react";
+import { useGoogleDrive, type PostData } from "@/hooks/useGoogleDrive"; // <- assumes your hook is at this path
+import { Camera, Video, Upload, X, CheckCircle } from "lucide-react";
 
 type PageItem = {
   id: string;
@@ -25,13 +16,10 @@ type PageItem = {
   createdAt: string;
 };
 
-type StoredPost = PostData & {
-  youtubeLinks?: string[];
-};
+type EarnPost = PostData & { pageId: string }; // reuse PostData shape and add page link
 
-type DriveStatus = "idle" | "checking" | "connected" | "disconnected" | "error";
-
-const LS_POSTS_KEY = "ch_social_posts_v3";
+const LS_PAGES_KEY = "earn_pages_v1";
+const LS_POSTS_KEY = "earn_posts_v1";
 
 async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   const res = await fetch(input, init);
@@ -44,687 +32,412 @@ async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   return { ok: res.ok, status: res.status, json };
 }
 
-function extractYouTubeId(url: string): string | null {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /^([a-zA-Z0-9_-]{11})$/,
-  ];
-  for (const pattern of patterns) {
-    const match = url.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
-
-function getYouTubeEmbedUrl(videoId: string): string {
-  return `https://www.youtube.com/embed/${videoId}?modestbranding=1`;
-}
-
 export default function EarningTab() {
   const gDrive = useGoogleDrive();
 
-  // Pages/Business state
-  const [pages, setPages] = useState<PageItem[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [adding, setAdding] = useState(false);
+  // pages
+  const [pages, setPages] = useState<PageItem[]>([]);
+  const [loadingPages, setLoadingPages] = useState(false);
+  const [addingPage, setAddingPage] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDesc, setNewDesc] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [pageError, setPageError] = useState<string | null>(null);
 
-  // Post creation state
+  // posts
+  const [posts, setPosts] = useState<EarnPost[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+
+  // composer (post)
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [composerText, setComposerText] = useState("");
-  const [selectedBusiness, setSelectedBusiness] = useState<string>("");
-  const [selectedDrive, setSelectedDrive] = useState<"google" | "onedrive">("google");
-  const [images, setImages] = useState<File[]>([]);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
-  const [youtubeLink, setYoutubeLink] = useState("");
-  const [showComposer, setShowComposer] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
-  const [postingInProgress, setPostingInProgress] = useState(false);
+  const [posting, setPosting] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
-  // Drive connection state
-  const [driveStatus, setDriveStatus] = useState<DriveStatus>("idle");
-  const [driveError, setDriveError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Check drive connection on mount and when gDrive state changes
+  // load pages & posts from localStorage on mount
   useEffect(() => {
-    let alive = true;
-
-    function checkDriveConnection() {
-      setDriveError(null);
-
-      try {
-        // Still loading, don't update status
-        if (gDrive.loading) {
-          return;
-        }
-
-        // No token and not authenticated
-        if (!gDrive.isAuthenticated && !gDrive.accessToken) {
-          if (alive) {
-            setDriveStatus("disconnected");
-          }
-          return;
-        }
-
-        // If we have a token and user info, consider it connected
-        if (gDrive.accessToken && gDrive.userInfo) {
-          if (alive) {
-            setDriveStatus("connected");
-          }
-        } else if (gDrive.accessToken) {
-          // Has token but loading user info
-          if (alive) {
-            setDriveStatus("checking");
-          }
-        } else {
-          if (alive) {
-            setDriveStatus("disconnected");
-          }
-        }
-      } catch (err: any) {
-        if (!alive) return;
-        console.error("Drive connection check error:", err);
-        setDriveStatus("error");
-        setDriveError(err?.message || "Failed to verify drive connection");
+    setLoadingPages(true);
+    try {
+      const raw = localStorage.getItem(LS_PAGES_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PageItem[];
+        if (Array.isArray(parsed)) setPages(parsed);
       }
+    } catch (e) {
+      console.warn("Failed to load pages", e);
+    } finally {
+      setLoadingPages(false);
     }
 
-    checkDriveConnection();
-
-    return () => {
-      alive = false;
-    };
-  }, [gDrive.isAuthenticated, gDrive.accessToken, gDrive.userInfo, gDrive.loading]);
-
-  // Load pages
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    safeFetchJson("/api/user/pages", { method: "GET", credentials: "include" })
-      .then((r) => {
-        if (!alive) return;
-        if (r.ok && r.json?.ok) {
-          setPages(r.json.pages || []);
-          if (r.json.pages?.length > 0 && !selectedBusiness) {
-            setSelectedBusiness(r.json.pages[0].id);
-          }
-        } else {
-          setPages([]);
-          setError(r.json?.error || r.rawText || `Status ${r.status}`);
-        }
-      })
-      .catch((e) => {
-        console.error("fetch pages error", e);
-        setPages([]);
-        setError("Could not load pages");
-      })
-      .finally(() => alive && setLoading(false));
-
-    return () => {
-      alive = false;
-    };
+    setLoadingPosts(true);
+    try {
+      const raw = localStorage.getItem(LS_POSTS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as EarnPost[];
+        if (Array.isArray(parsed)) setPosts(parsed);
+      }
+    } catch (e) {
+      console.warn("Failed to load posts", e);
+    } finally {
+      setLoadingPosts(false);
+    }
   }, []);
 
-  // Add page
+  // persist pages
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_PAGES_KEY, JSON.stringify(pages));
+    } catch (e) {
+      console.error("Failed saving pages", e);
+    }
+  }, [pages]);
+
+  // persist posts
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_POSTS_KEY, JSON.stringify(posts.slice(0, 1000)));
+    } catch (e) {
+      console.error("Failed saving posts", e);
+    }
+  }, [posts]);
+
+  // composer cleanup on unmount
+  useEffect(() => {
+    return () => {
+      imagePreviews.forEach((p) => URL.revokeObjectURL(p));
+      if (videoPreview) URL.revokeObjectURL(videoPreview);
+    };
+  }, [imagePreviews, videoPreview]);
+
+  // ---------- PAGES: add / delete ----------
   async function addPage() {
-    setError(null);
+    setPageError(null);
     const title = newTitle.trim();
     const description = newDesc.trim();
     if (!title) {
-      setError("Please enter a title");
+      setPageError("Please enter a title");
+      return;
+    }
+    if (pages.some((p) => p.title.toLowerCase() === title.toLowerCase())) {
+      setPageError("You already have a page with this title");
       return;
     }
 
-    if (pages?.some((p) => p.title.toLowerCase() === title.toLowerCase())) {
-      setError("You already have a page with this title");
-      return;
-    }
-
+    setAddingPage(true);
     const temp: PageItem = {
-      id: `temp-${Date.now()}`,
+      id: `page-${Date.now()}`,
       title,
       description,
       avatarUrl: null,
       createdAt: new Date().toISOString(),
     };
-
-    setPages((prev) => (prev ? [temp, ...prev] : [temp]));
-    setAdding(true);
-
+    setPages((prev) => [temp, ...prev]);
     try {
-      const resp = await safeFetchJson("/api/user/pages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ title, description }),
-      });
-
-      if (!resp.ok) {
-        const m = resp.json?.error || resp.rawText || `Status ${resp.status}`;
-        throw new Error(m);
-      }
-      if (!resp.json?.ok) throw new Error(resp.json?.error || "Unknown error");
-
-      const created = resp.json.page as PageItem;
-      setPages((prev) => (prev ? prev.map((p) => (p.id === temp.id ? created : p)) : [created]));
+      // if you have server route to persist pages, call it here.
       setNewTitle("");
       setNewDesc("");
-      setSelectedBusiness(created.id);
-    } catch (err: any) {
-      console.error("add page error", err);
-      setPages((prev) => (prev ? prev.filter((p) => p.id !== temp.id) : []));
-      setError(err?.message || "Failed to add page");
+    } catch (e) {
+      console.error("addPage error", e);
+      setPages((prev) => prev.filter((p) => p.id !== temp.id));
+      setPageError("Failed to create page");
     } finally {
-      setAdding(false);
+      setAddingPage(false);
     }
   }
 
-  // Delete page with API call
-  async function deletePage(id: string) {
-    if (!confirm("Are you sure you want to delete this business?")) return;
-
-    setDeleting(id);
-    try {
-      const resp = await safeFetchJson(`/api/user/pages/${id}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-
-      if (resp.ok && resp.json?.ok) {
-        setPages((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
-        if (selectedBusiness === id) {
-          setSelectedBusiness(pages?.find((p) => p.id !== id)?.id || "");
-        }
-      } else {
-        alert(resp.json?.error || "Failed to delete page");
-      }
-    } catch (err) {
-      console.error("delete page error", err);
-      alert("Failed to delete page");
-    } finally {
-      setDeleting(null);
-    }
+  function deletePage(id: string) {
+    // remove page and its posts locally
+    setPages((prev) => prev.filter((p) => p.id !== id));
+    setPosts((prev) => prev.filter((pt) => pt.pageId !== id));
   }
 
-  // Post handlers
+  // ---------- POST COMPOSER helpers ----------
   const handleAddImages = (files: FileList | null) => {
     if (!files) return;
-    const incoming = Array.from(files);
-    const toAdd = incoming.slice(0, 50 - images.length);
-    const newPreviews = toAdd.map((f) => URL.createObjectURL(f));
-    setImages((prev) => [...prev, ...toAdd].slice(0, 50));
-    setImagePreviews((prev) => [...prev, ...newPreviews].slice(0, 50));
+    const arr = Array.from(files).slice(0, 10 - imageFiles.length);
+    const newPreviews = arr.map((f) => URL.createObjectURL(f));
+    setImageFiles((prev) => [...prev, ...arr].slice(0, 10));
+    setImagePreviews((prev) => [...prev, ...newPreviews].slice(0, 10));
   };
 
-  const handleRemoveImageAt = (index: number) => {
-    setImages((prev) => {
+  const removeImageAt = (idx: number) => {
+    setImageFiles((prev) => {
       const c = [...prev];
-      c.splice(index, 1);
+      c.splice(idx, 1);
       return c;
     });
     setImagePreviews((prev) => {
       const c = [...prev];
-      const removed = c.splice(index, 1);
-      removed.forEach((p) => URL.revokeObjectURL(p));
+      const removed = c.splice(idx, 1);
+      removed.forEach((u) => URL.revokeObjectURL(u));
       return c;
     });
   };
 
-  const handlePickVideo = (files: FileList | null) => {
+  const pickVideo = (files: FileList | null) => {
     if (!files || files.length === 0) return;
     const f = files[0];
-    const url = URL.createObjectURL(f);
     if (videoPreview) URL.revokeObjectURL(videoPreview);
     setVideoFile(f);
-    setVideoPreview(url);
+    setVideoPreview(URL.createObjectURL(f));
   };
 
-  const handleRemoveVideo = () => {
+  const removeVideo = () => {
     if (videoPreview) URL.revokeObjectURL(videoPreview);
     setVideoFile(null);
     setVideoPreview(null);
   };
 
-  const handleClearComposer = () => {
+  const clearComposer = () => {
     setComposerText("");
     imagePreviews.forEach((p) => URL.revokeObjectURL(p));
-    setImages([]);
+    setImageFiles([]);
     setImagePreviews([]);
-    if (videoPreview) URL.revokeObjectURL(videoPreview);
-    setVideoFile(null);
-    setVideoPreview(null);
-    setYoutubeLink("");
-    setShowComposer(false);
+    removeVideo();
+    setComposerOpen(false);
+    setLocalError(null);
   };
 
-  async function handlePost() {
-    const txt = composerText.trim();
-    if (!txt && images.length === 0 && !videoFile && !youtubeLink.trim()) {
-      alert("Share something or add media before posting.");
-      return;
-    }
-    if (txt.length > 10000) {
-      alert("Post too long. Max 10,000 characters.");
-      return;
-    }
-    if (!selectedBusiness) {
-      alert("Please select a business to post from.");
+  // ---------- POST submit ----------
+  const handlePost = async () => {
+    setLocalError(null);
+
+    if (!selectedPageId) {
+      setLocalError("Select a page to post under.");
       return;
     }
 
-    // Warn if drive not connected but allow posting
-    if (driveStatus !== "connected" && (images.length > 0 || videoFile)) {
-      const proceed = confirm(
-        "Google Drive is not connected. Your media won't be uploaded. Continue?"
-      );
-      if (!proceed) return;
+    if (!composerText.trim() && imageFiles.length === 0 && !videoFile) {
+      setLocalError("Write something or attach media before posting.");
+      return;
     }
 
-    setPostingInProgress(true);
-    setSyncStatus("syncing");
-
-    const youtubeId = youtubeLink.trim() ? extractYouTubeId(youtubeLink.trim()) : null;
-
-    const nextPost: StoredPost = {
-      id: Date.now().toString(),
-      author: selectedBusiness,
+    // create a local post item (optimistic)
+    const newPost: EarnPost = {
+      id: `post-${Date.now()}`,
+      author: gDrive.userInfo?.name || gDrive.userInfo?.email || "You",
       timeISO: new Date().toISOString(),
-      content: txt,
+      content: composerText.trim(),
+      images: imageFiles.length ? imagePreviews.map((p) => p) : undefined,
+      video: videoFile ? { name: videoFile.name, size: videoFile.size, url: videoPreview || "", gdriveId: undefined } : undefined,
       likes: 0,
       synced: false,
-      youtubeLinks: youtubeId ? [youtubeLink.trim()] : [],
+      gdriveId: undefined,
+      pageId: selectedPageId,
     };
 
+    setPosts((prev) => [newPost, ...prev].slice(0, 1000));
+    setPosting(true);
+
     try {
-      if (driveStatus === "connected" && (images.length > 0 || videoFile)) {
-        const saved = await gDrive.uploadPost(nextPost, images, videoFile);
-        if (saved) {
-          nextPost.gdriveId = saved.gdriveId;
-          nextPost.images = saved.images;
-          if (saved.video) nextPost.video = saved.video;
-          nextPost.synced = true;
-          console.log("Post uploaded successfully:", nextPost);
-        }
+      // if not connected to drive - prompt user
+      if (!gDrive.isAuthenticated) {
+        // either auto-call connect or show instruction
+        setLocalError("Not connected to Google Drive — click Connect to upload media.");
+        // keep the post only locally (already added). stop here.
+        setPosting(false);
+        return;
+      }
+
+      // upload media via useGoogleDrive.uploadPost
+      const saved = await gDrive.uploadPost(newPost, imageFiles, videoFile);
+      if (saved) {
+        // update the post entry with returned metadata
+        setPosts((prev) =>
+          prev.map((p) => (p.id === newPost.id ? { ...p, ...saved, synced: true, pageId: selectedPageId } : p))
+        );
       } else {
-        console.log("Post saved locally (no drive or no media):", nextPost);
+        setLocalError("Upload failed — saved locally only.");
+        setPosts((prev) => prev.map((p) => (p.id === newPost.id ? { ...p, synced: false } : p)));
       }
 
-      // Save to localStorage
-      try {
-        const stored = localStorage.getItem(LS_POSTS_KEY);
-        const existing = stored ? JSON.parse(stored) : [];
-        localStorage.setItem(LS_POSTS_KEY, JSON.stringify([nextPost, ...existing]));
-      } catch (e) {
-        console.warn("Failed to save to localStorage:", e);
-      }
-
-      handleClearComposer();
-      setSyncStatus("synced");
-      setTimeout(() => setSyncStatus("idle"), 2000);
+      clearComposer();
     } catch (e) {
-      console.error("Failed to post:", e);
-      setSyncStatus("error");
-      alert("Failed to post. Please try again.");
+      console.error("handlePost error", e);
+      setLocalError("Failed to post. See console.");
+      // leave optimistic post as unsynced
+      setPosts((prev) => prev.map((p) => (p.id === newPost.id ? { ...p, synced: false } : p)));
     } finally {
-      setPostingInProgress(false);
+      setPosting(false);
     }
-  }
+  };
 
-  async function handleConnectDrive() {
-    try {
-      setDriveStatus("checking");
-      setDriveError(null);
-      await gDrive.connectDrive();
-    } catch (err: any) {
-      console.error("Connect drive error:", err);
-      setDriveStatus("error");
-      setDriveError(err?.message || "Failed to connect to Google Drive");
-    }
-  }
-
-  async function handleDisconnectDrive() {
-    try {
-      gDrive.disconnect();
-      setDriveStatus("disconnected");
-      setDriveError(null);
-    } catch (err: any) {
-      console.error("Disconnect drive error:", err);
-      setDriveError(err?.message || "Failed to disconnect");
-    }
-  }
+  // small helper: posts for currently selected page
+  const postsFor = (pageId: string) => posts.filter((p) => p.pageId === pageId);
 
   return (
-    <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
-      {/* Header */}
-      <div className="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5 mb-6">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-3xl font-light text-white tracking-wide">Earning</h1>
-          <div className="flex items-center gap-3">
-            {syncStatus === "syncing" && <Cloud className="w-5 h-5 text-blue-400 animate-spin" />}
-            {syncStatus === "synced" && <CheckCircle className="w-5 h-5 text-green-400" />}
-            {syncStatus === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
-
-            {driveStatus === "checking" && (
-              <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30">
-                <Cloud className="w-4 h-4 text-blue-400 animate-spin" />
-                <span className="text-xs text-blue-300 font-medium">Checking...</span>
-              </div>
-            )}
-
-            {driveStatus === "disconnected" && (
-              <button
-                onClick={handleConnectDrive}
-                className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm hover:from-blue-600 hover:to-blue-700 transition-all font-medium"
-              >
-                Connect Drive
-              </button>
-            )}
-
-            {driveStatus === "connected" && (
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-green-400 font-medium px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30">
-                  ✓ Connected
-                </div>
-                <button
-                  onClick={handleDisconnectDrive}
-                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 transition-colors"
-                  title="Disconnect Google Drive"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {driveStatus === "error" && (
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-red-400" />
-                <button
-                  onClick={handleConnectDrive}
-                  className="text-xs text-red-400 hover:text-red-300 font-medium"
-                >
-                  Reconnect
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {driveError && (
-          <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/20">
-            <p className="text-xs text-red-300 max-w-4xl mx-auto">{driveError}</p>
-          </div>
-        )}
-
-        {gDrive.uploadProgress && (
-          <div className="h-1 bg-gray-700">
-            <div
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300"
-              style={{ width: `${gDrive.uploadProgress.percent}%` }}
-            />
-          </div>
-        )}
-      </div>
-
-      <div className="max-w-4xl mx-auto px-4 pb-20">
-        {/* Post Creation Block */}
-        <div className="mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-            <Plus className="w-5 h-5" /> Create Post
-          </h2>
-
-          {!showComposer ? (
-            <button
-              onClick={() => setShowComposer(true)}
-              className="w-full p-6 rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 hover:border-white/20 transition-all text-left"
-            >
-              <span className="text-gray-300">What would you like to share from your business?</span>
+    <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-2xl font-semibold">Earning — Pages & Posts</h3>
+        <div className="flex items-center gap-3">
+          {!gDrive.isAuthenticated ? (
+            <button onClick={() => gDrive.connectDrive()} className="px-4 py-2 rounded bg-blue-600 text-white">
+              Connect Google Drive
             </button>
           ) : (
-            <div className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm">
-              <div className="p-6">
-                {/* Business & Drive Selection */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Business/Page</label>
-                    <select
-                      value={selectedBusiness}
-                      onChange={(e) => setSelectedBusiness(e.target.value)}
-                      disabled={postingInProgress}
-                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
-                    >
-                      <option value="">Select business...</option>
-                      {pages?.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Drive Service</label>
-                    <select
-                      value={selectedDrive}
-                      onChange={(e) => setSelectedDrive(e.target.value as "google" | "onedrive")}
-                      disabled={postingInProgress}
-                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
-                    >
-                      <option value="google">Google Drive</option>
-                      <option value="onedrive">OneDrive</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Composer */}
-                <div className="mb-4">
-                  <textarea
-                    ref={textareaRef}
-                    placeholder="Share your business update..."
-                    value={composerText}
-                    onChange={(e) => setComposerText(e.target.value)}
-                    className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm outline-none resize-none min-h-[100px]"
-                    autoFocus
-                    disabled={postingInProgress}
-                  />
-                </div>
-
-                {/* Image Previews */}
-                {imagePreviews.length > 0 && (
-                  <div className="mb-4 grid grid-cols-3 gap-2">
-                    {imagePreviews.map((src, i) => (
-                      <div key={i} className="relative rounded-lg overflow-hidden group">
-                        <img src={src} alt="" className="w-full h-24 object-cover" />
-                        <button
-                          onClick={() => handleRemoveImageAt(i)}
-                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="w-3 h-3 text-white" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Video Preview */}
-                {videoPreview && (
-                  <div className="mb-4 relative rounded-lg overflow-hidden">
-                    <video src={videoPreview} controls className="w-full max-h-64 bg-black" />
-                    <button
-                      onClick={handleRemoveVideo}
-                      className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center"
-                    >
-                      <X className="w-3 h-3 text-white" />
-                    </button>
-                  </div>
-                )}
-
-                {images.length > 0 && <p className="text-xs text-gray-400 mb-2">{images.length} photo(s)</p>}
-                {videoFile && <p className="text-xs text-gray-400 mb-2">{videoFile.name}</p>}
-
-                {/* YouTube Link Input */}
-                <div className="mb-4">
-                  <label className="block text-xs text-gray-400 mb-2 font-semibold">YouTube Link (optional)</label>
-                  <input
-                    type="text"
-                    placeholder="Paste YouTube URL (youtube.com/watch?v=... or youtu.be/...)"
-                    value={youtubeLink}
-                    onChange={(e) => setYoutubeLink(e.target.value)}
-                    disabled={postingInProgress}
-                    className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm"
-                  />
-                  {youtubeLink && extractYouTubeId(youtubeLink) && (
-                    <p className="text-xs text-green-400 mt-1">✓ Valid YouTube link</p>
-                  )}
-                  {youtubeLink && !extractYouTubeId(youtubeLink) && (
-                    <p className="text-xs text-red-400 mt-1">✗ Invalid YouTube link</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
-                <div className="flex gap-2">
-                  <label className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors">
-                    <Camera className="w-4 h-4 text-blue-400" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(e) => handleAddImages(e.target.files)}
-                      className="hidden"
-                      disabled={postingInProgress}
-                    />
-                  </label>
-                  <label className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors">
-                    <Video className="w-4 h-4 text-purple-400" />
-                    <input
-                      type="file"
-                      accept="video/*"
-                      onChange={(e) => handlePickVideo(e.target.files)}
-                      className="hidden"
-                      disabled={postingInProgress}
-                    />
-                  </label>
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleClearComposer}
-                    disabled={postingInProgress}
-                    className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 text-sm transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handlePost}
-                    disabled={postingInProgress}
-                    className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium flex items-center gap-2 hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50"
-                  >
-                    {postingInProgress ? (
-                      <>
-                        <Upload className="w-4 h-4 animate-pulse" />
-                        Posting...
-                      </>
-                    ) : (
-                      "Publish Post"
-                    )}
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-green-400">✓ {gDrive.userInfo?.email}</span>
+              <button onClick={() => gDrive.disconnect()} className="text-sm px-2 py-1 rounded bg-red-600 text-white">Disconnect</button>
             </div>
           )}
         </div>
+      </div>
 
-        {/* Businesses Section */}
-        <div>
-          <h2 className="text-xl font-semibold text-white mb-4">Your Businesses</h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {loading ? (
-              <div className="col-span-2 p-4 bg-white/5 rounded-lg">Loading...</div>
-            ) : pages && pages.length > 0 ? (
-              pages.map((page) => (
-                <div
-                  key={page.id}
-                  className="p-4 bg-gradient-to-br from-white/10 to-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-all"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-white text-lg">{page.title}</h3>
-                      {page.description && <p className="text-sm text-gray-400 mt-1">{page.description}</p>}
-                      <p className="text-xs text-gray-500 mt-3">
-                        Created {new Date(page.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <button className="px-3 py-1 rounded text-xs bg-white/10 hover:bg-white/20 text-white transition-colors">
-                        View
-                      </button>
-                      <button
-                        onClick={() => deletePage(page.id)}
-                        disabled={deleting === page.id}
-                        className="px-3 py-1 rounded text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors flex items-center gap-1 disabled:opacity-50"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        {deleting === page.id ? "Deleting..." : "Delete"}
-                      </button>
-                    </div>
+      {/* Pages grid */}
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        {pages.length === 0 ? (
+          <div className="col-span-2 p-4 bg-white/6 rounded">No pages yet — create one below.</div>
+        ) : (
+          pages.map((p) => (
+            <div key={p.id} className="p-4 bg-black/40 rounded">
+              <div className="flex items-start gap-3">
+                <div className="flex-1">
+                  <div className="font-semibold">{p.title}</div>
+                  {p.description && <div className="text-sm text-gray-400 mt-1">{p.description}</div>}
+                  <div className="text-xs text-gray-500 mt-2">Created {new Date(p.createdAt).toLocaleString()}</div>
+                  <div className="mt-3 text-sm">
+                    <strong>{postsFor(p.id).length}</strong> post(s)
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="col-span-2 p-6 bg-white/5 rounded-lg text-center">
-                <p className="text-gray-400">No businesses yet</p>
+                <div className="flex flex-col gap-2 text-right">
+                  <button className="text-xs px-2 py-1 rounded bg-white/6" onClick={() => { setSelectedPageId(p.id); setComposerOpen(true); }}>
+                    Post
+                  </button>
+                  <button onClick={() => deletePage(p.id)} className="text-xs px-2 py-1 rounded bg-red-600">Delete</button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Create page form */}
+      <div className="p-4 bg-black/40 rounded mb-6">
+        <div className="mb-2 text-sm text-gray-300">Create a new page/business</div>
+        <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Page or business name" className="w-full p-2 rounded bg-white/6 mb-2" />
+        <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)} placeholder="Short description (optional)" className="w-full p-2 rounded bg-white/6 mb-2" rows={3} />
+        {pageError && <div className="text-red-400 text-sm mb-2">{pageError}</div>}
+        <div className="flex justify-end gap-2">
+          <button onClick={() => { setNewTitle(""); setNewDesc(""); setPageError(null); }} className="px-4 py-2 rounded bg-gray-700" disabled={addingPage}>
+            Cancel
+          </button>
+          <button onClick={addPage} className="px-4 py-2 rounded bg-green-600" disabled={addingPage}>
+            {addingPage ? "Adding…" : "Add"}
+          </button>
+        </div>
+      </div>
+
+      {/* Composer (for posts) */}
+      <div className="mb-6 p-4 bg-black/40 rounded">
+        <div className="flex items-center gap-3 mb-3">
+          <select value={selectedPageId ?? ""} onChange={(e) => setSelectedPageId(e.target.value || null)} className="p-2 rounded bg-white/6">
+            <option value="">Select page to post under...</option>
+            {pages.map((p) => <option value={p.id} key={p.id}>{p.title}</option>)}
+          </select>
+
+          <button onClick={() => { setComposerOpen((v) => !v); }} className="px-3 py-2 rounded bg-white/6">
+            {composerOpen ? "Hide composer" : "New post"}
+          </button>
+        </div>
+
+        {composerOpen && (
+          <>
+            <textarea value={composerText} onChange={(e) => setComposerText(e.target.value)} placeholder="Write your post..." className="w-full min-h-[100px] p-3 rounded bg-white/5 mb-3" />
+            {imagePreviews.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {imagePreviews.map((src, i) => (
+                  <div key={i} className="relative rounded overflow-hidden">
+                    <img src={src} className="w-full h-28 object-cover" alt="" />
+                    <button onClick={() => removeImageAt(i)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center">
+                      <X className="w-4 h-4 text-white" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
-          </div>
 
-          {/* Add Business Form */}
-          <div className="p-6 bg-gradient-to-br from-white/5 to-transparent rounded-xl border border-white/10">
-            <h3 className="text-lg font-semibold text-white mb-4">Create New Business</h3>
-            <input
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Business name"
-              disabled={adding}
-              className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm mb-3"
-            />
-            <textarea
-              value={newDesc}
-              onChange={(e) => setNewDesc(e.target.value)}
-              placeholder="Description (optional)"
-              disabled={adding}
-              className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm resize-none min-h-[80px] mb-3"
-              rows={3}
-            />
-            {error && <div className="text-red-400 text-sm mb-3">{error}</div>}
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  setNewTitle("");
-                  setNewDesc("");
-                  setError(null);
-                }}
-                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 text-sm transition-colors disabled:opacity-50"
-                disabled={adding}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={addPage}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-green-500 to-emerald-600 text-white text-sm font-medium hover:from-green-600 hover:to-emerald-700 transition-all disabled:opacity-50"
-                disabled={adding}
-              >
-                {adding ? "Creating..." : "Create Business"}
-              </button>
+            {videoPreview && (
+              <div className="mb-3 relative">
+                <video src={videoPreview} controls className="w-full max-h-60" />
+                <button onClick={removeVideo} className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 flex items-center justify-center">
+                  <X className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <label className="p-2 bg-white/6 rounded cursor-pointer inline-flex items-center gap-2">
+                <Camera className="w-4 h-4" />
+                <span className="text-sm">Add images</span>
+                <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={(e) => handleAddImages(e.target.files)} className="hidden" />
+              </label>
+
+              <label className="p-2 bg-white/6 rounded cursor-pointer inline-flex items-center gap-2">
+                <Video className="w-4 h-4" />
+                <span className="text-sm">Add video</span>
+                <input ref={videoInputRef} type="file" accept="video/*" onChange={(e) => pickVideo(e.target.files)} className="hidden" />
+              </label>
+
+              <div className="ml-auto flex items-center gap-2">
+                {gDrive.uploadProgress && (
+                  <div className="text-sm text-gray-300 mr-2">
+                    Upload: {gDrive.uploadProgress.percent}% 
+                  </div>
+                )}
+                <button onClick={clearComposer} className="px-3 py-2 rounded bg-gray-700">Clear</button>
+                <button onClick={handlePost} disabled={posting} className="px-4 py-2 rounded bg-blue-600 text-white flex items-center gap-2">
+                  {posting ? "Posting…" : (<><Upload className="w-4 h-4" />Post</>)}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
+
+            {localError && <div className="text-red-400 text-sm mt-2">{localError}</div>}
+            {!gDrive.isAuthenticated && <div className="text-yellow-300 text-sm mt-2">Connect Drive to upload media; otherwise posts remain local only.</div>}
+          </>
+        )}
+      </div>
+
+      {/* Posts list (grouped by page) */}
+      <div className="space-y-6">
+        {pages.map((p) => (
+          <section key={p.id}>
+            <h4 className="text-lg font-medium mb-2">{p.title}</h4>
+            <div className="space-y-3">
+              {postsFor(p.id).length === 0 ? (
+                <div className="p-4 bg-white/6 rounded">No posts for this page yet.</div>
+              ) : (
+                postsFor(p.id).map((pt) => (
+                  <article key={pt.id} className="p-4 bg-black/40 rounded">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1">
+                        <div className="text-sm text-gray-300 mb-2">{pt.content}</div>
+                        {pt.images && pt.images.length > 0 && (
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-2">
+                            {pt.images.map((u, i) => <img key={i} src={u} className="w-full h-40 object-cover rounded" alt="" />)}
+                          </div>
+                        )}
+                        {pt.video && <video src={pt.video.url || pt.video.name} controls className="w-full max-h-72 rounded mb-2" />}
+                        <div className="text-xs text-gray-500">
+                          {new Date(pt.timeISO).toLocaleString()} {pt.synced ? <span className="ml-2 text-green-400">✓ synced</span> : <span className="ml-2 text-yellow-400">local</span>}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <button className="px-2 py-1 rounded bg-white/6 text-xs">Edit</button>
+                      </div>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );
