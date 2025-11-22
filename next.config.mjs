@@ -1,5 +1,5 @@
 // ============================================================================
-// FILE 1: next.config.mjs (UPDATED)
+// FILE 4: next.config.mjs
 // ============================================================================
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -12,18 +12,9 @@ const nextConfig = {
   },
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'drive.google.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'lh3.googleusercontent.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.googleapis.com',
-      },
+      { protocol: 'https', hostname: 'drive.google.com' },
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+      { protocol: 'https', hostname: '*.googleapis.com' },
     ],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
@@ -46,8 +37,6 @@ const nextConfig = {
         headers: [
           { key: "Cache-Control", value: "public, max-age=604800, immutable" },
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "DENY" },
-          { key: "Access-Control-Allow-Origin", value: "*" },
         ],
       },
     ];
@@ -55,4 +44,3 @@ const nextConfig = {
 };
 
 export default nextConfig;
-

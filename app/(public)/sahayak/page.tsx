@@ -304,7 +304,7 @@ export default function SahayakPage() {
               {expanded["epfo"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                    {epfoLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                  {epfoLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
                   </div>
                   <VideoSection sectionKey="epfo" />
                 </div>
@@ -320,7 +320,7 @@ export default function SahayakPage() {
               {expanded["irctc"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                    {irctcLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                  {irctcLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
                   </div>
                   <VideoSection sectionKey="irctc" />
                 </div>
@@ -336,7 +336,7 @@ export default function SahayakPage() {
               {expanded["ids"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                    {idLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                  {idLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
                   </div>
                   <VideoSection sectionKey="ids" />
                 </div>
@@ -352,7 +352,7 @@ export default function SahayakPage() {
               {expanded["health"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                    {healthLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                  {healthLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
                   </div>
                   <VideoSection sectionKey="health" />
                 </div>
@@ -368,7 +368,7 @@ export default function SahayakPage() {
               {expanded["senior"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                    {seniorLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                  {seniorLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
                   </div>
                   <VideoSection sectionKey="senior" />
                 </div>
@@ -433,21 +433,21 @@ export default function SahayakPage() {
       {showLanguagePicker && (
         <div className="fixed inset-0 bg-black z-50 overflow-y-auto">
           <div className="w-full min-h-full flex flex-col items-center p-4 md:p-6 pt-8 md:pt-12">
-            <div className="max-w-4xl w-full text-center">
+          <div className="max-w-4xl w-full text-center">
               <p className="text-gray-400 mb-6 md:mb-12">{t("Choose your language to continue")}</p>
 
-              {languages.length === 0 ? (
-                <div className="text-gray-400">Loading languages...</div>
-              ) : (
+            {languages.length === 0 ? (
+              <div className="text-gray-400">Loading languages...</div>
+            ) : (
                 <div className="flex flex-wrap justify-center gap-4 md:gap-6 pb-8">
-                  {languages.map((l) => (
+                {languages.map((l) => (
                     <button key={l.code} onClick={() => { setLocale(l.code); setLocaleState(l.code); setShowLanguagePicker(false); }} className="w-36 h-24 md:w-44 md:h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 active:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform active:scale-95 transition-all">
                       <div className="text-lg md:text-xl font-semibold">{l.name}</div>
-                      <div className="text-xs text-gray-400">{l.code}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
+                    <div className="text-xs text-gray-400">{l.code}</div>
+                  </button>
+                ))}
+              </div>
+            )}
             </div>
           </div>
         </div>

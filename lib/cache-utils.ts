@@ -1,11 +1,15 @@
 // ============================================================================
-// FILE 6: lib/cache-utils.ts (HELPER FUNCTIONS)
+// FILE 5: lib/cache-utils.ts
 // ============================================================================
+
+/**
+ * Clear cache for specific file or all files
+ */
 export async function clearProxyCache(fileId?: string): Promise<boolean> {
   try {
     const token = process.env.ADMIN_CACHE_TOKEN;
     if (!token) {
-      console.error("ADMIN_CACHE_TOKEN not set");
+      console.error("ADMIN_CACHE_TOKEN not set in environment");
       return false;
     }
 
@@ -22,10 +26,12 @@ export async function clearProxyCache(fileId?: string): Promise<boolean> {
     });
 
     if (!response.ok) {
-      console.error("Failed to clear cache:", response.statusText);
+      console.error("Cache clear failed:", response.statusText);
       return false;
     }
 
+    const data = await response.json();
+    console.log("Cache cleared:", data.message);
     return true;
   } catch (error) {
     console.error("Failed to clear proxy cache:", error);
@@ -33,6 +39,9 @@ export async function clearProxyCache(fileId?: string): Promise<boolean> {
   }
 }
 
+/**
+ * Get cache statistics
+ */
 export async function getCacheStats() {
   try {
     const response = await fetch("/api/social/proxy", {
@@ -40,7 +49,7 @@ export async function getCacheStats() {
     });
 
     if (!response.ok) {
-      console.error("Failed to fetch cache stats:", response.statusText);
+      console.error("Failed to fetch cache stats");
       return null;
     }
 
@@ -54,7 +63,8 @@ export async function getCacheStats() {
 export interface CacheStats {
   cacheSize: number;
   memoryUsageMB: string;
-  maxCacheEntries: number;
+  maxCacheSize: number;
+  maxFileSizeMB: number;
   cacheStatus: string;
   timestamp: string;
 }
