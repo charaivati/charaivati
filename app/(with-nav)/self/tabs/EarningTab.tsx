@@ -1,6 +1,6 @@
 // ============================================================================
-// UPDATED: app/(with-nav)/self/tabs/EarningTab.tsx
-// Business Page is NOW OPTIONAL for posting
+// MOBILE FIX: app/(with-nav)/self/tabs/EarningTab.tsx
+// Fixed file input issues on iOS/Android
 // ============================================================================
 "use client";
 
@@ -60,6 +60,10 @@ function extractYouTubeId(url: string): string | null {
 
 export default function EarningTab() {
   const gDrive = useGoogleDrive();
+
+  // ✅ FIX: Separate refs for image and video inputs (direct ref access)
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   // Pages/Business state
   const [pages, setPages] = useState<PageItem[] | null>(null);
@@ -196,6 +200,19 @@ export default function EarningTab() {
     }
   }
 
+  // ✅ FIX: Direct ref-based file handling for mobile
+  const handleImageButtonClick = () => {
+    if (imageInputRef.current) {
+      imageInputRef.current.click();
+    }
+  };
+
+  const handleVideoButtonClick = () => {
+    if (videoInputRef.current) {
+      videoInputRef.current.click();
+    }
+  };
+
   // Post handlers
   const handleAddImages = (files: FileList | null) => {
     if (!files) return;
@@ -204,6 +221,11 @@ export default function EarningTab() {
     const newPreviews = toAdd.map((f) => URL.createObjectURL(f));
     setImages((prev) => [...prev, ...toAdd].slice(0, 50));
     setImagePreviews((prev) => [...prev, ...newPreviews].slice(0, 50));
+    
+    // ✅ FIX: Reset input value to allow selecting the same file again
+    if (imageInputRef.current) {
+      imageInputRef.current.value = "";
+    }
   };
 
   const handleRemoveImageAt = (index: number) => {
@@ -227,6 +249,11 @@ export default function EarningTab() {
     if (videoPreview) URL.revokeObjectURL(videoPreview);
     setVideoFile(f);
     setVideoPreview(url);
+    
+    // ✅ FIX: Reset input value
+    if (videoInputRef.current) {
+      videoInputRef.current.value = "";
+    }
   };
 
   const handleRemoveVideo = () => {
@@ -244,11 +271,14 @@ export default function EarningTab() {
     setVideoFile(null);
     setVideoPreview(null);
     setYoutubeLink("");
+    
+    // ✅ FIX: Reset input refs
+    if (imageInputRef.current) imageInputRef.current.value = "";
+    if (videoInputRef.current) videoInputRef.current.value = "";
   };
 
   async function handlePost() {
     const txt = composerText.trim();
-    // ✅ UPDATED: Business page is now optional
     if (!txt && images.length === 0 && !videoFile && !youtubeLink.trim()) {
       alert("Share something or add media before posting.");
       return;
@@ -271,12 +301,10 @@ export default function EarningTab() {
       likes: 0,
       synced: false,
       youtubeLinks: youtubeId ? [youtubeLink.trim()] : [],
-      // ✅ UPDATED: pageId can now be undefined if no business selected
       pageId: selectedBusiness || undefined,
     };
 
     try {
-      // Upload to Google Drive if connected
       if (gDrive.isAuthenticated || gDrive.accessToken) {
         console.log("Uploading to Google Drive...", { images: images.length, video: !!videoFile, youtube: !!youtubeId });
         const saved = await gDrive.uploadPost(nextPost, images, videoFile);
@@ -293,7 +321,6 @@ export default function EarningTab() {
         console.log("Not connected to Drive: post saved locally without media upload");
       }
 
-      // Save to localStorage
       try {
         const stored = localStorage.getItem(LS_EARN_POSTS_KEY);
         const existing = stored ? JSON.parse(stored) : [];
@@ -305,7 +332,6 @@ export default function EarningTab() {
         console.error("Failed to save to localStorage:", e);
       }
 
-      // Save to database
       try {
         const imageFileIds: string[] = [];
         if (nextPost.images && Array.isArray(nextPost.images)) {
@@ -329,7 +355,6 @@ export default function EarningTab() {
             videoFileId,
             youtubeLinks,
             slugTags: [],
-            // ✅ UPDATED: pageId is now optional (can be null/undefined)
             pageId: selectedBusiness || null,
             visibility: "public",
             gdriveFolder: gDrive.folderId || null,
@@ -406,8 +431,7 @@ export default function EarningTab() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 pb-20">
-        {/* ✅ UPDATED: Business Selection is now optional and moved after composer */}
-        {/* Post Creation Block - At Top */}
+        {/* Post Creation Block */}
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" /> Create Post
@@ -491,7 +515,7 @@ export default function EarningTab() {
                   </div>
                 </div>
 
-                {/* ✅ UPDATED: Optional Business Selection */}
+                {/* Optional Business Selection */}
                 <div className="mb-4">
                   <label className="block text-xs text-gray-400 mb-2 font-semibold">Tag Business (optional)</label>
                   <select
@@ -510,29 +534,50 @@ export default function EarningTab() {
               </div>
 
               {/* Actions */}
-              <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
+              <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex gap-2">
-                  <label className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors">
+                  {/* ✅ FIX: Direct ref-based buttons for mobile */}
+                  <button
+                    onClick={handleImageButtonClick}
+                    disabled={postingInProgress}
+                    type="button"
+                    className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50"
+                    title="Add photos"
+                  >
                     <Camera className="w-4 h-4 text-blue-400" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(e) => handleAddImages(e.target.files)}
-                      className="hidden"
-                      disabled={postingInProgress}
-                    />
-                  </label>
-                  <label className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors">
+                  </button>
+                  
+                  <button
+                    onClick={handleVideoButtonClick}
+                    disabled={postingInProgress}
+                    type="button"
+                    className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50"
+                    title="Add video"
+                  >
                     <Video className="w-4 h-4 text-purple-400" />
-                    <input
-                      type="file"
-                      accept="video/*"
-                      onChange={(e) => handlePickVideo(e.target.files)}
-                      className="hidden"
-                      disabled={postingInProgress}
-                    />
-                  </label>
+                  </button>
+
+                  {/* ✅ FIX: Hidden input refs with proper mobile attributes */}
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => handleAddImages(e.target.files)}
+                    className="hidden"
+                    disabled={postingInProgress}
+                    capture="environment"
+                  />
+                  
+                  <input
+                    ref={videoInputRef}
+                    type="file"
+                    accept="video/*"
+                    onChange={(e) => handlePickVideo(e.target.files)}
+                    className="hidden"
+                    disabled={postingInProgress}
+                    capture="environment"
+                  />
                 </div>
 
                 <div className="flex gap-2">
@@ -543,7 +588,6 @@ export default function EarningTab() {
                   >
                     Clear
                   </button>
-                  {/* ✅ UPDATED: Remove business requirement check */}
                   <button
                     onClick={handlePost}
                     disabled={postingInProgress}
