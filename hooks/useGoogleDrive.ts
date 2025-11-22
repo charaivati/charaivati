@@ -52,12 +52,34 @@ export function useGoogleDrive() {
       }
       console.debug("debugFetch:", { url, status: resp.status, body });
       if (!resp.ok) {
-        throw { url, status: resp.status, body };
+        const errorInfo = {
+          url,
+          status: resp.status,
+          statusText: resp.statusText,
+          body,
+          headers: Object.fromEntries(resp.headers.entries()),
+        };
+        console.error("debugFetch HTTP error:", errorInfo);
+        throw new Error(`HTTP ${resp.status}: ${resp.statusText} - ${typeof body === 'string' ? body : JSON.stringify(body)}`);
       }
       return body;
-    } catch (err) {
-      console.error("debugFetch error:", err);
-      throw err;
+    } catch (err: any) {
+      // Better error logging
+      const errorDetails = {
+        url,
+        message: err?.message || String(err),
+        name: err?.name,
+        stack: err?.stack,
+        status: err?.status,
+        statusText: err?.statusText,
+        body: err?.body,
+      };
+      console.error("debugFetch error:", errorDetails);
+      // Re-throw with more context
+      if (err instanceof Error) {
+        throw err;
+      }
+      throw new Error(`debugFetch failed: ${err?.message || JSON.stringify(err)}`);
     }
   }
 
@@ -200,8 +222,13 @@ export function useGoogleDrive() {
           return folderResult;
         }
         return null;
-      } catch (e) {
-        console.error("ensureFolder failed:", e);
+      } catch (e: any) {
+        console.error("ensureFolder failed:", {
+          message: e?.message || String(e),
+          name: e?.name,
+          stack: e?.stack,
+          error: e,
+        });
         return null;
       }
     },
@@ -374,8 +401,13 @@ export function useGoogleDrive() {
         setUploadProgress(null);
         setLoading(false);
         return updated;
-      } catch (e) {
-        console.error("uploadPost failed:", e);
+      } catch (e: any) {
+        console.error("uploadPost failed:", {
+          message: e?.message || String(e),
+          name: e?.name,
+          stack: e?.stack,
+          error: e,
+        });
         setUploadProgress(null);
         setLoading(false);
         return null;

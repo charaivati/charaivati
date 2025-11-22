@@ -1,11 +1,9 @@
 "use client";
+
 import React, { useEffect, useRef, useState } from "react";
 import {
   Camera,
   Video,
-  MessageSquare,
-  Heart,
-  Send,
   X,
   Cloud,
   AlertCircle,
@@ -14,6 +12,7 @@ import {
   Plus,
   Trash2,
   LogOut,
+  Youtube,
 } from "lucide-react";
 import { useGoogleDrive, type PostData } from "@/hooks/useGoogleDrive";
 
@@ -27,9 +26,10 @@ type PageItem = {
 
 type StoredPost = PostData & {
   youtubeLinks?: string[];
+  pageId?: string;
 };
 
-const LS_POSTS_KEY = "ch_social_posts_v3";
+const LS_EARN_POSTS_KEY = "earn_posts_v1"; // This is what SocialTab reads
 
 async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   const res = await fetch(input, init);
@@ -54,10 +54,6 @@ function extractYouTubeId(url: string): string | null {
   return null;
 }
 
-function getYouTubeEmbedUrl(videoId: string): string {
-  return `https://www.youtube.com/embed/${videoId}?modestbranding=1`;
-}
-
 export default function EarningTab() {
   const gDrive = useGoogleDrive();
 
@@ -73,19 +69,18 @@ export default function EarningTab() {
   // Post creation state
   const [composerText, setComposerText] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState<string>("");
-  const [selectedDrive, setSelectedDrive] = useState<"google" | "onedrive">("google");
   const [images, setImages] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const [youtubeLink, setYoutubeLink] = useState("");
-  const [showComposer, setShowComposer] = useState(false);
+  const [showComposer, setShowComposer] = useState(true); // Open by default
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [postingInProgress, setPostingInProgress] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load pages
+  // Load pages from database
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -174,9 +169,11 @@ export default function EarningTab() {
 
     setDeleting(id);
     try {
-      const resp = await safeFetchJson(`/api/user/pages/${id}`, {
+      const resp = await safeFetchJson("/api/user/pages", {
         method: "DELETE",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify({ id }),
       });
 
       if (resp.ok && resp.json?.ok) {
@@ -243,7 +240,6 @@ export default function EarningTab() {
     setVideoFile(null);
     setVideoPreview(null);
     setYoutubeLink("");
-    setShowComposer(false);
   };
 
   async function handlePost() {
@@ -268,34 +264,85 @@ export default function EarningTab() {
 
     const nextPost: StoredPost = {
       id: Date.now().toString(),
-      author: selectedBusiness,
+      author: gDrive.userInfo?.name || gDrive.userInfo?.email || selectedBusiness,
       timeISO: new Date().toISOString(),
       content: txt,
       likes: 0,
       synced: false,
       youtubeLinks: youtubeId ? [youtubeLink.trim()] : [],
+      pageId: selectedBusiness,
     };
 
     try {
+      // Upload to Google Drive if connected
       if (gDrive.isAuthenticated || gDrive.accessToken) {
+        console.log("Uploading to Google Drive...", { images: images.length, video: !!videoFile, youtube: !!youtubeId });
         const saved = await gDrive.uploadPost(nextPost, images, videoFile);
         if (saved) {
           nextPost.gdriveId = saved.gdriveId;
           nextPost.images = saved.images;
           if (saved.video) nextPost.video = saved.video;
           nextPost.synced = true;
-          console.log("Post uploaded successfully:", nextPost);
+          console.log("Post uploaded successfully to Google Drive:", nextPost);
+        } else {
+          console.warn("Google Drive upload returned null");
         }
       } else {
-        console.log("Post saved locally (no drive or no media):", nextPost);
+        console.log("Not connected to Drive: post saved locally without media upload");
       }
 
+      // Save to localStorage (this is what SocialTab reads)
       try {
-        const stored = localStorage.getItem(LS_POSTS_KEY);
+        const stored = localStorage.getItem(LS_EARN_POSTS_KEY);
         const existing = stored ? JSON.parse(stored) : [];
-        localStorage.setItem(LS_POSTS_KEY, JSON.stringify([nextPost, ...existing]));
+        const updated = [nextPost, ...existing];
+        localStorage.setItem(LS_EARN_POSTS_KEY, JSON.stringify(updated));
+        console.log("Post saved to localStorage:", LS_EARN_POSTS_KEY);
+        
+        // Trigger storage event for SocialTab to pick up
+        window.dispatchEvent(new Event("storage"));
       } catch (e) {
-        console.warn("Failed to save to localStorage:", e);
+        console.error("Failed to save to localStorage:", e);
+      }
+
+      // Save to database
+      try {
+        const imageFileIds: string[] = [];
+        if (nextPost.images && Array.isArray(nextPost.images)) {
+          nextPost.images.forEach((url) => {
+            const match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (match && match[1]) {
+              imageFileIds.push(match[1]);
+            }
+          });
+        }
+
+        const videoFileId = nextPost.video?.gdriveId || null;
+        const youtubeLinks = youtubeId ? [youtubeLink.trim()] : [];
+
+        const dbRes = await fetch("/api/posts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: txt || null,
+            imageFileIds,
+            videoFileId,
+            youtubeLinks,
+            slugTags: [],
+            pageId: selectedBusiness,
+            visibility: "public",
+            gdriveFolder: gDrive.folderId || null,
+          }),
+        });
+
+        const dbData = await dbRes.json();
+        if (dbData.ok && dbData.post) {
+          console.log("Post saved to database:", dbData.post.id);
+        } else {
+          console.warn("Database save failed:", dbData.error);
+        }
+      } catch (dbErr) {
+        console.error("Database save error:", dbErr);
       }
 
       handleClearComposer();
@@ -309,7 +356,6 @@ export default function EarningTab() {
       setPostingInProgress(false);
     }
   }
-
 
   return (
     <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
@@ -359,7 +405,38 @@ export default function EarningTab() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 pb-20">
-        {/* Post Creation Block */}
+        {/* Business Selection - At Top */}
+        <div className="mb-6 p-5 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-xl border border-blue-500/30">
+          <h4 className="text-lg font-semibold mb-3">Select Business/Page to Tag Your Post</h4>
+          {loading ? (
+            <div className="p-4 bg-white/6 rounded text-center">
+              <p className="text-gray-300">Loading businesses...</p>
+            </div>
+          ) : pages && pages.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {pages.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelectedBusiness(p.id)}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    selectedBusiness === p.id
+                      ? "border-blue-500 bg-blue-500/20 shadow-lg"
+                      : "border-gray-600 bg-black/40 hover:border-blue-400 hover:bg-blue-500/10"
+                  }`}
+                >
+                  <div className="font-semibold">{p.title}</div>
+                  {p.description && <div className="text-xs text-gray-400 mt-1">{p.description}</div>}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="p-4 bg-white/6 rounded text-center">
+              <p className="text-gray-300 mb-3">No businesses yet. Create one below to get started.</p>
+            </div>
+          )}
+        </div>
+
+        {/* Post Creation Block - At Top */}
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
             <Plus className="w-5 h-5" /> Create Post
@@ -375,38 +452,6 @@ export default function EarningTab() {
           ) : (
             <div className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm">
               <div className="p-6">
-                {/* Business & Drive Selection */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Business/Page</label>
-                    <select
-                      value={selectedBusiness}
-                      onChange={(e) => setSelectedBusiness(e.target.value)}
-                      disabled={postingInProgress}
-                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
-                    >
-                      <option value="">Select business...</option>
-                      {pages?.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Drive Service</label>
-                    <select
-                      value={selectedDrive}
-                      onChange={(e) => setSelectedDrive(e.target.value as "google" | "onedrive")}
-                      disabled={postingInProgress}
-                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
-                    >
-                      <option value="google">Google Drive</option>
-                      <option value="onedrive">OneDrive</option>
-                    </select>
-                  </div>
-                </div>
-
                 {/* Composer */}
                 <div className="mb-4">
                   <textarea
@@ -456,20 +501,23 @@ export default function EarningTab() {
                 {/* YouTube Link Input */}
                 <div className="mb-4">
                   <label className="block text-xs text-gray-400 mb-2 font-semibold">YouTube Link (optional)</label>
-                  <input
-                    type="text"
-                    placeholder="Paste YouTube URL (youtube.com/watch?v=... or youtu.be/...)"
-                    value={youtubeLink}
-                    onChange={(e) => setYoutubeLink(e.target.value)}
-                    disabled={postingInProgress}
-                    className="w-full p-2 rounded bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm"
-                  />
-                  {youtubeLink && extractYouTubeId(youtubeLink) && (
-                    <p className="text-xs text-green-400 mt-1">✓ Valid YouTube link</p>
-                  )}
-                  {youtubeLink && !extractYouTubeId(youtubeLink) && (
-                    <p className="text-xs text-red-400 mt-1">✗ Invalid YouTube link</p>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Youtube className="w-4 h-4 text-red-500" />
+                    <input
+                      type="text"
+                      placeholder="Paste YouTube URL (youtube.com/watch?v=... or youtu.be/...)"
+                      value={youtubeLink}
+                      onChange={(e) => setYoutubeLink(e.target.value)}
+                      disabled={postingInProgress}
+                      className="flex-1 p-2 rounded bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm"
+                    />
+                    {youtubeLink && extractYouTubeId(youtubeLink) && (
+                      <span className="text-xs text-green-400">✓</span>
+                    )}
+                    {youtubeLink && !extractYouTubeId(youtubeLink) && (
+                      <span className="text-xs text-red-400">✗</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -505,11 +553,11 @@ export default function EarningTab() {
                     disabled={postingInProgress}
                     className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 text-sm transition-colors disabled:opacity-50"
                   >
-                    Cancel
+                    Clear
                   </button>
                   <button
                     onClick={handlePost}
-                    disabled={postingInProgress}
+                    disabled={postingInProgress || !selectedBusiness}
                     className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium flex items-center gap-2 hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50"
                   >
                     {postingInProgress ? (
@@ -549,8 +597,14 @@ export default function EarningTab() {
                       </p>
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button className="px-3 py-1 rounded text-xs bg-white/10 hover:bg-white/20 text-white transition-colors">
-                        View
+                      <button
+                        onClick={() => {
+                          setSelectedBusiness(page.id);
+                          setShowComposer(true);
+                        }}
+                        className="px-3 py-1 rounded text-xs bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      >
+                        Post
                       </button>
                       <button
                         onClick={() => deletePage(page.id)}
