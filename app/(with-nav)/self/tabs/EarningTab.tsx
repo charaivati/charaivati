@@ -1,3 +1,7 @@
+// ============================================================================
+// UPDATED: app/(with-nav)/self/tabs/EarningTab.tsx
+// Business Page is NOW OPTIONAL for posting
+// ============================================================================
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -29,7 +33,7 @@ type StoredPost = PostData & {
   pageId?: string;
 };
 
-const LS_EARN_POSTS_KEY = "earn_posts_v1"; // This is what SocialTab reads
+const LS_EARN_POSTS_KEY = "earn_posts_v1";
 
 async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   const res = await fetch(input, init);
@@ -74,7 +78,7 @@ export default function EarningTab() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const [youtubeLink, setYoutubeLink] = useState("");
-  const [showComposer, setShowComposer] = useState(true); // Open by default
+  const [showComposer, setShowComposer] = useState(true);
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [postingInProgress, setPostingInProgress] = useState(false);
 
@@ -244,16 +248,13 @@ export default function EarningTab() {
 
   async function handlePost() {
     const txt = composerText.trim();
+    // ✅ UPDATED: Business page is now optional
     if (!txt && images.length === 0 && !videoFile && !youtubeLink.trim()) {
       alert("Share something or add media before posting.");
       return;
     }
     if (txt.length > 10000) {
       alert("Post too long. Max 10,000 characters.");
-      return;
-    }
-    if (!selectedBusiness) {
-      alert("Please select a business to post from.");
       return;
     }
 
@@ -264,13 +265,14 @@ export default function EarningTab() {
 
     const nextPost: StoredPost = {
       id: Date.now().toString(),
-      author: gDrive.userInfo?.name || gDrive.userInfo?.email || selectedBusiness,
+      author: gDrive.userInfo?.name || gDrive.userInfo?.email || "You",
       timeISO: new Date().toISOString(),
       content: txt,
       likes: 0,
       synced: false,
       youtubeLinks: youtubeId ? [youtubeLink.trim()] : [],
-      pageId: selectedBusiness,
+      // ✅ UPDATED: pageId can now be undefined if no business selected
+      pageId: selectedBusiness || undefined,
     };
 
     try {
@@ -291,15 +293,13 @@ export default function EarningTab() {
         console.log("Not connected to Drive: post saved locally without media upload");
       }
 
-      // Save to localStorage (this is what SocialTab reads)
+      // Save to localStorage
       try {
         const stored = localStorage.getItem(LS_EARN_POSTS_KEY);
         const existing = stored ? JSON.parse(stored) : [];
         const updated = [nextPost, ...existing];
         localStorage.setItem(LS_EARN_POSTS_KEY, JSON.stringify(updated));
         console.log("Post saved to localStorage:", LS_EARN_POSTS_KEY);
-        
-        // Trigger storage event for SocialTab to pick up
         window.dispatchEvent(new Event("storage"));
       } catch (e) {
         console.error("Failed to save to localStorage:", e);
@@ -329,7 +329,8 @@ export default function EarningTab() {
             videoFileId,
             youtubeLinks,
             slugTags: [],
-            pageId: selectedBusiness,
+            // ✅ UPDATED: pageId is now optional (can be null/undefined)
+            pageId: selectedBusiness || null,
             visibility: "public",
             gdriveFolder: gDrive.folderId || null,
           }),
@@ -405,37 +406,7 @@ export default function EarningTab() {
       </div>
 
       <div className="max-w-4xl mx-auto px-4 pb-20">
-        {/* Business Selection - At Top */}
-        <div className="mb-6 p-5 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-xl border border-blue-500/30">
-          <h4 className="text-lg font-semibold mb-3">Select Business/Page to Tag Your Post</h4>
-          {loading ? (
-            <div className="p-4 bg-white/6 rounded text-center">
-              <p className="text-gray-300">Loading businesses...</p>
-            </div>
-          ) : pages && pages.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {pages.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedBusiness(p.id)}
-                  className={`p-4 rounded-lg border-2 transition-all text-left ${
-                    selectedBusiness === p.id
-                      ? "border-blue-500 bg-blue-500/20 shadow-lg"
-                      : "border-gray-600 bg-black/40 hover:border-blue-400 hover:bg-blue-500/10"
-                  }`}
-                >
-                  <div className="font-semibold">{p.title}</div>
-                  {p.description && <div className="text-xs text-gray-400 mt-1">{p.description}</div>}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="p-4 bg-white/6 rounded text-center">
-              <p className="text-gray-300 mb-3">No businesses yet. Create one below to get started.</p>
-            </div>
-          )}
-        </div>
-
+        {/* ✅ UPDATED: Business Selection is now optional and moved after composer */}
         {/* Post Creation Block - At Top */}
         <div className="mb-8">
           <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
@@ -447,7 +418,7 @@ export default function EarningTab() {
               onClick={() => setShowComposer(true)}
               className="w-full p-6 rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 hover:border-white/20 transition-all text-left"
             >
-              <span className="text-gray-300">What would you like to share from your business?</span>
+              <span className="text-gray-300">What would you like to share?</span>
             </button>
           ) : (
             <div className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm">
@@ -456,7 +427,7 @@ export default function EarningTab() {
                 <div className="mb-4">
                   <textarea
                     ref={textareaRef}
-                    placeholder="Share your business update..."
+                    placeholder="Share something..."
                     value={composerText}
                     onChange={(e) => setComposerText(e.target.value)}
                     className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm outline-none resize-none min-h-[100px]"
@@ -505,7 +476,7 @@ export default function EarningTab() {
                     <Youtube className="w-4 h-4 text-red-500" />
                     <input
                       type="text"
-                      placeholder="Paste YouTube URL (youtube.com/watch?v=... or youtu.be/...)"
+                      placeholder="Paste YouTube URL (optional)"
                       value={youtubeLink}
                       onChange={(e) => setYoutubeLink(e.target.value)}
                       disabled={postingInProgress}
@@ -518,6 +489,23 @@ export default function EarningTab() {
                       <span className="text-xs text-red-400">✗</span>
                     )}
                   </div>
+                </div>
+
+                {/* ✅ UPDATED: Optional Business Selection */}
+                <div className="mb-4">
+                  <label className="block text-xs text-gray-400 mb-2 font-semibold">Tag Business (optional)</label>
+                  <select
+                    value={selectedBusiness}
+                    onChange={(e) => setSelectedBusiness(e.target.value)}
+                    className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
+                  >
+                    <option value="">No business</option>
+                    {pages?.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -555,9 +543,10 @@ export default function EarningTab() {
                   >
                     Clear
                   </button>
+                  {/* ✅ UPDATED: Remove business requirement check */}
                   <button
                     onClick={handlePost}
-                    disabled={postingInProgress || !selectedBusiness}
+                    disabled={postingInProgress}
                     className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium flex items-center gap-2 hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50"
                   >
                     {postingInProgress ? (
