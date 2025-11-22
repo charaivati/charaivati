@@ -203,12 +203,32 @@ export default function EarningTab() {
   // ✅ FIX: Direct ref-based file handling for mobile
   const handleImageButtonClick = () => {
     if (imageInputRef.current) {
+      // Remove capture attribute to allow gallery on mobile
+      imageInputRef.current.removeAttribute("capture");
+      imageInputRef.current.click();
+    }
+  };
+
+  const handleImageCameraClick = () => {
+    if (imageInputRef.current) {
+      // Add capture attribute for camera on mobile
+      imageInputRef.current.setAttribute("capture", "environment");
       imageInputRef.current.click();
     }
   };
 
   const handleVideoButtonClick = () => {
     if (videoInputRef.current) {
+      // Remove capture attribute to allow gallery on mobile
+      videoInputRef.current.removeAttribute("capture");
+      videoInputRef.current.click();
+    }
+  };
+
+  const handleVideoCameraClick = () => {
+    if (videoInputRef.current) {
+      // Add capture attribute for camera on mobile
+      videoInputRef.current.setAttribute("capture", "environment");
       videoInputRef.current.click();
     }
   };
