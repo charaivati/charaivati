@@ -1,16 +1,22 @@
+// app/api/posts/by-slug/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+/**
+ * GET /api/posts/by-slug?slug=...&limit=...
+ * Returns posts with slugTags containing the slug, status active, visibility public.
+ * Filters out posts with >50% dislikes when total votes >= 10.
+ */
 export async function GET(req: NextRequest) {
   try {
-    const slug = req.nextUrl.searchParams.get("slug");
-    const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 10, 50);
+    const url = req.nextUrl;
+    const slug = url.searchParams.get("slug");
+    const limit = Math.min(Number(url.searchParams.get("limit") || 10), 50);
 
     if (!slug) {
       return NextResponse.json({ error: "slug required" }, { status: 400 });
     }
 
-    // Calculate dislike percentage and filter
     const posts = await prisma.post.findMany({
       where: {
         slugTags: { has: slug },
@@ -19,14 +25,17 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
       take: limit,
+      include: {
+        user: { select: { id: true, name: true, avatarUrl: true } },
+      },
     });
 
     // Filter out posts with >50% dislikes (if total votes >= 10)
     const filtered = posts.filter((p) => {
-      const totalVotes = p.likes + p.dislikes;
-      if (totalVotes < 10) return true; // Keep posts with < 10 votes
-      const dislikePercent = p.dislikes / totalVotes;
-      return dislikePercent <= 0.5; // Keep if <= 50% dislikes
+      const totalVotes = (p.likes || 0) + (p.dislikes || 0);
+      if (totalVotes < 10) return true; // keep posts with fewer than 10 votes
+      const dislikePercent = (p.dislikes || 0) / totalVotes;
+      return dislikePercent <= 0.5;
     });
 
     return NextResponse.json({

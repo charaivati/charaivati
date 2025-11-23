@@ -22,6 +22,7 @@ export async function GET(req: NextRequest) {
     const search = normalizeStr(url.searchParams.get("search") || "");
 
     // Validate locale exists (Language.code)
+    // Allow "en" as default even if no Language row exists
     const langExists = await prisma.language.findUnique({ where: { code: locale } });
     if (!langExists && locale !== "en") {
       return NextResponse.json({ ok: false, error: "Unknown locale" }, { status: 400 });
