@@ -4,17 +4,16 @@
 import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
-interface TabData {
-  id: string;
+type TabPayloadItem = {
+  tabId: string;
   slug: string;
-  title: string;
-  description?: string | null;
-  category?: string | null;
-  is_default?: boolean;
-  translations?: Array<{ locale: string; title: string }>;
-}
+  enTitle: string;
+  enDescription?: string | null;
+  translation?: { title?: string | null; description?: string | null } | null;
+  // note: other fields from your tab-translations endpoint may exist; we only use these
+};
 
-interface PostVideo {
+type PostVideo = {
   id: string;
   content?: string | null;
   youtubeLinks?: string[];
@@ -22,49 +21,70 @@ interface PostVideo {
   slugTags?: string[];
   user?: { id?: string; name?: string; avatarUrl?: string };
   createdAt?: string;
+};
+
+function getYouTubeId(url?: string | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    const v = u.searchParams.get("v");
+    if (v && v.length === 11) return v;
+    if (u.hostname.includes("youtu.be")) {
+      const p = u.pathname.split("/").filter(Boolean);
+      if (p[0] && p[0].length === 11) return p[0];
+    }
+    const embed = u.pathname.match(/\/embed\/([A-Za-z0-9_-]{11})/);
+    if (embed) return embed[1];
+  } catch (e) {
+    // proceed to regex fallback
+  }
+  const reg = /(?:youtube\.com\/.*v=|youtu\.be\/|youtube\.com\/embed\/|v=|\/)([A-Za-z0-9_-]{11})/;
+  const m = url.match(reg);
+  return m ? m[1] : null;
 }
 
 export default function SahayakPage() {
-  const [tabs, setTabs] = useState<TabData[]>([]);
-  const [sections, setSections] = useState<TabData[]>([]);
+  const [tabs, setTabs] = useState<TabPayloadItem[]>([]);
+  const [sections, setSections] = useState<TabPayloadItem[]>([]);
   const [videosBySection, setVideosBySection] = useState<Record<string, PostVideo[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
+  const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({});
 
+  // load tabs via your tab-translations endpoint (includes translations)
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const res = await fetch("/api/tabs");
+        const res = await fetch("/api/tab-translations?locale=en");
         const j = await res.json();
         if (!alive) return;
-        if (j?.ok && Array.isArray(j.tabs)) {
-          setTabs(j.tabs);
-          // choose sections: prefer is_default tabs
-          const defaults = j.tabs.filter((t: any) => t.is_default);
-          if (defaults.length > 0) {
-            setSections(defaults);
-          } else {
-            // fallback canonical list
-            const slugs = ["epfo", "irctc", "ids", "health", "senior"];
-            const found = slugs.map((s) => j.tabs.find((t: any) => t.slug === s)).filter(Boolean);
+        if (j?.ok && Array.isArray(j.data)) {
+          const payload = j.data as TabPayloadItem[];
+          setTabs(payload);
+          const defaults = payload.filter((t) => (t as any).is_default); // optional flag
+          if (defaults.length > 0) setSections(defaults);
+          else {
+            // fallback canonical slugs
+            const canonical = ["epfo", "irctc", "ids", "health", "senior"];
+            const found = canonical.map((s) => payload.find((p) => p.slug === s)).filter(Boolean) as TabPayloadItem[];
             setSections(found);
           }
         } else {
+          console.warn("tab-translations returned unexpected payload", j);
           setTabs([]);
           setSections([]);
         }
       } catch (e) {
-        console.error("Failed to fetch tabs", e);
+        console.error("Failed to fetch tab-translations", e);
         setTabs([]);
         setSections([]);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
+  // fetch videos per section using related slugs
   useEffect(() => {
     if (!sections.length || !tabs.length) return;
     let alive = true;
@@ -72,21 +92,15 @@ export default function SahayakPage() {
       setLoading(true);
       try {
         const fetches = sections.map(async (sec) => {
-          // collect related slugs:
-          // 1) all tabs with same category as sec.category (if category present)
-          // 2) all tabs whose slug startsWith `${sec.slug}-` (heuristic)
-          // 3) ensure sec.slug itself is included
           const related = new Set<string>();
           related.add(sec.slug);
-          if (sec.category) {
-            tabs.forEach((t) => {
-              if (t.category === sec.category) related.add(t.slug);
-            });
+          // include all tabs that share the same category (if any)
+          const secCat = (sec as any).category;
+          if (secCat) {
+            tabs.forEach((t) => { if ((t as any).category === secCat) related.add(t.slug); });
           }
-          // prefix heuristic
-          tabs.forEach((t) => {
-            if (t.slug.startsWith(`${sec.slug}-`)) related.add(t.slug);
-          });
+          // prefix heuristic: include tabs that start with `${sec.slug}-`
+          tabs.forEach((t) => { if (t.slug.startsWith(`${sec.slug}-`)) related.add(t.slug); });
 
           const slugsArr = Array.from(related);
           if (slugsArr.length === 0) return { slug: sec.slug, posts: [] as PostVideo[] };
@@ -94,6 +108,7 @@ export default function SahayakPage() {
           const q = `/api/posts?tabSlugs=${encodeURIComponent(slugsArr.join(","))}&media=video&limit=50`;
           const r = await fetch(q);
           const json = await r.json();
+          console.debug(`[Sahayak] fetched for ${sec.slug} slugs=${slugsArr.length} posts=${(json?.data || json?.posts || []).length}`);
           const posts = json?.ok ? (json.data as PostVideo[]) : json.posts || [];
           return { slug: sec.slug, posts };
         });
@@ -103,7 +118,6 @@ export default function SahayakPage() {
 
         const mapping: Record<string, PostVideo[]> = {};
         results.forEach((res) => {
-          // dedupe posts by id
           const seen = new Set<string>();
           const dedup: PostVideo[] = [];
           (res.posts || []).forEach((p: any) => {
@@ -124,41 +138,54 @@ export default function SahayakPage() {
       }
     })();
 
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [sections, tabs]);
 
-  const toggleExpanded = (k: string) => setExpanded((prev) => ({ ...prev, [k]: !prev[k] }));
+  const toggleExpanded = (key: string) => setExpanded((s) => ({ ...s, [key]: !s[key] }));
 
   function renderVideoCard(p: PostVideo) {
     const youtube = Array.isArray(p.youtubeLinks) && p.youtubeLinks[0] ? p.youtubeLinks[0] : null;
-    const youtubeId = youtube ? (function (u: string) {
-      const m = u.match(/(?:v=|\/)([A-Za-z0-9_-]{11})/);
-      return m ? m[1] : null;
-    })(youtube) : null;
+    const youtubeId = getYouTubeId(youtube || undefined);
+    const thumbnail = youtubeId ? `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg` : "/placeholder-video.png";
+
+    const text = (p.content || "").trim();
+    const isLong = text.length > 140;
+    const short = isLong ? text.slice(0, 140) : text;
 
     return (
-      <div key={p.id} className="min-w-[320px] bg-white rounded shadow p-2 text-black">
-        <div className="aspect-video w-[320px] mb-2 overflow-hidden rounded">
-          {youtubeId ? (
-            <iframe
-              src={`https://www.youtube.com/embed/${youtubeId}`}
-              title={String(p.content || p.id)}
-              frameBorder="0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-              className="w-full h-full"
-            />
-          ) : p.videoFileId ? (
-            <video controls className="w-full h-full bg-black">
-              <source src={`/api/drive-video/${p.videoFileId}`} />
-            </video>
+      <div key={p.id} className="min-w-[320px] bg-white rounded shadow p-3 text-black mr-3">
+        <div className="relative rounded overflow-hidden mb-3">
+          <img src={thumbnail} alt="thumbnail" className="w-full h-[180px] object-cover" />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-14 h-14 bg-black/50 rounded-full flex items-center justify-center">
+              <svg viewBox="0 0 24 24" width="28" height="28" className="text-white fill-current"><path d="M8 5v14l11-7z" /></svg>
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-2 text-sm text-gray-800">
+          {!cardOpen[p.id] ? (
+            <div style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+              {short}
+            </div>
           ) : (
-            <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-500">No playable media</div>
+            <div>{text}</div>
+          )}
+
+          {isLong && (
+            <button onClick={() => setCardOpen((s) => ({ ...s, [p.id]: !s[p.id] }))} className="text-xs text-blue-600 mt-2">
+              {cardOpen[p.id] ? "less" : "more"}
+            </button>
           )}
         </div>
-        <div className="text-sm font-medium">{(p.content || "").slice(0, 120)}</div>
+
+        <div className="flex items-center justify-between text-xs text-gray-600">
+          <div className="flex gap-2 flex-wrap">
+            {(p.slugTags || []).slice(0, 6).map((t) => <span key={t} className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full">{t}</span>)}
+            {(p.slugTags || []).length > 6 && <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full">+{(p.slugTags || []).length - 6}</span>}
+          </div>
+          <div className="ml-2">{p.user?.name ?? "You"}</div>
+        </div>
       </div>
     );
   }
@@ -173,13 +200,11 @@ export default function SahayakPage() {
         {sections.map((sec) => {
           const videos = videosBySection[sec.slug] || [];
           const isOpen = expanded[sec.slug] ?? true;
+          const title = sec.translation?.title ?? sec.enTitle ?? sec.slug;
           return (
             <div key={sec.slug} className="bg-gray-900 rounded-xl overflow-hidden mb-6">
-              <div
-                className="flex justify-between items-center px-5 py-4 bg-gradient-to-r from-gray-700 to-gray-600 cursor-pointer select-none hover:opacity-90 transition"
-                onClick={() => toggleExpanded(sec.slug)}
-              >
-                <h2 className="font-bold text-lg">🎥 {sec.title}</h2>
+              <div className="flex justify-between items-center px-5 py-4 bg-gradient-to-r from-gray-700 to-gray-600 cursor-pointer select-none hover:opacity-90 transition" onClick={() => toggleExpanded(sec.slug)}>
+                <h2 className="font-bold text-lg">🎥 {title}</h2>
                 {isOpen ? <ChevronUp /> : <ChevronDown />}
               </div>
 
@@ -188,7 +213,7 @@ export default function SahayakPage() {
                   {loading ? (
                     <div className="text-gray-500">Loading videos…</div>
                   ) : videos.length === 0 ? (
-                    <div className="text-gray-500">No videos for {sec.title}</div>
+                    <div className="text-gray-500">No videos for {title}</div>
                   ) : (
                     <div className="flex gap-3 overflow-x-auto pb-2">
                       {videos.map((p) => renderVideoCard(p))}

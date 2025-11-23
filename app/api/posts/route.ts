@@ -20,19 +20,20 @@ export async function POST(req: NextRequest) {
       gdriveFolder,
     } = body;
 
-    if (!content?.trim() && imageFileIds.length === 0 && !videoFileId && youtubeLinks.length === 0) {
+    // basic validation
+    if (!content?.trim() && (imageFileIds.length === 0) && !videoFileId && (youtubeLinks.length === 0)) {
       return NextResponse.json({ error: "Post must have content or media" }, { status: 400 });
     }
 
-    // Validate slugTags
-    const incomingSlugs = Array.isArray(slugTags) ? slugTags.map(String) : [];
+    // Validate incoming slugTags against Tab table (keep only valid slugs)
+    const incomingSlugs = Array.isArray(slugTags) ? slugTags.map(String).filter(Boolean) : [];
     let validSlugs: string[] = [];
     if (incomingSlugs.length > 0) {
-      const foundTabs = await prisma.tab.findMany({
+      const found = await prisma.tab.findMany({
         where: { slug: { in: incomingSlugs } },
         select: { slug: true },
       });
-      validSlugs = foundTabs.map((t) => t.slug);
+      validSlugs = found.map((t) => t.slug);
       if (validSlugs.length === 0) {
         return NextResponse.json({ error: "No valid tab slugs provided" }, { status: 400 });
       }
@@ -44,14 +45,15 @@ export async function POST(req: NextRequest) {
         pageId: pageId || null,
         content: content?.trim() || null,
         imageFileIds,
-        videoFileId,
-        youtubeLinks,
+        videoFileId: videoFileId || null,
+        youtubeLinks: youtubeLinks || [],
         slugTags: validSlugs,
         visibility,
         gdriveFolder: gdriveFolder || null,
       },
     });
 
+    // non-blocking: increment usageCount for tabs used
     if (validSlugs.length > 0) {
       await prisma.tab.updateMany({
         where: { slug: { in: validSlugs } },
@@ -68,10 +70,10 @@ export async function POST(req: NextRequest) {
 
 /**
  * GET /api/posts
- * Query params:
+ * supports:
  *  - limit, offset, sortBy (recent|popular)
- *  - tabSlug (single) OR tabSlugs (comma separated list)
- *  - media=video
+ *  - tabSlug (single) OR tabSlugs (comma-separated)
+ *  - media=video (returns posts that have youtubeLinks OR videoFileId)
  */
 export async function GET(req: NextRequest) {
   try {
@@ -81,9 +83,8 @@ export async function GET(req: NextRequest) {
     const sortBy = url.searchParams.get("sortBy") || "recent";
     const media = url.searchParams.get("media") || null;
 
-    // new: accept either tabSlug (single) or tabSlugs (comma-separated)
     const singleTab = url.searchParams.get("tabSlug");
-    const tabSlugsParam = url.searchParams.get("tabSlugs"); // comma separated
+    const tabSlugsParam = url.searchParams.get("tabSlugs"); // comma separated list
 
     const orderBy: any = sortBy === "popular" ? { likes: "desc" } : { createdAt: "desc" };
 
@@ -93,6 +94,7 @@ export async function GET(req: NextRequest) {
       status: "active",
     };
 
+    // Tag filters
     if (singleTab) {
       where.slugTags = { has: singleTab };
     } else if (tabSlugsParam) {
@@ -101,22 +103,25 @@ export async function GET(req: NextRequest) {
         .map((s) => s.trim())
         .filter(Boolean);
       if (slugs.length) {
-        // Prisma operator 'hasSome' returns rows where slugTags has any of the provided values
+        // hasSome returns posts that have at least one of the provided slugs
         where.slugTags = { hasSome: slugs };
       }
     }
 
+    // media filter: video => youtubeLinks not empty OR videoFileId not null
     if (media === "video") {
+      // For arrays we can use isEmpty: false; for scalars use not: null
       where.AND = [
         {
           OR: [
-            { youtubeLinks: { not: [] } },
+            { youtubeLinks: { isEmpty: false } },
             { videoFileId: { not: null } },
           ],
         },
       ];
     }
 
+    // Query
     const posts = await prisma.post.findMany({
       where,
       orderBy,
