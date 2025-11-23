@@ -1,6 +1,7 @@
 // ============================================================================
 // MOBILE FIX: app/(with-nav)/self/tabs/EarningTab.tsx
-// Fixed file input issues on iOS/Android
+// Updated: require Drive selection, move Drive selector beside Privacy,
+// persist last selected values (business, privacy, drive), remove duplicate Tag Business
 // ============================================================================
 "use client";
 
@@ -31,9 +32,13 @@ type PageItem = {
 type StoredPost = PostData & {
   youtubeLinks?: string[];
   pageId?: string;
+  visibility?: "public" | "friends";
 };
 
 const LS_EARN_POSTS_KEY = "earn_posts_v1";
+const LS_SELECTED_BUSINESS = "earn_selected_business_v1";
+const LS_SELECTED_PRIVACY = "earn_selected_privacy_v1";
+const LS_SELECTED_DRIVE = "earn_selected_drive_v1";
 
 async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   const res = await fetch(input, init);
@@ -61,7 +66,7 @@ function extractYouTubeId(url: string): string | null {
 export default function EarningTab() {
   const gDrive = useGoogleDrive();
 
-  // ✅ FIX: Separate refs for image and video inputs (direct ref access)
+  // refs for inputs
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
@@ -74,7 +79,7 @@ export default function EarningTab() {
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  // Post creation state
+  // Composer state
   const [composerText, setComposerText] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState<string>("");
   const [images, setImages] = useState<File[]>([]);
@@ -86,10 +91,27 @@ export default function EarningTab() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [postingInProgress, setPostingInProgress] = useState(false);
 
+  // persisted selectors
+  const [visibility, setVisibility] = useState<"public" | "friends">("public");
+  // driveSelection: "" | "none" | "google"  (we treat "" or "none" as no drive selected)
+  const [driveSelection, setDriveSelection] = useState<"" | "none" | "google">("");
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load pages from database
+  // Load persisted selectors & pages
   useEffect(() => {
+    try {
+      const sb = localStorage.getItem(LS_SELECTED_BUSINESS);
+      const sp = localStorage.getItem(LS_SELECTED_PRIVACY);
+      const sd = localStorage.getItem(LS_SELECTED_DRIVE);
+      if (sb) setSelectedBusiness(sb);
+      if (sp === "friends") setVisibility("friends");
+      if (sd === "google") setDriveSelection("google");
+      if (sd === "none") setDriveSelection("none");
+    } catch (e) {
+      /* ignore */
+    }
+
     let alive = true;
     setLoading(true);
     safeFetchJson("/api/user/pages", { method: "GET", credentials: "include" })
@@ -97,8 +119,11 @@ export default function EarningTab() {
         if (!alive) return;
         if (r.ok && r.json?.ok) {
           setPages(r.json.pages || []);
+          // auto-select first page if nothing selected and pages exist
           if (r.json.pages?.length > 0 && !selectedBusiness) {
-            setSelectedBusiness(r.json.pages[0].id);
+            const firstId = r.json.pages[0].id;
+            setSelectedBusiness((prev) => prev || firstId);
+            localStorage.setItem(LS_SELECTED_BUSINESS, firstId);
           }
         } else {
           setPages([]);
@@ -115,7 +140,19 @@ export default function EarningTab() {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // persist selectors when changed
+  useEffect(() => {
+    try {
+      if (selectedBusiness) localStorage.setItem(LS_SELECTED_BUSINESS, selectedBusiness);
+      if (visibility) localStorage.setItem(LS_SELECTED_PRIVACY, visibility);
+      if (driveSelection) localStorage.setItem(LS_SELECTED_DRIVE, driveSelection);
+    } catch (e) {
+      /* ignore */
+    }
+  }, [selectedBusiness, visibility, driveSelection]);
 
   // Add page
   async function addPage() {
@@ -162,6 +199,7 @@ export default function EarningTab() {
       setNewTitle("");
       setNewDesc("");
       setSelectedBusiness(created.id);
+      localStorage.setItem(LS_SELECTED_BUSINESS, created.id);
     } catch (err: any) {
       console.error("add page error", err);
       setPages((prev) => (prev ? prev.filter((p) => p.id !== temp.id) : []));
@@ -171,7 +209,7 @@ export default function EarningTab() {
     }
   }
 
-  // Delete page with API call
+  // Delete page
   async function deletePage(id: string) {
     if (!confirm("Are you sure you want to delete this business?")) return;
 
@@ -187,7 +225,9 @@ export default function EarningTab() {
       if (resp.ok && resp.json?.ok) {
         setPages((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
         if (selectedBusiness === id) {
-          setSelectedBusiness(pages?.find((p) => p.id !== id)?.id || "");
+          const fallback = pages?.find((p) => p.id !== id)?.id || "";
+          setSelectedBusiness(fallback);
+          if (fallback) localStorage.setItem(LS_SELECTED_BUSINESS, fallback);
         }
       } else {
         alert(resp.json?.error || "Failed to delete page");
@@ -200,40 +240,33 @@ export default function EarningTab() {
     }
   }
 
-  // ✅ FIX: Direct ref-based file handling for mobile
+  // File handlers for mobile
   const handleImageButtonClick = () => {
     if (imageInputRef.current) {
-      // Remove capture attribute to allow gallery on mobile
       imageInputRef.current.removeAttribute("capture");
       imageInputRef.current.click();
     }
   };
-
   const handleImageCameraClick = () => {
     if (imageInputRef.current) {
-      // Add capture attribute for camera on mobile
       imageInputRef.current.setAttribute("capture", "environment");
       imageInputRef.current.click();
     }
   };
-
   const handleVideoButtonClick = () => {
     if (videoInputRef.current) {
-      // Remove capture attribute to allow gallery on mobile
       videoInputRef.current.removeAttribute("capture");
       videoInputRef.current.click();
     }
   };
-
   const handleVideoCameraClick = () => {
     if (videoInputRef.current) {
-      // Add capture attribute for camera on mobile
       videoInputRef.current.setAttribute("capture", "environment");
       videoInputRef.current.click();
     }
   };
 
-  // Post handlers
+  // Image/video add/remove
   const handleAddImages = (files: FileList | null) => {
     if (!files) return;
     const incoming = Array.from(files);
@@ -241,11 +274,7 @@ export default function EarningTab() {
     const newPreviews = toAdd.map((f) => URL.createObjectURL(f));
     setImages((prev) => [...prev, ...toAdd].slice(0, 50));
     setImagePreviews((prev) => [...prev, ...newPreviews].slice(0, 50));
-    
-    // ✅ FIX: Reset input value to allow selecting the same file again
-    if (imageInputRef.current) {
-      imageInputRef.current.value = "";
-    }
+    if (imageInputRef.current) imageInputRef.current.value = "";
   };
 
   const handleRemoveImageAt = (index: number) => {
@@ -269,11 +298,7 @@ export default function EarningTab() {
     if (videoPreview) URL.revokeObjectURL(videoPreview);
     setVideoFile(f);
     setVideoPreview(url);
-    
-    // ✅ FIX: Reset input value
-    if (videoInputRef.current) {
-      videoInputRef.current.value = "";
-    }
+    if (videoInputRef.current) videoInputRef.current.value = "";
   };
 
   const handleRemoveVideo = () => {
@@ -291,13 +316,32 @@ export default function EarningTab() {
     setVideoFile(null);
     setVideoPreview(null);
     setYoutubeLink("");
-    
-    // ✅ FIX: Reset input refs
     if (imageInputRef.current) imageInputRef.current.value = "";
     if (videoInputRef.current) videoInputRef.current.value = "";
   };
 
+  // Connect / disconnect handlers (inline)
+  const handleConnectDrive = () => {
+    gDrive.connectDrive();
+  };
+  const handleDisconnectDrive = () => {
+    // also keep the driveSelection as 'google' so user can reconnect quickly
+    gDrive.disconnect();
+  };
+
+  // Posting: now actively requires a drive selection. If 'google' selected, it also requires connection.
   async function handlePost() {
+    // enforce drive selection first
+    if (driveSelection !== "google") {
+      alert("Please select Drive in the Drive dropdown before posting.");
+      return;
+    }
+    if (driveSelection === "google" && !gDrive.isAuthenticated && !gDrive.accessToken) {
+      // user selected Google Drive but not connected
+      alert("You selected Google Drive. Please connect your Drive using the Connect button on the Drive line.");
+      return;
+    }
+
     const txt = composerText.trim();
     if (!txt && images.length === 0 && !videoFile && !youtubeLink.trim()) {
       alert("Share something or add media before posting.");
@@ -322,6 +366,7 @@ export default function EarningTab() {
       synced: false,
       youtubeLinks: youtubeId ? [youtubeLink.trim()] : [],
       pageId: selectedBusiness || undefined,
+      visibility: visibility,
     };
 
     try {
@@ -338,9 +383,11 @@ export default function EarningTab() {
           console.warn("Google Drive upload returned null");
         }
       } else {
+        // With the new requirement this path won't run when driveSelection === 'google' because we prevented posting
         console.log("Not connected to Drive: post saved locally without media upload");
       }
 
+      // Save to localStorage for offline copy
       try {
         const stored = localStorage.getItem(LS_EARN_POSTS_KEY);
         const existing = stored ? JSON.parse(stored) : [];
@@ -352,6 +399,7 @@ export default function EarningTab() {
         console.error("Failed to save to localStorage:", e);
       }
 
+      // Save to DB (post meta)
       try {
         const imageFileIds: string[] = [];
         if (nextPost.images && Array.isArray(nextPost.images)) {
@@ -376,7 +424,7 @@ export default function EarningTab() {
             youtubeLinks,
             slugTags: [],
             pageId: selectedBusiness || null,
-            visibility: "public",
+            visibility: visibility,
             gdriveFolder: gDrive.folderId || null,
           }),
         });
@@ -403,6 +451,19 @@ export default function EarningTab() {
     }
   }
 
+  // computed button state & label
+  const publishDisabled =
+    postingInProgress || driveSelection !== "google" || (driveSelection === "google" && !gDrive.isAuthenticated && !gDrive.accessToken);
+
+  const publishLabel =
+    postingInProgress
+      ? "Posting..."
+      : driveSelection !== "google"
+      ? "Select Drive to Post"
+      : !gDrive.isAuthenticated && !gDrive.accessToken
+      ? "Connect Drive to Post"
+      : "Publish Post";
+
   return (
     <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
       {/* Header */}
@@ -414,27 +475,10 @@ export default function EarningTab() {
             {syncStatus === "synced" && <CheckCircle className="w-5 h-5 text-green-400" />}
             {syncStatus === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
 
-            {!gDrive.isAuthenticated && !gDrive.accessToken && (
-              <button
-                onClick={() => gDrive.connectDrive()}
-                className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm hover:from-blue-600 hover:to-blue-700 transition-all font-medium"
-              >
-                Connect Drive
-              </button>
-            )}
-
+            {/* Header-level Connect Drive removed to encourage inline control, but keep small indicator */}
             {(gDrive.isAuthenticated || gDrive.accessToken) && (
-              <div className="flex items-center gap-2">
-                <div className="text-xs text-green-400 font-medium px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30">
-                  ✓ Connected
-                </div>
-                <button
-                  onClick={() => gDrive.disconnect()}
-                  className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 transition-colors"
-                  title="Disconnect Google Drive"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
+              <div className="text-xs text-green-400 font-medium px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30">
+                ✓ Connected
               </div>
             )}
           </div>
@@ -459,7 +503,11 @@ export default function EarningTab() {
 
           {!showComposer ? (
             <button
-              onClick={() => setShowComposer(true)}
+              onClick={() => {
+                // require Drive selection/connection when opening composer is not necessary,
+                // but keep behavior consistent: show composer but posting will be prevented later
+                setShowComposer(true);
+              }}
               className="w-full p-6 rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 hover:border-white/20 transition-all text-left"
             >
               <span className="text-gray-300">What would you like to share?</span>
@@ -467,6 +515,101 @@ export default function EarningTab() {
           ) : (
             <div className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm">
               <div className="p-6">
+                {/* Business, Privacy & Drive Selection in one row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 rounded-lg bg-white/5 border border-white/10">
+                  {/* Business Selection */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Select Business/Page</label>
+                    <select
+                      value={selectedBusiness}
+                      onChange={(e) => {
+                        setSelectedBusiness(e.target.value);
+                        try {
+                          if (e.target.value) localStorage.setItem(LS_SELECTED_BUSINESS, e.target.value);
+                        } catch {}
+                      }}
+                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
+                    >
+                      <option value="">-- Select a business --</option>
+                      {pages?.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Privacy Selection */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Privacy</label>
+                    <select
+                      value={visibility}
+                      onChange={(e) => {
+                        const v = e.target.value as "public" | "friends";
+                        setVisibility(v);
+                        try {
+                          localStorage.setItem(LS_SELECTED_PRIVACY, v);
+                        } catch {}
+                      }}
+                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
+                    >
+                      <option value="public">🌍 Public</option>
+                      <option value="friends">👥 Friends Only</option>
+                    </select>
+                  </div>
+
+                  {/* Drive Selection */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Drive</label>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={driveSelection}
+                        onChange={(e) => {
+                          const v = e.target.value as "" | "none" | "google";
+                          setDriveSelection(v);
+                          try {
+                            if (v) localStorage.setItem(LS_SELECTED_DRIVE, v);
+                          } catch {}
+                        }}
+                        className="flex-1 p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
+                      >
+                        <option value="">-- Select Drive --</option>
+                        <option value="none">No Drive (disabled)</option>
+                        <option value="google">Google Drive</option>
+                      </select>
+
+                      {/* If Google Drive selected, show connect/disconnect inline */}
+                      {driveSelection === "google" && (
+                        <div className="flex items-center gap-1">
+                          {gDrive.isAuthenticated || gDrive.accessToken ? (
+                            <button
+                              onClick={handleDisconnectDrive}
+                              className="px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-xs text-red-300"
+                            >
+                              Disconnect
+                            </button>
+                          ) : (
+                            <button
+                              onClick={handleConnectDrive}
+                              className="px-3 py-2 rounded bg-gradient-to-r from-blue-500 to-blue-600 text-xs text-white"
+                            >
+                              Connect
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {/* show small hint */}
+                    <p className="text-xs text-gray-400 mt-1">
+                      {driveSelection === "google"
+                        ? gDrive.isAuthenticated || gDrive.accessToken
+                          ? `Connected as ${gDrive.userInfo?.name ?? gDrive.userInfo?.email ?? "your account"}`
+                          : "Selected Google Drive — connect to enable posting"
+                        : "Pick a drive option to enable posting"}
+                    </p>
+                  </div>
+                </div>
+
                 {/* Composer */}
                 <div className="mb-4">
                   <textarea
@@ -526,109 +669,109 @@ export default function EarningTab() {
                       disabled={postingInProgress}
                       className="flex-1 p-2 rounded bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm"
                     />
-                    {youtubeLink && extractYouTubeId(youtubeLink) && (
-                      <span className="text-xs text-green-400">✓</span>
-                    )}
-                    {youtubeLink && !extractYouTubeId(youtubeLink) && (
-                      <span className="text-xs text-red-400">✗</span>
-                    )}
+                    {youtubeLink && extractYouTubeId(youtubeLink) && <span className="text-xs text-green-400">✓</span>}
+                    {youtubeLink && !extractYouTubeId(youtubeLink) && <span className="text-xs text-red-400">✗</span>}
                   </div>
                 </div>
 
-                {/* Optional Business Selection */}
-                <div className="mb-4">
-                  <label className="block text-xs text-gray-400 mb-2 font-semibold">Tag Business (optional)</label>
-                  <select
-                    value={selectedBusiness}
-                    onChange={(e) => setSelectedBusiness(e.target.value)}
-                    className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
-                  >
-                    <option value="">No business</option>
-                    {pages?.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                {/* ACTIONS */}
+                <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex gap-2">
+                    {/* Gallery Button */}
+                    <button
+                      onClick={handleImageButtonClick}
+                      disabled={postingInProgress}
+                      type="button"
+                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
+                      title="Add photos from gallery"
+                    >
+                      <Camera className="w-4 h-4 text-blue-400" />
+                    </button>
 
-              {/* Actions */}
-              <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex gap-2">
-                  {/* ✅ FIX: Direct ref-based buttons for mobile */}
-                  <button
-                    onClick={handleImageButtonClick}
-                    disabled={postingInProgress}
-                    type="button"
-                    className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50"
-                    title="Add photos"
-                  >
-                    <Camera className="w-4 h-4 text-blue-400" />
-                  </button>
-                  
-                  <button
-                    onClick={handleVideoButtonClick}
-                    disabled={postingInProgress}
-                    type="button"
-                    className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50"
-                    title="Add video"
-                  >
-                    <Video className="w-4 h-4 text-purple-400" />
-                  </button>
+                    {/* Camera Button */}
+                    <button
+                      onClick={handleImageCameraClick}
+                      disabled={postingInProgress}
+                      type="button"
+                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
+                      title="Take photo with camera"
+                    >
+                      <Camera className="w-4 h-4 text-cyan-400" />
+                    </button>
 
-                  {/* ✅ FIX: Hidden input refs with proper mobile attributes */}
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => handleAddImages(e.target.files)}
-                    className="hidden"
-                    disabled={postingInProgress}
-                    capture="environment"
-                  />
-                  
-                  <input
-                    ref={videoInputRef}
-                    type="file"
-                    accept="video/*"
-                    onChange={(e) => handlePickVideo(e.target.files)}
-                    className="hidden"
-                    disabled={postingInProgress}
-                    capture="environment"
-                  />
-                </div>
+                    {/* Video Gallery Button */}
+                    <button
+                      onClick={handleVideoButtonClick}
+                      disabled={postingInProgress}
+                      type="button"
+                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
+                      title="Add video from gallery"
+                    >
+                      <Video className="w-4 h-4 text-purple-400" />
+                    </button>
 
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleClearComposer}
-                    disabled={postingInProgress}
-                    className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 text-sm transition-colors disabled:opacity-50"
-                  >
-                    Clear
-                  </button>
-                  <button
-                    onClick={handlePost}
-                    disabled={postingInProgress}
-                    className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium flex items-center gap-2 hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50"
-                  >
-                    {postingInProgress ? (
-                      <>
-                        <Upload className="w-4 h-4 animate-pulse" />
-                        Posting...
-                      </>
-                    ) : (
-                      "Publish Post"
-                    )}
-                  </button>
+                    {/* Video Camera Button */}
+                    <button
+                      onClick={handleVideoCameraClick}
+                      disabled={postingInProgress}
+                      type="button"
+                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
+                      title="Record video with camera"
+                    >
+                      <Video className="w-4 h-4 text-pink-400" />
+                    </button>
+
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(e) => handleAddImages(e.target.files)}
+                      className="hidden"
+                      disabled={postingInProgress}
+                    />
+
+                    <input
+                      ref={videoInputRef}
+                      type="file"
+                      accept="video/*"
+                      onChange={(e) => handlePickVideo(e.target.files)}
+                      className="hidden"
+                      disabled={postingInProgress}
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleClearComposer}
+                      disabled={postingInProgress}
+                      className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 text-sm transition-colors disabled:opacity-50"
+                    >
+                      Clear
+                    </button>
+
+                    <button
+                      onClick={handlePost}
+                      disabled={publishDisabled}
+                      className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium flex items-center gap-2 hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {postingInProgress ? (
+                        <>
+                          <Upload className="w-4 h-4 animate-pulse" />
+                          Posting...
+                        </>
+                      ) : (
+                        publishLabel
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Businesses Section */}
+        {/* Businesses Section (list + create) */}
         <div>
           <h2 className="text-xl font-semibold text-white mb-4">Your Businesses</h2>
 
@@ -645,14 +788,15 @@ export default function EarningTab() {
                     <div className="flex-1">
                       <h3 className="font-semibold text-white text-lg">{page.title}</h3>
                       {page.description && <p className="text-sm text-gray-400 mt-1">{page.description}</p>}
-                      <p className="text-xs text-gray-500 mt-3">
-                        Created {new Date(page.createdAt).toLocaleDateString()}
-                      </p>
+                      <p className="text-xs text-gray-500 mt-3">Created {new Date(page.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex flex-col gap-2">
                       <button
                         onClick={() => {
                           setSelectedBusiness(page.id);
+                          try {
+                            localStorage.setItem(LS_SELECTED_BUSINESS, page.id);
+                          } catch {}
                           setShowComposer(true);
                         }}
                         className="px-3 py-1 rounded text-xs bg-white/10 hover:bg-white/20 text-white transition-colors"
