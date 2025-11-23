@@ -1,3 +1,4 @@
+// app/sahayak/page.tsx (or your existing SahayakPage component file)
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -45,7 +46,7 @@ export default function SahayakPage() {
     }
   }, []);
 
-  // Sync context locale to local state, converting name to code if needed
+  // Sync context locale to local state
   useEffect(() => {
     if (languages.length === 0) return;
 
@@ -56,89 +57,46 @@ export default function SahayakPage() {
     setLocaleState(actualCode);
   }, [contextLocale, languages]);
 
-  // Core help links (existing)
-  const epfoLinks: HelpLink[] = [
-    { slug: "epfo login", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo change password", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo download uan", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo check claim", url: "https://www.epfindia.gov.in/" },
-    { slug: "epfo update contact", url: "https://www.epfindia.gov.in/" },
-  ];
+  // YouTube etc replaced by posts-driven videos
+  const [sahayakVideos, setSahayakVideos] = useState<
+    Array<{ id: string; title?: string; youtube?: string; gdriveVideoId?: string }>
+  >([]);
+  const [loadingVideos, setLoadingVideos] = useState(false);
 
-  const irctcLinks: HelpLink[] = [
-    { slug: "irctc login", url: "https://www.irctc.co.in/" },
-    { slug: "irctc register", url: "https://www.irctc.co.in/nget/profile/user-registration" },
-    { slug: "irctc forgot password", url: "https://www.irctc.co.in/nget/profile/user-registration" },
-    { slug: "irctc check pnr", url: "https://www.irctc.co.in/nget/pnr" },
-    { slug: "irctc cancel ticket", url: "https://www.irctc.co.in/nget/booking/cancel" },
-  ];
-
-  // New government service links
-  const idLinks: HelpLink[] = [
-    { slug: "aadhar download", url: "https://eaadhaar.uidai.gov.in/" },
-    { slug: "aadhar update", url: "https://resident.uidai.gov.in/offline-kyc" },
-    { slug: "voter id search", url: "https://electoralsearch.in/" },
-    { slug: "download voter id (epic)", url: "https://www.nvsp.in/" },
-    { slug: "pan download", url: "https://www.incometax.gov.in/iec/foportal" },
-  ];
-
-  const healthLinks: HelpLink[] = [
-    { slug: "ayushman bharat portal", url: "https://www.pmjay.gov.in/" },
-    { slug: "national health portal", url: "https://www.nhp.gov.in/" },
-    { slug: "covid vaccination", url: "https://www.cowin.gov.in/" },
-    { slug: "senior citizen health help", url: "https://www.india.gov.in/" },
-  ];
-
-  const seniorLinks: HelpLink[] = [
-    { slug: "pension schemes", url: "https://eshram.gov.in/" },
-    { slug: "senior citizen id card", url: "https://www.india.gov.in/" },
-    { slug: "senior citizen welfare", url: "https://socialjustice.gov.in/" },
-  ];
-
-  // Notices dashboard (placeholder endpoint; you can implement /api/gov-notices server-side to return JSON feed)
-  const [notices, setNotices] = useState<{ id: string; title: string; date?: string; url?: string }[]>([]);
+  // fetch posts that are tagged for sahayak (backend should support this query)
   useEffect(() => {
     let alive = true;
     (async () => {
+      setLoadingVideos(true);
       try {
-        const res = await fetch("/api/gov-notices");
+        // adjust API query to fit your backend: here example filters posts that have slugTags including "sahayak"
+        const res = await fetch("/api/posts?tag=sahayak&media=video");
         const j = await res.json().catch(() => null);
         if (!alive) return;
-        if (j && Array.isArray(j.data)) setNotices(j.data.slice(0, 10));
+        if (j?.ok && Array.isArray(j.posts)) {
+          const videos = j.posts.map((p: any) => ({
+            id: p.id,
+            title: p.content?.slice(0, 80) || (Array.isArray(p.slugTags) ? p.slugTags.join(", ") : "Post video"),
+            youtube: Array.isArray(p.youtubeLinks) && p.youtubeLinks.length > 0 ? p.youtubeLinks[0] : undefined,
+            gdriveVideoId: p.videoFileId || p.video?.gdriveId || undefined,
+          }));
+          setSahayakVideos(videos);
+        } else {
+          setSahayakVideos([]);
+        }
       } catch (e) {
-        // silently ignore; show no notices
+        console.error("fetch sahayak posts", e);
+        setSahayakVideos([]);
+      } finally {
+        alive && setLoadingVideos(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  // YouTube videos for each section
-  const sectionVideos: Record<string, Array<{ title: string; videoId: string }>> = {
-    epfo: [
-      { title: "How to check EPF balance", videoId: "dQw4w9WgXcQ" },
-      { title: "EPFO login guide", videoId: "dQw4w9WgXcQ" },
-      { title: "How to download UAN", videoId: "dQw4w9WgXcQ" },
-    ],
-    irctc: [
-      { title: "IRCTC registration guide", videoId: "dQw4w9WgXcQ" },
-      { title: "How to book train tickets", videoId: "dQw4w9WgXcQ" },
-      { title: "IRCTC PNR status check", videoId: "dQw4w9WgXcQ" },
-    ],
-    ids: [
-      { title: "How to download Aadhaar", videoId: "dQw4w9WgXcQ" },
-      { title: "PAN card download guide", videoId: "dQw4w9WgXcQ" },
-      { title: "Voter ID download process", videoId: "dQw4w9WgXcQ" },
-    ],
-    health: [
-      { title: "Ayushman Bharat registration", videoId: "dQw4w9WgXcQ" },
-      { title: "COVID vaccination booking", videoId: "dQw4w9WgXcQ" },
-    ],
-    senior: [
-      { title: "Senior citizen pension schemes", videoId: "dQw4w9WgXcQ" },
-      { title: "Senior citizen ID card application", videoId: "dQw4w9WgXcQ" },
-    ],
-  };
-
+  // fetch languages and tabs (as before)
   useEffect(() => {
     fetch("/api/languages")
       .then((r) => r.json())
@@ -182,8 +140,7 @@ export default function SahayakPage() {
     return found.translation?.description || found.enDescription || "";
   }
 
-  const toggleExpanded = (key: string) =>
-    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+  const toggleExpanded = (key: string) => setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const LinkBox = ({ slug, url }: HelpLink) => {
     const title = t(slug);
@@ -205,47 +162,6 @@ export default function SahayakPage() {
     );
   };
 
-  const VideoSection = ({ sectionKey }: { sectionKey: string }) => {
-    const videos = sectionVideos[sectionKey] || [];
-    if (videos.length === 0) return null;
-    
-    const videoKey = `${sectionKey}-video`;
-    const isExpanded = expanded[videoKey] || false;
-
-    return (
-      <div className="mt-4 border-t border-gray-200 pt-4">
-        <button
-          onClick={() => toggleExpanded(videoKey)}
-          className="flex items-center justify-between w-full text-left mb-3 hover:text-blue-600 transition"
-        >
-          <h3 className="font-semibold text-lg flex items-center gap-2">
-            🎥 {t("Help Videos")}
-          </h3>
-          {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-        </button>
-        {isExpanded && (
-          <div className="space-y-4">
-            {videos.map((video, idx) => (
-              <div key={idx} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
-                <div className="aspect-video w-full mb-2">
-                  <iframe
-                    title={video.title}
-                    src={`https://www.youtube.com/embed/${video.videoId}`}
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                    className="w-full h-full rounded"
-                  />
-                </div>
-                <div className="text-sm font-medium text-gray-700">{video.title}</div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const grouped = tabs.reduce<Record<string, TabData[]>>((acc, tab) => {
     const cat = tab.category || "General Help";
     if (!acc[cat]) acc[cat] = [];
@@ -253,12 +169,50 @@ export default function SahayakPage() {
     return acc;
   }, {});
 
+  // core help links (unchanged)
+  const epfoLinks: HelpLink[] = [
+    { slug: "epfo login", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo change password", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo download uan", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo check claim", url: "https://www.epfindia.gov.in/" },
+    { slug: "epfo update contact", url: "https://www.epfindia.gov.in/" },
+  ];
+
+  const irctcLinks: HelpLink[] = [
+    { slug: "irctc login", url: "https://www.irctc.co.in/" },
+    { slug: "irctc register", url: "https://www.irctc.co.in/nget/profile/user-registration" },
+    { slug: "irctc forgot password", url: "https://www.irctc.co.in/nget/profile/user-registration" },
+    { slug: "irctc check pnr", url: "https://www.irctc.co.in/nget/pnr" },
+    { slug: "irctc cancel ticket", url: "https://www.irctc.co.in/nget/booking/cancel" },
+  ];
+
+  const idLinks: HelpLink[] = [
+    { slug: "aadhar download", url: "https://eaadhaar.uidai.gov.in/" },
+    { slug: "aadhar update", url: "https://resident.uidai.gov.in/offline-kyc" },
+    { slug: "voter id search", url: "https://electoralsearch.in/" },
+    { slug: "download voter id (epic)", url: "https://www.nvsp.in/" },
+    { slug: "pan download", url: "https://www.incometax.gov.in/iec/foportal" },
+  ];
+
+  const healthLinks: HelpLink[] = [
+    { slug: "ayushman bharat portal", url: "https://www.pmjay.gov.in/" },
+    { slug: "national health portal", url: "https://www.nhp.gov.in/" },
+    { slug: "covid vaccination", url: "https://www.cowin.gov.in/" },
+    { slug: "senior citizen health help", url: "https://www.india.gov.in/" },
+  ];
+
+  const seniorLinks: HelpLink[] = [
+    { slug: "pension schemes", url: "https://eshram.gov.in/" },
+    { slug: "senior citizen id card", url: "https://www.india.gov.in/" },
+    { slug: "senior citizen welfare", url: "https://socialjustice.gov.in/" },
+  ];
+
   return (
     <div className="min-h-screen bg-[#0b1220] text-white px-6 py-8">
       <div className="max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold">{t("Digital Sahayak")}</h1>
+          <h1 className="text-3xl font-bold">Digital Sahayak</h1>
 
           <div className="relative">
             <button
@@ -277,9 +231,7 @@ export default function SahayakPage() {
                       setLocaleState(l.code);
                       setShowLangs(false);
                     }}
-                    className={`block w-full text-left px-4 py-2 hover:bg-blue-700 transition ${
-                      locale === l.code ? "bg-blue-600 text-white" : "text-gray-200"
-                    }`}
+                    className={`block w-full text-left px-4 py-2 hover:bg-blue-700 transition ${locale === l.code ? "bg-blue-600 text-white" : "text-gray-200"}`}
                   >
                     {l.name}
                   </button>
@@ -304,9 +256,10 @@ export default function SahayakPage() {
               {expanded["epfo"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                  {epfoLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                    {epfoLinks.map((link, idx) => (
+                      <LinkBox key={idx} {...link} />
+                    ))}
                   </div>
-                  <VideoSection sectionKey="epfo" />
                 </div>
               )}
             </div>
@@ -320,9 +273,10 @@ export default function SahayakPage() {
               {expanded["irctc"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                  {irctcLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                    {irctcLinks.map((link, idx) => (
+                      <LinkBox key={idx} {...link} />
+                    ))}
                   </div>
-                  <VideoSection sectionKey="irctc" />
                 </div>
               )}
             </div>
@@ -336,71 +290,91 @@ export default function SahayakPage() {
               {expanded["ids"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                  {idLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                    {idLinks.map((link, idx) => (
+                      <LinkBox key={idx} {...link} />
+                    ))}
                   </div>
-                  <VideoSection sectionKey="ids" />
                 </div>
               )}
             </div>
 
-            {/* Health */}
+            {/* Community videos for Sahayak - scrollable */}
             <div className="bg-gray-900 rounded-xl overflow-hidden">
-              <div className="flex justify-between items-center px-5 py-4 bg-gradient-to-r from-red-600 to-red-500 cursor-pointer select-none hover:opacity-90 transition" onClick={() => toggleExpanded("health")}>
+              <div className="flex justify-between items-center px-5 py-4 bg-gray-800 cursor-pointer select-none hover:bg-gray-700 transition">
+                <h2 className="font-bold text-lg">🎥 Community Help Videos</h2>
+              </div>
+              <div className="p-5 bg-white text-black">
+                {loadingVideos ? (
+                  <div className="text-gray-400">Loading videos…</div>
+                ) : sahayakVideos.length === 0 ? (
+                  <div className="text-gray-500">No videos yet. Users who tag posts for “sahayak” will appear here.</div>
+                ) : (
+                  <div className="flex gap-3 overflow-x-auto pb-2">
+                    {sahayakVideos.map((v) => {
+                      const youtubeId = v.youtube ? (function extract(url: string) {
+                        const m = url.match(/(?:v=|\/)([A-Za-z0-9_-]{11})/);
+                        return m ? m[1] : null;
+                      })(v.youtube) : null;
+
+                      return (
+                        <div key={v.id} className="min-w-[320px] bg-white rounded shadow p-2 text-black">
+                          <div className="aspect-video w-[320px] mb-2 overflow-hidden rounded">
+                            {youtubeId ? (
+                              <iframe
+                                src={`https://www.youtube.com/embed/${youtubeId}`}
+                                title={v.title}
+                                frameBorder="0"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                allowFullScreen
+                                className="w-full h-full"
+                              />
+                            ) : v.gdriveVideoId ? (
+                              <video controls className="w-full h-full bg-black">
+                                <source src={`/api/drive-video/${v.gdriveVideoId}`} />
+                              </video>
+                            ) : (
+                              <div className="w-full h-full bg-gray-200 flex items-center justify-center text-gray-500">No playable media</div>
+                            )}
+                          </div>
+                          <div className="text-sm font-medium">{v.title}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Other sections (health, senior, grouped tabs...) */}
+            <div className="bg-gray-900 rounded-xl overflow-hidden">
+              <div className="flex justify-between items-center px-5 py-4 bg-red-800 cursor-pointer select-none hover:opacity-90 transition" onClick={() => toggleExpanded("health")}>
                 <h2 className="font-bold text-lg">❤️ {t("Health Services")}</h2>
                 {expanded["health"] ? <ChevronUp /> : <ChevronDown />}
               </div>
               {expanded["health"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                  {healthLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                    {healthLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
                   </div>
-                  <VideoSection sectionKey="health" />
                 </div>
               )}
             </div>
 
-            {/* Senior Citizens */}
             <div className="bg-gray-900 rounded-xl overflow-hidden">
-              <div className="flex justify-between items-center px-5 py-4 bg-gradient-to-r from-yellow-600 to-yellow-500 cursor-pointer select-none hover:opacity-90 transition" onClick={() => toggleExpanded("senior")}>
+              <div className="flex justify-between items-center px-5 py-4 bg-yellow-700 cursor-pointer select-none hover:opacity-90 transition" onClick={() => toggleExpanded("senior")}>
                 <h2 className="font-bold text-lg">👵👴 {t("Senior Citizen Help")}</h2>
                 {expanded["senior"] ? <ChevronUp /> : <ChevronDown />}
               </div>
               {expanded["senior"] && (
                 <div className="p-5 bg-white text-black">
                   <div className="grid md:grid-cols-2 gap-3 mb-4">
-                  {seniorLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
+                    {seniorLinks.map((link, idx) => <LinkBox key={idx} {...link} />)}
                   </div>
-                  <VideoSection sectionKey="senior" />
                 </div>
               )}
             </div>
 
-            {/* Notices Dashboard */}
-            <div className="bg-gray-900 rounded-xl overflow-hidden">
-              <div className="flex justify-between items-center px-5 py-4 bg-gray-800 cursor-pointer select-none hover:bg-gray-700 transition" onClick={() => toggleExpanded("notices")}>
-                <h2 className="font-bold text-lg">📢 {t("Government Notices")}</h2>
-                {expanded["notices"] ? <ChevronUp /> : <ChevronDown />}
-              </div>
-              {expanded["notices"] && (
-                <div className="p-5 bg-white text-black rounded-b-lg">
-                  {notices.length === 0 ? (
-                    <div className="text-sm text-gray-600">{t("No notices available")}</div>
-                  ) : (
-                    <ul className="space-y-3">
-                      {notices.map((n) => (
-                        <li key={n.id} className="border rounded p-3">
-                          <a href={n.url || "#"} target="_blank" rel="noreferrer" className="font-semibold text-blue-700">{n.title}</a>
-                          {n.date && <div className="text-xs text-gray-600">{n.date}</div>}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="mt-4 text-xs text-gray-500">{t("You can subscribe to RSS or return here for latest updates.")}</div>
-                </div>
-              )}
-            </div>
-
-            {/* Generic DB driven sections */}
+            {/* DB driven grouped tabs */}
             {Object.entries(grouped).map(([category, categoryTabs]) => {
               const isOpen = expanded[category] ?? true;
               return (
@@ -424,7 +398,6 @@ export default function SahayakPage() {
                 </div>
               );
             })}
-
           </div>
         )}
       </div>
@@ -433,21 +406,21 @@ export default function SahayakPage() {
       {showLanguagePicker && (
         <div className="fixed inset-0 bg-black z-50 overflow-y-auto">
           <div className="w-full min-h-full flex flex-col items-center p-4 md:p-6 pt-8 md:pt-12">
-          <div className="max-w-4xl w-full text-center">
-              <p className="text-gray-400 mb-6 md:mb-12">{t("Choose your language to continue")}</p>
+            <div className="max-w-4xl w-full text-center">
+              <p className="text-gray-400 mb-6 md:mb-12">Choose your language to continue</p>
 
-            {languages.length === 0 ? (
-              <div className="text-gray-400">Loading languages...</div>
-            ) : (
+              {languages.length === 0 ? (
+                <div className="text-gray-400">Loading languages...</div>
+              ) : (
                 <div className="flex flex-wrap justify-center gap-4 md:gap-6 pb-8">
-                {languages.map((l) => (
+                  {languages.map((l) => (
                     <button key={l.code} onClick={() => { setLocale(l.code); setLocaleState(l.code); setShowLanguagePicker(false); }} className="w-36 h-24 md:w-44 md:h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 active:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform active:scale-95 transition-all">
                       <div className="text-lg md:text-xl font-semibold">{l.name}</div>
-                    <div className="text-xs text-gray-400">{l.code}</div>
-                  </button>
-                ))}
-              </div>
-            )}
+                      <div className="text-xs text-gray-400">{l.code}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
