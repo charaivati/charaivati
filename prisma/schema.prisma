@@ -608,3 +608,18 @@ model Post {
   @@index([createdAt])
   @@index([slugTags])
 }
+
+model HelpLink {
+  id        String   @id @default(cuid())
+  pageSlug  String   // e.g. "epfo", "irctc", "ids", "health", "senior"
+  country   String   // e.g. "India", "All"
+  title     String   // friendly title (page name)
+  url       String
+  notes     String?  // optional internal notes
+  createdBy String?  // user id who created
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pageSlug])
+  @@index([country])
+}
