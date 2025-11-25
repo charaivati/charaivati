@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
 
-function isAdmin(user: any) {
+function isAdmin(user: any | null) {
   if (!user || !user.email) return false;
   const env = (process.env.EMAIL_USER || "").toLowerCase();
   return env && user.email.toLowerCase() === env;
@@ -59,8 +59,8 @@ export async function POST(req: NextRequest) {
         country: country || "All",
         title,
         url,
-        notes: notes || null,
-        createdBy: user.id,
+        notes: notes ?? null,
+        createdBy: user?.id ?? null,
       },
     });
 

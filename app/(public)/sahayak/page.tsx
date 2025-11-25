@@ -10,7 +10,8 @@ type TabPayloadItem = {
   enTitle: string;
   enDescription?: string | null;
   translation?: { title?: string | null; description?: string | null } | null;
-  // note: other fields from your tab-translations endpoint may exist; we only use these
+  category?: string | null;
+  is_default?: boolean;
 };
 
 type PostVideo = {
@@ -21,6 +22,15 @@ type PostVideo = {
   slugTags?: string[];
   user?: { id?: string; name?: string; avatarUrl?: string };
   createdAt?: string;
+};
+
+type HelpLink = {
+  id: string;
+  pageSlug: string;
+  country: string;
+  title: string;
+  url: string;
+  notes?: string | null;
 };
 
 function getYouTubeId(url?: string | null): string | null {
@@ -36,10 +46,10 @@ function getYouTubeId(url?: string | null): string | null {
     const embed = u.pathname.match(/\/embed\/([A-Za-z0-9_-]{11})/);
     if (embed) return embed[1];
   } catch (e) {
-    // proceed to regex fallback
+    // fallback to regex
   }
   const reg = /(?:youtube\.com\/.*v=|youtu\.be\/|youtube\.com\/embed\/|v=|\/)([A-Za-z0-9_-]{11})/;
-  const m = url.match(reg);
+  const m = (url || "").match(reg);
   return m ? m[1] : null;
 }
 
@@ -47,11 +57,12 @@ export default function SahayakPage() {
   const [tabs, setTabs] = useState<TabPayloadItem[]>([]);
   const [sections, setSections] = useState<TabPayloadItem[]>([]);
   const [videosBySection, setVideosBySection] = useState<Record<string, PostVideo[]>>({});
+  const [linksBySection, setLinksBySection] = useState<Record<string, HelpLink[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({});
 
-  // load tabs via your tab-translations endpoint (includes translations)
+  // 1) load tabs/translations (use your existing endpoint)
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -62,7 +73,7 @@ export default function SahayakPage() {
         if (j?.ok && Array.isArray(j.data)) {
           const payload = j.data as TabPayloadItem[];
           setTabs(payload);
-          const defaults = payload.filter((t) => (t as any).is_default); // optional flag
+          const defaults = payload.filter((t) => (t as any).is_default);
           if (defaults.length > 0) setSections(defaults);
           else {
             // fallback canonical slugs
@@ -84,7 +95,7 @@ export default function SahayakPage() {
     return () => { alive = false; };
   }, []);
 
-  // fetch videos per section using related slugs
+  // 2) fetch videos per section (aggregating related slugs)
   useEffect(() => {
     if (!sections.length || !tabs.length) return;
     let alive = true;
@@ -94,12 +105,11 @@ export default function SahayakPage() {
         const fetches = sections.map(async (sec) => {
           const related = new Set<string>();
           related.add(sec.slug);
-          // include all tabs that share the same category (if any)
-          const secCat = (sec as any).category;
-          if (secCat) {
-            tabs.forEach((t) => { if ((t as any).category === secCat) related.add(t.slug); });
+          // include same-category tabs
+          if (sec.category) {
+            tabs.forEach((t) => { if (t.category === sec.category) related.add(t.slug); });
           }
-          // prefix heuristic: include tabs that start with `${sec.slug}-`
+          // prefix heuristic
           tabs.forEach((t) => { if (t.slug.startsWith(`${sec.slug}-`)) related.add(t.slug); });
 
           const slugsArr = Array.from(related);
@@ -108,7 +118,7 @@ export default function SahayakPage() {
           const q = `/api/posts?tabSlugs=${encodeURIComponent(slugsArr.join(","))}&media=video&limit=50`;
           const r = await fetch(q);
           const json = await r.json();
-          console.debug(`[Sahayak] fetched for ${sec.slug} slugs=${slugsArr.length} posts=${(json?.data || json?.posts || []).length}`);
+          console.debug(`[Sahayak] fetched for ${sec.slug}`, { requestedSlugs: slugsArr, returned: json?.data?.length ?? 0 });
           const posts = json?.ok ? (json.data as PostVideo[]) : json.posts || [];
           return { slug: sec.slug, posts };
         });
@@ -137,9 +147,32 @@ export default function SahayakPage() {
         if (alive) setLoading(false);
       }
     })();
-
     return () => { alive = false; };
   }, [sections, tabs]);
+
+  // 3) fetch help-links for all sections
+  useEffect(() => {
+    if (!sections.length) return;
+    let alive = true;
+    (async () => {
+      try {
+        const promises = sections.map((s) =>
+          fetch(`/api/help-links?pageSlug=${encodeURIComponent(s.slug)}`).then((r) => r.json()).catch((e) => { console.error(e); return null; })
+        );
+        const results = await Promise.all(promises);
+        if (!alive) return;
+        const map: Record<string, HelpLink[]> = {};
+        sections.forEach((s, i) => {
+          const res = results[i];
+          map[s.slug] = res?.ok ? (res.data as HelpLink[]) : [];
+        });
+        setLinksBySection(map);
+      } catch (e) {
+        console.error("Failed to fetch help-links", e);
+      }
+    })();
+    return () => { alive = false; };
+  }, [sections]);
 
   const toggleExpanded = (key: string) => setExpanded((s) => ({ ...s, [key]: !s[key] }));
 
@@ -190,6 +223,44 @@ export default function SahayakPage() {
     );
   }
 
+  function renderHelpLinksForSection(slug: string) {
+    const links = linksBySection[slug] || [];
+    if (!links.length) {
+      return <div className="text-sm text-gray-600">No official links configured</div>;
+    }
+
+    return (
+      <ul className="space-y-3">
+        {links.map((ln) => {
+          // developer note: local path from your seed is preserved, e.g. "/mnt/data/497bae73-0ddd-4ca7-bc13-2a28e2875160.png"
+          const isLocalFile = typeof ln.url === "string" && ln.url.startsWith("/mnt/data");
+          const isImage = /\.(png|jpe?g|webp|gif)$/i.test(ln.url);
+          return (
+            <li key={ln.id} className="flex items-start justify-between bg-gray-100/60 p-3 rounded">
+              <div className="flex gap-3 items-start">
+                {isLocalFile && isImage ? (
+                  <img src={ln.url} alt={ln.title} className="w-20 h-20 object-cover rounded" />
+                ) : (
+                  <div className="w-20 h-20 bg-gray-200 rounded flex items-center justify-center text-gray-600 text-xs">Link</div>
+                )}
+
+                <div>
+                  <a className="font-medium text-blue-700 hover:underline" href={ln.url} target="_blank" rel="noreferrer">
+                    {ln.title}
+                  </a>
+                  <div className="text-xs text-gray-600 mt-1">{ln.country} • {ln.pageSlug}</div>
+                  {ln.notes && <div className="text-xs text-gray-500 mt-1">{ln.notes}</div>}
+                </div>
+              </div>
+
+              {/* admin area can be added here (edit/delete buttons) */}
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0b1220] text-white px-6 py-8">
       <div className="max-w-5xl mx-auto">
@@ -210,15 +281,22 @@ export default function SahayakPage() {
 
               {isOpen && (
                 <div className="p-5 bg-white text-black">
+                  {/* video strip */}
                   {loading ? (
                     <div className="text-gray-500">Loading videos…</div>
                   ) : videos.length === 0 ? (
                     <div className="text-gray-500">No videos for {title}</div>
                   ) : (
-                    <div className="flex gap-3 overflow-x-auto pb-2">
+                    <div className="flex gap-3 overflow-x-auto pb-4">
                       {videos.map((p) => renderVideoCard(p))}
                     </div>
                   )}
+
+                  {/* Official links */}
+                  <div className="mt-4">
+                    <h4 className="font-semibold mb-2">Official Links</h4>
+                    {renderHelpLinksForSection(sec.slug)}
+                  </div>
                 </div>
               )}
             </div>
