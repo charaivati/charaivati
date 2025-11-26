@@ -26,7 +26,8 @@ type PostVideo = {
 
 type HelpLink = {
   id: string;
-  pageSlug: string;
+  pageSlug?: string | null;
+  slugTags?: string[];
   country: string;
   title: string;
   url: string;
@@ -46,7 +47,7 @@ function getYouTubeId(url?: string | null): string | null {
     const embed = u.pathname.match(/\/embed\/([A-Za-z0-9_-]{11})/);
     if (embed) return embed[1];
   } catch (e) {
-    // fallback to regex
+    // fallback
   }
   const reg = /(?:youtube\.com\/.*v=|youtu\.be\/|youtube\.com\/embed\/|v=|\/)([A-Za-z0-9_-]{11})/;
   const m = (url || "").match(reg);
@@ -62,7 +63,7 @@ export default function SahayakPage() {
   const [loading, setLoading] = useState(false);
   const [cardOpen, setCardOpen] = useState<Record<string, boolean>>({});
 
-  // 1) load tabs/translations (use your existing endpoint)
+  // 1) load tabs/translations
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -76,7 +77,6 @@ export default function SahayakPage() {
           const defaults = payload.filter((t) => (t as any).is_default);
           if (defaults.length > 0) setSections(defaults);
           else {
-            // fallback canonical slugs
             const canonical = ["epfo", "irctc", "ids", "health", "senior"];
             const found = canonical.map((s) => payload.find((p) => p.slug === s)).filter(Boolean) as TabPayloadItem[];
             setSections(found);
@@ -95,7 +95,7 @@ export default function SahayakPage() {
     return () => { alive = false; };
   }, []);
 
-  // 2) fetch videos per section (aggregating related slugs)
+  // 2) fetch videos per section
   useEffect(() => {
     if (!sections.length || !tabs.length) return;
     let alive = true;
@@ -105,11 +105,9 @@ export default function SahayakPage() {
         const fetches = sections.map(async (sec) => {
           const related = new Set<string>();
           related.add(sec.slug);
-          // include same-category tabs
           if (sec.category) {
             tabs.forEach((t) => { if (t.category === sec.category) related.add(t.slug); });
           }
-          // prefix heuristic
           tabs.forEach((t) => { if (t.slug.startsWith(`${sec.slug}-`)) related.add(t.slug); });
 
           const slugsArr = Array.from(related);
@@ -118,7 +116,6 @@ export default function SahayakPage() {
           const q = `/api/posts?tabSlugs=${encodeURIComponent(slugsArr.join(","))}&media=video&limit=50`;
           const r = await fetch(q);
           const json = await r.json();
-          console.debug(`[Sahayak] fetched for ${sec.slug}`, { requestedSlugs: slugsArr, returned: json?.data?.length ?? 0 });
           const posts = json?.ok ? (json.data as PostVideo[]) : json.posts || [];
           return { slug: sec.slug, posts };
         });
@@ -132,10 +129,7 @@ export default function SahayakPage() {
           const dedup: PostVideo[] = [];
           (res.posts || []).forEach((p: any) => {
             if (!p || !p.id) return;
-            if (!seen.has(p.id)) {
-              seen.add(p.id);
-              dedup.push(p);
-            }
+            if (!seen.has(p.id)) { seen.add(p.id); dedup.push(p); }
           });
           mapping[res.slug] = dedup;
         });
@@ -150,29 +144,40 @@ export default function SahayakPage() {
     return () => { alive = false; };
   }, [sections, tabs]);
 
-  // 3) fetch help-links for all sections
+  // 3) fetch help-links for each section using tabSlugs (same logic)
   useEffect(() => {
-    if (!sections.length) return;
+    if (!sections.length || !tabs.length) return;
     let alive = true;
     (async () => {
       try {
-        const promises = sections.map((s) =>
-          fetch(`/api/help-links?pageSlug=${encodeURIComponent(s.slug)}`).then((r) => r.json()).catch((e) => { console.error(e); return null; })
-        );
+        const promises = sections.map(async (sec) => {
+          const related = new Set<string>();
+          related.add(sec.slug);
+          if (sec.category) {
+            tabs.forEach((t) => { if (t.category === sec.category) related.add(t.slug); });
+          }
+          tabs.forEach((t) => { if (t.slug.startsWith(`${sec.slug}-`)) related.add(t.slug); });
+
+          const arr = Array.from(related).filter(Boolean);
+          if (!arr.length) return { slug: sec.slug, links: [] as HelpLink[] };
+
+          const q = `/api/help-links?tabSlugs=${encodeURIComponent(arr.join(","))}`;
+          const r = await fetch(q);
+          const j = await r.json();
+          return { slug: sec.slug, links: j?.ok ? j.data as HelpLink[] : [] };
+        });
+
         const results = await Promise.all(promises);
         if (!alive) return;
         const map: Record<string, HelpLink[]> = {};
-        sections.forEach((s, i) => {
-          const res = results[i];
-          map[s.slug] = res?.ok ? (res.data as HelpLink[]) : [];
-        });
+        results.forEach((r) => { map[r.slug] = r.links || []; });
         setLinksBySection(map);
       } catch (e) {
-        console.error("Failed to fetch help-links", e);
+        console.error("Failed to fetch help-links by tabSlugs", e);
       }
     })();
     return () => { alive = false; };
-  }, [sections]);
+  }, [sections, tabs]);
 
   const toggleExpanded = (key: string) => setExpanded((s) => ({ ...s, [key]: !s[key] }));
 
@@ -225,14 +230,11 @@ export default function SahayakPage() {
 
   function renderHelpLinksForSection(slug: string) {
     const links = linksBySection[slug] || [];
-    if (!links.length) {
-      return <div className="text-sm text-gray-600">No official links configured</div>;
-    }
+    if (!links.length) return <div className="text-sm text-gray-600">No official links configured</div>;
 
     return (
       <ul className="space-y-3">
         {links.map((ln) => {
-          // developer note: local path from your seed is preserved, e.g. "/mnt/data/497bae73-0ddd-4ca7-bc13-2a28e2875160.png"
           const isLocalFile = typeof ln.url === "string" && ln.url.startsWith("/mnt/data");
           const isImage = /\.(png|jpe?g|webp|gif)$/i.test(ln.url);
           return (
@@ -248,12 +250,10 @@ export default function SahayakPage() {
                   <a className="font-medium text-blue-700 hover:underline" href={ln.url} target="_blank" rel="noreferrer">
                     {ln.title}
                   </a>
-                  <div className="text-xs text-gray-600 mt-1">{ln.country} • {ln.pageSlug}</div>
+                  <div className="text-xs text-gray-600 mt-1">{ln.country} • {ln.pageSlug ?? (ln.slugTags ? ln.slugTags.join(", ") : "")}</div>
                   {ln.notes && <div className="text-xs text-gray-500 mt-1">{ln.notes}</div>}
                 </div>
               </div>
-
-              {/* admin area can be added here (edit/delete buttons) */}
             </li>
           );
         })}
@@ -281,7 +281,6 @@ export default function SahayakPage() {
 
               {isOpen && (
                 <div className="p-5 bg-white text-black">
-                  {/* video strip */}
                   {loading ? (
                     <div className="text-gray-500">Loading videos…</div>
                   ) : videos.length === 0 ? (
@@ -292,7 +291,6 @@ export default function SahayakPage() {
                     </div>
                   )}
 
-                  {/* Official links */}
                   <div className="mt-4">
                     <h4 className="font-semibold mb-2">Official Links</h4>
                     {renderHelpLinksForSection(sec.slug)}

@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/lib/session";
 function isAdmin(user: any | null) {
   if (!user || !user.email) return false;
   const env = (process.env.EMAIL_USER || "").toLowerCase();
-  return env && user.email.toLowerCase() === env;
+  return !!env && user.email.toLowerCase() === env;
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -16,18 +16,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
     const id = params.id;
     const body = await req.json();
-    const allowed = ["pageSlug", "country", "title", "url", "notes"];
+
+    const allowed = ["pageSlug", "country", "title", "url", "notes", "slugTags"];
     const data: any = {};
-    for (const k of allowed) {
-      if (k in body) data[k] = body[k];
+    for (const k of allowed) if (k in body) data[k] = body[k];
+
+    if ("slugTags" in data) {
+      const incoming = Array.isArray(data.slugTags) ? data.slugTags.map(String).map(s => s.trim()).filter(Boolean) : [];
+      if (incoming.length) {
+        const found = await prisma.tab.findMany({ where: { slug: { in: incoming } }, select: { slug: true } });
+        const valid = found.map(t => t.slug);
+        if (incoming.length && valid.length === 0) {
+          return NextResponse.json({ ok: false, error: "No valid tab slugs provided in slugTags" }, { status: 400 });
+        }
+        data.slugTags = valid;
+      } else {
+        data.slugTags = [];
+      }
     }
+
     if (Object.keys(data).length === 0) return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });
 
-    const updated = await prisma.helpLink.update({
-      where: { id },
-      data,
-    });
-
+    const updated = await prisma.helpLink.update({ where: { id }, data });
     return NextResponse.json({ ok: true, data: updated });
   } catch (e: any) {
     console.error("PATCH /api/help-links/[id]", e);

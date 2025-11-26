@@ -611,7 +611,8 @@ model Post {
 
 model HelpLink {
   id        String   @id @default(cuid())
-  pageSlug  String   // e.g. "epfo", "irctc", "ids", "health", "senior"
+  pageSlug  String?  // optional canonical page slug (e.g. "epfo")
+  slugTags  String[] @default([]) // tag this link to one or more tab slugs (canonical Tab.slug)
   country   String   // e.g. "India", "All"
   title     String   // friendly title (page name)
   url       String
