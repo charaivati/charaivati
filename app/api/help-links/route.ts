@@ -1,4 +1,4 @@
-// app/api/help-links/route.ts
+// app/api/help-links/route.ts (FIXED)
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
@@ -30,11 +30,21 @@ export async function GET(req: NextRequest) {
       ];
     }
 
+    // ✅ FIX: Handle both tabSlug (single) and tabSlugs (multiple)
     if (tabSlug) {
       where.slugTags = { has: tabSlug };
     } else if (tabSlugsParam) {
-      const slugs = tabSlugsParam.split(",").map((s) => s.trim()).filter(Boolean);
-      if (slugs.length) where.slugTags = { hasSome: slugs };
+      const slugs = tabSlugsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      
+      if (slugs.length) {
+        // ✅ Use OR logic: match ANY of the slugs (not all)
+        where.OR = slugs.map((slug) => ({
+          slugTags: { has: slug },
+        }));
+      }
     }
 
     const links = await prisma.helpLink.findMany({
@@ -60,13 +70,25 @@ export async function POST(req: NextRequest) {
     if (!title || !url) return NextResponse.json({ ok: false, error: "title and url are required" }, { status: 400 });
 
     // Validate slugTags: only keep canonical Tab.slug
-    const incoming = Array.isArray(slugTags) ? slugTags.map(String).map(s => s.trim()).filter(Boolean) : [];
+    const incoming = Array.isArray(slugTags)
+      ? slugTags
+          .map(String)
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    
     let validTags: string[] = [];
     if (incoming.length) {
-      const found = await prisma.tab.findMany({ where: { slug: { in: incoming } }, select: { slug: true } });
-      validTags = found.map(t => t.slug);
+      const found = await prisma.tab.findMany({
+        where: { slug: { in: incoming } },
+        select: { slug: true },
+      });
+      validTags = found.map((t) => t.slug);
       if (incoming.length && validTags.length === 0) {
-        return NextResponse.json({ ok: false, error: "No valid tab slugs provided in slugTags" }, { status: 400 });
+        return NextResponse.json(
+          { ok: false, error: "No valid tab slugs provided in slugTags" },
+          { status: 400 }
+        );
       }
     }
 
