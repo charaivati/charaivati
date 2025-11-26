@@ -38,12 +38,12 @@ export default function AdminHelpLinksPage() {
   useEffect(() => {
     Promise.all([
       fetch("/api/help-links?pageSlug=").then((r) => r.json()),
-      fetch("/api/tabs").then((r) => r.json()),
+      fetch("/api/tab-translations?locale=en").then((r) => r.json()),
     ])
       .then(([linksRes, tabsRes]) => {
         setLinks(linksRes.data || []);
         setTabs(
-          tabsRes.data?.map((t: any) => ({ slug: t.slug, title: t.title })) || []
+          tabsRes.data?.map((t: any) => ({ slug: t.slug, title: t.enTitle || t.slug })) || []
         );
       })
       .finally(() => setLoading(false));
@@ -236,21 +236,38 @@ export default function AdminHelpLinksPage() {
                 <label className="block text-sm font-semibold mb-2">
                   Tab Tags (select multiple):
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <select
+                  multiple
+                  value={formData.slugTags}
+                  onChange={(e) => {
+                    const selected = Array.from(e.target.selectedOptions, (option) => option.value);
+                    setFormData({ ...formData, slugTags: selected });
+                  }}
+                  className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 text-white min-h-[120px]"
+                >
                   {tabs.map((tab) => (
-                    <button
-                      key={tab.slug}
-                      onClick={() => toggleTag(tab.slug)}
-                      className={`px-3 py-1 rounded text-sm transition ${
-                        formData.slugTags.includes(tab.slug)
-                          ? "bg-blue-600 text-white"
-                          : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                      }`}
-                    >
-                      {tab.slug}
-                    </button>
+                    <option key={tab.slug} value={tab.slug}>
+                      {tab.title} ({tab.slug})
+                    </option>
                   ))}
-                </div>
+                </select>
+                <p className="text-xs text-gray-400 mt-2">Hold Ctrl/Cmd to select multiple tags</p>
+                {formData.slugTags.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {formData.slugTags.map((tag) => (
+                      <span key={tag} className="px-2 py-1 bg-blue-600 text-white rounded text-xs flex items-center gap-2">
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => toggleTag(tag)}
+                          className="hover:text-red-300"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="flex gap-2 justify-end">
