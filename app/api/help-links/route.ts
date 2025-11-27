@@ -1,4 +1,4 @@
-// app/api/help-links/route.ts (FIXED)
+// app/api/help-links/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/session";
@@ -30,18 +30,18 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    // ✅ FIX: Handle both tabSlug (single) and tabSlugs (multiple)
+    // ✅ FIXED: Handle both tabSlug (single) and tabSlugs (multiple) correctly
     if (tabSlug) {
       where.slugTags = { has: tabSlug };
     } else if (tabSlugsParam) {
       const slugs = tabSlugsParam
         .split(",")
-        .map((s) => s.trim())
+        .map((s: string) => s.trim())
         .filter(Boolean);
-      
+
       if (slugs.length) {
         // ✅ Use OR logic: match ANY of the slugs (not all)
-        where.OR = slugs.map((slug) => ({
+        where.OR = slugs.map((slug: string) => ({
           slugTags: { has: slug },
         }));
       }
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
 
     const links = await prisma.helpLink.findMany({
       where,
-      orderBy: { pageSlug: "asc", createdAt: "desc" },
+      orderBy: { createdAt: "desc" },
     });
 
     return NextResponse.json({ ok: true, data: links });
@@ -62,21 +62,28 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    if (!isAdmin(user)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+    if (!isAdmin(user)) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+    }
 
     const body = await req.json();
     const { pageSlug, country, title, url, notes, slugTags = [] } = body || {};
 
-    if (!title || !url) return NextResponse.json({ ok: false, error: "title and url are required" }, { status: 400 });
+    if (!title || !url) {
+      return NextResponse.json(
+        { ok: false, error: "title and url are required" },
+        { status: 400 }
+      );
+    }
 
     // Validate slugTags: only keep canonical Tab.slug
     const incoming = Array.isArray(slugTags)
       ? slugTags
-          .map(String)
-          .map((s) => s.trim())
+          .map((s: any) => String(s))
+          .map((s: string) => s.trim())
           .filter(Boolean)
       : [];
-    
+
     let validTags: string[] = [];
     if (incoming.length) {
       const found = await prisma.tab.findMany({

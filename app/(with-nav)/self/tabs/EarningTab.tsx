@@ -1,8 +1,4 @@
-// ============================================================================
-// MOBILE FIX: app/(with-nav)/self/tabs/EarningTab.tsx
-// Updated: require Drive selection, move Drive selector beside Privacy,
-// persist last selected values (business, privacy, drive), remove duplicate Tag Business
-// ============================================================================
+// app/(with-nav)/self/tabs/EarningTab.tsx
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -20,6 +16,7 @@ import {
   Youtube,
 } from "lucide-react";
 import { useGoogleDrive, type PostData } from "@/hooks/useGoogleDrive";
+import SelectTabsModal from "@/components/SelectTabsModal";
 
 type PageItem = {
   id: string;
@@ -33,12 +30,14 @@ type StoredPost = PostData & {
   youtubeLinks?: string[];
   pageId?: string;
   visibility?: "public" | "friends";
+  slugTags?: string[];
 };
 
 const LS_EARN_POSTS_KEY = "earn_posts_v1";
 const LS_SELECTED_BUSINESS = "earn_selected_business_v1";
 const LS_SELECTED_PRIVACY = "earn_selected_privacy_v1";
 const LS_SELECTED_DRIVE = "earn_selected_drive_v1";
+const LS_SELECTED_TAGS = "earn_selected_tags_v1";
 
 async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   const res = await fetch(input, init);
@@ -55,6 +54,7 @@ function extractYouTubeId(url: string): string | null {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
     /^([a-zA-Z0-9_-]{11})$/,
+    /(?:v=|\/)([A-Za-z0-9_-]{11})/,
   ];
   for (const pattern of patterns) {
     const match = url.match(pattern);
@@ -66,11 +66,10 @@ function extractYouTubeId(url: string): string | null {
 export default function EarningTab() {
   const gDrive = useGoogleDrive();
 
-  // refs for inputs
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Pages/Business state
   const [pages, setPages] = useState<PageItem[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -79,7 +78,6 @@ export default function EarningTab() {
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  // Composer state
   const [composerText, setComposerText] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState<string>("");
   const [images, setImages] = useState<File[]>([]);
@@ -91,23 +89,22 @@ export default function EarningTab() {
   const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
   const [postingInProgress, setPostingInProgress] = useState(false);
 
-  // persisted selectors
   const [visibility, setVisibility] = useState<"public" | "friends">("public");
-  // driveSelection: "" | "none" | "google"  (we treat "" or "none" as no drive selected)
   const [driveSelection, setDriveSelection] = useState<"" | "none" | "google">("");
+  const [slugTags, setSlugTags] = useState<string[]>([]);
+  const [showTagModal, setShowTagModal] = useState(false);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Load persisted selectors & pages
   useEffect(() => {
     try {
       const sb = localStorage.getItem(LS_SELECTED_BUSINESS);
       const sp = localStorage.getItem(LS_SELECTED_PRIVACY);
       const sd = localStorage.getItem(LS_SELECTED_DRIVE);
+      const st = localStorage.getItem(LS_SELECTED_TAGS);
       if (sb) setSelectedBusiness(sb);
       if (sp === "friends") setVisibility("friends");
       if (sd === "google") setDriveSelection("google");
       if (sd === "none") setDriveSelection("none");
+      if (st) setSlugTags(JSON.parse(st));
     } catch (e) {
       /* ignore */
     }
@@ -119,11 +116,12 @@ export default function EarningTab() {
         if (!alive) return;
         if (r.ok && r.json?.ok) {
           setPages(r.json.pages || []);
-          // auto-select first page if nothing selected and pages exist
           if (r.json.pages?.length > 0 && !selectedBusiness) {
             const firstId = r.json.pages[0].id;
-            setSelectedBusiness((prev) => prev || firstId);
-            localStorage.setItem(LS_SELECTED_BUSINESS, firstId);
+            setSelectedBusiness(firstId);
+            try {
+              localStorage.setItem(LS_SELECTED_BUSINESS, firstId);
+            } catch {}
           }
         } else {
           setPages([]);
@@ -140,21 +138,19 @@ export default function EarningTab() {
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // persist selectors when changed
   useEffect(() => {
     try {
       if (selectedBusiness) localStorage.setItem(LS_SELECTED_BUSINESS, selectedBusiness);
       if (visibility) localStorage.setItem(LS_SELECTED_PRIVACY, visibility);
       if (driveSelection) localStorage.setItem(LS_SELECTED_DRIVE, driveSelection);
+      if (slugTags) localStorage.setItem(LS_SELECTED_TAGS, JSON.stringify(slugTags || []));
     } catch (e) {
       /* ignore */
     }
-  }, [selectedBusiness, visibility, driveSelection]);
+  }, [selectedBusiness, visibility, driveSelection, slugTags]);
 
-  // Add page
   async function addPage() {
     setError(null);
     const title = newTitle.trim();
@@ -163,12 +159,10 @@ export default function EarningTab() {
       setError("Please enter a title");
       return;
     }
-
     if (pages?.some((p) => p.title.toLowerCase() === title.toLowerCase())) {
       setError("You already have a page with this title");
       return;
     }
-
     const temp: PageItem = {
       id: `temp-${Date.now()}`,
       title,
@@ -176,10 +170,8 @@ export default function EarningTab() {
       avatarUrl: null,
       createdAt: new Date().toISOString(),
     };
-
     setPages((prev) => (prev ? [temp, ...prev] : [temp]));
     setAdding(true);
-
     try {
       const resp = await safeFetchJson("/api/user/pages", {
         method: "POST",
@@ -187,19 +179,19 @@ export default function EarningTab() {
         credentials: "include",
         body: JSON.stringify({ title, description }),
       });
-
       if (!resp.ok) {
         const m = resp.json?.error || resp.rawText || `Status ${resp.status}`;
         throw new Error(m);
       }
       if (!resp.json?.ok) throw new Error(resp.json?.error || "Unknown error");
-
       const created = resp.json.page as PageItem;
       setPages((prev) => (prev ? prev.map((p) => (p.id === temp.id ? created : p)) : [created]));
       setNewTitle("");
       setNewDesc("");
       setSelectedBusiness(created.id);
-      localStorage.setItem(LS_SELECTED_BUSINESS, created.id);
+      try {
+        localStorage.setItem(LS_SELECTED_BUSINESS, created.id);
+      } catch {}
     } catch (err: any) {
       console.error("add page error", err);
       setPages((prev) => (prev ? prev.filter((p) => p.id !== temp.id) : []));
@@ -209,10 +201,8 @@ export default function EarningTab() {
     }
   }
 
-  // Delete page
   async function deletePage(id: string) {
     if (!confirm("Are you sure you want to delete this business?")) return;
-
     setDeleting(id);
     try {
       const resp = await safeFetchJson("/api/user/pages", {
@@ -221,7 +211,6 @@ export default function EarningTab() {
         credentials: "include",
         body: JSON.stringify({ id }),
       });
-
       if (resp.ok && resp.json?.ok) {
         setPages((prev) => (prev ? prev.filter((p) => p.id !== id) : prev));
         if (selectedBusiness === id) {
@@ -240,7 +229,6 @@ export default function EarningTab() {
     }
   }
 
-  // File handlers for mobile
   const handleImageButtonClick = () => {
     if (imageInputRef.current) {
       imageInputRef.current.removeAttribute("capture");
@@ -266,7 +254,6 @@ export default function EarningTab() {
     }
   };
 
-  // Image/video add/remove
   const handleAddImages = (files: FileList | null) => {
     if (!files) return;
     const incoming = Array.from(files);
@@ -320,24 +307,34 @@ export default function EarningTab() {
     if (videoInputRef.current) videoInputRef.current.value = "";
   };
 
-  // Connect / disconnect handlers (inline)
   const handleConnectDrive = () => {
     gDrive.connectDrive();
   };
   const handleDisconnectDrive = () => {
-    // also keep the driveSelection as 'google' so user can reconnect quickly
     gDrive.disconnect();
   };
 
-  // Posting: now actively requires a drive selection. If 'google' selected, it also requires connection.
+  // Helper: auto-add parent slug (heuristic)
+  function augmentWithParentSlugs(slugs: string[]) {
+    const set = new Set(slugs);
+    for (const s of slugs) {
+      // heuristic: if slug contains '-', add prefix before first '-' as parent
+      if (s.includes("-")) {
+        const prefix = s.split("-")[0];
+        // avoid adding obvious non-section prefixes like 'howto' - we keep heuristic simple
+        if (prefix && prefix.length > 1) set.add(prefix);
+      }
+    }
+    return Array.from(set);
+  }
+
   async function handlePost() {
     // enforce drive selection first
     if (driveSelection !== "google") {
-      alert("Please select Drive in the Drive dropdown before posting.");
+      alert("Please select Google Drive in the Drive dropdown before posting.");
       return;
     }
     if (driveSelection === "google" && !gDrive.isAuthenticated && !gDrive.accessToken) {
-      // user selected Google Drive but not connected
       alert("You selected Google Drive. Please connect your Drive using the Connect button on the Drive line.");
       return;
     }
@@ -357,6 +354,9 @@ export default function EarningTab() {
 
     const youtubeId = youtubeLink.trim() ? extractYouTubeId(youtubeLink.trim()) : null;
 
+    // augment slugTags with parent heuristic
+    const finalSlugTags = augmentWithParentSlugs(slugTags || []);
+
     const nextPost: StoredPost = {
       id: Date.now().toString(),
       author: gDrive.userInfo?.name || gDrive.userInfo?.email || "You",
@@ -367,6 +367,7 @@ export default function EarningTab() {
       youtubeLinks: youtubeId ? [youtubeLink.trim()] : [],
       pageId: selectedBusiness || undefined,
       visibility: visibility,
+      slugTags: finalSlugTags,
     };
 
     try {
@@ -383,11 +384,9 @@ export default function EarningTab() {
           console.warn("Google Drive upload returned null");
         }
       } else {
-        // With the new requirement this path won't run when driveSelection === 'google' because we prevented posting
         console.log("Not connected to Drive: post saved locally without media upload");
       }
 
-      // Save to localStorage for offline copy
       try {
         const stored = localStorage.getItem(LS_EARN_POSTS_KEY);
         const existing = stored ? JSON.parse(stored) : [];
@@ -399,15 +398,12 @@ export default function EarningTab() {
         console.error("Failed to save to localStorage:", e);
       }
 
-      // Save to DB (post meta)
       try {
         const imageFileIds: string[] = [];
         if (nextPost.images && Array.isArray(nextPost.images)) {
           nextPost.images.forEach((url) => {
             const match = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-            if (match && match[1]) {
-              imageFileIds.push(match[1]);
-            }
+            if (match && match[1]) imageFileIds.push(match[1]);
           });
         }
 
@@ -422,7 +418,7 @@ export default function EarningTab() {
             imageFileIds,
             videoFileId,
             youtubeLinks,
-            slugTags: [],
+            slugTags: finalSlugTags,
             pageId: selectedBusiness || null,
             visibility: visibility,
             gdriveFolder: gDrive.folderId || null,
@@ -434,6 +430,7 @@ export default function EarningTab() {
           console.log("Post saved to database:", dbData.post.id);
         } else {
           console.warn("Database save failed:", dbData.error);
+          if (!dbData.ok && dbData.error) alert(`Failed to save post: ${dbData.error}`);
         }
       } catch (dbErr) {
         console.error("Database save error:", dbErr);
@@ -451,7 +448,6 @@ export default function EarningTab() {
     }
   }
 
-  // computed button state & label
   const publishDisabled =
     postingInProgress || driveSelection !== "google" || (driveSelection === "google" && !gDrive.isAuthenticated && !gDrive.accessToken);
 
@@ -475,7 +471,6 @@ export default function EarningTab() {
             {syncStatus === "synced" && <CheckCircle className="w-5 h-5 text-green-400" />}
             {syncStatus === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
 
-            {/* Header-level Connect Drive removed to encourage inline control, but keep small indicator */}
             {(gDrive.isAuthenticated || gDrive.accessToken) && (
               <div className="text-xs text-green-400 font-medium px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30">
                 ✓ Connected
@@ -503,11 +498,7 @@ export default function EarningTab() {
 
           {!showComposer ? (
             <button
-              onClick={() => {
-                // require Drive selection/connection when opening composer is not necessary,
-                // but keep behavior consistent: show composer but posting will be prevented later
-                setShowComposer(true);
-              }}
+              onClick={() => setShowComposer(true)}
               className="w-full p-6 rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 hover:border-white/20 transition-all text-left"
             >
               <span className="text-gray-300">What would you like to share?</span>
@@ -515,19 +506,13 @@ export default function EarningTab() {
           ) : (
             <div className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm">
               <div className="p-6">
-                {/* Business, Privacy & Drive Selection in one row */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 rounded-lg bg-white/5 border border-white/10">
-                  {/* Business Selection */}
+                {/* Business, Privacy, Tag & Drive Selection */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 rounded-lg bg-white/5 border border-white/10">
                   <div>
                     <label className="block text-xs text-gray-400 mb-2 font-semibold">Select Business/Page</label>
                     <select
                       value={selectedBusiness}
-                      onChange={(e) => {
-                        setSelectedBusiness(e.target.value);
-                        try {
-                          if (e.target.value) localStorage.setItem(LS_SELECTED_BUSINESS, e.target.value);
-                        } catch {}
-                      }}
+                      onChange={(e) => setSelectedBusiness(e.target.value)}
                       className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
                     >
                       <option value="">-- Select a business --</option>
@@ -539,18 +524,11 @@ export default function EarningTab() {
                     </select>
                   </div>
 
-                  {/* Privacy Selection */}
                   <div>
                     <label className="block text-xs text-gray-400 mb-2 font-semibold">Privacy</label>
                     <select
                       value={visibility}
-                      onChange={(e) => {
-                        const v = e.target.value as "public" | "friends";
-                        setVisibility(v);
-                        try {
-                          localStorage.setItem(LS_SELECTED_PRIVACY, v);
-                        } catch {}
-                      }}
+                      onChange={(e) => setVisibility(e.target.value as "public" | "friends")}
                       className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
                     >
                       <option value="public">🌍 Public</option>
@@ -558,19 +536,24 @@ export default function EarningTab() {
                     </select>
                   </div>
 
-                  {/* Drive Selection */}
+                  <div className="flex flex-col">
+                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Tag Sections</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowTagModal(true)}
+                      className="w-full px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-sm text-white transition"
+                    >
+                      {slugTags.length === 0 ? "Select Tabs to Tag" : `${slugTags.length} Tag(s) selected`}
+                    </button>
+                    <div className="text-xs text-gray-400 mt-1">{slugTags.slice(0, 4).join(", ") || "No tags selected"}</div>
+                  </div>
+
                   <div>
                     <label className="block text-xs text-gray-400 mb-2 font-semibold">Drive</label>
                     <div className="flex items-center gap-2">
                       <select
                         value={driveSelection}
-                        onChange={(e) => {
-                          const v = e.target.value as "" | "none" | "google";
-                          setDriveSelection(v);
-                          try {
-                            if (v) localStorage.setItem(LS_SELECTED_DRIVE, v);
-                          } catch {}
-                        }}
+                        onChange={(e) => setDriveSelection(e.target.value as "" | "none" | "google")}
                         className="flex-1 p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
                       >
                         <option value="">-- Select Drive --</option>
@@ -578,7 +561,6 @@ export default function EarningTab() {
                         <option value="google">Google Drive</option>
                       </select>
 
-                      {/* If Google Drive selected, show connect/disconnect inline */}
                       {driveSelection === "google" && (
                         <div className="flex items-center gap-1">
                           {gDrive.isAuthenticated || gDrive.accessToken ? (
@@ -599,7 +581,6 @@ export default function EarningTab() {
                         </div>
                       )}
                     </div>
-                    {/* show small hint */}
                     <p className="text-xs text-gray-400 mt-1">
                       {driveSelection === "google"
                         ? gDrive.isAuthenticated || gDrive.accessToken
@@ -623,7 +604,6 @@ export default function EarningTab() {
                   />
                 </div>
 
-                {/* Image Previews */}
                 {imagePreviews.length > 0 && (
                   <div className="mb-4 grid grid-cols-3 gap-2">
                     {imagePreviews.map((src, i) => (
@@ -640,7 +620,6 @@ export default function EarningTab() {
                   </div>
                 )}
 
-                {/* Video Preview */}
                 {videoPreview && (
                   <div className="mb-4 relative rounded-lg overflow-hidden">
                     <video src={videoPreview} controls className="w-full max-h-64 bg-black" />
@@ -656,7 +635,6 @@ export default function EarningTab() {
                 {images.length > 0 && <p className="text-xs text-gray-400 mb-2">{images.length} photo(s)</p>}
                 {videoFile && <p className="text-xs text-gray-400 mb-2">{videoFile.name}</p>}
 
-                {/* YouTube Link Input */}
                 <div className="mb-4">
                   <label className="block text-xs text-gray-400 mb-2 font-semibold">YouTube Link (optional)</label>
                   <div className="flex items-center gap-2">
@@ -677,7 +655,6 @@ export default function EarningTab() {
                 {/* ACTIONS */}
                 <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex gap-2">
-                    {/* Gallery Button */}
                     <button
                       onClick={handleImageButtonClick}
                       disabled={postingInProgress}
@@ -688,7 +665,6 @@ export default function EarningTab() {
                       <Camera className="w-4 h-4 text-blue-400" />
                     </button>
 
-                    {/* Camera Button */}
                     <button
                       onClick={handleImageCameraClick}
                       disabled={postingInProgress}
@@ -699,7 +675,6 @@ export default function EarningTab() {
                       <Camera className="w-4 h-4 text-cyan-400" />
                     </button>
 
-                    {/* Video Gallery Button */}
                     <button
                       onClick={handleVideoButtonClick}
                       disabled={postingInProgress}
@@ -710,7 +685,6 @@ export default function EarningTab() {
                       <Video className="w-4 h-4 text-purple-400" />
                     </button>
 
-                    {/* Video Camera Button */}
                     <button
                       onClick={handleVideoCameraClick}
                       disabled={postingInProgress}
@@ -864,6 +838,16 @@ export default function EarningTab() {
           </div>
         </div>
       </div>
+
+      {showTagModal && (
+        <SelectTabsModal
+          initialSelected={slugTags}
+          onClose={(selected) => {
+            setSlugTags(selected || []);
+            setShowTagModal(false);
+          }}
+        />
+      )}
     </div>
   );
 }

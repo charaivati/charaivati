@@ -12,7 +12,9 @@ function isAdmin(user: any | null) {
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await getCurrentUser(req);
-    if (!isAdmin(user)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+    if (!isAdmin(user)) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+    }
 
     const id = params.id;
     const body = await req.json();
@@ -22,16 +24,25 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     for (const k of allowed) if (k in body) data[k] = body[k];
 
     if ("slugTags" in data) {
-      // ✅ FIX: Add explicit type annotation for `s`
+      // ✅ FIX: Add explicit type annotation
       const incoming = Array.isArray(data.slugTags)
-        ? data.slugTags.map((s: any) => String(s)).map((s: string) => s.trim()).filter(Boolean)
+        ? data.slugTags
+            .map((s: any) => String(s))
+            .map((s: string) => s.trim())
+            .filter(Boolean)
         : [];
-      
+
       if (incoming.length) {
-        const found = await prisma.tab.findMany({ where: { slug: { in: incoming } }, select: { slug: true } });
+        const found = await prisma.tab.findMany({
+          where: { slug: { in: incoming } },
+          select: { slug: true },
+        });
         const valid = found.map((t) => t.slug);
         if (incoming.length && valid.length === 0) {
-          return NextResponse.json({ ok: false, error: "No valid tab slugs provided in slugTags" }, { status: 400 });
+          return NextResponse.json(
+            { ok: false, error: "No valid tab slugs provided in slugTags" },
+            { status: 400 }
+          );
         }
         data.slugTags = valid;
       } else {
@@ -39,7 +50,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       }
     }
 
-    if (Object.keys(data).length === 0) return NextResponse.json({ ok: false, error: "No fields to update" }, { status: 400 });
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "No fields to update" },
+        { status: 400 }
+      );
+    }
 
     const updated = await prisma.helpLink.update({ where: { id }, data });
     return NextResponse.json({ ok: true, data: updated });
@@ -52,7 +68,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const user = await getCurrentUser(req);
-    if (!isAdmin(user)) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+    if (!isAdmin(user)) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 403 });
+    }
 
     const id = params.id;
     await prisma.helpLink.delete({ where: { id } });
