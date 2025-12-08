@@ -3,21 +3,11 @@
 
 import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink, Globe } from "lucide-react";
+import { useLanguage } from "@/components/LanguageProvider";
+import LanguagePicker from "@/components/LanguagePicker";
 
 // Import tag matching config
 import { SECTION_TAG_MAPPINGS, doesPostMatchSection } from "@/lib/sectionTagMappings";
-
-const SUPPORTED_LANGUAGES = [
-  { code: "en", name: "English" },
-  { code: "hi", name: "हिंदी" },
-  { code: "as", name: "অসমীয়া" },
-  { code: "ta", name: "தமிழ்" },
-  { code: "te", name: "తెలుగు" },
-  { code: "kn", name: "ಕನ್ನಡ" },
-  { code: "ml", name: "മലയാളം" },
-];
-
-const LS_SAHAYAK_LANGUAGE = "sahayak_selected_language";
 
 interface TabData {
   tabId: string;
@@ -50,7 +40,50 @@ interface HelpLink {
   notes?: string | null;
 }
 
+// Translation strings for UI
+const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
+  en: {
+    videoTutorials: "Video Tutorials",
+    officialLinks: "Official Links",
+    loadingVideos: "Loading videos…",
+    noVideos: "No videos available",
+    loadingLinks: "Loading links…",
+    noLinks: "No official links configured",
+    chooseLanguage: "Choose Language",
+  },
+  hi: {
+    videoTutorials: "वीडियो ट्यूटोरियल",
+    officialLinks: "आधिकारिक लिंक",
+    loadingVideos: "वीडियो लोड हो रहे हैं…",
+    noVideos: "कोई वीडियो उपलब्ध नहीं है",
+    loadingLinks: "लिंक लोड हो रहे हैं…",
+    noLinks: "कोई आधिकारिक लिंक कॉन्फ़िगर नहीं है",
+    chooseLanguage: "भाषा चुनें",
+  },
+  as: {
+    videoTutorials: "ভিডিও টিউটোরিয়াল",
+    officialLinks: "অফিসিয়াল লিংক",
+    loadingVideos: "ভিডিও লোড হচ্ছে…",
+    noVideos: "কোনো ভিডিও পাওয়া যায় না",
+    loadingLinks: "লিংক লোড হচ্ছে…",
+    noLinks: "কোনো অফিসিয়াল লিংক কনফিগার করা নেই",
+    chooseLanguage: "ভাষা নির্বাচন করুন",
+  },
+  ta: {
+    videoTutorials: "வீடியோ பயிற்சி",
+    officialLinks: "அதிகாரப்பூর்வ இணைப்புகள்",
+    loadingVideos: "வீடியோக்கள் ஏற்றப்படுகின்றன…",
+    noVideos: "வீடியோக்கள் இல்லை",
+    loadingLinks: "இணைப்புகள் ஏற்றப்படுகின்றன…",
+    noLinks: "உள்ளமைக்கப்பட்ட அதிகாரப்பூর்வ இணைப்புக்கள் எதுவும் இல்லை",
+    chooseLanguage: "மொழியைத் தேர்ந்தெடுக்கவும்",
+  },
+};
+
 export default function SahayakPage() {
+  const { lang: selectedLanguage, setLang } = useLanguage();
+  const [showLanguagePicker, setShowLanguagePicker] = useState(false);
+
   const [tabs, setTabs] = useState<TabData[]>([]);
   const [sections, setSections] = useState<TabData[]>([]);
   const [allVideos, setAllVideos] = useState<PostVideo[]>([]);
@@ -58,26 +91,11 @@ export default function SahayakPage() {
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [selectedLanguage, setSelectedLanguage] = useState<string>("en");
 
-  // Load language preference from localStorage
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(LS_SAHAYAK_LANGUAGE);
-      if (saved) setSelectedLanguage(saved);
-    } catch (e) {
-      /* ignore */
-    }
-  }, []);
-
-  // Save language preference to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_SAHAYAK_LANGUAGE, selectedLanguage);
-    } catch (e) {
-      /* ignore */
-    }
-  }, [selectedLanguage]);
+  // Helper to get UI text in current language
+  const t = (key: keyof typeof UI_TRANSLATIONS.en): string => {
+    return UI_TRANSLATIONS[selectedLanguage]?.[key] || UI_TRANSLATIONS.en[key] || key;
+  };
 
   // 1) Load tabs with translations
   useEffect(() => {
@@ -145,14 +163,17 @@ export default function SahayakPage() {
     (async () => {
       setLoadingLinks(true);
       try {
-        const q = `/api/help-links?limit=500`;
+        const q = `/api/help-links`;
         const r = await fetch(q);
         const json = await r.json();
-        const links = json?.ok ? (json.data as HelpLink[]) : [];
+        console.log("Help links response:", json);
+        const links = json?.ok ? (json.data as HelpLink[]) : (json.links as HelpLink[]) || [];
         if (alive) setAllLinks(links);
       } catch (e) {
         console.error("Error fetching links", e);
         if (alive) setAllLinks([]);
+      } finally {
+        if (alive) setLoadingLinks(false);
       }
     })();
     return () => {
@@ -223,7 +244,7 @@ export default function SahayakPage() {
     const links = getLinksForSection(sectionSlug);
     if (links.length === 0) {
       return (
-        <div className="text-sm text-gray-500">No official links configured</div>
+        <div className="text-sm text-gray-500">{t("noLinks")}</div>
       );
     }
 
@@ -263,22 +284,13 @@ export default function SahayakPage() {
         {/* Header with Language Selector */}
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold">Digital Sahayak</h1>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg border border-white/20">
-              <Globe className="w-4 h-4 text-blue-400" />
-              <select
-                value={selectedLanguage}
-                onChange={(e) => setSelectedLanguage(e.target.value)}
-                className="bg-transparent text-white text-sm font-medium outline-none cursor-pointer"
-              >
-                {SUPPORTED_LANGUAGES.map((lang) => (
-                  <option key={lang.code} value={lang.code} className="bg-gray-900">
-                    {lang.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          <button
+            onClick={() => setShowLanguagePicker(true)}
+            className="flex items-center gap-2 bg-white/10 px-4 py-2 rounded-lg border border-white/20 hover:border-white/40 transition"
+          >
+            <Globe className="w-4 h-4 text-blue-400" />
+            <span className="text-sm font-medium">{selectedLanguage.toUpperCase()}</span>
+          </button>
         </div>
 
         {sections.map((sec) => {
@@ -304,17 +316,11 @@ export default function SahayakPage() {
                 <div className="p-5 bg-white text-black space-y-6">
                   {/* Videos Section */}
                   <div>
-                    <h3 className="font-semibold text-lg mb-3">
-                      {selectedLanguage === "en" ? "Video Tutorials" : "भिडियो ट्यूटोरियल"}
-                    </h3>
+                    <h3 className="font-semibold text-lg mb-3">{t("videoTutorials")}</h3>
                     {loadingVideos ? (
-                      <div className="text-gray-500">
-                        {selectedLanguage === "en" ? "Loading videos…" : "भिडियो लोड हो रहा है..."}
-                      </div>
+                      <div className="text-gray-500">{t("loadingVideos")}</div>
                     ) : videos.length === 0 ? (
-                      <div className="text-gray-500">
-                        {selectedLanguage === "en" ? "No videos available" : "कोई भिडियो उपलब्ध नहीं है"}
-                      </div>
+                      <div className="text-gray-500">{t("noVideos")}</div>
                     ) : (
                       <div className="flex gap-3 overflow-x-auto pb-2">
                         {videos.map((p) => renderVideoCard(p))}
@@ -324,13 +330,9 @@ export default function SahayakPage() {
 
                   {/* Help Links Section */}
                   <div className="border-t pt-6">
-                    <h3 className="font-semibold text-lg mb-3">
-                      {selectedLanguage === "en" ? "Official Links" : "आधिकारिक लिंक"}
-                    </h3>
+                    <h3 className="font-semibold text-lg mb-3">{t("officialLinks")}</h3>
                     {loadingLinks ? (
-                      <div className="text-gray-500">
-                        {selectedLanguage === "en" ? "Loading links…" : "लिंक लोड हो रहे हैं..."}
-                      </div>
+                      <div className="text-gray-500">{t("loadingLinks")}</div>
                     ) : (
                       renderHelpLinks(sec.slug)
                     )}
@@ -341,6 +343,17 @@ export default function SahayakPage() {
           );
         })}
       </div>
+
+      {/* Language Picker Modal */}
+      {showLanguagePicker && (
+        <LanguagePicker
+          onSelect={(code) => {
+            setLang(code);
+            setShowLanguagePicker(false);
+          }}
+          onClose={() => setShowLanguagePicker(false)}
+        />
+      )}
     </div>
   );
 }
