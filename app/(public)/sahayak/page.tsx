@@ -1,8 +1,11 @@
-// app/sahayak/page.tsx
+// app/sahayak/page.tsx - UPDATED
 "use client";
 
 import React, { useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
+
+// ✅ Import the tag matching config
+import { SECTION_TAG_MAPPINGS, doesPostMatchSection } from "@/lib/sectionTagMappings";
 
 interface TabData {
   tabId: string;
@@ -38,8 +41,8 @@ interface HelpLink {
 export default function SahayakPage() {
   const [tabs, setTabs] = useState<TabData[]>([]);
   const [sections, setSections] = useState<TabData[]>([]);
-  const [videosBySection, setVideosBySection] = useState<Record<string, PostVideo[]>>({});
-  const [linksBySection, setLinksBySection] = useState<Record<string, HelpLink[]>>({});
+  const [allVideos, setAllVideos] = useState<PostVideo[]>([]);
+  const [allLinks, setAllLinks] = useState<HelpLink[]>([]);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -79,48 +82,22 @@ export default function SahayakPage() {
     };
   }, []);
 
-  // 2) Fetch videos for each section (using related slugs)
+  // 2) Fetch ALL videos once, then filter by section on render
   useEffect(() => {
-    if (!sections || sections.length === 0 || !tabs.length) return;
+    if (!sections || sections.length === 0) return;
     let alive = true;
     (async () => {
       setLoadingVideos(true);
       try {
-        const fetches = sections.map(async (sec) => {
-          const related = new Set<string>();
-          related.add(sec.slug);
-
-          const secCat = (sec as any).category;
-          if (secCat) {
-            tabs.forEach((t) => {
-              if ((t as any).category === secCat) related.add(t.slug);
-            });
-          }
-
-          tabs.forEach((t) => {
-            if (t.slug.startsWith(`${sec.slug}-`)) related.add(t.slug);
-          });
-
-          const slugsArr = Array.from(related);
-          if (slugsArr.length === 0) return { slug: sec.slug, videos: [] };
-
-          const q = `/api/posts?tabSlugs=${encodeURIComponent(slugsArr.join(","))}&media=video&limit=50`;
-          const r = await fetch(q);
-          const json = await r.json();
-          const videos = json?.ok ? (json.data as PostVideo[]) : json.posts || [];
-          return { slug: sec.slug, videos };
-        });
-
-        const results = await Promise.all(fetches);
-        if (!alive) return;
-
-        const mapping: Record<string, PostVideo[]> = {};
-        results.forEach((res) => {
-          mapping[res.slug] = res.videos || [];
-        });
-        setVideosBySection(mapping);
+        // ✅ Fetch all videos (no slug filtering)
+        const q = `/api/posts?media=video&limit=500`;
+        const r = await fetch(q);
+        const json = await r.json();
+        const videos = json?.ok ? (json.data as PostVideo[]) : json.posts || [];
+        if (alive) setAllVideos(videos);
       } catch (e) {
-        console.error("Error fetching section videos", e);
+        console.error("Error fetching videos", e);
+        if (alive) setAllVideos([]);
       } finally {
         if (alive) setLoadingVideos(false);
       }
@@ -128,60 +105,46 @@ export default function SahayakPage() {
     return () => {
       alive = false;
     };
-  }, [sections, tabs]);
+  }, [sections]);
 
-  // 3) Fetch help links for each section
+  // 3) Fetch ALL help links once, then filter by section on render
   useEffect(() => {
-    if (!sections || sections.length === 0 || !tabs.length) return;
+    if (!sections || sections.length === 0) return;
     let alive = true;
     (async () => {
       setLoadingLinks(true);
       try {
-        const fetches = sections.map(async (sec) => {
-          const related = new Set<string>();
-          related.add(sec.slug);
-
-          const secCat = (sec as any).category;
-          if (secCat) {
-            tabs.forEach((t) => {
-              if ((t as any).category === secCat) related.add(t.slug);
-            });
-          }
-
-          tabs.forEach((t) => {
-            if (t.slug.startsWith(`${sec.slug}-`)) related.add(t.slug);
-          });
-
-          const slugsArr = Array.from(related);
-          if (slugsArr.length === 0) return { slug: sec.slug, links: [] };
-
-          const q = `/api/help-links?tabSlugs=${encodeURIComponent(slugsArr.join(","))}`;
-          console.log(`[Sahayak] Fetching links for ${sec.slug}:`, q);
-          const r = await fetch(q);
-          const json = await r.json();
-          console.log(`[Sahayak] Links response for ${sec.slug}:`, json);
-          const links = json?.ok ? (json.data as HelpLink[]) : [];
-          return { slug: sec.slug, links };
-        });
-
-        const results = await Promise.all(fetches);
-        if (!alive) return;
-
-        const mapping: Record<string, HelpLink[]> = {};
-        results.forEach((res) => {
-          mapping[res.slug] = res.links || [];
-        });
-        setLinksBySection(mapping);
+        // ✅ Fetch all links (no slug filtering)
+        const q = `/api/help-links?limit=500`;
+        const r = await fetch(q);
+        const json = await r.json();
+        const links = json?.ok ? (json.data as HelpLink[]) : [];
+        if (alive) setAllLinks(links);
       } catch (e) {
-        console.error("Error fetching section links", e);
-      } finally {
-        if (alive) setLoadingLinks(false);
+        console.error("Error fetching links", e);
+        if (alive) setAllLinks([]);
       }
     })();
     return () => {
       alive = false;
     };
-  }, [sections, tabs]);
+  }, [sections]);
+
+  // ✅ NEW: Filter videos for a specific section based on tag matching
+  const getVideosForSection = (sectionSlug: string): PostVideo[] => {
+    return allVideos.filter(video => {
+      const postTags = video.slugTags || [];
+      return doesPostMatchSection(postTags, sectionSlug);
+    });
+  };
+
+  // ✅ NEW: Filter links for a specific section based on tag matching
+  const getLinksForSection = (sectionSlug: string): HelpLink[] => {
+    return allLinks.filter(link => {
+      const linkTags = link.slugTags || [];
+      return doesPostMatchSection(linkTags, sectionSlug);
+    });
+  };
 
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -226,8 +189,8 @@ export default function SahayakPage() {
     );
   }
 
-  function renderHelpLinks(slug: string) {
-    const links = linksBySection[slug] || [];
+  function renderHelpLinks(sectionSlug: string) {
+    const links = getLinksForSection(sectionSlug);
     if (links.length === 0) {
       return (
         <div className="text-sm text-gray-500">No official links configured</div>
@@ -272,8 +235,7 @@ export default function SahayakPage() {
         </div>
 
         {sections.map((sec) => {
-          const videos = videosBySection[sec.slug] || [];
-          const links = linksBySection[sec.slug] || [];
+          const videos = getVideosForSection(sec.slug);
           const isOpen = expanded[sec.slug] ?? true;
           const title = sec.translation?.title || sec.enTitle;
 
