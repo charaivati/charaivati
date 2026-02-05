@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Mail, Lock, User } from "lucide-react";
 
@@ -493,7 +494,10 @@ function AuthForm() {
 
         {/* Footer */}
         <p className="text-center text-xs text-gray-500 mt-6">
-          By continuing, you agree to our terms of service
+          By continuing, you agree to our {" "}
+          <Link href="/terms-of-service" className="underline hover:text-gray-300">
+            terms of service
+          </Link>
         </p>
       </div>
     </main>
