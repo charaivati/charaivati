@@ -36,6 +36,8 @@ export type CurrentUser = {
   avatarUrl?: string | null;
 };
 
+const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
 /* ------------------------
    JWT helpers
    ------------------------ */
@@ -134,6 +136,7 @@ export async function getCurrentUser(req?: Request): Promise<CurrentUser | null>
 
     const payload = await verifySessionToken(token);
     if (!payload || !payload.userId) return null;
+    if (payload.role === "guest" && !READ_METHODS.has(req.method)) return null;
 
     const user = await db.user.findUnique({
       where: { id: payload.userId },
