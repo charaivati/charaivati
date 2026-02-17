@@ -1,6 +1,6 @@
 // components/FeatureGate.tsx
 "use client";
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 
 export type FeatureGateProps = {
   flagKey: string;
@@ -14,8 +14,6 @@ export type FeatureGateProps = {
 };
 
 const LOCAL_OVERRIDE_PREFIX = "charaivati.feature.override:";
-const AUTO_HIDE_MS = 100_000; // 10 seconds
-
 export default function FeatureGate({
   flagKey,
   flags,
@@ -29,8 +27,6 @@ export default function FeatureGate({
   const enabled = !!(flags && flags[flagKey] && flags[flagKey].enabled);
 
   const [localOverride, setLocalOverride] = useState(false);
-  const [timerVisible, setTimerVisible] = useState(false);
-  const inactivityTimer = useRef<NodeJS.Timeout | null>(null);
 
   // Load stored override
   useEffect(() => {
@@ -40,41 +36,6 @@ export default function FeatureGate({
     } catch {}
   }, [flagKey]);
 
-  // --- Inactivity tracking logic ---
-  useEffect(() => {
-    if (!localOverride) return;
-
-    let timer: NodeJS.Timeout | null = null;
-    let lastActivity = Date.now();
-
-    const resetTimer = () => {
-      lastActivity = Date.now();
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        const now = Date.now();
-        if (now - lastActivity >= AUTO_HIDE_MS) {
-          clearLocalView();
-        }
-      }, AUTO_HIDE_MS);
-    };
-
-    const handleActivity = () => resetTimer();
-
-    window.addEventListener("mousemove", handleActivity);
-    window.addEventListener("keydown", handleActivity);
-    window.addEventListener("scroll", handleActivity);
-    resetTimer();
-    setTimerVisible(true);
-
-    return () => {
-      if (timer) clearTimeout(timer);
-      window.removeEventListener("mousemove", handleActivity);
-      window.removeEventListener("keydown", handleActivity);
-      window.removeEventListener("scroll", handleActivity);
-      setTimerVisible(false);
-    };
-  }, [localOverride]);
-
   // Toggle functions
   function enableLocalView() {
     try {
@@ -82,40 +43,12 @@ export default function FeatureGate({
       setLocalOverride(true);
     } catch {}
   }
-  function clearLocalView() {
-    try {
-      localStorage.removeItem(LOCAL_OVERRIDE_PREFIX + flagKey);
-      setLocalOverride(false);
-    } catch {}
-  }
-
   const isVisible = enabled || localOverride;
 
   if (isVisible) {
     return (
       <div className="relative">
-        {!enabled && localOverride && (
-          <div className="mb-4 p-3 rounded bg-yellow-900/30 border border-yellow-900 text-yellow-200">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-sm">
-                Viewing via <strong>local override</strong> — will auto-hide after{" "}
-                <span className="font-semibold text-yellow-100">100s</span> of inactivity.
-              </div>
-              <button
-                className="text-xs px-3 py-1 rounded bg-gray-700 hover:bg-gray-600"
-                onClick={clearLocalView}
-              >
-                Hide now
-              </button>
-            </div>
-          </div>
-        )}
         {children}
-        {timerVisible && localOverride && (
-          <div className="absolute bottom-2 right-2 text-xs text-yellow-400 opacity-70">
-            (Auto-hide timer active)
-          </div>
-        )}
       </div>
     );
   }
@@ -148,9 +81,6 @@ export default function FeatureGate({
           </a>
         </div>
 
-        <div className="text-xs text-gray-400 mt-3">
-          Note: this view hides automatically after inactivity to keep things tidy.
-        </div>
       </div>
     </div>
   );
