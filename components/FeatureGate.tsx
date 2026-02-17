@@ -43,13 +43,6 @@ export default function FeatureGate({
       setLocalOverride(true);
     } catch {}
   }
-  function clearLocalView() {
-    try {
-      localStorage.removeItem(LOCAL_OVERRIDE_PREFIX + flagKey);
-      setLocalOverride(false);
-    } catch {}
-  }
-
   const isVisible = enabled || localOverride;
 
   if (isVisible) {
