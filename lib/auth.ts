@@ -28,6 +28,7 @@ export type SessionPayload = {
   sub?: string;
   userId?: string;
   email?: string | null;
+  role?: string;
   iat?: number;
   exp?: number;
   type?: "session" | "magic";
@@ -38,6 +39,7 @@ export type SessionPayload = {
 export type NormalizedSession = {
   id: string;
   email?: string | null;
+  role?: string;
   iat?: number;
   exp?: number;
   type: "session" | "magic";
@@ -95,6 +97,7 @@ export function verifySessionToken(token: string): NormalizedSession | null {
     return {
       id: userId,
       email: payload.email ?? null,
+      role: payload.role,
       iat: payload.iat,
       exp: payload.exp,
       type: "session",
@@ -176,6 +179,10 @@ export async function getUserFromReq(
 
     const session = verifySessionToken(token);
     if (!session?.id) return null;
+    const method = (req as any)?.method;
+    if (session.role === "guest" && method && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      return null;
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: session.id },

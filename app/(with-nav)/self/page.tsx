@@ -3,7 +3,6 @@ import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
-import FeatureGate from "@/components/FeatureGate";
 
 // ---------------------------
 // Types for tab props
@@ -23,9 +22,9 @@ const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), {
 
 const SocialTab = dynamic(() => import("./tabs/SocialTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
 
-const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<{}>;
+const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
 
-const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<{}>;
+const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
 
 
 // ---------------------------
@@ -42,29 +41,6 @@ function SelfPageContent() {
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<ActiveKind>("personal");
-
-  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
-  const [flagsLoading, setFlagsLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setFlagsLoading(true);
-        const res = await fetch("/api/feature-flags", { cache: "no-store" });
-        const json = await res.json().catch(() => null);
-        if (!alive) return;
-        if (json?.ok) setFlags(json.flags || {});
-        else setFlags({});
-      } catch (err) {
-        console.warn("Failed to load feature flags", err);
-        setFlags({});
-      } finally {
-        if (alive) setFlagsLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
 
   function normalizeTabValue(raw: string): ActiveKind {
     const s = String(raw || "").toLowerCase().trim();
@@ -100,7 +76,7 @@ function SelfPageContent() {
       console.error("[SelfPage] Error reading context:", e);
       setActive("personal");
     }
-  }, [tabParamRaw, mounted, ctx?.activeTabs?.[layerId]]);
+  }, [tabParamRaw, mounted, ctx?.activeTabs, layerId]);
 
   useEffect(() => {
     let alive = true;
@@ -135,28 +111,6 @@ function SelfPageContent() {
     return () => { alive = false; controller.abort(); };
   }, []);
 
-  const keys = {
-    layer: "layer.self",
-    personal: "layer.self.personal",
-    social: "layer.self.social",
-    learn: "layer.self.learn",
-    earn: "layer.self.earn",
-  };
-
-  function isAllowed(perKey: string | null) {
-    if (!flags) return false;
-    const layerFlag = flags[keys.layer];
-    if (layerFlag && !layerFlag.enabled) return false;
-    if (!perKey) return true;
-    const pk = flags[perKey];
-    if (pk === undefined) return true;
-    return !!pk.enabled;
-  }
-
-  if (flagsLoading) {
-    return <div className="p-8 text-center text-gray-400">Loading self features…</div>;
-  }
-
   return (
     <>
       <div className="flex items-start justify-between mb-6">
@@ -176,9 +130,7 @@ function SelfPageContent() {
 
       <div className="max-w-3xl mx-auto">
         {active === "personal" && (
-          <FeatureGate flagKey={keys.personal} flags={flags} showPlaceholder={true}>
-            <SelfTab profile={profile} />
-          </FeatureGate>
+          <SelfTab profile={profile} />
         )}
 
         {active === "social" && (
@@ -186,9 +138,7 @@ function SelfPageContent() {
         )}
 
         {active === "learn" && (
-          <FeatureGate flagKey={keys.learn} flags={flags} showPlaceholder={true}>
-            <LearningTab />
-          </FeatureGate>
+          <LearningTab />
         )}
 
         {active === "earn" && (
