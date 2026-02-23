@@ -2,9 +2,7 @@
 "use client";
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter, useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
-import FeatureGate from "@/components/FeatureGate";
 
 const WorldViewTab = dynamic(() => import("./tabs/WorldViewTab"), { ssr: false });
 const HumanStoriesTab = dynamic(() => import("./tabs/HumanStoriesTab"), { ssr: false });
@@ -14,72 +12,12 @@ const KnowledgeTab = dynamic(() => import("./tabs/KnowledgeTab"), { ssr: false }
 type GlobalSelection = { region?: string; focus?: string };
 
 function EarthPageContent() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const tabParam = (searchParams?.get("tab") || "").toLowerCase().trim();
   const ctx = useLayerContext();
   const LS_KEY = "charaivati.selectedGlobal";
 
-  const [active, setActive] = useState<"worldview" | "human" | "collaborate" | "knowledge">("worldview");
   const [selection, setSelection] = useState<GlobalSelection | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
 
-  // Feature flags
-  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
-  const [flagsLoading, setFlagsLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setFlagsLoading(true);
-        const res = await fetch("/api/feature-flags", { cache: "no-store" });
-        const json = await res.json().catch(() => null);
-        if (!alive) return;
-        if (json?.ok) setFlags(json.flags || {});
-        else setFlags({});
-      } catch (err) {
-        console.warn("Failed to load feature flags", err);
-        setFlags({});
-      } finally {
-        if (alive) setFlagsLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (tabParam) {
-      switch (tabParam) {
-        case "human":
-        case "humanstories":
-          setActive("human");
-          break;
-        case "collaborate":
-        case "act":
-          setActive("collaborate");
-          break;
-        case "knowledge":
-        case "tools":
-          setActive("knowledge");
-          break;
-        default:
-          setActive("worldview");
-      }
-      return;
-    }
-    const layerId = "layer-earth";
-    const ctxTab = ctx?.activeTabs?.[layerId];
-    if (ctxTab) {
-      const t = String(ctxTab).toLowerCase();
-      if (t.includes("human")) setActive("human");
-      else if (t.includes("collaborate") || t.includes("act")) setActive("collaborate");
-      else if (t.includes("knowledge") || t.includes("tools")) setActive("knowledge");
-      else setActive("worldview");
-    }
-  }, [tabParam, ctx?.activeTabs]);
 
   useEffect(() => {
     try {
@@ -117,27 +55,6 @@ function EarthPageContent() {
   const showHuman = String(activeTabId || "").toLowerCase().includes("human");
   const showCollaborate = String(activeTabId || "").toLowerCase().includes("collab");
   const showKnowledge = String(activeTabId || "").toLowerCase().includes("knowledge");
-
-  // Flag keys
-  const keys = {
-    worldview: "layer.earth.worldview",
-    human: "layer.earth.humanstories",
-    collaborate: "layer.earth.collaborate",
-    knowledge: "layer.earth.knowledge",
-    layer: "layer.earth",
-  };
-
-  if (flagsLoading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-400">Loading Earth features...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       {/* Page Header */}
@@ -153,30 +70,22 @@ function EarthPageContent() {
       <div className="space-y-6">
         {/* World View */}
         {showWorldView && (
-          <FeatureGate flagKey={keys.worldview} flags={flags} showPlaceholder={true}>
-            <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-          </FeatureGate>
+          <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />
         )}
 
         {/* Human Stories */}
         {showHuman && (
-          <FeatureGate flagKey={keys.human} flags={flags} showPlaceholder={true}>
-            <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-          </FeatureGate>
+          <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />
         )}
 
         {/* Collaborate */}
         {showCollaborate && (
-          <FeatureGate flagKey={keys.collaborate} flags={flags} showPlaceholder={true}>
-            <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-          </FeatureGate>
+          <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />
         )}
 
         {/* Knowledge */}
         {showKnowledge && (
-          <FeatureGate flagKey={keys.knowledge} flags={flags} showPlaceholder={true}>
-            <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-          </FeatureGate>
+          <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />
         )}
       </div>
 
