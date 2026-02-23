@@ -1,16 +1,9 @@
-// components/FeatureGate.tsx
 "use client";
 import React, { useEffect, useState } from "react";
+import React from "react";
 
 export type FeatureGateProps = {
-  flagKey: string;
-  flags: Record<string, { enabled: boolean; meta?: any }> | null | undefined;
-  fallback?: React.ReactNode;
   children?: React.ReactNode;
-  allowLocalOverride?: boolean;
-  showPlaceholder?: boolean;
-  placeholderTitle?: string;
-  placeholderBody?: string;
 };
 
 const LOCAL_OVERRIDE_PREFIX = "charaivati.feature.override:";
@@ -40,4 +33,6 @@ export default function FeatureGate({
   // Intentionally suppressing "Under development" placeholder globally.
   if (fallback) return <>{fallback}</>;
   return null;
+export default function FeatureGate({ children }: FeatureGateProps) {
+  return <>{children}</>;
 }
