@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 
 type ProfileProp = { profile?: any };
+type ActiveKind = "personal" | "social" | "learn" | "earn";
 
 type ActiveKind = "personal" | "social" | "learn" | "earn";
 
@@ -78,7 +79,7 @@ function SelfPageContent() {
           <h3 className="text-lg font-semibold capitalize">{active} Overview</h3>
           <p className="text-sm text-gray-300 mt-1">
             {loading
-              ? "Loading…"
+              ? "Loading..."
               : profile
                 ? `Steps today: ${profile.stepsToday ?? "—"} • Sleep: ${profile.sleepHours ?? "—"}h • Water: ${profile.waterLitres ?? "—"}L`
                 : "No stats yet — click Edit to add your health & profile data."}
@@ -98,7 +99,7 @@ function SelfPageContent() {
 
 export default function SelfPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center">Loading your profile…</div>}>
+    <Suspense fallback={<div className="p-8 text-center">Loading your profile...</div>}>
       <SelfPageContent />
     </Suspense>
   );

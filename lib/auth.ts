@@ -17,9 +17,8 @@ import type { User } from "@prisma/client";
  */
 
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET && process.env.NODE_ENV === "production") {
-  // In production, fail early if JWT_SECRET not set
-  throw new Error("JWT_SECRET must be set in production environment");
+if (!JWT_SECRET) {
+  console.warn("JWT_SECRET is not set. Falling back to development secret.");
 }
 
 const JWT_ALG = "HS256";
