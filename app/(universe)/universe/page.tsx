@@ -3,8 +3,7 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Stars, Sparkles, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import { useRef, Suspense, useEffect, useState } from "react";
-import FeatureGate from "@/components/FeatureGate";
+import { useRef, Suspense } from "react";
 
 function Galaxy() {
   const groupRef = useRef<THREE.Group>(null);
@@ -47,85 +46,42 @@ function LayeredStars({ radius, depth, count, factor, speed, rotationZ }: any) {
 }
 
 export default function UniversePage() {
-  // load flags
-  const [flags, setFlags] = useState<Record<string, { enabled: boolean; meta?: any }> | null>(null);
-  const [flagsLoading, setFlagsLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setFlagsLoading(true);
-        const res = await fetch("/api/feature-flags", { cache: "no-store" });
-        const json = await res.json().catch(() => null);
-        if (!alive) return;
-        if (json?.ok) setFlags(json.flags || {});
-        else setFlags({});
-      } catch (err) {
-        console.warn("Failed to load feature flags", err);
-        setFlags({});
-      } finally {
-        if (alive) setFlagsLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const keys = {
-    layer: "layer.universe",
-  };
-
-  if (flagsLoading) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#000", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div className="text-center">
-          <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-sm text-gray-400">Loading universe view...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <FeatureGate flagKey={keys.layer} flags={flags} showPlaceholder={true}>
-      <div style={{ position: "fixed", inset: 0, background: "#000000", touchAction: "manipulation" }}>
-        <Canvas camera={{ position: [0, 0, 80], fov: 60 }} gl={{ antialias: true }}>
-          <ambientLight intensity={0.18} />
-          <pointLight position={[10, 10, 10]} intensity={1.0} />
-          <Suspense fallback={null}>
-            <Galaxy />
-          </Suspense>
-          <OrbitControls enableZoom enablePan={false} minDistance={20} maxDistance={200} autoRotate autoRotateSpeed={0.16} />
-        </Canvas>
+    <div style={{ position: "fixed", inset: 0, background: "#000000", touchAction: "manipulation" }}>
+      <Canvas camera={{ position: [0, 0, 80], fov: 60 }} gl={{ antialias: true }}>
+        <ambientLight intensity={0.18} />
+        <pointLight position={[10, 10, 10]} intensity={1.0} />
+        <Suspense fallback={null}>
+          <Galaxy />
+        </Suspense>
+        <OrbitControls enableZoom enablePan={false} minDistance={20} maxDistance={200} autoRotate autoRotateSpeed={0.16} />
+      </Canvas>
 
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: 20,
+          pointerEvents: "none",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
         <div
           style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: 20,
+            textAlign: "center",
+            color: "#eaf2ff",
+            fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
+            textShadow: "0 2px 20px rgba(0,0,0,0.9)",
             pointerEvents: "none",
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
           }}
         >
-          <div
-            style={{
-              textAlign: "center",
-              color: "#eaf2ff",
-              fontFamily: "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
-              textShadow: "0 2px 20px rgba(0,0,0,0.9)",
-              pointerEvents: "none",
-            }}
-          >
-            <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: 1.2 }}>Cosmic Explorer</div>
-            <div style={{ fontSize: 12, marginTop: 6, opacity: 0.8 }}>Science • Spirituality • Simulation</div>
-          </div>
+          <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: 1.2 }}>Cosmic Explorer</div>
+          <div style={{ fontSize: 12, marginTop: 6, opacity: 0.8 }}>Science • Spirituality • Simulation</div>
         </div>
       </div>
-    </FeatureGate>
+    </div>
   );
 }
