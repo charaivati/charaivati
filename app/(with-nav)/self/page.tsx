@@ -1,5 +1,6 @@
 "use client";
-import React, { Suspense, useEffect, useState } from "react";
+
+import React, { Suspense, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
@@ -8,39 +9,32 @@ import { useLayerContext } from "@/components/LayerContext";
 // Types for tab props
 // ---------------------------
 
-
-// ---------------------------
-// Dynamic imports
-// ---------------------------
-// Note: loader returns `mod.default as React.FC<Props>` so the returned type
-// matches the generic `React.FC<Props>`.
-// types for tab props
 type ProfileProp = { profile?: any };
 
-// import dynamic normally, then assert the resulting component type
-const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
+type ActiveKind = "personal" | "social" | "learn" | "earn";
 
+const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
 const SocialTab = dynamic(() => import("./tabs/SocialTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
+const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
+const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
 
 const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
 
 const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
 
 
-// ---------------------------
-type ActiveKind = "personal" | "social" | "learn" | "earn";
+  if (s.includes("social")) return "social";
+  if (s.includes("learn")) return "learn";
+  if (s.includes("earn")) return "earn";
+  return "personal";
+}
 
 function SelfPageContent() {
   const searchParams = useSearchParams();
   const tabParamRaw = searchParams?.get("tab") ?? "";
-  const ctx = useLayerContext();
-  const layerId = "layer-self";
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
 
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState<ActiveKind>("personal");
 
   function normalizeTabValue(raw: string): ActiveKind {
     const s = String(raw || "").toLowerCase().trim();
@@ -81,6 +75,7 @@ function SelfPageContent() {
   useEffect(() => {
     let alive = true;
     const controller = new AbortController();
+
     (async () => {
       try {
         setLoading(true);
@@ -90,40 +85,38 @@ function SelfPageContent() {
           headers: { Accept: "application/json" },
           signal: controller.signal,
         });
+
         if (!alive) return;
+
         if (res.status === 401) {
           setProfile(null);
           setLoading(false);
           return;
         }
+
         const data = await res.json().catch(() => null);
         if (!alive) return;
         if (data?.ok) setProfile(data.profile || null);
       } catch (err) {
-        if ((err as any)?.name === "AbortError") {
-        } else {
+        if ((err as any)?.name !== "AbortError") {
           console.error("[SelfPage] profile fetch error", err);
         }
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; controller.abort(); };
-  }, []);
 
   return (
     <>
       <div className="flex items-start justify-between mb-6">
         <div className="text-left">
-          <h3 className="text-lg font-semibold">
-            {active === "personal" ? "Personal" : active === "social" ? "Social" : active === "learn" ? "Learn" : "Earn"} Overview
-          </h3>
+          <h3 className="text-lg font-semibold capitalize">{active} Overview</h3>
           <p className="text-sm text-gray-300 mt-1">
             {loading
               ? "Loading…"
               : profile
-              ? `Steps today: ${profile.stepsToday ?? "—"} • Sleep: ${profile.sleepHours ?? "—"}h • Water: ${profile.waterLitres ?? "—"}L`
-              : "No stats yet — click Edit to add your health & profile data."}
+                ? `Steps today: ${profile.stepsToday ?? "—"} • Sleep: ${profile.sleepHours ?? "—"}h • Water: ${profile.waterLitres ?? "—"}L`
+                : "No stats yet — click Edit to add your health & profile data."}
           </p>
         </div>
       </div>
