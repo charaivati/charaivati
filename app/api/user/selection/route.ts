@@ -17,6 +17,7 @@ export async function POST(req: Request) {
 
     const session = verifySessionToken(token);
     if (!session) return NextResponse.json({ ok: false, error: "invalid" }, { status: 401 });
+    if (session.role === "guest") return NextResponse.json({ ok: false, error: "guest_readonly" }, { status: 403 });
 
     const currentUser: CurrentUser = { id: session.id, email: session.email };
 
