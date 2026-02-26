@@ -1,102 +1,137 @@
 "use client";
 
-import React, { Suspense, useEffect, useMemo, useState } from "react";
-import dynamic from "next/dynamic";
-import { useSearchParams } from "next/navigation";
+import React, { useMemo, useState } from "react";
 
-type ProfileProp = { profile?: any };
-type ActiveKind = "personal" | "social" | "learn" | "earn";
+type Field = {
+  key: string;
+  label: string;
+  tooltip: string;
+};
 
-const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
-const SocialTab = dynamic(() => import("./tabs/SocialTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
-const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
-const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
+type Section = {
+  id: string;
+  title: string;
+  subtitle: string;
+  fields: Field[];
+};
 
-function normalizeTabValue(raw: string): ActiveKind {
-  const s = String(raw || "").toLowerCase().trim();
-  if (s.includes("social")) return "social";
-  if (s.includes("learn")) return "learn";
-  if (s.includes("earn")) return "earn";
-  return "personal";
+const sections: Section[] = [
+  {
+    id: "basic",
+    title: "Basic Living Costs",
+    subtitle: "Core monthly needs",
+    fields: [
+      { key: "rent", label: "Rent / Housing", tooltip: "Monthly rent or EMI." },
+      { key: "groceries", label: "Groceries", tooltip: "Food & essentials." },
+      { key: "utilities", label: "Utilities", tooltip: "Electricity, internet, etc." },
+      { key: "transport", label: "Transport", tooltip: "Fuel & travel." },
+    ],
+  },
+];
+
+const allFields = sections.flatMap((s) => s.fields);
+
+function formatINR(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(value) ? value : 0);
 }
 
-function SelfPageContent() {
-  const searchParams = useSearchParams();
-  const tabParamRaw = searchParams?.get("tab") ?? "";
+function parseAmount(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
 
-  const [profile, setProfile] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
-  const active = useMemo<ActiveKind>(() => normalizeTabValue(tabParamRaw), [tabParamRaw]);
+export default function SelfTab() {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [taxRate, setTaxRate] = useState("20");
+  const [bufferPercent, setBufferPercent] = useState("10");
+  const [showEstimator, setShowEstimator] = useState(false);
+  const [desiredMonthlyIncome, setDesiredMonthlyIncome] = useState("0");
 
-  useEffect(() => {
-    let alive = true;
-    const controller = new AbortController();
-
-    (async () => {
-      try {
-        setLoading(true);
-        const res = await fetch("/api/user/profile", {
-          method: "GET",
-          credentials: "include",
-          headers: { Accept: "application/json" },
-          signal: controller.signal,
-        });
-
-        if (!alive) return;
-
-        if (res.status === 401) {
-          setProfile(null);
-          setLoading(false);
-          return;
-        }
-
-        const data = await res.json().catch(() => null);
-        if (!alive) return;
-        if (data?.ok) setProfile(data.profile || null);
-      } catch (err) {
-        if ((err as any)?.name !== "AbortError") {
-          console.error("[SelfPage] profile fetch error", err);
-        }
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-
-    return () => {
-      alive = false;
-      controller.abort();
-    };
-  }, []);
-
-  return (
-    <>
-      <div className="flex items-start justify-between mb-6">
-        <div className="text-left">
-          <h3 className="text-lg font-semibold capitalize">{active} Overview</h3>
-          <p className="text-sm text-gray-300 mt-1">
-            {loading
-              ? "Loading..."
-              : profile
-                ? `Steps today: ${profile.stepsToday ?? "-"} | Sleep: ${profile.sleepHours ?? "-"}h | Water: ${profile.waterLitres ?? "-"}L`
-                : "No stats yet - click Edit to add your health and profile data."}
-          </p>
-        </div>
-      </div>
-
-      <div className="max-w-3xl mx-auto">
-        {active === "personal" && <SelfTab profile={profile} />}
-        {active === "social" && <SocialTab profile={profile} />}
-        {active === "learn" && <LearningTab />}
-        {active === "earn" && <EarningTab />}
-      </div>
-    </>
+  const totalMonthlyExpense = useMemo(
+    () => allFields.reduce((sum, f) => sum + parseAmount(values[f.key] ?? ""), 0),
+    [values]
   );
-}
 
-export default function SelfPage() {
+  const safeTaxRate = Math.min(Math.max(Number(taxRate) / 100 || 0, 0), 0.95);
+  const safeBuffer = Math.max(Number(bufferPercent) / 100 || 0, 0);
+
+  const survivalIncome = totalMonthlyExpense / (1 - safeTaxRate || 1);
+  const stableIncome = survivalIncome * (1 + safeBuffer);
+
+  function updateValue(key: string, value: string) {
+    setValues((prev) => ({ ...prev, [key]: value }));
+  }
+
   return (
-    <Suspense fallback={<div className="p-8 text-center">Loading your profile...</div>}>
-      <SelfPageContent />
-    </Suspense>
+    <div className="text-white space-y-6">
+
+      {/* Desired Income Block */}
+      <div className="rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
+        <h2 className="text-xl font-semibold">Desired Monthly Income</h2>
+
+        <div className="mt-4 grid md:grid-cols-2 gap-4">
+          <input
+            type="number"
+            min={0}
+            value={desiredMonthlyIncome}
+            onChange={(e) => setDesiredMonthlyIncome(e.target.value)}
+            className="p-3 rounded-lg bg-white/10 border border-white/20"
+          />
+
+          <div className="rounded-xl bg-gray-950/70 border border-gray-800 p-3">
+            <div className="text-sm text-gray-400">Current Desired Income</div>
+            <div className="text-lg font-semibold">
+              {formatINR(Number(desiredMonthlyIncome || 0))}
+            </div>
+          </div>
+        </div>
+
+        <button
+          className="mt-4 px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-sm"
+          onClick={() => setShowEstimator((v) => !v)}
+        >
+          Need help calculating?
+        </button>
+      </div>
+
+      {/* Estimator */}
+      {showEstimator && (
+        <div className="rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
+          <h2 className="text-xl font-semibold">Lifestyle Estimator</h2>
+
+          {sections.map((section) => (
+            <div key={section.id} className="mt-4 space-y-3">
+              {section.fields.map((field) => (
+                <input
+                  key={field.key}
+                  type="number"
+                  placeholder={field.label}
+                  value={values[field.key] ?? ""}
+                  onChange={(e) => updateValue(field.key, e.target.value)}
+                  className="w-full p-2 rounded bg-gray-800"
+                />
+              ))}
+            </div>
+          ))}
+
+          <div className="mt-6 text-sm space-y-2">
+            <div>Total Expense: {formatINR(totalMonthlyExpense)}</div>
+            <div>Required Income: {formatINR(survivalIncome)}</div>
+            <div>Stable Income: {formatINR(stableIncome)}</div>
+          </div>
+
+          <button
+            className="mt-4 w-full bg-indigo-600 rounded p-2"
+            onClick={() => setDesiredMonthlyIncome(String(Math.round(stableIncome)))}
+          >
+            Use this estimate
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
