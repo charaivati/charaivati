@@ -7,10 +7,25 @@ import { useSearchParams } from "next/navigation";
 type ProfileProp = { profile?: any };
 type ActiveKind = "personal" | "social" | "learn" | "earn";
 
-const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
-const SocialTab = dynamic(() => import("./tabs/SocialTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
-const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
-const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
+const SelfTab = dynamic(
+  () => import("./tabs/SelfTab").then((m) => m.default),
+  { ssr: false }
+) as unknown as React.ComponentType<ProfileProp>;
+
+const SocialTab = dynamic(
+  () => import("./tabs/SocialTab").then((m) => m.default),
+  { ssr: false }
+) as unknown as React.ComponentType<ProfileProp>;
+
+const LearningTab = dynamic(
+  () => import("./tabs/LearningTab").then((m) => m.default),
+  { ssr: false }
+) as unknown as React.ComponentType<Record<string, never>>;
+
+const EarningTab = dynamic(
+  () => import("./tabs/EarningTab").then((m) => m.default),
+  { ssr: false }
+) as unknown as React.ComponentType<Record<string, never>>;
 
 function normalizeTabValue(raw: string): ActiveKind {
   const s = String(raw || "").toLowerCase().trim();
@@ -26,7 +41,11 @@ function SelfPageContent() {
 
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const active = useMemo<ActiveKind>(() => normalizeTabValue(tabParamRaw), [tabParamRaw]);
+
+  const active = useMemo<ActiveKind>(
+    () => normalizeTabValue(tabParamRaw),
+    [tabParamRaw]
+  );
 
   useEffect(() => {
     let alive = true;
@@ -72,15 +91,18 @@ function SelfPageContent() {
     <>
       <div className="flex items-start justify-between mb-6">
         <div className="text-left">
-          <h3 className="text-lg font-semibold capitalize">{active} Overview</h3>
+          <h3 className="text-lg font-semibold capitalize">
+            {active} Overview
+          </h3>
           <p className="text-sm text-gray-300 mt-1">
             {loading
               ? "Loading..."
               : profile
-                ? `Steps today: ${profile.stepsToday ?? "-"} | Sleep: ${profile.sleepHours ?? "-"}h | Water: ${profile.waterLitres ?? "-"}L`
-                : "No stats yet - click Edit to add your health and profile data."}
+              ? `Steps today: ${profile.stepsToday ?? "-"} | Sleep: ${profile.sleepHours ?? "-"}h | Water: ${profile.waterLitres ?? "-"}L`
+              : "No stats yet - click Edit to add your health and profile data."}
           </p>
         </div>
+      </div>
 
       <div className="max-w-3xl mx-auto">
         {active === "personal" && <SelfTab profile={profile} />}
@@ -88,10 +110,19 @@ function SelfPageContent() {
         {active === "learn" && <LearningTab />}
         {active === "earn" && <EarningTab />}
       </div>
+    </>
+  );
+}
 
 export default function SelfPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center">Loading your profile...</div>}>
+    <Suspense
+      fallback={
+        <div className="p-8 text-center">
+          Loading your profile...
+        </div>
+      }
+    >
       <SelfPageContent />
     </Suspense>
   );
