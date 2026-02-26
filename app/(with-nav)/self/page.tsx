@@ -3,8 +3,15 @@
 import React, { Suspense, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
+import { useLayerContext } from "@/components/LayerContext";
+
+// ---------------------------
+// Types for tab props
+// ---------------------------
 
 type ProfileProp = { profile?: any };
+type ActiveKind = "personal" | "social" | "learn" | "earn";
+
 type ActiveKind = "personal" | "social" | "learn" | "earn";
 
 const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
@@ -12,8 +19,11 @@ const SocialTab = dynamic(() => import("./tabs/SocialTab").then((m) => m.default
 const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
 const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
 
-function normalizeTabValue(raw: string): ActiveKind {
-  const s = String(raw || "").toLowerCase().trim();
+const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
+
+const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
+
+
   if (s.includes("social")) return "social";
   if (s.includes("learn")) return "learn";
   if (s.includes("earn")) return "earn";
@@ -26,7 +36,42 @@ function SelfPageContent() {
 
   const [profile, setProfile] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
-  const active = useMemo<ActiveKind>(() => normalizeTabValue(tabParamRaw), [tabParamRaw]);
+
+  function normalizeTabValue(raw: string): ActiveKind {
+    const s = String(raw || "").toLowerCase().trim();
+    if (!s) return "personal";
+    if (s === "earn") return "earn";
+    if (s === "learn") return "learn";
+    if (s === "social") return "social";
+    if (s === "personal") return "personal";
+    return "personal";
+  }
+
+  useEffect(() => {
+    if (!mounted) return;
+
+    if (tabParamRaw && tabParamRaw.length > 0) {
+      const normalized = normalizeTabValue(tabParamRaw);
+      console.debug("[SelfPage] URL tab param:", { raw: tabParamRaw, normalized });
+      setActive(normalized);
+      return;
+    }
+
+    try {
+      const ctxTab = ctx?.activeTabs?.[layerId];
+      if (ctxTab) {
+        const normalized = normalizeTabValue(ctxTab);
+        console.debug("[SelfPage] Context tab:", { ctxTab, normalized });
+        setActive(normalized);
+      } else {
+        console.debug("[SelfPage] No tab found, defaulting to personal");
+        setActive("personal");
+      }
+    } catch (e) {
+      console.error("[SelfPage] Error reading context:", e);
+      setActive("personal");
+    }
+  }, [tabParamRaw, mounted, ctx?.activeTabs, layerId]);
 
   useEffect(() => {
     let alive = true;
@@ -62,12 +107,6 @@ function SelfPageContent() {
       }
     })();
 
-    return () => {
-      alive = false;
-      controller.abort();
-    };
-  }, []);
-
   return (
     <>
       <div className="flex items-start justify-between mb-6">
@@ -77,17 +116,28 @@ function SelfPageContent() {
             {loading
               ? "Loading..."
               : profile
-                ? `Steps today: ${profile.stepsToday ?? "-"} | Sleep: ${profile.sleepHours ?? "-"}h | Water: ${profile.waterLitres ?? "-"}L`
-                : "No stats yet - click Edit to add your health and profile data."}
+                ? `Steps today: ${profile.stepsToday ?? "—"} • Sleep: ${profile.sleepHours ?? "—"}h • Water: ${profile.waterLitres ?? "—"}L`
+                : "No stats yet — click Edit to add your health & profile data."}
           </p>
         </div>
       </div>
 
       <div className="max-w-3xl mx-auto">
-        {active === "personal" && <SelfTab profile={profile} />}
-        {active === "social" && <SocialTab profile={profile} />}
-        {active === "learn" && <LearningTab />}
-        {active === "earn" && <EarningTab />}
+        {active === "personal" && (
+          <SelfTab profile={profile} />
+        )}
+
+        {active === "social" && (
+          <SocialTab profile={profile} />
+        )}
+
+        {active === "learn" && (
+          <LearningTab />
+        )}
+
+        {active === "earn" && (
+          <EarningTab />
+        )}
       </div>
     </>
   );
