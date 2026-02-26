@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     const token = getTokenFromRequest(req);
     const payload = await verifySessionToken(token);
     if (!payload || !payload.userId) return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+    if (payload.role === "guest") return NextResponse.json({ ok: false, error: "guest_readonly" }, { status: 403 });
 
     const body = await req.json();
     const locale = (body.locale || "").trim();

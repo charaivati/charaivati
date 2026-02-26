@@ -1,408 +1,378 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import UnifiedSearch from "@/components/UnifiedSearch";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
-type Friend = { id: string; name?: string | null; avatarUrl?: string | null; };
-type RequestRow = { id: string; sender?: Friend; receiver?: Friend; senderId?: string; receiverId?: string; message?: string; createdAt?: string; };
-type FollowRow = { id: string; page: { id: string; title: string; description?: string | null; avatarUrl?: string | null } };
+type Field = {
+  key: string;
+  label: string;
+  tooltip: string;
+};
 
-type Goal = { id: string; text: string; done: boolean; daily: boolean };
+type Section = {
+  id: string;
+  title: string;
+  subtitle: string;
+  fields: Field[];
+};
 
-export default function SelfTab({ profile }: { profile?: any }) {
-  // Social state (kept as your original)
-  const [loading, setLoading] = useState(true);
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [incoming, setIncoming] = useState<RequestRow[]>([]);
-  const [outgoing, setOutgoing] = useState<RequestRow[]>([]);
-  const [follows, setFollows] = useState<FollowRow[]>([]);
-  const [followPageId, setFollowPageId] = useState("");
+const sections: Section[] = [
+  {
+    id: "basic",
+    title: "Basic Living Costs",
+    subtitle: "Core monthly needs",
+    fields: [
+      { key: "rent", label: "Rent / Housing", tooltip: "Monthly house rent or EMI amount." },
+      { key: "groceries", label: "Groceries", tooltip: "Food and household essentials." },
+      { key: "utilities", label: "Utilities", tooltip: "Electricity, water, internet, phone, gas." },
+      { key: "transport", label: "Transport", tooltip: "Fuel, public transport, and travel essentials." },
+    ],
+  },
+  {
+    id: "health",
+    title: "Health & Insurance",
+    subtitle: "Well-being and protection",
+    fields: [
+      { key: "medicines", label: "Medicines & Checkups", tooltip: "Average medical expenses per month." },
+      { key: "healthInsurance", label: "Health Insurance", tooltip: "Monthly premium for health insurance." },
+      { key: "lifeInsurance", label: "Life Insurance", tooltip: "Monthly life insurance allocation." },
+    ],
+  },
+  {
+    id: "stability",
+    title: "Stability & Emergency",
+    subtitle: "Resilience and backup",
+    fields: [
+      { key: "emergencyFund", label: "Emergency Fund Contribution", tooltip: "Monthly contribution to emergency savings." },
+      { key: "debtRepayment", label: "Debt Repayment", tooltip: "Loan/credit card repayment each month." },
+      { key: "dependents", label: "Dependent Support", tooltip: "Support for parents/children/others." },
+    ],
+  },
+  {
+    id: "lifestyle",
+    title: "Lifestyle & Comfort",
+    subtitle: "Quality of life choices",
+    fields: [
+      { key: "dining", label: "Dining & Outings", tooltip: "Eating out, entertainment, and local outings." },
+      { key: "subscriptions", label: "Subscriptions", tooltip: "Streaming apps, memberships, digital tools." },
+      { key: "shopping", label: "Shopping & Personal Care", tooltip: "Clothing, grooming, personal purchases." },
+    ],
+  },
+  {
+    id: "investments",
+    title: "Long-Term Investments",
+    subtitle: "Future growth and goals",
+    fields: [
+      { key: "retirement", label: "Retirement Savings", tooltip: "Monthly retirement contribution." },
+      { key: "investments", label: "Investments (SIP/Stocks/etc.)", tooltip: "Long-term monthly investments." },
+      { key: "education", label: "Education / Skill Fund", tooltip: "Courses, certifications, self-development." },
+    ],
+  },
+];
 
-  // Local personal state (persist to localStorage for immediate use)
-  const [mood, setMood] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("self.mood") ?? "neutral" : "neutral"));
-  const [journal, setJournal] = useState<string>(() => (typeof window !== "undefined" ? localStorage.getItem("self.journal") ?? "" : ""));
-  const [water, setWater] = useState<number>(() => (typeof window !== "undefined" ? Number(localStorage.getItem("self.water") ?? 0) : 0));
-  const [goals, setGoals] = useState<Goal[]>(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem("self.goals") || "[]"); } catch { return []; }
-  });
-  const [newGoalText, setNewGoalText] = useState("");
-  const [newGoalDaily, setNewGoalDaily] = useState(true);
+const allFields = sections.flatMap((section) => section.fields);
 
-  // load all social data (unchanged logic mostly)
-  async function loadAll() {
-    setLoading(true);
-    try {
-      const [friendsRes, followsRes] = await Promise.all([
-        fetch("/api/user/friends", { credentials: "include" }).then((r) => r.json()).catch(() => ({})),
-        fetch("/api/user/follows", { credentials: "include" }).then((r) => r.json()).catch(() => ({})),
-      ]);
+function formatINR(value: number) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(value) ? value : 0);
+}
 
-      setFriends(friendsRes?.friends ?? []);
-      setIncoming(friendsRes?.incomingRequests ?? friendsRes?.incoming ?? []);
-      setOutgoing(friendsRes?.outgoingRequests ?? friendsRes?.outgoing ?? []);
-      setFollows(followsRes?.follows ?? followsRes?.data ?? []);
-    } catch (e) {
-      console.error("loadAll error", e);
-      setFriends([]);
-      setIncoming([]);
-      setOutgoing([]);
-      setFollows([]);
-    } finally {
-      setLoading(false);
+function parseAmount(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
+  const res = await fetch(input, init);
+  const json = await res.json().catch(() => null);
+  return { ok: res.ok, status: res.status, json };
+}
+
+function TooltipLabel({ label, tooltip }: { label: string; tooltip: string }) {
+  return (
+    <label className="text-sm text-gray-200 flex items-center gap-2">
+      <span>{label}</span>
+      <span
+        title={tooltip}
+        aria-label={`${label} info: ${tooltip}`}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-700 text-[10px] text-gray-200 cursor-help"
+      >
+        i
+      </span>
+    </label>
+  );
+}
+
+function SectionBlock({
+  section,
+  values,
+  collapsed,
+  onToggle,
+  onChange,
+}: {
+  section: Section;
+  values: Record<string, string>;
+  collapsed: boolean;
+  onToggle: () => void;
+  onChange: (key: string, value: string) => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-gray-800 bg-gray-900/70">
+      <button type="button" onClick={onToggle} className="w-full px-4 py-4 text-left flex items-center justify-between" aria-expanded={!collapsed}>
+        <div>
+          <h3 className="text-base font-semibold text-white">{section.title}</h3>
+          <p className="text-xs text-gray-400 mt-1">{section.subtitle}</p>
+        </div>
+        <span className="text-gray-400 text-sm">{collapsed ? "Expand" : "Collapse"}</span>
+      </button>
+
+      {!collapsed && (
+        <div className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {section.fields.map((field) => (
+            <div key={field.key} className="rounded-xl border border-gray-800 bg-gray-950/60 p-3">
+              <TooltipLabel label={field.label} tooltip={field.tooltip} />
+              <div className="mt-2 relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">₹</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={values[field.key] ?? ""}
+                  onChange={(event) => onChange(field.key, event.target.value)}
+                  placeholder="0"
+                  className="w-full rounded-lg border border-gray-700 bg-gray-900 px-7 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+export default function SelfTab() {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [taxRate, setTaxRate] = useState<string>("20");
+  const [bufferPercent, setBufferPercent] = useState<string>("10");
+  const [showEstimator, setShowEstimator] = useState(false);
+
+  const [desiredMonthlyIncome, setDesiredMonthlyIncome] = useState<string>("0");
+  const [incomeSaveState, setIncomeSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [canPersistIncome, setCanPersistIncome] = useState(false);
+
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(sections.map((section) => [section.id, false])),
+  );
+
+  useEffect(() => {
+    let alive = true;
+    safeFetchJson("/api/user/profile", { method: "GET", credentials: "include" })
+      .then((r) => {
+        if (!alive) return;
+        if (r.ok && r.json?.ok) {
+          setCanPersistIncome(true);
+          const raw = r.json?.profile?.desiredMonthlyIncome;
+          if (raw !== undefined && raw !== null) setDesiredMonthlyIncome(String(raw));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const saveDesiredMonthlyIncome = useCallback(async (value: string) => {
+    if (!canPersistIncome) return;
+
+    const parsed = Number(value || 0);
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+
+    setIncomeSaveState("saving");
+    const resp = await safeFetchJson("/api/user/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ desiredMonthlyIncome: parsed }),
+    });
+
+    if (resp.ok && resp.json?.ok) {
+      setIncomeSaveState("saved");
+      setTimeout(() => setIncomeSaveState("idle"), 1200);
+    } else {
+      setIncomeSaveState("error");
     }
+  }, [canPersistIncome]);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      saveDesiredMonthlyIncome(desiredMonthlyIncome).catch(() => setIncomeSaveState("error"));
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [desiredMonthlyIncome, saveDesiredMonthlyIncome]);
+
+  const totalMonthlyExpense = useMemo(
+    () => allFields.reduce((sum, field) => sum + parseAmount(values[field.key] ?? ""), 0),
+    [values],
+  );
+
+  const safeTaxRate = Math.min(Math.max(Number(taxRate) / 100 || 0, 0), 0.95);
+  const safeBuffer = Math.max(Number(bufferPercent) / 100 || 0, 0);
+
+  const survivalIncome = totalMonthlyExpense / (1 - safeTaxRate || 1);
+  const stableIncome = survivalIncome * (1 + safeBuffer);
+  const growthIncome = stableIncome * 1.2;
+
+  const filledCount = allFields.reduce((count, field) => {
+    return values[field.key] && parseAmount(values[field.key]) > 0 ? count + 1 : count;
+  }, 0);
+  const progressPercent = Math.round((filledCount / allFields.length) * 100);
+
+  function updateValue(key: string, value: string) {
+    setValues((prev) => ({ ...prev, [key]: value }));
   }
-
-  useEffect(() => { loadAll(); }, []);
-
-  // friend request / respond / follow / unfollow (unchanged)
-  async function sendFriend(receiverId: string) {
-    try {
-      const res = await fetch("/api/user/friends", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ receiverId }),
-      });
-      const j = await res.json().catch(()=>null);
-      if (!res.ok) throw new Error(j?.error || "failed");
-      await loadAll();
-    } catch (e) {
-      console.error("sendFriend error", e);
-      alert("Failed to send friend request");
-    }
-  }
-
-  async function respondRequest(requestId: string, action: "accept" | "reject") {
-    try {
-      const res = await fetch("/api/user/friends", {
-        method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ requestId, action }),
-      });
-      const j = await res.json().catch(()=>null);
-      if (!res.ok) throw new Error(j?.error || "failed");
-      await loadAll();
-    } catch (e) {
-      console.error("respondRequest error", e);
-      alert("Failed to respond to request");
-    }
-  }
-
-  async function followPage(pageId: string) {
-    try {
-      const res = await fetch("/api/user/follows", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pageId }),
-      });
-      const text = await res.text();
-      let j: any = null;
-      try { j = JSON.parse(text); } catch (_e) {}
-      if (!res.ok) {
-        const serverMsg = j?.error || j?.message || text || `status ${res.status}`;
-        throw new Error(serverMsg);
-      }
-      setFollowPageId("");
-      await loadAll();
-    } catch (err: any) {
-      console.error("followPage error", err);
-      alert(`Failed to follow page: ${err?.message || err}`);
-    }
-  }
-
-  async function unfollowPage(pageId: string) {
-    try {
-      const res = await fetch("/api/user/follows", {
-        method: "DELETE",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pageId }),
-      });
-      const j = await res.json().catch(()=>null);
-      if (!res.ok) throw new Error(j?.error || "failed");
-      await loadAll();
-    } catch (e) {
-      console.error("unfollowPage error", e);
-      alert("Failed to unfollow page");
-    }
-  }
-
-  // ----------------------------
-  // Personal feature handlers
-  // ----------------------------
-  useEffect(() => { localStorage.setItem("self.mood", mood); }, [mood]);
-  useEffect(() => { localStorage.setItem("self.journal", journal); }, [journal]);
-  useEffect(() => { localStorage.setItem("self.water", String(water)); }, [water]);
-  useEffect(() => { localStorage.setItem("self.goals", JSON.stringify(goals)); }, [goals]);
-
-  function addGoal(e?: React.FormEvent) {
-    e?.preventDefault();
-    const trimmed = newGoalText.trim();
-    if (!trimmed) return;
-    const g: Goal = { id: String(Date.now()), text: trimmed, done: false, daily: newGoalDaily };
-    setGoals((s) => [g, ...s]);
-    setNewGoalText("");
-    setNewGoalDaily(true);
-  }
-
-  function toggleGoal(id: string) {
-    setGoals((s) => s.map((g) => (g.id === id ? { ...g, done: !g.done } : g)));
-  }
-
-  function removeGoal(id: string) {
-    setGoals((s) => s.filter((g) => g.id !== id));
-  }
-
-  function incrementWater() { setWater((w) => Math.min(20, w + 1)); }
-  function decrementWater() { setWater((w) => Math.max(0, w - 1)); }
-
-  // Small accessible mood label map
-  const moodLabels: { [k: string]: string } = {
-    happy: "Happy",
-    neutral: "Neutral",
-    tired: "Tired",
-    stressed: "Stressed",
-    calm: "Calm",
-  };
-
-  if (loading) return <div className="p-4 text-gray-400">Loading social data…</div>;
 
   return (
-    <div className="space-y-6">
-      {/* Header / Overview */}
-      <div className="rounded-2xl bg-white/6 p-5">
-        <h3 className="text-lg font-semibold">Personal Overview</h3>
-        <p className="text-sm text-gray-400 mt-1">Your quick health, relationships, goals and reflections — simple and private.</p>
+    <div className="text-white">
+      <div className="mb-5 rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
+        <h2 className="text-xl font-semibold">Desired Monthly Income</h2>
+        <p className="mt-2 text-sm text-gray-400">Personal tab income goal. Set it directly; estimator is optional.</p>
 
-        <div className="flex gap-4 mt-4">
-          <div className="text-sm text-gray-300">Steps today: <span className="text-white">{profile?.stepsToday ?? "—"}</span></div>
-          <div className="text-sm text-gray-300">Sleep: <span className="text-white">{profile?.sleepHours ? `${profile.sleepHours}h` : "—"}</span></div>
-          <div className="text-sm text-gray-300">Water: <span className="text-white">{water} glasses</span></div>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-2 font-semibold">Income Goal (INR)</label>
+            <input
+              type="number"
+              min={0}
+              value={desiredMonthlyIncome}
+              onChange={(e) => setDesiredMonthlyIncome(e.target.value)}
+              onBlur={() => saveDesiredMonthlyIncome(desiredMonthlyIncome).catch(() => setIncomeSaveState("error"))}
+              className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white"
+              placeholder="Enter monthly income goal"
+            />
+            <p className="text-xs mt-2 text-gray-400">
+              {incomeSaveState === "saving" && "Saving..."}
+              {incomeSaveState === "saved" && "Saved"}
+              {incomeSaveState === "error" && "Could not save. Please try again."}
+              {incomeSaveState === "idle" && !canPersistIncome && "Login required to save"}
+            </p>
+          </div>
+          <div className="rounded-xl bg-gray-950/70 border border-gray-800 p-3">
+            <div className="text-gray-400 text-sm">Current Desired Income</div>
+            <div className="text-lg font-semibold mt-1">{formatINR(Number(desiredMonthlyIncome || 0))}</div>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <button
+            type="button"
+            onClick={() => setShowEstimator((v) => !v)}
+            className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-sm text-white"
+          >
+            Need help calculating?
+          </button>
         </div>
       </div>
 
-      {/* 1. Mental & Physical Health */}
-      <section aria-labelledby="health-heading" className="rounded-2xl bg-white/6 p-4">
-        <div className="flex justify-between items-center">
-          <h4 id="health-heading" className="font-semibold">1. Mental & Physical Health</h4>
-          <span className="text-xs text-gray-400">Track mood, sleep, movement</span>
-        </div>
+      {showEstimator && (
+        <>
+          <div className="mb-5 rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
+            <h2 className="text-xl font-semibold">Lifestyle Income Estimator</h2>
+            <p className="mt-2 text-sm text-gray-400">
+              Estimate your minimum monthly income required to support your desired lifestyle.
+            </p>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-          {/* Mood */}
-          <div className="p-3 bg-black/40 rounded-lg">
-            <div className="text-sm text-gray-300">Mood</div>
-            <div className="mt-2 flex gap-2 items-center" role="radiogroup" aria-label="Mood selection">
-              {Object.keys(moodLabels).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setMood(m)}
-                  aria-pressed={mood === m}
-                  className={`px-3 py-1 rounded-full text-sm ${mood === m ? "bg-green-600 text-white" : "bg-white/6 text-gray-200"}`}
-                >
-                  {moodLabels[m]}
-                </button>
+            <div className="mt-4">
+              <div className="flex items-center justify-between text-xs text-gray-300 mb-2">
+                <span>Progress</span>
+                <span>{filledCount}/{allFields.length} fields filled ({progressPercent}%)</span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                <div className="h-full bg-indigo-500 transition-all" style={{ width: `${progressPercent}%` }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5">
+            <div className="space-y-4">
+              {sections.map((section) => (
+                <SectionBlock
+                  key={section.id}
+                  section={section}
+                  values={values}
+                  collapsed={Boolean(collapsed[section.id])}
+                  onToggle={() => setCollapsed((prev) => ({ ...prev, [section.id]: !prev[section.id] }))}
+                  onChange={updateValue}
+                />
               ))}
             </div>
-            <div className="text-xs text-gray-400 mt-2">Current: <span className="text-white">{moodLabels[mood] ?? mood}</span></div>
-          </div>
 
-          {/* Sleep */}
-          <div className="p-3 bg-black/40 rounded-lg">
-            <div className="text-sm text-gray-300">Sleep</div>
-            <div className="mt-2 text-sm text-white">{profile?.sleepHours ? `${profile.sleepHours} hours` : "Not recorded"}</div>
-            <div className="text-xs text-gray-400 mt-2">Tip: Try to keep a regular bedtime for better rest.</div>
-          </div>
+            <aside className="lg:sticky lg:top-4 self-start rounded-2xl border border-indigo-600/40 bg-gray-900/90 p-4">
+              <h3 className="text-base font-semibold">Real-time Summary</h3>
 
-          {/* Activity / Steps */}
-          <div className="p-3 bg-black/40 rounded-lg">
-            <div className="text-sm text-gray-300">Activity</div>
-            <div className="mt-2 text-sm text-white">{profile?.stepsToday ? `${profile.stepsToday} steps` : "—"}</div>
-            <div className="text-xs text-gray-400 mt-2">Small walks add up — aim for a short walk after meals.</div>
-          </div>
-        </div>
-
-        {/* Water controls */}
-        <div className="flex items-center gap-3 mt-4">
-          <div className="text-sm text-gray-300">Water intake</div>
-          <div className="flex items-center gap-2">
-            <button aria-label="Decrease water" onClick={decrementWater} className="px-2 py-1 rounded bg-white/6">-</button>
-            <div className="w-16 text-center text-white">{water}x</div>
-            <button aria-label="Increase water" onClick={incrementWater} className="px-2 py-1 rounded bg-white/10">+</button>
-          </div>
-          <div className="text-xs text-gray-400">glasses</div>
-        </div>
-      </section>
-
-      {/* 2. Personal Relationships */}
-      <section aria-labelledby="relationships-heading" className="rounded-2xl bg-white/6 p-4">
-        <div className="flex justify-between items-center">
-          <h4 id="relationships-heading" className="font-semibold">2. Personal Relationships</h4>
-          <span className="text-xs text-gray-400">Friends, requests, pages</span>
-        </div>
-
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-          {/* Friends card */}
-          <div className="p-3 bg-black/40 rounded-lg">
-            <div className="text-sm text-gray-300">Friends</div>
-            {friends.length === 0 ? (
-              <div className="text-sm text-gray-400 mt-3">No friends yet. Use search to connect.</div>
-            ) : (
-              <ul className="mt-3 space-y-2" aria-live="polite">
-                {friends.map((f) => (
-                  <li key={f.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <img src={f.avatarUrl ?? "/avatar-placeholder.png"} alt={`${f.name ?? f.id} avatar`} className="w-8 h-8 rounded-full" />
-                      <div>
-                        <div className="font-medium text-white">{f.name ?? f.id}</div>
-                      </div>
-                    </div>
-                    <button className="px-3 py-1 rounded bg-white/10">View</button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* Incoming requests */}
-          <div className="p-3 bg-black/40 rounded-lg">
-            <div className="text-sm text-gray-300">Incoming Friend Requests</div>
-            {incoming.length === 0 ? (
-              <div className="text-sm text-gray-400 mt-3">No new requests.</div>
-            ) : (
-              <ul className="mt-3 space-y-2">
-                {incoming.map((r) => (
-                  <li key={r.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <img src={r.sender?.avatarUrl ?? "/avatar-placeholder.png"} alt="request avatar" className="w-8 h-8 rounded-full" />
-                      <div>
-                        <div className="font-medium text-white">{r.sender?.name ?? r.sender?.id}</div>
-                        {r.message && <div className="text-xs text-gray-400">{r.message}</div>}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button onClick={() => respondRequest(r.id, "accept")} className="px-3 py-1 rounded bg-green-600">Accept</button>
-                      <button onClick={() => respondRequest(r.id, "reject")} className="px-3 py-1 rounded bg-gray-700">Reject</button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* Unified search */}
-        <div className="mt-4">
-          <UnifiedSearch
-            initialMode="pages"
-            placeholder="Search pages or switch to People"
-            pageFetchUrl="/api/user/pages"
-            onFollowPage={async (pageId: string) => { await followPage(pageId); }}
-            onUnfollowPage={async (pageId: string) => { await unfollowPage(pageId); }}
-            onSendFriend={async (userId: string) => { await sendFriend(userId); }}
-            friendState={{
-              friends: friends.map((f) => f.id),
-              outgoing: outgoing.map((r) => (r.receiver?.id ?? r.receiverId ?? "") as string),
-              incoming: incoming.map((r) => (r.sender?.id ?? r.senderId ?? "") as string),
-            }}
-          />
-        </div>
-      </section>
-
-      {/* 3. Life Goals */}
-      <section aria-labelledby="goals-heading" className="rounded-2xl bg-white/6 p-4">
-        <div className="flex justify-between items-center">
-          <h4 id="goals-heading" className="font-semibold">3. Life Goals & Daily Tasks</h4>
-          <span className="text-xs text-gray-400">Short-term and long-term goals</span>
-        </div>
-
-        <form onSubmit={addGoal} className="mt-3 flex flex-col md:flex-row gap-2">
-          <input
-            aria-label="New goal"
-            className="flex-1 p-2 rounded bg-black/30 text-white text-sm"
-            placeholder="Add a goal (e.g. 'Read 15 pages' or 'Start learning guitar')"
-            value={newGoalText}
-            onChange={(e) => setNewGoalText(e.target.value)}
-          />
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-300 flex items-center gap-1">
-              <input type="checkbox" checked={newGoalDaily} onChange={(e) => setNewGoalDaily(e.target.checked)} />
-              <span className="text-xs">Daily</span>
-            </label>
-            <button type="submit" className="px-3 py-1 rounded bg-green-600">Add</button>
-          </div>
-        </form>
-
-        <div className="mt-4">
-          {goals.length === 0 ? (
-            <div className="text-sm text-gray-400">No goals yet — add your first goal above.</div>
-          ) : (
-            <ul className="space-y-2">
-              {goals.map((g) => (
-                <li key={g.id} className="flex items-center justify-between p-2 bg-black/30 rounded">
-                  <div className="flex items-center gap-3">
-                    <input aria-label={`Mark ${g.text} as done`} type="checkbox" checked={g.done} onChange={() => toggleGoal(g.id)} />
-                    <div>
-                      <div className={`font-medium ${g.done ? "line-through text-gray-400" : "text-white"}`}>{g.text}</div>
-                      <div className="text-xs text-gray-400">{g.daily ? "Daily" : "Long-term"}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => removeGoal(g.id)} className="px-2 py-1 rounded bg-white/6">Remove</button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
-
-      {/* 4. Self Reflection */}
-      <section aria-labelledby="reflection-heading" className="rounded-2xl bg-white/6 p-4">
-        <div className="flex justify-between items-center">
-          <h4 id="reflection-heading" className="font-semibold">4. Self Reflection</h4>
-          <span className="text-xs text-gray-400">Quick journal & gratitude</span>
-        </div>
-
-        <div className="mt-3">
-          <textarea
-            aria-label="Journal"
-            className="w-full p-3 rounded bg-black/30 text-white text-sm min-h-[120px]"
-            placeholder="Write a short note: what went well today? what would you like to improve?"
-            value={journal}
-            onChange={(e) => setJournal(e.target.value)}
-          />
-          <div className="flex justify-between items-center mt-2">
-            <div className="text-xs text-gray-400">Your journal is saved locally in your browser.</div>
-            <button onClick={() => { setJournal(""); localStorage.removeItem("self.journal"); }} className="px-3 py-1 rounded bg-white/6">Clear</button>
-          </div>
-        </div>
-      </section>
-
-      {/* Following Pages (existing block) */}
-      <div className="rounded-2xl bg-white/6 p-4">
-        <h4 className="font-semibold mb-3">Following Pages</h4>
-
-        {follows.length === 0 ? (
-          <div className="text-sm text-gray-400 mt-3">You're not following any pages.</div>
-        ) : (
-          <ul className="space-y-2 mt-3">
-            {follows.map((f) => (
-              <li key={f.id} className="flex items-center justify-between">
-                <div>
-                  <div className="font-medium text-white">{f.page.title}</div>
-                  {f.page.description && <div className="text-xs text-gray-400">{f.page.description}</div>}
+              <div className="mt-4 space-y-3 text-sm">
+                <div className="rounded-xl bg-gray-950/70 border border-gray-800 p-3">
+                  <div className="text-gray-400">Total Monthly Expense</div>
+                  <div className="text-lg font-semibold mt-1">{formatINR(totalMonthlyExpense)}</div>
                 </div>
-                <button onClick={() => unfollowPage(f.page.id)} className="px-2 py-1 rounded bg-white/10">Unfollow</button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <TooltipLabel label="Tax Rate (%)" tooltip="Assumed monthly effective tax rate used to compute required pre-tax income." />
+                    <input
+                      type="number"
+                      min={0}
+                      max={95}
+                      value={taxRate}
+                      onChange={(event) => setTaxRate(event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <TooltipLabel label="Safety Buffer (%)" tooltip="Extra margin to reduce risk from unexpected monthly expenses." />
+                    <input
+                      type="number"
+                      min={0}
+                      value={bufferPercent}
+                      onChange={(event) => setBufferPercent(event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-gray-950/70 border border-gray-800 p-3">
+                  <div className="text-gray-400">Required Income after tax</div>
+                  <div className="text-base font-semibold mt-1">{formatINR(survivalIncome)}</div>
+                </div>
+
+                <div className="rounded-xl border border-gray-800 p-3">
+                  <div className="text-xs text-gray-400">Survival Income (no buffer)</div>
+                  <div className="font-semibold mt-1">{formatINR(survivalIncome)}</div>
+                </div>
+                <div className="rounded-xl border border-gray-800 p-3">
+                  <div className="text-xs text-gray-400">Stable Income (with buffer)</div>
+                  <div className="font-semibold mt-1">{formatINR(stableIncome)}</div>
+                </div>
+                <div className="rounded-xl border border-gray-800 p-3">
+                  <div className="text-xs text-gray-400">Growth Income (+20% on stable)</div>
+                  <div className="font-semibold mt-1">{formatINR(growthIncome)}</div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setDesiredMonthlyIncome(String(Math.round(stableIncome)))}
+                  className="w-full rounded-lg px-3 py-2 text-sm bg-gradient-to-r from-blue-500 to-purple-600 text-white"
+                >
+                  Use this estimate
+                </button>
+              </div>
+            </aside>
+          </div>
+        </>
+      )}
     </div>
   );
 }
