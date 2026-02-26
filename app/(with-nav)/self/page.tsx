@@ -81,7 +81,6 @@ function SelfPageContent() {
                 : "No stats yet - click Edit to add your health and profile data."}
           </p>
         </div>
-      </div>
 
       <div className="max-w-3xl mx-auto">
         {active === "personal" && <SelfTab profile={profile} />}
@@ -89,9 +88,6 @@ function SelfPageContent() {
         {active === "learn" && <LearningTab />}
         {active === "earn" && <EarningTab />}
       </div>
-    </>
-  );
-}
 
 export default function SelfPage() {
   return (
