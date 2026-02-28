@@ -4,18 +4,10 @@ import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useLayerContext } from "@/components/LayerContext";
 
-const PanchayatTab = dynamic(() => import("./tabs/PanchayatTab"), { ssr: false });
+const LocalTab = dynamic(() => import("./tabs/LocalTab"), { ssr: false });
 const LegislativeTab = dynamic(() => import("./tabs/LegislativeTab"), { ssr: false });
 const ParliamentaryTab = dynamic(() => import("./tabs/ParliamentaryTab"), { ssr: false });
 const StateTab = dynamic(() => import("./tabs/StateTab"), { ssr: false });
-
-type LocalSelection = {
-  country?: string;
-  state?: string;
-  parliamentary?: string;
-  legislative?: string;
-  panchayat?: string;
-};
 
 export default function SocietyPage() {
   const ctx = useLayerContext();
@@ -72,16 +64,11 @@ export default function SocietyPage() {
 
   return (
     <>
-      {/* Page Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2">Society</h1>
-        <p className="text-sm text-gray-400">
-          Your local governance and community information
-          {detected && <span className="ml-2 text-gray-300">• {detected}</span>}
-        </p>
+        <p className="text-sm text-gray-400">Governance topics and local civic responses</p>
       </div>
 
-      {/* Tab Content */}
       <div className="space-y-6">
         {/* Panchayat */}
         {showPanchayat && (
@@ -112,20 +99,6 @@ export default function SocietyPage() {
           <StateTab value={local?.state ?? ""} onChange={(v) => updateLocal({ state: v })} />
         )}
       </div>
-
-      {/* Debug/Preview Section */}
-      {local && (
-        <div className="mt-8 p-4 bg-white/5 rounded-lg border border-white/10">
-          <div className="text-sm font-medium text-gray-400 mb-2">Selected Locations</div>
-          <div className="space-y-1 text-xs text-gray-300">
-            {local.country && <div>Country: {local.country}</div>}
-            {local.state && <div>State: {local.state}</div>}
-            {local.parliamentary && <div>Parliamentary: {local.parliamentary}</div>}
-            {local.legislative && <div>Legislative: {local.legislative}</div>}
-            {local.panchayat && <div>Panchayat: {local.panchayat}</div>}
-          </div>
-        </div>
-      )}
     </>
   );
 }

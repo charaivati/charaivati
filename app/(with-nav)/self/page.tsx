@@ -7,6 +7,19 @@ import { useSearchParams } from "next/navigation";
 type ProfileProp = { profile?: any };
 type ActiveKind = "personal" | "social" | "learn" | "earn";
 
+const SelfTab = dynamic(() => import("./tabs/SelfTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
+const SocialTab = dynamic(() => import("./tabs/SocialTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<ProfileProp>;
+const LearningTab = dynamic(() => import("./tabs/LearningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
+const EarningTab = dynamic(() => import("./tabs/EarningTab").then((m) => m.default), { ssr: false }) as unknown as React.ComponentType<Record<string, never>>;
+
+function normalizeTabValue(raw: string): ActiveKind {
+  const s = String(raw || "").toLowerCase().trim();
+  if (s.includes("social")) return "social";
+  if (s.includes("learn")) return "learn";
+  if (s.includes("earn")) return "earn";
+  return "personal";
+}
+
 const SelfTab = dynamic(
   () => import("./tabs/SelfTab").then((m) => m.default),
   { ssr: false }
