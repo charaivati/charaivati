@@ -1,30 +1,72 @@
-// app/(with-nav)/society/page.tsx
 "use client";
+
 import React, { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useLayerContext } from "@/components/LayerContext";
 
-const LocalTab = dynamic(() => import("./tabs/LocalTab"), { ssr: false });
-const LegislativeTab = dynamic(() => import("./tabs/LegislativeTab"), { ssr: false });
-const ParliamentaryTab = dynamic(() => import("./tabs/ParliamentaryTab"), { ssr: false });
-const StateTab = dynamic(() => import("./tabs/StateTab"), { ssr: false });
+/* =========================
+   Types
+========================= */
+
+type LocalSelection = {
+  country?: string;
+  state?: string;
+  parliamentary?: string;
+  legislative?: string;
+  panchayat?: string;
+};
+
+/* =========================
+   Dynamic Tab Imports
+   (Must match file names exactly)
+========================= */
+
+const PanchayatTab = dynamic(
+  () => import("./tabs/PanchayatTab"),
+  { ssr: false }
+);
+
+const LegislativeTab = dynamic(
+  () => import("./tabs/LegislativeTab"),
+  { ssr: false }
+);
+
+const ParliamentaryTab = dynamic(
+  () => import("./tabs/ParliamentaryTab"),
+  { ssr: false }
+);
+
+const StateTab = dynamic(
+  () => import("./tabs/StateTab"),
+  { ssr: false }
+);
+
+/* =========================
+   Component
+========================= */
 
 export default function SocietyPage() {
   const ctx = useLayerContext();
   const LS_KEY = "charaivati.selectedLocal";
 
-  const [detected, setDetected] = useState<string | null>(null);
   const [local, setLocal] = useState<LocalSelection | null>(null);
+
+  /* =========================
+     Load Selection From LocalStorage
+  ========================= */
 
   useEffect(() => {
     try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem(LS_KEY) : null;
+      const raw =
+        typeof window !== "undefined"
+          ? localStorage.getItem(LS_KEY)
+          : null;
+
       if (raw) {
-        const parsed = JSON.parse(raw);
+        const parsed: LocalSelection = JSON.parse(raw);
         setLocal(parsed);
-        const detectedValue = parsed?.state ?? parsed?.country ?? parsed?.parliamentary ?? "Local";
-        setDetected(detectedValue || null);
       } else {
+        // Default prefill (safe fallback)
         const prefill: LocalSelection = {
           country: "India",
           state: "Assam",
@@ -32,71 +74,96 @@ export default function SocietyPage() {
           legislative: "Nazira",
           panchayat: "Amguri Gaon Panchayat",
         };
+
         setLocal(prefill);
-        setDetected(prefill.state || null);
+        localStorage.setItem(LS_KEY, JSON.stringify(prefill));
       }
     } catch (e) {
       console.warn("Could not read local selection", e);
       setLocal(null);
-      setDetected(null);
     }
   }, []);
+
+  /* =========================
+     Update Local Selection
+  ========================= */
 
   function updateLocal(partial: Partial<LocalSelection>) {
     const merged = { ...(local || {}), ...partial };
     setLocal(merged);
+
     try {
       localStorage.setItem(LS_KEY, JSON.stringify(merged));
-      const detectedValue = merged.state ?? merged.country ?? merged.parliamentary ?? null;
-      setDetected(detectedValue || null);
     } catch (e) {
       console.warn("Could not persist selection", e);
     }
   }
 
+  /* =========================
+     Determine Active Tab
+  ========================= */
+
   const layerId = "layer-society-home";
+
   const activeTabId =
-    ctx?.activeTabs?.[layerId] ?? ctx?.layers?.find((l) => l.id === layerId)?.tabs?.[0]?.id;
-  const showPanchayat = String(activeTabId || "").toLowerCase().includes("panchayat");
-  const showLegislative = String(activeTabId || "").toLowerCase().includes("legislative");
-  const showParliamentary = String(activeTabId || "").toLowerCase().includes("parliament");
-  const showState = String(activeTabId || "").toLowerCase().includes("state");
+    ctx?.activeTabs?.[layerId] ??
+    ctx?.layers?.find((l) => l.id === layerId)?.tabs?.[0]?.id;
+
+  const active = String(activeTabId || "").toLowerCase();
+
+  const showPanchayat = active.includes("panchayat");
+  const showLegislative = active.includes("legislative");
+  const showParliamentary = active.includes("parliament");
+  const showState = active.includes("state");
+
+  /* =========================
+     Render
+  ========================= */
 
   return (
     <>
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2">Society</h1>
-        <p className="text-sm text-gray-400">Governance topics and local civic responses</p>
+        <p className="text-sm text-gray-400">
+          Governance topics and local civic responses
+        </p>
       </div>
 
       <div className="space-y-6">
-        {/* Panchayat */}
         {showPanchayat && (
           <PanchayatTab
             value={local?.panchayat ?? ""}
-            onChange={(v) => updateLocal({ panchayat: v })}
+            onChange={(v: string) =>
+              updateLocal({ panchayat: v })
+            }
           />
         )}
 
-        {/* Legislative */}
         {showLegislative && (
           <LegislativeTab
             value={local?.legislative ?? ""}
-            onChange={(v) => updateLocal({ legislative: v })}
+            onChange={(v: string) =>
+              updateLocal({ legislative: v })
+            }
           />
         )}
 
-        {/* Parliamentary */}
         {showParliamentary && (
           <ParliamentaryTab
             value={local?.parliamentary ?? ""}
-            onChange={(v) => updateLocal({ parliamentary: v })}
+            onChange={(v: string) =>
+              updateLocal({ parliamentary: v })
+            }
           />
         )}
 
-        {/* State */}
         {showState && (
-          <StateTab value={local?.state ?? ""} onChange={(v) => updateLocal({ state: v })} />
+          <StateTab
+            value={local?.state ?? ""}
+            onChange={(v: string) =>
+              updateLocal({ state: v })
+            }
+          />
         )}
       </div>
     </>
