@@ -113,19 +113,6 @@ function NationPageContent() {
         )}
       </div>
 
-      {/* Debug Section */}
-      {country && (
-        <div className="mt-8 p-4 bg-white/5 rounded-lg border border-white/10">
-          <div className="text-sm font-medium text-gray-400 mb-2">Country Selection</div>
-          <div className="space-y-1 text-xs text-gray-300">
-            {country.country && <div>Country: {country.country}</div>}
-            {country.legislature && <div>Legislature: {country.legislature}</div>}
-            {country.executive && <div>Executive: {country.executive}</div>}
-            {country.judiciary && <div>Judiciary: {country.judiciary}</div>}
-            {country.media && <div>Media: {country.media}</div>}
-          </div>
-        </div>
-      )}
     </>
   );
 }

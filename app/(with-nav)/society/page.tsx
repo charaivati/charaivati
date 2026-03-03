@@ -11,10 +11,6 @@ const StateTab = dynamic(() => import("./tabs/StateTab"), { ssr: false });
 export default function SocietyPage() {
   const ctx = useLayerContext();
 
-  /* =========================
-     Determine Active Tab
-  ========================= */
-
   const layerId = "layer-society-home";
 
   const activeTabId =
