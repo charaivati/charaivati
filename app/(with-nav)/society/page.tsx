@@ -1,4 +1,3 @@
-// app/(with-nav)/society/page.tsx
 "use client";
 import React from "react";
 import dynamic from "next/dynamic";
@@ -13,6 +12,7 @@ export default function SocietyPage() {
   const ctx = useLayerContext();
 
   const layerId = "layer-society-home";
+
   const activeTabId =
     ctx?.activeTabs?.[layerId] ?? ctx?.layers?.find((l) => l.id === layerId)?.tabs?.[0]?.id;
   const normalized = String(activeTabId || "").toLowerCase();
