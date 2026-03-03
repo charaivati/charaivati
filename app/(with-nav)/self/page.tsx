@@ -20,6 +20,36 @@ function normalizeTabValue(raw: string): ActiveKind {
   return "personal";
 }
 
+// Dynamic imports (declared ONCE)
+const SelfTab = dynamic(
+  () => import("./tabs/SelfTab").then((m) => m.default),
+  { ssr: false }
+) as React.ComponentType<ProfileProp>;
+
+const SocialTab = dynamic(
+  () => import("./tabs/SocialTab").then((m) => m.default),
+  { ssr: false }
+) as React.ComponentType<ProfileProp>;
+
+const LearningTab = dynamic(
+  () => import("./tabs/LearningTab").then((m) => m.default),
+  { ssr: false }
+) as React.ComponentType<Record<string, never>>;
+
+const EarningTab = dynamic(
+  () => import("./tabs/EarningTab").then((m) => m.default),
+  { ssr: false }
+) as React.ComponentType<Record<string, never>>;
+
+// Normalize tab (declared ONCE)
+function normalizeTabValue(raw: string): ActiveKind {
+  const s = String(raw || "").toLowerCase().trim();
+  if (s.includes("social")) return "social";
+  if (s.includes("learn")) return "learn";
+  if (s.includes("earn")) return "earn";
+  return "personal";
+}
+
 function SelfPageContent() {
   const searchParams = useSearchParams();
   const tabParamRaw = searchParams?.get("tab") ?? "";
@@ -35,6 +65,7 @@ function SelfPageContent() {
     (async () => {
       try {
         setLoading(true);
+
         const res = await fetch("/api/user/profile", {
           method: "GET",
           credentials: "include",
@@ -52,7 +83,10 @@ function SelfPageContent() {
 
         const data = await res.json().catch(() => null);
         if (!alive) return;
-        if (data?.ok) setProfile(data.profile || null);
+
+        if (data?.ok) {
+          setProfile(data.profile || null);
+        }
       } catch (err) {
         if ((err as any)?.name !== "AbortError") {
           console.error("[SelfPage] profile fetch error", err);
