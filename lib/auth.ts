@@ -17,9 +17,8 @@ import type { User } from "@prisma/client";
  */
 
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET && process.env.NODE_ENV === "production") {
-  // In production, fail early if JWT_SECRET not set
-  throw new Error("JWT_SECRET must be set in production environment");
+if (!JWT_SECRET) {
+  console.warn("JWT_SECRET is not set. Falling back to development secret.");
 }
 
 const JWT_ALG = "HS256";
@@ -28,6 +27,7 @@ export type SessionPayload = {
   sub?: string;
   userId?: string;
   email?: string | null;
+  role?: string;
   iat?: number;
   exp?: number;
   type?: "session" | "magic";
@@ -38,6 +38,7 @@ export type SessionPayload = {
 export type NormalizedSession = {
   id: string;
   email?: string | null;
+  role?: string;
   iat?: number;
   exp?: number;
   type: "session" | "magic";
@@ -95,6 +96,7 @@ export function verifySessionToken(token: string): NormalizedSession | null {
     return {
       id: userId,
       email: payload.email ?? null,
+      role: payload.role,
       iat: payload.iat,
       exp: payload.exp,
       type: "session",
@@ -176,6 +178,10 @@ export async function getUserFromReq(
 
     const session = verifySessionToken(token);
     if (!session?.id) return null;
+    const method = (req as any)?.method;
+    if (session.role === "guest" && method && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      return null;
+    }
 
     const user = await prisma.user.findUnique({
       where: { id: session.id },
