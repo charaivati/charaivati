@@ -520,102 +520,125 @@ export default function SelfTab() {
       <HowWillYouAchieveItBlock />
 
       {showEstimator && (
-        <>
-          <div className="mb-5 rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
-            <h2 className="text-xl font-semibold">Lifestyle Income Estimator</h2>
-            <p className="mt-2 text-sm text-gray-400">
-              Estimate your minimum monthly income required to support your desired lifestyle.
-            </p>
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
 
-            <div className="mt-4">
-              <div className="flex items-center justify-between text-xs text-gray-300 mb-2">
-                <span>Progress</span>
-                <span>{filledCount}/{allFields.length} fields filled ({progressPercent}%)</span>
-              </div>
-              <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
-                <div className="h-full bg-indigo-500 transition-all" style={{ width: `${progressPercent}%` }} />
+    <div className="w-full max-w-6xl max-h-[90vh] overflow-y-auto rounded-2xl border border-gray-800 bg-gray-900 p-6 relative">
+
+      {/* Close button */}
+      <button
+        onClick={() => setShowEstimator(false)}
+        className="absolute top-4 right-4 px-3 py-1 text-sm rounded bg-white/10 hover:bg-white/20"
+      >
+        Close
+      </button>
+
+      <h2 className="text-lg font-semibold">Income Estimator</h2>
+
+      {/* Progress */}
+      <div className="mt-3">
+        <div className="flex justify-between text-xs text-gray-400 mb-1">
+          <span>Progress</span>
+          <span>{filledCount}/{allFields.length}</span>
+        </div>
+
+        <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+          <div
+            className="h-full bg-indigo-500"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6 mt-5">
+
+        {/* Sections */}
+        <div className="space-y-4">
+          {sections.map((section) => (
+            <SectionBlock
+              key={section.id}
+              section={section}
+              values={values}
+              collapsed={Boolean(collapsed[section.id])}
+              onToggle={() =>
+                setCollapsed((prev) => ({
+                  ...prev,
+                  [section.id]: !prev[section.id],
+                }))
+              }
+              onChange={updateValue}
+            />
+          ))}
+        </div>
+
+        {/* Summary */}
+        <aside className="rounded-2xl border border-indigo-600/40 bg-gray-900 p-4 self-start">
+
+          <h3 className="text-sm font-semibold">Summary</h3>
+
+          <div className="mt-4 space-y-3 text-sm">
+
+            <div className="rounded-xl border border-gray-800 p-3 bg-gray-950">
+              <div className="text-gray-400 text-xs">Expenses</div>
+              <div className="text-lg font-semibold">
+                {formatINR(totalMonthlyExpense)}
               </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5">
-            <div className="space-y-4">
-              {sections.map((section) => (
-                <SectionBlock
-                  key={section.id}
-                  section={section}
-                  values={values}
-                  collapsed={Boolean(collapsed[section.id])}
-                  onToggle={() => setCollapsed((prev) => ({ ...prev, [section.id]: !prev[section.id] }))}
-                  onChange={updateValue}
-                />
-              ))}
+            <div>
+              <TooltipLabel
+                label="Tax (%)"
+                tooltip="Estimated effective tax."
+              />
+              <input
+                type="number"
+                min={0}
+                max={95}
+                value={taxRate}
+                onChange={(e) => setTaxRate(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm"
+              />
             </div>
 
-            <aside className="lg:sticky lg:top-4 self-start rounded-2xl border border-indigo-600/40 bg-gray-900/90 p-4">
-              <h3 className="text-base font-semibold">Real-time Summary</h3>
+            <div>
+              <TooltipLabel
+                label="Buffer (%)"
+                tooltip="Extra safety margin."
+              />
+              <input
+                type="number"
+                min={0}
+                value={bufferPercent}
+                onChange={(e) => setBufferPercent(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm"
+              />
+            </div>
 
-              <div className="mt-4 space-y-3 text-sm">
-                <div className="rounded-xl bg-gray-950/70 border border-gray-800 p-3">
-                  <div className="text-gray-400">Total Monthly Expense</div>
-                  <div className="text-lg font-semibold mt-1">{formatINR(totalMonthlyExpense)}</div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3">
-                  <div>
-                    <TooltipLabel label="Tax Rate (%)" tooltip="Assumed monthly effective tax rate used to compute required pre-tax income." />
-                    <input
-                      type="number"
-                      min={0}
-                      max={95}
-                      value={taxRate}
-                      onChange={(event) => setTaxRate(event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
-                    />
-                  </div>
-
-                  <div>
-                    <TooltipLabel label="Safety Buffer (%)" tooltip="Extra margin to reduce risk from unexpected monthly expenses." />
-                    <input
-                      type="number"
-                      min={0}
-                      value={bufferPercent}
-                      onChange={(event) => setBufferPercent(event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white outline-none focus:border-indigo-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="rounded-xl bg-gray-950/70 border border-gray-800 p-3">
-                  <div className="text-gray-400">Required Income after tax</div>
-                  <div className="text-base font-semibold mt-1">{formatINR(survivalIncome)}</div>
-                </div>
-
-                <div className="rounded-xl border border-gray-800 p-3">
-                  <div className="text-xs text-gray-400">Survival Income (no buffer)</div>
-                  <div className="font-semibold mt-1">{formatINR(survivalIncome)}</div>
-                </div>
-                <div className="rounded-xl border border-gray-800 p-3">
-                  <div className="text-xs text-gray-400">Stable Income (with buffer)</div>
-                  <div className="font-semibold mt-1">{formatINR(stableIncome)}</div>
-                </div>
-                <div className="rounded-xl border border-gray-800 p-3">
-                  <div className="text-xs text-gray-400">Growth Income (+20% on stable)</div>
-                  <div className="font-semibold mt-1">{formatINR(growthIncome)}</div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setDesiredMonthlyIncome(String(Math.round(stableIncome)))}
-                  className="w-full rounded-lg px-3 py-2 text-sm bg-gradient-to-r from-blue-500 to-purple-600 text-white"
-                >
-                  Use this estimate
-                </button>
+            <div className="rounded-xl border border-gray-800 p-3">
+              <div className="text-xs text-gray-400">Stable Income</div>
+              <div className="font-semibold text-base">
+                {formatINR(stableIncome)}
               </div>
-            </aside>
+            </div>
+
+            <button
+              onClick={() => {
+                setDesiredMonthlyIncome(String(Math.round(stableIncome)));
+                setShowEstimator(false);
+              }}
+              className="w-full rounded-lg py-2 text-sm bg-indigo-600 hover:bg-indigo-500"
+            >
+              Use estimate
+            </button>
+
           </div>
-        </>
-      )}
+        </aside>
+
+      </div>
+
+    </div>
+
+  </div>
+)}
     </div>
   );
 }
