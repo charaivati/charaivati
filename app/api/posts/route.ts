@@ -59,103 +59,138 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const user = await getCurrentUser(req);
-    
+
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 20, 100);
     const offset = Number(req.nextUrl.searchParams.get("offset")) || 0;
-    const sortBy = req.nextUrl.searchParams.get("sortBy") || "recent"; // recent | popular
-    const userId = req.nextUrl.searchParams.get("userId"); // ✅ NEW: Filter by user
 
-    const orderBy: any = sortBy === "popular" 
-      ? { likes: "desc" } 
-      : { createdAt: "desc" };
+    // -----------------------
+    // Guest Feed
+    // -----------------------
 
-    // ✅ UPDATED: Build visibility filter based on authentication
-    let visibilityFilter: any = { visibility: "public" };
-
-    if (user?.id) {
-      // ✅ If authenticated, also show:
-      // 1. Own posts (any visibility)
-      // 2. Friends' "friends" posts
-      // 3. Public posts
-
-      // Get user's friends
-      const friendships = await prisma.friendship.findMany({
+    if (!user?.id) {
+      const posts = await prisma.post.findMany({
         where: {
-          OR: [
-            { userAId: user.id },
-            { userBId: user.id },
-          ],
+          visibility: "public",
+          status: "active",
         },
-        select: {
-          userAId: true,
-          userBId: true,
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: limit,
+        skip: offset,
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              avatarUrl: true,
+              profile: {
+                select: {
+                  displayName: true,
+                },
+              },
+            },
+          },
         },
       });
 
-      const friendIds = friendships.flatMap((f) => 
-        f.userAId === user.id ? [f.userBId] : [f.userAId]
-      );
+      return NextResponse.json({
+        ok: true,
+        data: posts,
+        count: posts.length,
+      });
+    }
 
-      visibilityFilter = {
+    // -----------------------
+    // Logged-in Feed
+    // -----------------------
+
+    const friendships = await prisma.friendship.findMany({
+      where: {
+        OR: [{ userAId: user.id }, { userBId: user.id }],
+      },
+      select: {
+        userAId: true,
+        userBId: true,
+      },
+    });
+
+    const friendIds = friendships.flatMap((f) =>
+      f.userAId === user.id ? [f.userBId] : [f.userAId]
+    );
+
+    const follows = await prisma.pageFollow.findMany({
+      where: { userId: user.id },
+      select: { pageId: true },
+    });
+
+    const followedPageIds = follows.map((f) => f.pageId);
+
+    const posts = await prisma.post.findMany({
+      where: {
+        status: "active",
         OR: [
-          // Own posts (all visibility levels)
           { userId: user.id },
-          // Friends' "friends-only" posts
+
           {
             AND: [
               { userId: { in: friendIds } },
-              { visibility: "friends" },
+              { visibility: { in: ["friends", "public"] } },
             ],
           },
-          // Public posts from anyone
+
+          {
+            AND: [
+              { pageId: { in: followedPageIds } },
+              { visibility: "public" },
+            ],
+          },
+
           { visibility: "public" },
         ],
-      };
-    }
-
-    // ✅ Filter by specific user if provided
-    let whereClause: any = visibilityFilter;
-    if (userId) {
-      whereClause = {
-        AND: [
-          visibilityFilter,
-          { userId },
-        ],
-      };
-    }
-
-    const posts = await prisma.post.findMany({
-      where: whereClause,
-      orderBy,
-      take: limit,
-      skip: offset,
+      },
       include: {
-        user: { 
-          select: { 
-            id: true, 
-            name: true, 
-            email: true, 
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
             avatarUrl: true,
             profile: {
               select: {
                 displayName: true,
               },
             },
-          } 
+          },
         },
       },
+      take: 200,
     });
 
-    // ✅ Get total count for pagination
-    const count = await prisma.post.count({
-      where: whereClause,
+    const ranked = posts.sort((a, b) => {
+      const score = (p: any) => {
+        if (p.userId === user.id) return 4;
+        if (friendIds.includes(p.userId)) return 3;
+        if (p.pageId && followedPageIds.includes(p.pageId)) return 2;
+        return 1;
+      };
+
+      const sA = score(a);
+      const sB = score(b);
+
+      if (sA !== sB) return sB - sA;
+
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
+
+    const paged = ranked.slice(offset, offset + limit);
 
     return NextResponse.json({
       ok: true,
-      data: posts,
-      count: posts.length,
-      total: count,
+      data: paged,
+      count: paged.length,
+      total: ranked.length,
       offset,
       limit,
     });
