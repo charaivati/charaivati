@@ -1,8 +1,11 @@
-// ============================================================================
-// FILE 2: middleware.ts (UPDATED FOR SOCIAL/PROXY)
-// ============================================================================
+// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import { SITE_URL } from "@/lib/config";
+import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
+
+/* ======================================================
+   Helpers
+====================================================== */
 
 function genNonce() {
   try {
@@ -17,13 +20,24 @@ function genNonce() {
 const isProd = process.env.NODE_ENV === "production";
 const CSP_REPORT_ONLY = process.env.CSP_REPORT_ONLY === "1";
 
-const DEFAULT_ALLOWED = new Set(["http://localhost:3000", "http://127.0.0.1:3000"]);
+/* ======================================================
+   Allowed Origins (CORS)
+====================================================== */
+
+const DEFAULT_ALLOWED = new Set([
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+]);
+
 if (SITE_URL) DEFAULT_ALLOWED.add(SITE_URL);
 
-// Rate limiting for proxy endpoint
+/* ======================================================
+   Rate limiting for proxy endpoint
+====================================================== */
+
 const rateLimitStore = new Map<string, { count: number; resetTime: number }>();
 
-function checkRateLimit(ip: string, limit: number = 100, windowMs: number = 60000): boolean {
+function checkRateLimit(ip: string, limit = 100, windowMs = 60000): boolean {
   const now = Date.now();
   const record = rateLimitStore.get(ip);
 
@@ -40,74 +54,118 @@ function checkRateLimit(ip: string, limit: number = 100, windowMs: number = 6000
   return false;
 }
 
+/* ======================================================
+   CORS
+====================================================== */
+
 function applyCors(req: NextRequest): NextResponse | null {
   const origin = req.headers.get("origin");
   const url = new URL(req.url);
+
   if (!url.pathname.startsWith("/api/")) return null;
+
   const allow = origin && DEFAULT_ALLOWED.has(origin) ? origin : null;
   if (!allow) return null;
+
   const res = NextResponse.next();
+
   res.headers.set("Access-Control-Allow-Origin", allow);
   res.headers.set("Access-Control-Allow-Credentials", "true");
   res.headers.set("Vary", "Origin");
+
   return res;
 }
 
-function validateProxyFileId(fileId: string | null): boolean {
-  if (!fileId) return false;
-  return /^[a-zA-Z0-9_-]+$/.test(fileId);
+/* ======================================================
+   Protected App Routes
+====================================================== */
+
+const PROTECTED_ROUTES = [
+  "/self",
+  "/nation",
+  "/earth",
+  "/society",
+];
+
+async function protectRoutes(req: NextRequest) {
+  const url = new URL(req.url);
+
+  const needsAuth = PROTECTED_ROUTES.some((route) =>
+    url.pathname.startsWith(route)
+  );
+
+  if (!needsAuth) return null;
+
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+
+  if (!token) {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  const payload = await verifySessionToken(token);
+
+  if (!payload) {
+    const res = NextResponse.redirect(new URL("/login", req.url));
+    res.cookies.delete(COOKIE_NAME);
+    return res;
+  }
+
+  return null;
 }
 
-export function middleware(req: NextRequest) {
+/* ======================================================
+   Main Middleware
+====================================================== */
+
+export async function middleware(req: NextRequest) {
   try {
     const url = new URL(req.url);
 
-    // Handle API routes with CORS
+    /* ---------- API routes ---------- */
+
     if (url.pathname.startsWith("/api/")) {
-      // Special handling for social proxy endpoint
+
+      // Special proxy endpoint
       if (url.pathname === "/api/social/proxy") {
-        const ip = req.headers.get("x-forwarded-for") || req.headers.get("x-real-ip") || "unknown";
 
-        // Rate limiting
+        const ip =
+          req.headers.get("x-forwarded-for") ||
+          req.headers.get("x-real-ip") ||
+          "unknown";
+
         if (!checkRateLimit(ip, 100, 60000)) {
-          return NextResponse.json({ error: "Rate limit exceeded" }, { status: 429 });
+          return NextResponse.json(
+            { error: "Rate limit exceeded" },
+            { status: 429 }
+          );
         }
 
-        // Validate file ID for GET requests
-        if (req.method === "GET") {
-          const fileId = url.searchParams.get("id");
-          if (!validateProxyFileId(fileId)) {
-            return NextResponse.json({ error: "Invalid file ID format" }, { status: 400 });
-          }
-        }
-
-        // Validate admin token for POST requests
-        if (req.method === "POST") {
-          const authHeader = req.headers.get("Authorization");
-          const adminToken = process.env.ADMIN_CACHE_TOKEN;
-          if (!adminToken || authHeader !== `Bearer ${adminToken}`) {
-            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-          }
-        }
-
-        // Add security headers
         const res = NextResponse.next();
+
         res.headers.set("X-Content-Type-Options", "nosniff");
         res.headers.set("X-Frame-Options", "DENY");
         res.headers.set("X-XSS-Protection", "1; mode=block");
+
         return res;
       }
 
-      // Apply CORS to other API routes
       const cors = applyCors(req);
       if (cors) return cors;
+
       return NextResponse.next();
     }
 
-    // CSP for HTML pages
+    /* ---------- Protect authenticated pages ---------- */
+
+    const authResult = await protectRoutes(req);
+    if (authResult) return authResult;
+
+    /* ---------- Security headers (CSP etc.) ---------- */
+
     const nonce = isProd ? genNonce() : undefined;
 
-    const connectSrcSite = SITE_URL ?? (isProd ? "" : "http://localhost:3000 ws://localhost:3000");
+    const connectSrcSite =
+      SITE_URL ?? (isProd ? "" : "http://localhost:3000 ws://localhost:3000");
 
     const csp = [
       "default-src 'self'",
@@ -115,13 +173,15 @@ export function middleware(req: NextRequest) {
       "frame-ancestors 'none'",
       "form-action 'self'",
       "object-src 'none'",
-      `script-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}${isProd ? "" : " 'unsafe-eval' 'unsafe-inline'"} https://accounts.google.com https://apis.google.com https://accounts.google.com/gsi/client`,
+      `script-src 'self'${nonce ? ` 'nonce-${nonce}'` : ""}${
+        isProd ? "" : " 'unsafe-eval' 'unsafe-inline'"
+      } https://accounts.google.com https://apis.google.com`,
       "style-src 'self' 'unsafe-inline' https://accounts.google.com",
-      "img-src 'self' data: blob: https: https://drive.google.com https://lh3.googleusercontent.com https://*.googleapis.com",
+      "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      `connect-src 'self' ${connectSrcSite} https://accounts.google.com https://www.googleapis.com https://drive.google.com https://*.google.com https://drive.google.com/uc`,
+      `connect-src 'self' ${connectSrcSite} https://accounts.google.com https://www.googleapis.com`,
       "worker-src 'self' blob:",
-      "frame-src 'self' blob: data: https://accounts.google.com https://www.youtube.com https://youtube.com",
+      "frame-src 'self' https://accounts.google.com https://www.youtube.com",
       "manifest-src 'self'",
       ...(isProd ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
@@ -129,8 +189,17 @@ export function middleware(req: NextRequest) {
     const reqHeaders = new Headers(req.headers);
     if (nonce) reqHeaders.set("x-nonce", nonce);
 
-    const res = NextResponse.next({ request: { headers: reqHeaders } });
-    res.headers.set(CSP_REPORT_ONLY ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy", csp);
+    const res = NextResponse.next({
+      request: { headers: reqHeaders },
+    });
+
+    res.headers.set(
+      CSP_REPORT_ONLY
+        ? "Content-Security-Policy-Report-Only"
+        : "Content-Security-Policy",
+      csp
+    );
+
     res.headers.set("X-Content-Type-Options", "nosniff");
     res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     res.headers.set("X-Frame-Options", "DENY");
@@ -143,6 +212,12 @@ export function middleware(req: NextRequest) {
   }
 }
 
+/* ======================================================
+   Matcher
+====================================================== */
+
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico).*)",
+  ],
 };
