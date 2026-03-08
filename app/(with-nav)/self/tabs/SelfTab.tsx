@@ -1,8 +1,8 @@
 // app/(with-nav)/self/tabs/SelfTab.tsx
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
-import { Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import React, { useEffect, useState, useRef } from "react";
+import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, Check } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,7 @@ type GoalEntry = {
   horizon: "This year" | "3 Years" | "Lifetime";
   skills: SkillEntry[];
   linkedBusinessIds: string[];
+  saved: boolean; // collapsed/saved state
 };
 
 type HealthProfile = {
@@ -43,10 +44,10 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const DRIVES: { id: DriveType; label: string; description: string }[] = [
-  { id: "learning",  label: "Learning",  description: "Curious about everything"  },
-  { id: "helping",   label: "Helping",   description: "Here for the people"        },
-  { id: "building",  label: "Building",  description: "Making things happen"       },
-  { id: "doing",     label: "Doing",     description: "Master of the craft"        },
+  { id: "learning", label: "Learning", description: "Curious about everything" },
+  { id: "helping",  label: "Helping",  description: "Here for the people"      },
+  { id: "building", label: "Building", description: "Making things happen"     },
+  { id: "doing",    label: "Doing",    description: "Master of the craft"      },
 ];
 
 const HORIZONS         = ["This year", "3 Years", "Lifetime"] as const;
@@ -55,11 +56,14 @@ const FOOD_OPTIONS     = ["Vegetarian", "Eggetarian", "Non-Vegetarian", "Vegan"]
 const EXERCISE_OPTIONS = ["Yoga", "Cardio", "Strength", "Mixed"];
 
 const MEAL_PREVIEW: Record<string, string> = {
-  Vegetarian:        "Dal, sabzi, roti · fruit snacks",
-  Vegan:             "Legumes, grains, nuts & seeds",
-  Eggetarian:        "Eggs + plant-based meals",
-  "Non-Vegetarian":  "Balanced protein + whole foods",
+  Vegetarian:       "Dal, sabzi, roti · fruit snacks",
+  Vegan:            "Legumes, grains, nuts & seeds",
+  Eggetarian:       "Eggs + plant-based meals",
+  "Non-Vegetarian": "Balanced protein + whole foods",
 };
+
+const GUEST_KEY    = "charaivati_guest_self";
+const GUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -69,7 +73,7 @@ function defaultGoal(): GoalEntry {
   return {
     id: uid(), statement: "", horizon: "This year",
     skills: [{ id: uid(), name: "", level: "Beginner", monetize: false }],
-    linkedBusinessIds: [],
+    linkedBusinessIds: [], saved: false,
   };
 }
 
@@ -81,6 +85,21 @@ async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   const res  = await fetch(input, init);
   const json = await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, json };
+}
+
+// ── Guest localStorage helpers ────────────────────────────────────
+function guestLoad() {
+  try {
+    const raw = localStorage.getItem(GUEST_KEY);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > GUEST_TTL_MS) { localStorage.removeItem(GUEST_KEY); return null; }
+    return data;
+  } catch { return null; }
+}
+
+function guestSave(data: object) {
+  try { localStorage.setItem(GUEST_KEY, JSON.stringify({ data, ts: Date.now() })); } catch {}
 }
 
 // ─── Shared small components ──────────────────────────────────────────────────
@@ -124,87 +143,86 @@ function TextInput({ value, onChange, placeholder, className = "" }: {
   );
 }
 
-// ─── Health Section ───────────────────────────────────────────────────────────
+// ─── Goal Summary (collapsed view) ───────────────────────────────────────────
 
-function HealthSection({ health, setHealth }: {
-  health: HealthProfile; setHealth: (h: HealthProfile) => void;
+function GoalSummary({ goal, pages, onEdit, onRemove }: {
+  goal: GoalEntry;
+  pages: PageItem[];
+  onEdit: () => void;
+  onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(true);
-  const set = (k: keyof HealthProfile, v: string | number) => setHealth({ ...health, [k]: v });
+  const namedSkills  = goal.skills.filter(s => s.name);
+  const linkedPages  = pages.filter(p => goal.linkedBusinessIds.includes(p.id));
+  const monetizable  = namedSkills.filter(s => s.monetize);
 
   return (
-    <SectionCard>
-      <button type="button" onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left">
-        <div>
-          <h3 className="text-base font-semibold text-white">Health Foundation</h3>
-          <p className="text-xs text-gray-400 mt-0.5">Fuels every goal — shared across all</p>
-        </div>
-        {open ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
-      </button>
+    <div className="rounded-2xl border border-gray-800 bg-gray-950/40 px-5 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          {/* Statement + horizon */}
+          <p className="text-sm font-semibold text-white truncate">
+            {goal.statement || <span className="text-gray-500 italic">No goal stated</span>}
+          </p>
+          <p className="text-xs text-gray-500 mt-0.5">{goal.horizon}</p>
 
-      {open && (
-        <div className="px-5 pb-5 space-y-5">
-          {/* Body stats */}
-          <div className="grid grid-cols-3 gap-3">
-            {(["heightCm", "weightKg", "age"] as const).map(k => (
-              <div key={k}>
-                <FieldLabel>{k === "heightCm" ? "Height (cm)" : k === "weightKg" ? "Weight (kg)" : "Age"}</FieldLabel>
-                <input type="number" value={health[k]} onChange={e => set(k, e.target.value)}
-                  placeholder={k === "heightCm" ? "170" : k === "weightKg" ? "65" : "28"}
-                  className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
-                    text-white placeholder-gray-600 outline-none focus:border-indigo-500 transition-colors"
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* Food + Exercise */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <FieldLabel>Food preference</FieldLabel>
-              <div className="flex flex-wrap gap-2">
-                {FOOD_OPTIONS.map(f => (
-                  <PillButton key={f} active={health.food === f} onClick={() => set("food", f)}>{f}</PillButton>
-                ))}
-              </div>
+          {/* Skills */}
+          {namedSkills.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {namedSkills.map(s => (
+                <span key={s.id}
+                  className={`px-2 py-0.5 rounded-full text-xs border ${
+                    s.monetize
+                      ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300"
+                      : "border-gray-700 text-gray-400"
+                  }`}>
+                  {s.name}
+                  {s.monetize && " 💰"}
+                </span>
+              ))}
             </div>
-            <div>
-              <FieldLabel>Movement</FieldLabel>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {EXERCISE_OPTIONS.map(e => (
-                  <PillButton key={e} active={health.exercise === e} onClick={() => set("exercise", e)}>{e}</PillButton>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                {[2, 3, 4, 5].map(n => (
-                  <PillButton key={n} active={health.sessionsPerWeek === n} onClick={() => set("sessionsPerWeek", n)}>
-                    {n}×/wk
-                  </PillButton>
-                ))}
-              </div>
-            </div>
-          </div>
+          )}
 
-          {/* Plan preview */}
-          <div className="rounded-xl border border-gray-800 bg-gray-950/60 px-4 py-3">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Plan</p>
-            <p className="text-sm text-gray-300">
-              {MEAL_PREVIEW[health.food] ?? "Balanced diet"}&nbsp;·&nbsp;
-              {health.exercise} {health.sessionsPerWeek}× per week
-            </p>
-          </div>
+          {/* Linked pages */}
+          {linkedPages.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {linkedPages.map(p => (
+                <span key={p.id}
+                  className="px-2 py-0.5 rounded-full text-xs border border-gray-700 text-gray-500">
+                  🏢 {p.title}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-    </SectionCard>
+
+        {/* Actions */}
+        <div className="flex gap-2 flex-shrink-0">
+          <button type="button" onClick={onEdit}
+            className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700
+              text-gray-400 hover:text-white transition-colors" title="Edit">
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={onRemove}
+            className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-red-900/30
+              text-gray-400 hover:text-red-400 transition-colors" title="Remove">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
-// ─── Goal Card ────────────────────────────────────────────────────────────────
+// ─── Goal Card (edit view) ────────────────────────────────────────────────────
 
-function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
-  goal: GoalEntry; idx: number; pages: PageItem[];
-  onChange: (g: GoalEntry) => void; onRemove: () => void; canRemove: boolean;
+function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
+  goal: GoalEntry;
+  idx: number;
+  pages: PageItem[];
+  onChange: (g: GoalEntry) => void;
+  onSave: () => void;
+  onRemove: () => void;
+  canRemove: boolean;
 }) {
   const [showAddBiz, setShowAddBiz] = useState(false);
   const [newBizTitle, setNewBizTitle] = useState("");
@@ -212,11 +230,11 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
   const [bizAdding,   setBizAdding]   = useState(false);
   const [bizError,    setBizError]    = useState<string | null>(null);
 
-  const setSkills    = (skills: SkillEntry[]) => onChange({ ...goal, skills });
-  const updateSkill  = (si: number, patch: Partial<SkillEntry>) =>
+  const setSkills   = (skills: SkillEntry[]) => onChange({ ...goal, skills });
+  const updateSkill = (si: number, patch: Partial<SkillEntry>) =>
     setSkills(goal.skills.map((s, i) => i === si ? { ...s, ...patch } : s));
-  const addSkill     = () => setSkills([...goal.skills, { id: uid(), name: "", level: "Beginner", monetize: false }]);
-  const removeSkill  = (si: number) => setSkills(goal.skills.filter((_, i) => i !== si));
+  const addSkill    = () => setSkills([...goal.skills, { id: uid(), name: "", level: "Beginner", monetize: false }]);
+  const removeSkill = (si: number) => setSkills(goal.skills.filter((_, i) => i !== si));
 
   const toggleBiz = (id: string) => {
     const linked = goal.linkedBusinessIds.includes(id)
@@ -241,17 +259,19 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
       window.dispatchEvent(new CustomEvent("charaivati:page-created", { detail: created }));
       onChange({ ...goal, linkedBusinessIds: [...goal.linkedBusinessIds, created.id] });
       setNewBizTitle(""); setNewBizDesc(""); setShowAddBiz(false);
-    } catch (err: any) {
-      setBizError(err.message || "Error creating page");
+    } catch (err: unknown) {
+      setBizError(err instanceof Error ? err.message : "Error creating page");
     } finally {
       setBizAdding(false);
     }
   }
 
-  return (
-    <div className="rounded-2xl border border-gray-800 bg-gray-950/40 p-5 space-y-5">
+  const canSave = goal.statement.trim().length > 0;
 
-      {/* Statement */}
+  return (
+    <div className="rounded-2xl border border-indigo-500/30 bg-gray-950/40 p-5 space-y-5">
+
+      {/* Header */}
       <div className="flex items-center gap-3">
         <span className="flex-none w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold
           flex items-center justify-center">{idx + 1}</span>
@@ -262,7 +282,8 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
             text-white text-sm py-1 outline-none placeholder-gray-600 transition-colors"
         />
         {canRemove && (
-          <button type="button" onClick={onRemove} className="text-gray-600 hover:text-red-400 transition-colors">
+          <button type="button" onClick={onRemove}
+            className="text-gray-600 hover:text-red-400 transition-colors">
             <Trash2 className="w-4 h-4" />
           </button>
         )}
@@ -273,7 +294,8 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
         <FieldLabel>Horizon</FieldLabel>
         <div className="flex gap-2">
           {HORIZONS.map(h => (
-            <PillButton key={h} active={goal.horizon === h} onClick={() => onChange({ ...goal, horizon: h })}>{h}</PillButton>
+            <PillButton key={h} active={goal.horizon === h}
+              onClick={() => onChange({ ...goal, horizon: h })}>{h}</PillButton>
           ))}
         </div>
       </div>
@@ -287,9 +309,11 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
               <TextInput value={skill.name} onChange={v => updateSkill(si, { name: v })}
                 placeholder="Skill name…" className="w-36" />
               {SKILL_LEVELS.map(l => (
-                <PillButton key={l} active={skill.level === l} onClick={() => updateSkill(si, { level: l })}>{l}</PillButton>
+                <PillButton key={l} active={skill.level === l}
+                  onClick={() => updateSkill(si, { level: l })}>{l}</PillButton>
               ))}
-              <PillButton active={skill.monetize} onClick={() => updateSkill(si, { monetize: !skill.monetize })}>
+              <PillButton active={skill.monetize}
+                onClick={() => updateSkill(si, { monetize: !skill.monetize })}>
                 {skill.monetize ? "💰 Earning" : "Earn from this?"}
               </PillButton>
               {goal.skills.length > 1 && (
@@ -317,7 +341,6 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
           </button>
         </div>
 
-        {/* Link existing */}
         {pages.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-3">
             {pages.map(page => {
@@ -340,7 +363,6 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
           <p className="text-xs text-gray-600 mb-3">No business pages yet — create one to link.</p>
         )}
 
-        {/* Create inline */}
         {showAddBiz && (
           <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3">
             <p className="text-xs text-gray-400 font-medium">New business page</p>
@@ -360,37 +382,134 @@ function GoalCard({ goal, idx, pages, onChange, onRemove, canRemove }: {
             </div>
           </div>
         )}
+      </div>
 
-        {goal.linkedBusinessIds.length > 0 && (
-          <p className="text-xs text-indigo-400/70 mt-2">
-            → Earn tab will build a plan for {goal.linkedBusinessIds.length} linked page{goal.linkedBusinessIds.length > 1 ? "s" : ""}
-          </p>
-        )}
+      {/* Save button */}
+      <div className="flex justify-end pt-1 border-t border-gray-800">
+        <button type="button" onClick={onSave} disabled={!canSave}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500
+            text-white text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          <Check className="w-4 h-4" /> Save goal
+        </button>
       </div>
     </div>
+  );
+}
+
+// ─── Health Section ───────────────────────────────────────────────────────────
+
+function HealthSection({ health, setHealth }: {
+  health: HealthProfile; setHealth: (h: HealthProfile) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const set = (k: keyof HealthProfile, v: string | number) => setHealth({ ...health, [k]: v });
+
+  return (
+    <SectionCard>
+      <button type="button" onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left">
+        <div>
+          <h3 className="text-base font-semibold text-white">Health Foundation</h3>
+          <p className="text-xs text-gray-400 mt-0.5">Fuels every goal — shared across all</p>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 space-y-5">
+          <div className="grid grid-cols-3 gap-3">
+            {(["heightCm", "weightKg", "age"] as const).map(k => (
+              <div key={k}>
+                <FieldLabel>{k === "heightCm" ? "Height (cm)" : k === "weightKg" ? "Weight (kg)" : "Age"}</FieldLabel>
+                <input type="number" value={health[k]} onChange={e => set(k, e.target.value)}
+                  placeholder={k === "heightCm" ? "170" : k === "weightKg" ? "65" : "28"}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
+                    text-white placeholder-gray-600 outline-none focus:border-indigo-500 transition-colors"
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <FieldLabel>Food preference</FieldLabel>
+              <div className="flex flex-wrap gap-2">
+                {FOOD_OPTIONS.map(f => (
+                  <PillButton key={f} active={health.food === f} onClick={() => set("food", f)}>{f}</PillButton>
+                ))}
+              </div>
+            </div>
+            <div>
+              <FieldLabel>Movement</FieldLabel>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {EXERCISE_OPTIONS.map(e => (
+                  <PillButton key={e} active={health.exercise === e} onClick={() => set("exercise", e)}>{e}</PillButton>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                {[2, 3, 4, 5].map(n => (
+                  <PillButton key={n} active={health.sessionsPerWeek === n} onClick={() => set("sessionsPerWeek", n)}>
+                    {n}×/wk
+                  </PillButton>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-800 bg-gray-950/60 px-4 py-3">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Plan</p>
+            <p className="text-sm text-gray-300">
+              {MEAL_PREVIEW[health.food] ?? "Balanced diet"}&nbsp;·&nbsp;
+              {health.exercise} {health.sessionsPerWeek}× per week
+            </p>
+          </div>
+        </div>
+      )}
+    </SectionCard>
   );
 }
 
 // ─── Main SelfTab ─────────────────────────────────────────────────────────────
 
 export default function SelfTab({ profile }: { profile?: any }) {
-  const [drive,     setDrive]     = useState<DriveType | null>(null);
+  const [drives,    setDrives]    = useState<DriveType[]>([]);        // up to 2
   const [goals,     setGoals]     = useState<GoalEntry[]>([defaultGoal()]);
   const [health,    setHealth]    = useState<HealthProfile>(defaultHealth());
   const [pages,     setPages]     = useState<PageItem[]>([]);
   const [goalsOpen, setGoalsOpen] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [isGuest,   setIsGuest]   = useState(false);
 
   const profileApplied = useRef(false);
-  const isFirstRender  = useRef(true);
   const saveTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load pages
+  // ── Detect guest & load localStorage fallback ──────────────────
   useEffect(() => {
+    // If no profile prop arrived after mount, treat as guest
+    const guest = !profile;
+    setIsGuest(guest);
+    if (guest) {
+      const saved = guestLoad();
+      if (saved) {
+        if (saved.drives)                                    setDrives(saved.drives);
+        if (saved.health)                                    setHealth(h => ({ ...h, ...saved.health }));
+        if (Array.isArray(saved.goals) && saved.goals.length) {
+          setGoals(saved.goals);
+          setGoalsOpen(true);
+        }
+      }
+      profileApplied.current = true; // allow saves
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Load pages (skip for guests — they can't persist pages) ────
+  useEffect(() => {
+    if (isGuest) return;
     safeFetchJson("/api/user/pages", { method: "GET", credentials: "include" })
       .then(r => { if (r.ok && r.json?.ok) setPages(r.json.pages || []); })
       .catch(() => {});
-  }, []);
+  }, [isGuest]);
 
   // Listen for pages created inside GoalCards
   useEffect(() => {
@@ -402,11 +521,14 @@ export default function SelfTab({ profile }: { profile?: any }) {
     return () => window.removeEventListener("charaivati:page-created", handler);
   }, []);
 
-  // Pre-fill from profile (once)
+  // ── Pre-fill from DB profile (logged-in, runs once) ─────────────
   useEffect(() => {
     if (!profile || profileApplied.current) return;
     profileApplied.current = true;
-    if (profile.drive) setDrive(profile.drive);
+    // drive was previously a single string — coerce to array
+    if (profile.drive) {
+      setDrives(Array.isArray(profile.drive) ? profile.drive : [profile.drive]);
+    }
     if (profile.health) setHealth(h => ({ ...h, ...profile.health }));
     if (Array.isArray(profile.goals) && profile.goals.length) {
       setGoals(profile.goals);
@@ -414,10 +536,20 @@ export default function SelfTab({ profile }: { profile?: any }) {
     }
   }, [profile]);
 
-  // Debounced auto-save
-  const scheduleSave = useCallback((d: DriveType | null, g: GoalEntry[], h: HealthProfile) => {
+  // ── Persist ────────────────────────────────────────────────────
+  function persist(nextDrives: DriveType[], nextGoals: GoalEntry[], nextHealth: HealthProfile) {
     if (!profileApplied.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    if (isGuest) {
+      // Guest: save to localStorage immediately (no debounce needed for local)
+      guestSave({ drives: nextDrives, goals: nextGoals, health: nextHealth });
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 1200);
+      return;
+    }
+
+    // Logged-in: debounced API save
     setSaveState("saving");
     saveTimerRef.current = setTimeout(async () => {
       try {
@@ -425,7 +557,8 @@ export default function SelfTab({ profile }: { profile?: any }) {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ drive: d, goals: g, health: h }),
+          // Store drives array as JSON in the `drive` field
+          body: JSON.stringify({ drive: nextDrives, goals: nextGoals, health: nextHealth }),
         });
         setSaveState(resp.ok && resp.json?.ok ? "saved" : "error");
         if (resp.ok && resp.json?.ok) setTimeout(() => setSaveState("idle"), 1500);
@@ -433,21 +566,53 @@ export default function SelfTab({ profile }: { profile?: any }) {
         setSaveState("error");
       }
     }, 800);
-  }, []);
+  }
 
-  useEffect(() => {
-    if (isFirstRender.current) { isFirstRender.current = false; return; }
-    scheduleSave(drive, goals, health);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drive, goals, health]);
+  // ── Drive toggle (max 2) ───────────────────────────────────────
+  function toggleDrive(d: DriveType) {
+    let next: DriveType[];
+    if (drives.includes(d)) {
+      next = drives.filter(x => x !== d);
+    } else {
+      next = drives.length < 2 ? [...drives, d] : [drives[1], d]; // slide window if already 2
+    }
+    setDrives(next);
+    if (next.length > 0) setGoalsOpen(true);
+    persist(next, goals, health);
+  }
 
-  function selectDrive(d: DriveType) { setDrive(d); setGoalsOpen(true); }
-  const updateGoal = (id: string, u: GoalEntry) => setGoals(prev => prev.map(g => g.id === id ? u : g));
-  const removeGoal = (id: string) => setGoals(prev => prev.filter(g => g.id !== id));
+  // ── Goal helpers ───────────────────────────────────────────────
+  function updateGoal(id: string, u: GoalEntry) {
+    const next = goals.map(g => g.id === id ? u : g);
+    setGoals(next);
+  }
 
-  const filledGoals = goals.filter(g => g.statement).length;
-  const totalSkills = goals.reduce((a, g) => a + g.skills.filter(s => s.name).length, 0);
-  const monetizable = goals.reduce((a, g) => a + g.skills.filter(s => s.monetize && s.name).length, 0);
+  function saveGoal(id: string) {
+    const next = goals.map(g => g.id === id ? { ...g, saved: true } : g);
+    setGoals(next);
+    persist(drives, next, health);
+  }
+
+  function editGoal(id: string) {
+    setGoals(prev => prev.map(g => g.id === id ? { ...g, saved: false } : g));
+  }
+
+  function removeGoal(id: string) {
+    const next = goals.filter(g => g.id !== id);
+    const final = next.length === 0 ? [defaultGoal()] : next;
+    setGoals(final);
+    persist(drives, final, health);
+  }
+
+  function handleHealthChange(h: HealthProfile) {
+    setHealth(h);
+    persist(drives, goals, h);
+  }
+
+  const allGoalsSaved = goals.every(g => g.saved);
+  const filledGoals   = goals.filter(g => g.statement).length;
+  const totalSkills   = goals.reduce((a, g) => a + g.skills.filter(s => s.name).length, 0);
+  const monetizable   = goals.reduce((a, g) => a + g.skills.filter(s => s.monetize && s.name).length, 0);
 
   return (
     <div className="text-white space-y-5">
@@ -457,12 +622,20 @@ export default function SelfTab({ profile }: { profile?: any }) {
         <div className="px-5 pt-5 pb-2 flex items-start justify-between">
           <div>
             <h2 className="text-xl font-semibold">What keeps you moving?</h2>
-            <p className="text-sm text-gray-400 mt-1">One answer. It shapes everything.</p>
+            <p className="text-sm text-gray-400 mt-1">
+              Pick up to 2.{" "}
+              {isGuest && (
+                <span className="text-yellow-600 text-xs">
+                  Guest mode — saved locally for 7 days. <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
+                </span>
+              )}
+            </p>
           </div>
+          {/* Save indicator */}
           <span className={`text-xs mt-1 transition-opacity ${
-            saveState === "idle"   ? "opacity-0"                  :
-            saveState === "saving" ? "opacity-100 text-gray-500"  :
-            saveState === "saved"  ? "opacity-100 text-green-500" :
+            saveState === "idle"   ? "opacity-0"                   :
+            saveState === "saving" ? "opacity-100 text-gray-500"   :
+            saveState === "saved"  ? "opacity-100 text-green-500"  :
                                      "opacity-100 text-red-400"
           }`}>
             {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "·"}
@@ -470,22 +643,31 @@ export default function SelfTab({ profile }: { profile?: any }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 pb-5">
-          {DRIVES.map(d => (
-            <button key={d.id} type="button" onClick={() => selectDrive(d.id)}
-              className={`rounded-xl border px-4 py-4 text-left transition-all ${
-                drive === d.id
-                  ? "border-indigo-500 bg-indigo-500/10"
-                  : "border-gray-800 bg-gray-950/40 hover:border-gray-600"
-              }`}>
-              <div className={`text-sm font-semibold mb-1 ${drive === d.id ? "text-indigo-300" : "text-white"}`}>
-                {d.label}
-              </div>
-              <div className="text-xs text-gray-500">{d.description}</div>
-            </button>
-          ))}
+          {DRIVES.map(d => {
+            const selected = drives.includes(d.id);
+            const atLimit  = !selected && drives.length >= 2;
+            return (
+              <button key={d.id} type="button"
+                onClick={() => toggleDrive(d.id)}
+                disabled={atLimit}
+                className={`rounded-xl border px-4 py-4 text-left transition-all ${
+                  selected
+                    ? "border-indigo-500 bg-indigo-500/10"
+                    : atLimit
+                      ? "border-gray-800 bg-gray-950/20 opacity-40 cursor-not-allowed"
+                      : "border-gray-800 bg-gray-950/40 hover:border-gray-600"
+                }`}>
+                <div className={`text-sm font-semibold mb-1 ${selected ? "text-indigo-300" : "text-white"}`}>
+                  {selected && <span className="mr-1.5 text-indigo-400">✓</span>}
+                  {d.label}
+                </div>
+                <div className="text-xs text-gray-500">{d.description}</div>
+              </button>
+            );
+          })}
         </div>
 
-        {drive && (
+        {drives.length > 0 && (
           <div className="px-5 pb-4 border-t border-gray-800 pt-3">
             <button type="button" onClick={() => setGoalsOpen(v => !v)}
               className="flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300 transition-colors">
@@ -497,24 +679,42 @@ export default function SelfTab({ profile }: { profile?: any }) {
         )}
       </SectionCard>
 
-      {/* ── Goals + Health — expand inline below ─────────────────── */}
-      {drive && goalsOpen && (
+      {/* ── Goals + Health ────────────────────────────────────────── */}
+      {drives.length > 0 && goalsOpen && (
         <>
           <SectionCard>
             <div className="px-5 pt-5 pb-2">
               <h2 className="text-xl font-semibold">What do you want to do?</h2>
-              <p className="text-sm text-gray-400 mt-1">Up to 2 goals. Add skills and business pages for each.</p>
+              <p className="text-sm text-gray-400 mt-1">Up to 2 goals. Save each to collapse it.</p>
             </div>
+
             <div className="px-5 pb-5 space-y-4">
-              {goals.map((goal, idx) => (
-                <GoalCard key={goal.id} goal={goal} idx={idx} pages={pages}
-                  onChange={u => updateGoal(goal.id, u)}
-                  onRemove={() => removeGoal(goal.id)}
-                  canRemove={goals.length > 1}
-                />
-              ))}
-              {goals.length < 2 && (
-                <button type="button" onClick={() => setGoals(prev => [...prev, defaultGoal()])}
+              {goals.map((goal, idx) =>
+                goal.saved ? (
+                  <GoalSummary
+                    key={goal.id}
+                    goal={goal}
+                    pages={pages}
+                    onEdit={() => editGoal(goal.id)}
+                    onRemove={() => removeGoal(goal.id)}
+                  />
+                ) : (
+                  <GoalCard
+                    key={goal.id}
+                    goal={goal}
+                    idx={idx}
+                    pages={pages}
+                    onChange={u => updateGoal(goal.id, u)}
+                    onSave={() => saveGoal(goal.id)}
+                    onRemove={() => removeGoal(goal.id)}
+                    canRemove={goals.length > 1}
+                  />
+                )
+              )}
+
+              {goals.length < 2 && allGoalsSaved && (
+                <button type="button"
+                  onClick={() => setGoals(prev => [...prev, defaultGoal()])}
                   className="w-full rounded-xl border border-dashed border-gray-700 py-3 text-sm
                     text-gray-500 hover:border-gray-500 hover:text-gray-300 transition-colors
                     flex items-center justify-center gap-2">
@@ -524,18 +724,18 @@ export default function SelfTab({ profile }: { profile?: any }) {
             </div>
           </SectionCard>
 
-          {/* Health divider */}
+          {/* Health — shared, outside goals */}
           <div>
             <div className="flex items-center gap-3 mb-3 px-1">
               <div className="h-px flex-1 bg-gray-800" />
               <span className="text-xs text-gray-600 uppercase tracking-wider">Your health · applies to all goals</span>
               <div className="h-px flex-1 bg-gray-800" />
             </div>
-            <HealthSection health={health} setHealth={setHealth} />
+            <HealthSection health={health} setHealth={handleHealthChange} />
           </div>
 
-          {/* CTA */}
-          {filledGoals > 0 && (
+          {/* Summary CTA */}
+          {filledGoals > 0 && allGoalsSaved && (
             <SectionCard className="px-5 py-4">
               <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
