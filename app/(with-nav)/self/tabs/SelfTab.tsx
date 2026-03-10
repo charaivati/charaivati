@@ -482,26 +482,32 @@ export default function SelfTab({ profile }: { profile?: any }) {
 
   const profileApplied = useRef(false);
   const saveTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guestLoaded    = useRef(false);
 
-  // ── Detect guest & load localStorage fallback ──────────────────
+  // ── Detect guest — re-runs whenever profile prop changes ───────
+  // profile starts as undefined while layout fetches, then arrives.
+  // We only commit to guest mode after a deliberate delay, giving
+  // the profile prop time to arrive from the parent.
   useEffect(() => {
-    // If no profile prop arrived after mount, treat as guest
-    const guest = !profile;
-    setIsGuest(guest);
-    if (guest) {
-      const saved = guestLoad();
-      if (saved) {
-        if (saved.drives)                                    setDrives(saved.drives);
-        if (saved.health)                                    setHealth(h => ({ ...h, ...saved.health }));
-        if (Array.isArray(saved.goals) && saved.goals.length) {
-          setGoals(saved.goals);
-          setGoalsOpen(true);
+    if (profile !== undefined) {
+      // Profile has arrived (even if null) — we know the fetch is done
+      setIsGuest(!profile);
+      if (!profile && !guestLoaded.current) {
+        // Logged-out guest: load localStorage
+        guestLoaded.current = true;
+        const saved = guestLoad();
+        if (saved) {
+          if (saved.drives) setDrives(saved.drives);
+          if (saved.health) setHealth(h => ({ ...h, ...saved.health }));
+          if (Array.isArray(saved.goals) && saved.goals.length) {
+            setGoals(saved.goals);
+            setGoalsOpen(true);
+          }
         }
+        profileApplied.current = true;
       }
-      profileApplied.current = true; // allow saves
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [profile]);
 
   // ── Load pages (skip for guests — they can't persist pages) ────
   useEffect(() => {
