@@ -108,6 +108,7 @@ model Profile {
   learningNotes          String?
   businesses             Json?
   weeklyEarningsEstimate Float?
+  desiredMonthlyIncome   Float?   @default(0)
   preferredPayment       String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt

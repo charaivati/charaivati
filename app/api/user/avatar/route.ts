@@ -21,6 +21,9 @@ export async function POST(req: Request) {
     if (!verified?.id) {
       return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
     }
+    if (verified.role === "guest") {
+      return NextResponse.json({ error: "guest_readonly" }, { status: 403 });
+    }
 
     // Convert request to Node stream (needed for formidable)
     const form = formidable({ multiples: false, maxFileSize: 5 * 1024 * 1024 }); // 5 MB max
