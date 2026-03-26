@@ -61,9 +61,9 @@ function SelfPageContent() {
 
       <div className="max-w-3xl mx-auto">
         {active === "personal" && <SelfTab profile={profile} />}
-        {active === "social"   && <SocialTab profile={profile} />}
-        {active === "learn"    && <LearningTab />}
-        {active === "earn"     && <EarningTab />}
+        {active === "social" && <SocialTab profile={profile} />}
+        {active === "learn" && <LearningTab />}
+        {active === "earn" && <EarningTab />}
       </div>
     </>
   );
@@ -71,7 +71,7 @@ function SelfPageContent() {
 
 export default function SelfPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center">Loading...</div>}>
+    <Suspense fallback={<div className="p-8 text-center">Loading your profile...</div>}>
       <SelfPageContent />
     </Suspense>
   );

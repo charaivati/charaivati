@@ -135,3 +135,24 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }
 }
+
+export async function PATCH(req: Request) {
+  try {
+    const user = await getCurrentUser(req);
+    if (!user?.id) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+    const body = await req.json();
+    const data = pickAllowed(body);
+    if (Object.keys(data).length === 0) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+
+    const profile = await prisma.profile.upsert({
+      where: { userId: user.id },
+      update: data,
+      create: { userId: user.id, ...data },
+    });
+    return NextResponse.json({ ok: true, profile });
+  } catch (err) {
+    console.error("profile PATCH err", err);
+    return NextResponse.json({ error: "server error" }, { status: 500 });
+  }
+}
