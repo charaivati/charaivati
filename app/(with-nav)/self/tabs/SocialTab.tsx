@@ -21,10 +21,8 @@ type StoredPost = {
   synced?: boolean;
   youtubeLinks?: string[];
   pageId?: string;
-  visibility?: "public" | "friends";
+  visibility?: "public" | "friends" | "private";
 };
-
-const LS_POSTS_KEY = "ch_social_posts_v3";
 
 function extractYouTubeId(url: string): string | null {
   const patterns = [
@@ -40,49 +38,69 @@ function extractYouTubeId(url: string): string | null {
 
 export default function SocialTab({ profile }: { profile?: any }) {
   const gDrive = useGoogleDrive();
+
   const [posts, setPosts] = useState<StoredPost[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<"idle" | "syncing" | "synced" | "error">("idle");
+  const [syncStatus, setSyncStatus] = useState<
+    "idle" | "syncing" | "synced" | "error"
+  >("idle");
 
-  useEffect(() => {
-    const initPosts = async () => {
-      setLoadingFeed(true);
-      try {
-        const raw = localStorage.getItem(LS_POSTS_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as StoredPost[];
-          if (Array.isArray(parsed)) setPosts(parsed);
-        }
+  // -------- LOAD FEED --------
+  async function loadFeed() {
+    setLoadingFeed(true);
 
-        if (gDrive.isAuthenticated) {
-          const drivePosts = await gDrive.fetchPosts();
-          if (drivePosts && drivePosts.length > 0) {
-            setPosts(drivePosts);
-            localStorage.setItem(LS_POSTS_KEY, JSON.stringify(drivePosts));
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to load posts:", e);
-      } finally {
-        setLoadingFeed(false);
-      }
-    };
-
-    initPosts();
-  }, [gDrive.isAuthenticated]);
-
-  useEffect(() => {
     try {
-      localStorage.setItem(LS_POSTS_KEY, JSON.stringify(posts.slice(0, 500)));
-    } catch {
-      console.error("Failed to save posts to localStorage");
+      const res = await fetch("/api/posts?limit=30");
+      const json = await res.json();
+
+      if (json.ok) {
+        const mapped = json.data.map((p: any) => ({
+          id: p.id,
+          author:
+            p.user?.profile?.displayName ||
+            p.user?.name ||
+            p.user?.email ||
+            "User",
+
+          timeISO: p.createdAt,
+          content: p.content,
+          likes: p.likes,
+          visibility: p.visibility,
+          youtubeLinks: p.youtubeLinks || [],
+
+          images: (p.imageFileIds || []).map(
+            (id: string) =>
+              `https://drive.google.com/thumbnail?id=${id}&sz=w1200`
+          ),
+
+          video: p.videoFileId
+            ? {
+                name: "video",
+                size: 0,
+                url: `https://drive.google.com/uc?id=${p.videoFileId}`,
+              }
+            : null,
+        }));
+
+        setPosts(mapped);
+      }
+    } catch (err) {
+      console.error("Feed load error:", err);
+    } finally {
+      setLoadingFeed(false);
     }
-  }, [posts]);
+  }
+
+  // Load once
+  useEffect(() => {
+    loadFeed();
+  }, []);
 
   const formatTime = (iso: string) => {
     const date = new Date(iso);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
+
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(diff / 3600000);
     const days = Math.floor(diff / 86400000);
@@ -91,6 +109,7 @@ export default function SocialTab({ profile }: { profile?: any }) {
     if (mins < 60) return `${mins}m ago`;
     if (hours < 24) return `${hours}h ago`;
     if (days < 7) return `${days}d ago`;
+
     return date.toLocaleDateString();
   };
 
@@ -103,15 +122,28 @@ export default function SocialTab({ profile }: { profile?: any }) {
   }
 
   return (
-    <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900" style={{ minHeight: "200vh" }}>
+    <div
+      className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900"
+      style={{ minHeight: "200vh" }}
+    >
       {/* Header */}
       <div className="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-light text-white tracking-wide">Social</h1>
+          <h1 className="text-2xl font-light text-white tracking-wide">
+            Social
+          </h1>
+
           <div className="flex items-center gap-3">
-            {syncStatus === "syncing" && <Cloud className="w-5 h-5 text-blue-400 animate-spin" />}
-            {syncStatus === "synced" && <CheckCircle className="w-5 h-5 text-green-400" />}
-            {syncStatus === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
+            {syncStatus === "syncing" && (
+              <Cloud className="w-5 h-5 text-blue-400 animate-spin" />
+            )}
+            {syncStatus === "synced" && (
+              <CheckCircle className="w-5 h-5 text-green-400" />
+            )}
+            {syncStatus === "error" && (
+              <AlertCircle className="w-5 h-5 text-red-400" />
+            )}
+
             {!gDrive.isAuthenticated && (
               <button
                 onClick={() => gDrive.connectDrive()}
@@ -120,13 +152,15 @@ export default function SocialTab({ profile }: { profile?: any }) {
                 Connect Google Drive
               </button>
             )}
+
             {gDrive.isAuthenticated && gDrive.userInfo && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/5 border border-white/10">
-                <span className="text-xs text-green-400 font-medium">✓ {gDrive.userInfo.email}</span>
+                <span className="text-xs text-green-400 font-medium">
+                  ✓ {gDrive.userInfo.email}
+                </span>
                 <button
                   onClick={() => gDrive.disconnect()}
                   className="text-xs text-gray-400 hover:text-red-400 transition-colors ml-2"
-                  title="Disconnect"
                 >
                   ✕
                 </button>
@@ -145,9 +179,8 @@ export default function SocialTab({ profile }: { profile?: any }) {
         )}
       </div>
 
-      {/* Main Content */}
+      {/* Feed */}
       <div className="max-w-2xl mx-auto px-4 py-6 pb-32">
-        {/* Posts Feed */}
         <div className="space-y-6">
           {loadingFeed && posts.length === 0 && (
             <div className="text-center py-20">
@@ -160,69 +193,86 @@ export default function SocialTab({ profile }: { profile?: any }) {
             <div className="text-center py-20">
               <MessageSquare className="w-16 h-16 text-gray-700 mx-auto mb-4" />
               <p className="text-gray-500 text-lg">No posts yet</p>
-              <p className="text-gray-600 text-sm mt-2">Content will appear here</p>
+              <p className="text-gray-600 text-sm mt-2">
+                Content will appear here
+              </p>
             </div>
           )}
 
           {posts.map((post) => {
             const author = authorDisplay(post.author);
             const avatarLetter = (author || "Y")[0].toUpperCase();
+
             return (
-              <article key={post.id} className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm hover:bg-white/8 transition-colors">
+              <article
+                key={post.id}
+                className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm hover:bg-white/8 transition-colors"
+              >
                 <div className="p-6 pb-4">
-                  <div className="flex items-center gap-3 mb-4 justify-between">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium">
-                        {avatarLetter}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-white truncate">{author}</p>
-                        <p className="text-sm text-gray-500">
-                          {formatTime(post.timeISO)} {post.synced && <span className="text-xs text-green-400">✓</span>}
-                          {post.visibility === "friends" && <span className="text-xs text-yellow-400 ml-2">👥 Friends</span>}
-                        </p>
-                      </div>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium">
+                      {avatarLetter}
+                    </div>
+
+                    <div>
+                      <p className="font-medium text-white">{author}</p>
+                      <p className="text-sm text-gray-500">
+                        {formatTime(post.timeISO)}
+                      </p>
                     </div>
                   </div>
 
-                  {post.content && <p className="text-gray-200 text-base leading-relaxed whitespace-pre-wrap mb-4">{post.content}</p>}
+                  {post.content && (
+                    <p className="text-gray-200 whitespace-pre-wrap">
+                      {post.content}
+                    </p>
+                  )}
                 </div>
 
                 {post.images && post.images.length > 0 && (
-                  <div className={`${post.images.length === 1 ? "" : "grid grid-cols-2 gap-1"}`}>
+                  <div
+                    className={`${
+                      post.images.length === 1 ? "" : "grid grid-cols-2 gap-1"
+                    }`}
+                  >
                     {post.images.map((url, i) => (
-                      <img key={i} src={url} alt="" className="w-full object-cover" style={{ height: post.images?.length === 1 ? "auto" : "280px" }} loading="lazy" />
+                      <img
+                        key={i}
+                        src={url}
+                        className="w-full object-cover"
+                        loading="lazy"
+                      />
                     ))}
                   </div>
                 )}
 
                 {post.video && (
-                  <video src={post.video.url} controls className="w-full bg-black" style={{ maxHeight: "500px" }} />
+                  <video
+                    src={post.video.url}
+                    controls
+                    className="w-full bg-black"
+                  />
                 )}
 
-                {post.youtubeLinks && post.youtubeLinks.length > 0 && (
-                  <div className="px-6 py-4 border-t border-white/10">
-                    {post.youtubeLinks.map((link, i) => {
-                      const youtubeId = extractYouTubeId(link);
-                      return youtubeId ? (
-                        <iframe
-                          key={i}
-                          width="100%"
-                          height="315"
-                          src={`https://www.youtube.com/embed/${youtubeId}`}
-                          title="YouTube video"
-                          frameBorder="0"
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                          allowFullScreen
-                          className="rounded-lg"
-                        />
-                      ) : null;
-                    })}
-                  </div>
-                )}
+                {post.youtubeLinks?.map((link, i) => {
+                  const id = extractYouTubeId(link);
+                  if (!id) return null;
+
+                  return (
+                    <iframe
+                      key={i}
+                      width="100%"
+                      height="315"
+                      src={`https://www.youtube.com/embed/${id}`}
+                      className="rounded-lg"
+                    />
+                  );
+                })}
 
                 <div className="px-6 py-4 border-t border-white/5">
-                  <span className="text-sm text-gray-400">Likes: {post.likes || 0}</span>
+                  <span className="text-sm text-gray-400">
+                    Likes: {post.likes || 0}
+                  </span>
                 </div>
               </article>
             );
