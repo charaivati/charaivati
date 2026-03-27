@@ -229,6 +229,10 @@ export default function LearningTab() {
     });
   }
 
+  const activeMotivationTitle = MOTIVATIONS.find(
+    (m) => m.id === state.activeMotivation,
+  )?.title;
+
   return (
     <div className="space-y-5 text-white">
       <section className="rounded-2xl border border-gray-800 bg-gray-900/70">
