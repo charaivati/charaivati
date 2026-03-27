@@ -16,7 +16,7 @@ type GoalDraft = {
 
 type StoredState = {
   selectedMotivations: MotivationId[];
-  activeMotivation: MotivationId | null;
+  activeMotivation: MotivationId;
   goalsByMotivation: Record<MotivationId, GoalDraft[]>;
 };
 
@@ -36,14 +36,12 @@ const MOTIVATIONS: MotivationOption[] = [
   { id: "doing", title: "Doing", subtitle: "Master of the craft" },
 ];
 
-function emptyGoalsByMotivation(): Record<MotivationId, GoalDraft[]> {
-  return {
-    learning: [],
-    helping: [],
-    building: [],
-    doing: [],
-  };
-}
+const defaultGoalsByMotivation: Record<MotivationId, GoalDraft[]> = {
+  learning: [],
+  helping: [],
+  building: [],
+  doing: [],
+};
 
 function createEmptyGoal(): GoalDraft {
   return {
@@ -63,7 +61,7 @@ function sanitizeStoredState(input: unknown): StoredState {
   const fallback: StoredState = {
     selectedMotivations: ["learning"],
     activeMotivation: "learning",
-    goalsByMotivation: emptyGoalsByMotivation(),
+    goalsByMotivation: defaultGoalsByMotivation,
   };
 
   if (!input || typeof input !== "object") return fallback;
@@ -73,32 +71,29 @@ function sanitizeStoredState(input: unknown): StoredState {
     ? obj.selectedMotivations.filter(isMotivationId).slice(0, 2)
     : [];
 
-  const goalsRaw =
-    obj.goalsByMotivation && typeof obj.goalsByMotivation === "object"
-      ? obj.goalsByMotivation
-      : {};
+  const goalsRaw = obj.goalsByMotivation && typeof obj.goalsByMotivation === "object" ? obj.goalsByMotivation : {};
 
-  const normalizedGoals = emptyGoalsByMotivation();
+  const normalizedGoals: Record<MotivationId, GoalDraft[]> = {
+    learning: [],
+    helping: [],
+    building: [],
+    doing: [],
+  };
 
   (Object.keys(normalizedGoals) as MotivationId[]).forEach((motivation) => {
     const source = (goalsRaw as Record<string, unknown>)[motivation];
     if (!Array.isArray(source)) return;
-
     normalizedGoals[motivation] = source.slice(0, MAX_GOALS).map((g) => {
       const goal = g as Partial<GoalDraft>;
       return {
         title: typeof goal.title === "string" ? goal.title : "",
         horizon:
-          goal.horizon === "thisYear" ||
-          goal.horizon === "threeYears" ||
-          goal.horizon === "lifetime"
+          goal.horizon === "thisYear" || goal.horizon === "threeYears" || goal.horizon === "lifetime"
             ? goal.horizon
             : "thisYear",
         skill: typeof goal.skill === "string" ? goal.skill : "",
         skillLevel:
-          goal.skillLevel === "beginner" ||
-          goal.skillLevel === "intermediate" ||
-          goal.skillLevel === "advanced"
+          goal.skillLevel === "beginner" || goal.skillLevel === "intermediate" || goal.skillLevel === "advanced"
             ? goal.skillLevel
             : "beginner",
         earnFromSkill: Boolean(goal.earnFromSkill),
@@ -106,16 +101,12 @@ function sanitizeStoredState(input: unknown): StoredState {
     });
   });
 
-  const requestedActive = isMotivationId(obj.activeMotivation)
-    ? obj.activeMotivation
-    : null;
-  const activeMotivation = requestedActive && selected.includes(requestedActive)
-    ? requestedActive
-    : selected[0] ?? null;
+  const firstSelected = selected[0] ?? "learning";
+  const active = isMotivationId(obj.activeMotivation) ? obj.activeMotivation : firstSelected;
 
   return {
-    selectedMotivations: selected,
-    activeMotivation,
+    selectedMotivations: selected.length ? selected : ["learning"],
+    activeMotivation: selected.includes(active) ? active : firstSelected,
     goalsByMotivation: normalizedGoals,
   };
 }
@@ -124,7 +115,7 @@ export default function LearningTab() {
   const [state, setState] = useState<StoredState>({
     selectedMotivations: ["learning"],
     activeMotivation: "learning",
-    goalsByMotivation: emptyGoalsByMotivation(),
+    goalsByMotivation: defaultGoalsByMotivation,
   });
   const [loaded, setLoaded] = useState(false);
 
@@ -136,7 +127,7 @@ export default function LearningTab() {
         setState(sanitizeStoredState(parsed));
       }
     } catch {
-      // ignore malformed local storage
+      // ignore bad local state
     } finally {
       setLoaded(true);
     }
@@ -147,17 +138,7 @@ export default function LearningTab() {
     localStorage.setItem(LS_KEY, JSON.stringify(state));
   }, [state, loaded]);
 
-  const activeGoals = useMemo<GoalDraft[]>(() => {
-    if (!state.activeMotivation) return [];
-    return state.goalsByMotivation[state.activeMotivation] ?? [];
-  }, [state]);
-
-  function setActiveMotivation(id: MotivationId) {
-    setState((prev) => ({
-      ...prev,
-      activeMotivation: prev.selectedMotivations.includes(id) ? id : prev.activeMotivation,
-    }));
-  }
+  const activeGoals = useMemo(() => state.goalsByMotivation[state.activeMotivation] ?? [], [state]);
 
   function toggleMotivation(id: MotivationId) {
     setState((prev) => {
@@ -166,42 +147,48 @@ export default function LearningTab() {
 
       if (isSelected) {
         const nextSelected = selected.filter((item) => item !== id);
-        const clearedGoals = {
-          ...prev.goalsByMotivation,
-          [id]: [],
-        };
-
-        const nextActive =
-          prev.activeMotivation === id ? nextSelected[0] ?? null : prev.activeMotivation;
-
+        if (nextSelected.length === 0) {
+          return {
+            ...prev,
+            selectedMotivations: [id],
+            activeMotivation: id,
+          };
+        }
         return {
           ...prev,
           selectedMotivations: nextSelected,
-          activeMotivation: nextActive,
-          goalsByMotivation: clearedGoals,
+          activeMotivation: nextSelected.includes(prev.activeMotivation)
+            ? prev.activeMotivation
+            : nextSelected[0],
         };
       }
 
-      const nextSelected = selected.length >= 2 ? [selected[1], id] : [...selected, id];
-      const replaced = selected.length >= 2 ? selected[0] : null;
-
-      const nextGoals = {
-        ...prev.goalsByMotivation,
-        ...(replaced ? { [replaced]: [] } : {}),
-      };
+      if (selected.length >= 2) {
+        const nextSelected = [selected[1], id];
+        return {
+          ...prev,
+          selectedMotivations: nextSelected,
+          activeMotivation: id,
+        };
+      }
 
       return {
         ...prev,
-        selectedMotivations: nextSelected,
+        selectedMotivations: [...selected, id],
         activeMotivation: id,
-        goalsByMotivation: nextGoals,
       };
     });
   }
 
+  function setActiveMotivation(id: MotivationId) {
+    setState((prev) => ({
+      ...prev,
+      activeMotivation: prev.selectedMotivations.includes(id) ? id : prev.activeMotivation,
+    }));
+  }
+
   function updateGoal(index: number, patch: Partial<GoalDraft>) {
     setState((prev) => {
-      if (!prev.activeMotivation) return prev;
       const current = [...(prev.goalsByMotivation[prev.activeMotivation] ?? [])];
       current[index] = { ...createEmptyGoal(), ...current[index], ...patch };
       return {
@@ -216,10 +203,8 @@ export default function LearningTab() {
 
   function addGoal() {
     setState((prev) => {
-      if (!prev.activeMotivation) return prev;
       const current = prev.goalsByMotivation[prev.activeMotivation] ?? [];
       if (current.length >= MAX_GOALS) return prev;
-
       return {
         ...prev,
         goalsByMotivation: {
@@ -232,10 +217,8 @@ export default function LearningTab() {
 
   function removeGoal(index: number) {
     setState((prev) => {
-      if (!prev.activeMotivation) return prev;
       const current = [...(prev.goalsByMotivation[prev.activeMotivation] ?? [])];
       current.splice(index, 1);
-
       return {
         ...prev,
         goalsByMotivation: {
@@ -257,7 +240,7 @@ export default function LearningTab() {
           <h2 className="text-3xl font-semibold">What keeps you moving?</h2>
           <p className="mt-1 text-gray-300">Pick up to 2.</p>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             {MOTIVATIONS.map((motivation) => {
               const selected = state.selectedMotivations.includes(motivation.id);
               const active = state.activeMotivation === motivation.id;
@@ -266,7 +249,10 @@ export default function LearningTab() {
                 <button
                   key={motivation.id}
                   type="button"
-                  onClick={() => toggleMotivation(motivation.id)}
+                  onClick={() => {
+                    toggleMotivation(motivation.id);
+                    setActiveMotivation(motivation.id);
+                  }}
                   className={`rounded-xl border px-4 py-4 text-left transition ${
                     selected
                       ? active
@@ -275,168 +261,142 @@ export default function LearningTab() {
                       : "border-gray-700 bg-gray-950/60 hover:bg-gray-900"
                   }`}
                 >
-                  <div className="font-semibold">
-                    {selected ? `✓ ${motivation.title}` : motivation.title}
-                  </div>
+                  <div className="font-semibold">{selected ? `✓ ${motivation.title}` : motivation.title}</div>
                   <div className="mt-1 text-sm text-gray-400">{motivation.subtitle}</div>
                 </button>
               );
             })}
           </div>
 
-          {state.selectedMotivations.length > 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
-              {state.selectedMotivations.map((id) => {
-                const item = MOTIVATIONS.find((m) => m.id === id);
-                if (!item) return null;
-
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setActiveMotivation(id)}
-                    className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                      state.activeMotivation === id
-                        ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                        : "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800"
-                    }`}
-                  >
-                    {item.title} {state.activeMotivation === id ? "(Active)" : ""}
-                  </button>
-                );
-              })}
-            </div>
-          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            {state.selectedMotivations.map((id) => {
+              const item = MOTIVATIONS.find((m) => m.id === id);
+              if (!item) return null;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveMotivation(id)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                    state.activeMotivation === id
+                      ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
+                      : "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800"
+                  }`}
+                >
+                  {item.title} {state.activeMotivation === id ? "(Active)" : ""}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
       <section className="rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
         <h3 className="text-3xl font-semibold">What do you want to do?</h3>
-        <p className="mt-1 text-gray-300">
-          Up to 2 goals. Deselecting a motivation clears its goals and skills.
-        </p>
+        <p className="mt-1 text-gray-300">Up to 2 goals. Each tab keeps separate goals.</p>
 
-        {!state.activeMotivation ? (
-          <p className="mt-4 rounded-lg border border-dashed border-gray-700 p-4 text-sm text-gray-400">
-            Select a motivation above to add goals.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-4">
-            {activeGoals.map((goal, index) => (
-              <article
-                key={`${state.activeMotivation}-${index}`}
-                className="rounded-xl border border-gray-800 bg-gray-950/60 p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500/80 text-xs font-bold">
-                    {index + 1}
-                  </div>
-                  <input
-                    value={goal.title}
-                    onChange={(event) =>
-                      updateGoal(index, { title: event.target.value })
-                    }
-                    placeholder="Describe this goal"
-                    className="flex-1 border-b border-gray-700 bg-transparent pb-1 text-white outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeGoal(index)}
-                    className="text-sm text-gray-400 hover:text-red-300"
-                  >
-                    Delete
-                  </button>
-                </div>
+        <div className="mt-4 space-y-4">
+          {activeGoals.map((goal, index) => (
+            <article key={`${state.activeMotivation}-${index}`} className="rounded-xl border border-gray-800 bg-gray-950/60 p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-7 w-7 rounded-full bg-indigo-500/80 text-xs font-bold flex items-center justify-center">{index + 1}</div>
+                <input
+                  value={goal.title}
+                  onChange={(event) => updateGoal(index, { title: event.target.value })}
+                  placeholder="Describe this goal"
+                  className="flex-1 border-b border-gray-700 bg-transparent pb-1 text-white outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeGoal(index)}
+                  className="text-sm text-gray-400 hover:text-red-300"
+                >
+                  Delete
+                </button>
+              </div>
 
-                <div className="mt-4">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">Horizon</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {[
-                      { id: "thisYear", label: "This year" },
-                      { id: "threeYears", label: "3 Years" },
-                      { id: "lifetime", label: "Lifetime" },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => updateGoal(index, { horizon: item.id as Horizon })}
-                        className={`rounded-full border px-3 py-1 text-xs ${
-                          goal.horizon === item.id
-                            ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                            : "border-gray-700 text-gray-300"
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mt-4">
-                  <p className="text-xs uppercase tracking-wide text-gray-400">
-                    Skills for this goal
-                  </p>
-                  <input
-                    value={goal.skill}
-                    onChange={(event) => updateGoal(index, { skill: event.target.value })}
-                    placeholder="Add a skill"
-                    className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
-                  />
-
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {[
-                      { id: "beginner", label: "Beginner" },
-                      { id: "intermediate", label: "Intermediate" },
-                      { id: "advanced", label: "Advanced" },
-                    ].map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() =>
-                          updateGoal(index, { skillLevel: item.id as SkillLevel })
-                        }
-                        className={`rounded-full border px-3 py-1 text-xs ${
-                          goal.skillLevel === item.id
-                            ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                            : "border-gray-700 text-gray-300"
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
+              <div className="mt-4">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Horizon</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[
+                    { id: "thisYear", label: "This year" },
+                    { id: "threeYears", label: "3 Years" },
+                    { id: "lifetime", label: "Lifetime" },
+                  ].map((item) => (
                     <button
+                      key={item.id}
                       type="button"
-                      onClick={() =>
-                        updateGoal(index, { earnFromSkill: !goal.earnFromSkill })
-                      }
+                      onClick={() => updateGoal(index, { horizon: item.id as Horizon })}
                       className={`rounded-full border px-3 py-1 text-xs ${
-                        goal.earnFromSkill
-                          ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                        goal.horizon === item.id
+                          ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
                           : "border-gray-700 text-gray-300"
                       }`}
                     >
-                      Earn from this?
+                      {item.label}
                     </button>
-                  </div>
+                  ))}
                 </div>
-              </article>
-            ))}
+              </div>
 
-            {activeGoals.length < MAX_GOALS && (
-              <button
-                type="button"
-                onClick={addGoal}
-                className="rounded-lg border border-gray-700 px-3 py-2 text-sm text-indigo-300 hover:bg-gray-800"
-              >
-                + Add goal for {activeMotivationTitle}
-              </button>
-            )}
-          </div>
-        )}
+              <div className="mt-4">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Skills for this goal</p>
+                <input
+                  value={goal.skill}
+                  onChange={(event) => updateGoal(index, { skill: event.target.value })}
+                  placeholder="Add a skill"
+                  className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
+                />
+
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[
+                    { id: "beginner", label: "Beginner" },
+                    { id: "intermediate", label: "Intermediate" },
+                    { id: "advanced", label: "Advanced" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => updateGoal(index, { skillLevel: item.id as SkillLevel })}
+                      className={`rounded-full border px-3 py-1 text-xs ${
+                        goal.skillLevel === item.id
+                          ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
+                          : "border-gray-700 text-gray-300"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => updateGoal(index, { earnFromSkill: !goal.earnFromSkill })}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      goal.earnFromSkill
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                        : "border-gray-700 text-gray-300"
+                    }`}
+                  >
+                    Earn from this?
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+
+          {activeGoals.length < MAX_GOALS && (
+            <button
+              type="button"
+              onClick={addGoal}
+              className="rounded-lg border border-gray-700 px-3 py-2 text-sm text-indigo-300 hover:bg-gray-800"
+            >
+              + Add goal for {MOTIVATIONS.find((m) => m.id === state.activeMotivation)?.title}
+            </button>
+          )}
+        </div>
 
         {loaded && (
           <p className="mt-4 text-xs text-emerald-400">
-            Saved locally. Refresh-safe and separated by selected motivation.
+            Saved locally. Refresh-safe and tab-specific for {MOTIVATIONS.find((m) => m.id === state.activeMotivation)?.title}.
           </p>
         )}
       </section>
