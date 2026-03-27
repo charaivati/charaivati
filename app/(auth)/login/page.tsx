@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Mail, Lock, User } from "lucide-react";
 
@@ -218,6 +219,35 @@ function AuthForm() {
     }
   }
 
+  async function handleGuestLogin() {
+    setMessage("Creating a guest session...");
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch("/api/user/guest", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.ok) {
+        setMessage("❌ Unable to start guest session. Please try again.");
+        return;
+      }
+      setMessage("✅ Guest session ready! Redirecting...");
+      await new Promise((r) => setTimeout(r, 200));
+      await router.replace(redirectTo);
+      try {
+        sessionStorage.removeItem("charaivati.redirect");
+      } catch {}
+      router.refresh();
+    } catch (err) {
+      console.error("guest login error", err);
+      setMessage("Network error. Please retry.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   function handleBackToEmail() {
     setStep("email");
     setPassword("");
@@ -283,6 +313,7 @@ function AuthForm() {
                 </>
               )}
             </button>
+
           </div>
         )}
 
@@ -448,9 +479,25 @@ function AuthForm() {
           </div>
         )}
 
+        <div className="mt-4">
+          <button
+            onClick={handleGuestLogin}
+            disabled={isSubmitting || checkingStatus}
+            className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
+          >
+            Skip for now (Continue as guest)
+          </button>
+          <p className="text-center text-xs text-gray-500 mt-2">
+            Guest mode is read-only until you log in or register.
+          </p>
+        </div>
+
         {/* Footer */}
         <p className="text-center text-xs text-gray-500 mt-6">
-          By continuing, you agree to our terms of service
+          By continuing, you agree to our {" "}
+          <Link href="/terms-of-service" className="underline hover:text-gray-300">
+            terms of service
+          </Link>
         </p>
       </div>
     </main>
