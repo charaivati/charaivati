@@ -1,12 +1,22 @@
 // app/api/auth/logout/route.ts
 import { NextResponse } from "next/server";
-import { clearSessionCookie } from "@/lib/session";
+import { COOKIE_NAME } from "@/lib/session";
 
-type ApiEnvelope = { ok?: boolean; error?: string; deletionScheduledAt?: string };
+type ApiEnvelope = { ok?: boolean; error?: string };
 
 export async function POST(): Promise<NextResponse<ApiEnvelope>> {
-  // use typed envelope everywhere so TS stays consistent across branches
-  let res = NextResponse.json<ApiEnvelope>({ ok: true });
-  res = clearSessionCookie(res);
-  return res;
+  const response = new NextResponse<ApiEnvelope>(
+    JSON.stringify({ ok: true }),
+    { status: 200, headers: { "Content-Type": "application/json" } }
+  );
+
+  response.cookies.set(COOKIE_NAME, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+
+  return response;
 }

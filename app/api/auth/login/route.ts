@@ -2,9 +2,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcrypt";
-import { createSessionToken, setSessionCookie } from "@/lib/session";
+import { createSessionToken, COOKIE_NAME } from "@/lib/session";
 
 type Body = { email?: string; password?: string };
+
+const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 export async function POST(req: Request) {
   try {
@@ -14,7 +16,8 @@ export async function POST(req: Request) {
     }
 
     const email = String(body.email).trim().toLowerCase();
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user  = await prisma.user.findUnique({ where: { email } });
+
     if (!user || !user.passwordHash) {
       return NextResponse.json({ ok: false, error: "Invalid credentials" }, { status: 401 });
     }
@@ -24,32 +27,43 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Invalid credentials" }, { status: 401 });
     }
 
-    // create JWT session token
-    const token = await createSessionToken({ userId: user.id, email: user.email ?? undefined }, { expiresIn: "7d" });
+    const token = await createSessionToken(
+      { userId: user.id, email: user.email ?? undefined },
+      { expiresIn: "7d" }
+    );
 
-    // Optional: write an audit log row referencing the token for debugging / ability to list sessions
-    // This stores the JWT in AuditLog.entityId — safe but optional. Remove if you don't want tokens in DB.
+    // Audit log — non-fatal
     try {
       await prisma.auditLog.create({
         data: {
           actorId: user.id,
-          action: "session.create",
-          entity: "session",
+          action:  "session.create",
+          entity:  "session",
           entityId: token,
-          data: { ip: "local" },
+          data:    { ip: req.headers.get("x-forwarded-for") ?? "unknown" },
         },
       });
     } catch (err) {
-      // non-fatal — don't block login if audit write fails
       console.warn("auditLog write failed:", err);
     }
 
-    let res = NextResponse.json({ ok: true, user: { id: user.id, name: user.name }, redirect: "/user" });
+    // Build response manually — do NOT use setSessionCookie(NextResponse.json(...))
+    // because Next.js can silently drop cookie mutations on frozen response objects.
+    const response = new NextResponse(
+      JSON.stringify({ ok: true, redirect: "/self" }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
 
-    // Set cookie via helper (ensures same cookie name and attributes as verify/create use)
-    res = setSessionCookie(res, token);
+    response.cookies.set(COOKIE_NAME, token, {
+      httpOnly: true,
+      // __Host- prefix (production) requires secure:true + path:"/" + no domain
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: MAX_AGE,
+    });
 
-    return res;
+    return response;
   } catch (err) {
     console.error("Login error:", err);
     return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
