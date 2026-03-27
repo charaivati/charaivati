@@ -2,12 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 
-type DriveType = "learning" | "helping" | "building" | "doing";
+type MotivationId = "learning" | "helping" | "building" | "doing";
 type Horizon = "thisYear" | "threeYears" | "lifetime";
 type SkillLevel = "beginner" | "intermediate" | "advanced";
 
-type GoalEntry = {
-  id: string;
+type GoalDraft = {
   title: string;
   horizon: Horizon;
   skill: string;
@@ -15,50 +14,37 @@ type GoalEntry = {
   earnFromSkill: boolean;
 };
 
-type HealthState = {
-  note: string;
+type StoredState = {
+  selectedMotivations: MotivationId[];
+  activeMotivation: MotivationId;
+  goalsByMotivation: Record<MotivationId, GoalDraft[]>;
 };
 
-type LearningStoredState = {
-  drives: DriveType[];
-  goalsByDrive: Record<DriveType, GoalEntry[]>;
-  lastInteractedDrive: DriveType | null;
-  health: HealthState;
-};
-
-type DriveOption = {
-  id: DriveType;
+type MotivationOption = {
+  id: MotivationId;
   title: string;
   subtitle: string;
 };
 
-const LS_KEY = "self_learning_tab_state_v2";
-const MAX_DRIVES = 2;
-const MAX_GOALS_PER_DRIVE = 2;
+const LS_KEY = "self_learning_tab_state_v1";
+const MAX_GOALS = 2;
 
-const DRIVE_OPTIONS: DriveOption[] = [
+const MOTIVATIONS: MotivationOption[] = [
   { id: "learning", title: "Learning", subtitle: "Curious about everything" },
   { id: "helping", title: "Helping", subtitle: "Here for the people" },
   { id: "building", title: "Building", subtitle: "Making things happen" },
   { id: "doing", title: "Doing", subtitle: "Master of the craft" },
 ];
 
-function createGoalsByDrive(): Record<DriveType, GoalEntry[]> {
-  return {
-    learning: [],
-    helping: [],
-    building: [],
-    doing: [],
-  };
-}
+const defaultGoalsByMotivation: Record<MotivationId, GoalDraft[]> = {
+  learning: [],
+  helping: [],
+  building: [],
+  doing: [],
+};
 
-function createGoalId() {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function defaultGoal(): GoalEntry {
+function createEmptyGoal(): GoalDraft {
   return {
-    id: createGoalId(),
     title: "",
     horizon: "thisYear",
     skill: "",
@@ -67,51 +53,47 @@ function defaultGoal(): GoalEntry {
   };
 }
 
-function isDriveType(value: unknown): value is DriveType {
+function isMotivationId(value: unknown): value is MotivationId {
   return ["learning", "helping", "building", "doing"].includes(String(value));
 }
 
-function sanitizeStoredState(input: unknown): LearningStoredState {
-  const fallback: LearningStoredState = {
-    drives: ["learning"],
-    goalsByDrive: createGoalsByDrive(),
-    lastInteractedDrive: "learning",
-    health: { note: "" },
+function sanitizeStoredState(input: unknown): StoredState {
+  const fallback: StoredState = {
+    selectedMotivations: ["learning"],
+    activeMotivation: "learning",
+    goalsByMotivation: defaultGoalsByMotivation,
   };
 
   if (!input || typeof input !== "object") return fallback;
 
-  const obj = input as Partial<LearningStoredState>;
-  const drives = Array.isArray(obj.drives)
-    ? obj.drives.filter(isDriveType).slice(0, MAX_DRIVES)
-    : fallback.drives;
+  const obj = input as Partial<StoredState>;
+  const selected = Array.isArray(obj.selectedMotivations)
+    ? obj.selectedMotivations.filter(isMotivationId).slice(0, 2)
+    : [];
 
-  const goalsRaw =
-    obj.goalsByDrive && typeof obj.goalsByDrive === "object"
-      ? obj.goalsByDrive
-      : {};
+  const goalsRaw = obj.goalsByMotivation && typeof obj.goalsByMotivation === "object" ? obj.goalsByMotivation : {};
 
-  const goalsByDrive = createGoalsByDrive();
-  (Object.keys(goalsByDrive) as DriveType[]).forEach((drive) => {
-    const source = (goalsRaw as Record<string, unknown>)[drive];
+  const normalizedGoals: Record<MotivationId, GoalDraft[]> = {
+    learning: [],
+    helping: [],
+    building: [],
+    doing: [],
+  };
+
+  (Object.keys(normalizedGoals) as MotivationId[]).forEach((motivation) => {
+    const source = (goalsRaw as Record<string, unknown>)[motivation];
     if (!Array.isArray(source)) return;
-
-    goalsByDrive[drive] = source.slice(0, MAX_GOALS_PER_DRIVE).map((entry) => {
-      const goal = entry as Partial<GoalEntry>;
+    normalizedGoals[motivation] = source.slice(0, MAX_GOALS).map((g) => {
+      const goal = g as Partial<GoalDraft>;
       return {
-        id: typeof goal.id === "string" && goal.id ? goal.id : createGoalId(),
         title: typeof goal.title === "string" ? goal.title : "",
         horizon:
-          goal.horizon === "thisYear" ||
-          goal.horizon === "threeYears" ||
-          goal.horizon === "lifetime"
+          goal.horizon === "thisYear" || goal.horizon === "threeYears" || goal.horizon === "lifetime"
             ? goal.horizon
             : "thisYear",
         skill: typeof goal.skill === "string" ? goal.skill : "",
         skillLevel:
-          goal.skillLevel === "beginner" ||
-          goal.skillLevel === "intermediate" ||
-          goal.skillLevel === "advanced"
+          goal.skillLevel === "beginner" || goal.skillLevel === "intermediate" || goal.skillLevel === "advanced"
             ? goal.skillLevel
             : "beginner",
         earnFromSkill: Boolean(goal.earnFromSkill),
@@ -119,163 +101,33 @@ function sanitizeStoredState(input: unknown): LearningStoredState {
     });
   });
 
-  const requestedLast = isDriveType(obj.lastInteractedDrive)
-    ? obj.lastInteractedDrive
-    : null;
+  const firstSelected = selected[0] ?? "learning";
+  const active = isMotivationId(obj.activeMotivation) ? obj.activeMotivation : firstSelected;
 
   return {
-    drives,
-    goalsByDrive,
-    lastInteractedDrive: requestedLast ?? drives[0] ?? null,
-    health: {
-      note:
-        obj.health && typeof obj.health === "object" && typeof obj.health.note === "string"
-          ? obj.health.note
-          : "",
-    },
+    selectedMotivations: selected.length ? selected : ["learning"],
+    activeMotivation: selected.includes(active) ? active : firstSelected,
+    goalsByMotivation: normalizedGoals,
   };
 }
 
-async function saveLearningStateToBackend(payload: {
-  drive: DriveType;
-  goals: GoalEntry[];
-  health: HealthState;
-}) {
-  await fetch("/api/user/profile", {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-}
-
-function GoalCard({
-  goal,
-  index,
-  onUpdate,
-  onRemove,
-}: {
-  goal: GoalEntry;
-  index: number;
-  onUpdate: (patch: Partial<GoalEntry>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <article className="rounded-xl border border-gray-800 bg-gray-950/60 p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500/80 text-xs font-bold">
-          {index + 1}
-        </div>
-        <input
-          value={goal.title}
-          onChange={(event) => onUpdate({ title: event.target.value })}
-          placeholder="Describe this goal"
-          className="flex-1 border-b border-gray-700 bg-transparent pb-1 text-white outline-none"
-        />
-        <button
-          type="button"
-          onClick={onRemove}
-          className="text-sm text-gray-400 hover:text-red-300"
-        >
-          Delete
-        </button>
-      </div>
-
-      <div className="mt-4">
-        <p className="text-xs uppercase tracking-wide text-gray-400">Horizon</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {[
-            { id: "thisYear", label: "This year" },
-            { id: "threeYears", label: "3 Years" },
-            { id: "lifetime", label: "Lifetime" },
-          ].map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onUpdate({ horizon: item.id as Horizon })}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                goal.horizon === item.id
-                  ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                  : "border-gray-700 text-gray-300"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <p className="text-xs uppercase tracking-wide text-gray-400">Skills for this goal</p>
-        <input
-          value={goal.skill}
-          onChange={(event) => onUpdate({ skill: event.target.value })}
-          placeholder="Add a skill"
-          className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
-        />
-
-        <div className="mt-2 flex flex-wrap gap-2">
-          {[
-            { id: "beginner", label: "Beginner" },
-            { id: "intermediate", label: "Intermediate" },
-            { id: "advanced", label: "Advanced" },
-          ].map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onUpdate({ skillLevel: item.id as SkillLevel })}
-              className={`rounded-full border px-3 py-1 text-xs ${
-                goal.skillLevel === item.id
-                  ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                  : "border-gray-700 text-gray-300"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => onUpdate({ earnFromSkill: !goal.earnFromSkill })}
-            className={`rounded-full border px-3 py-1 text-xs ${
-              goal.earnFromSkill
-                ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
-                : "border-gray-700 text-gray-300"
-            }`}
-          >
-            Earn from this?
-          </button>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 export default function LearningTab() {
-  const [drives, setDrives] = useState<DriveType[]>(["learning"]);
-  const [goalsByDrive, setGoalsByDrive] = useState<Record<DriveType, GoalEntry[]>>(
-    createGoalsByDrive,
-  );
-  const [lastInteractedDrive, setLastInteractedDrive] = useState<DriveType | null>(
-    "learning",
-  );
-  const [health, setHealth] = useState<HealthState>({ note: "" });
+  const [state, setState] = useState<StoredState>({
+    selectedMotivations: ["learning"],
+    activeMotivation: "learning",
+    goalsByMotivation: defaultGoalsByMotivation,
+  });
   const [loaded, setLoaded] = useState(false);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">(
-    "idle",
-  );
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
-        const parsed = sanitizeStoredState(JSON.parse(raw));
-        setDrives(parsed.drives);
-        setGoalsByDrive(parsed.goalsByDrive);
-        setLastInteractedDrive(parsed.lastInteractedDrive);
-        setHealth(parsed.health);
+        const parsed = JSON.parse(raw);
+        setState(sanitizeStoredState(parsed));
       }
     } catch {
-      // ignore malformed local storage values
+      // ignore bad local state
     } finally {
       setLoaded(true);
     }
@@ -283,79 +135,103 @@ export default function LearningTab() {
 
   useEffect(() => {
     if (!loaded) return;
-    const state: LearningStoredState = {
-      drives,
-      goalsByDrive,
-      lastInteractedDrive,
-      health,
-    };
     localStorage.setItem(LS_KEY, JSON.stringify(state));
-  }, [drives, goalsByDrive, lastInteractedDrive, health, loaded]);
+  }, [state, loaded]);
 
-  const activeDrives = useMemo(() => drives.slice(0, MAX_DRIVES), [drives]);
+  const activeGoals = useMemo(() => state.goalsByMotivation[state.activeMotivation] ?? [], [state]);
 
-  function toggleDrive(drive: DriveType) {
-    setDrives((prev) => {
-      if (prev.includes(drive)) {
-        const next = prev.filter((item) => item !== drive);
-        if (lastInteractedDrive === drive) {
-          setLastInteractedDrive(next[0] ?? null);
+  function toggleMotivation(id: MotivationId) {
+    setState((prev) => {
+      const selected = prev.selectedMotivations;
+      const isSelected = selected.includes(id);
+
+      if (isSelected) {
+        const nextSelected = selected.filter((item) => item !== id);
+        if (nextSelected.length === 0) {
+          return {
+            ...prev,
+            selectedMotivations: [id],
+            activeMotivation: id,
+          };
         }
-        return next;
+        return {
+          ...prev,
+          selectedMotivations: nextSelected,
+          activeMotivation: nextSelected.includes(prev.activeMotivation)
+            ? prev.activeMotivation
+            : nextSelected[0],
+        };
       }
 
-      if (prev.length >= MAX_DRIVES) {
-        return [prev[1], drive];
+      if (selected.length >= 2) {
+        const nextSelected = [selected[1], id];
+        return {
+          ...prev,
+          selectedMotivations: nextSelected,
+          activeMotivation: id,
+        };
       }
 
-      return [...prev, drive];
+      return {
+        ...prev,
+        selectedMotivations: [...selected, id],
+        activeMotivation: id,
+      };
     });
-    setLastInteractedDrive(drive);
   }
 
-  function updateGoals(drive: DriveType, nextGoals: GoalEntry[]) {
-    setGoalsByDrive((prev) => ({
+  function setActiveMotivation(id: MotivationId) {
+    setState((prev) => ({
       ...prev,
-      [drive]: nextGoals,
+      activeMotivation: prev.selectedMotivations.includes(id) ? id : prev.activeMotivation,
     }));
-    setLastInteractedDrive(drive);
   }
 
-  function addGoal(drive: DriveType) {
-    const current = goalsByDrive[drive] ?? [];
-    if (current.length >= MAX_GOALS_PER_DRIVE) return;
-    updateGoals(drive, [...current, defaultGoal()]);
+  function updateGoal(index: number, patch: Partial<GoalDraft>) {
+    setState((prev) => {
+      const current = [...(prev.goalsByMotivation[prev.activeMotivation] ?? [])];
+      current[index] = { ...createEmptyGoal(), ...current[index], ...patch };
+      return {
+        ...prev,
+        goalsByMotivation: {
+          ...prev.goalsByMotivation,
+          [prev.activeMotivation]: current,
+        },
+      };
+    });
   }
 
-  function updateGoal(drive: DriveType, goalId: string, patch: Partial<GoalEntry>) {
-    const current = [...(goalsByDrive[drive] ?? [])];
-    const next = current.map((goal) =>
-      goal.id === goalId ? { ...defaultGoal(), ...goal, ...patch, id: goal.id } : goal,
-    );
-    updateGoals(drive, next);
+  function addGoal() {
+    setState((prev) => {
+      const current = prev.goalsByMotivation[prev.activeMotivation] ?? [];
+      if (current.length >= MAX_GOALS) return prev;
+      return {
+        ...prev,
+        goalsByMotivation: {
+          ...prev.goalsByMotivation,
+          [prev.activeMotivation]: [...current, createEmptyGoal()],
+        },
+      };
+    });
   }
 
-  function removeGoal(drive: DriveType, goalId: string) {
-    const current = [...(goalsByDrive[drive] ?? [])];
-    const next = current.filter((goal) => goal.id !== goalId);
-    updateGoals(drive, next);
+  function removeGoal(index: number) {
+    setState((prev) => {
+      const current = [...(prev.goalsByMotivation[prev.activeMotivation] ?? [])];
+      current.splice(index, 1);
+      return {
+        ...prev,
+        goalsByMotivation: {
+          ...prev.goalsByMotivation,
+          [prev.activeMotivation]: current,
+        },
+      };
+    });
   }
 
-  async function handleSave() {
-    if (!lastInteractedDrive) return;
-    setSaveState("saving");
-    try {
-      await saveLearningStateToBackend({
-        drive: lastInteractedDrive,
-        goals: goalsByDrive[lastInteractedDrive] ?? [],
-        health,
-      });
-      setSaveState("saved");
-      window.setTimeout(() => setSaveState("idle"), 1200);
-    } catch {
-      setSaveState("error");
-    }
-  }
+  const activeMotivationTitle = MOTIVATIONS.find(
+    (m) => m.id === state.activeMotivation,
+  )?.title;
 
   return (
     <div className="space-y-5 text-white">
@@ -364,119 +240,166 @@ export default function LearningTab() {
           <h2 className="text-3xl font-semibold">What keeps you moving?</h2>
           <p className="mt-1 text-gray-300">Pick up to 2.</p>
 
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {DRIVE_OPTIONS.map((option) => {
-              const selected = drives.includes(option.id);
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+            {MOTIVATIONS.map((motivation) => {
+              const selected = state.selectedMotivations.includes(motivation.id);
+              const active = state.activeMotivation === motivation.id;
+
               return (
                 <button
-                  key={option.id}
+                  key={motivation.id}
                   type="button"
-                  onClick={() => toggleDrive(option.id)}
+                  onClick={() => {
+                    toggleMotivation(motivation.id);
+                    setActiveMotivation(motivation.id);
+                  }}
                   className={`rounded-xl border px-4 py-4 text-left transition ${
                     selected
-                      ? "border-indigo-500/60 bg-indigo-500/20"
+                      ? active
+                        ? "border-indigo-500/60 bg-indigo-500/20"
+                        : "border-indigo-500/40 bg-indigo-500/10"
                       : "border-gray-700 bg-gray-950/60 hover:bg-gray-900"
                   }`}
                 >
-                  <div className="font-semibold">
-                    {selected ? `✓ ${option.title}` : option.title}
-                  </div>
-                  <div className="mt-1 text-sm text-gray-400">{option.subtitle}</div>
+                  <div className="font-semibold">{selected ? `✓ ${motivation.title}` : motivation.title}</div>
+                  <div className="mt-1 text-sm text-gray-400">{motivation.subtitle}</div>
                 </button>
               );
             })}
           </div>
 
           <div className="mt-4 flex flex-wrap gap-2">
-            {activeDrives.map((drive) => (
-              <button
-                key={drive}
-                type="button"
-                onClick={() => setLastInteractedDrive(drive)}
-                className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                  lastInteractedDrive === drive
-                    ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                    : "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800"
-                }`}
-              >
-                {drive}
-              </button>
-            ))}
+            {state.selectedMotivations.map((id) => {
+              const item = MOTIVATIONS.find((m) => m.id === id);
+              if (!item) return null;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveMotivation(id)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                    state.activeMotivation === id
+                      ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
+                      : "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800"
+                  }`}
+                >
+                  {item.title} {state.activeMotivation === id ? "(Active)" : ""}
+                </button>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {activeDrives.length > 0 && (
-        <section className="rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
-          <h3 className="text-3xl font-semibold">What do you want to do?</h3>
-          <p className="mt-1 text-gray-300">
-            Goals are grouped by drive. Deselecting a drive hides its column and reselecting restores it.
-          </p>
+      <section className="rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
+        <h3 className="text-3xl font-semibold">What do you want to do?</h3>
+        <p className="mt-1 text-gray-300">Up to 2 goals. Each tab keeps separate goals.</p>
 
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            {activeDrives.map((drive) => {
-              const goals = goalsByDrive[drive] ?? [];
-              return (
-                <div key={drive} className="space-y-3">
-                  <h4 className="text-sm font-semibold capitalize text-indigo-400">{drive}</h4>
+        <div className="mt-4 space-y-4">
+          {activeGoals.map((goal, index) => (
+            <article key={`${state.activeMotivation}-${index}`} className="rounded-xl border border-gray-800 bg-gray-950/60 p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-7 w-7 rounded-full bg-indigo-500/80 text-xs font-bold flex items-center justify-center">{index + 1}</div>
+                <input
+                  value={goal.title}
+                  onChange={(event) => updateGoal(index, { title: event.target.value })}
+                  placeholder="Describe this goal"
+                  className="flex-1 border-b border-gray-700 bg-transparent pb-1 text-white outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeGoal(index)}
+                  className="text-sm text-gray-400 hover:text-red-300"
+                >
+                  Delete
+                </button>
+              </div>
 
-                  {goalsByDrive[drive].map((goal, index) => (
-                    <GoalCard
-                      key={goal.id}
-                      goal={goal}
-                      index={index}
-                      onUpdate={(patch) => updateGoal(drive, goal.id, patch)}
-                      onRemove={() => removeGoal(drive, goal.id)}
-                    />
-                  ))}
-
-                  {goals.length < MAX_GOALS_PER_DRIVE && (
+              <div className="mt-4">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Horizon</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[
+                    { id: "thisYear", label: "This year" },
+                    { id: "threeYears", label: "3 Years" },
+                    { id: "lifetime", label: "Lifetime" },
+                  ].map((item) => (
                     <button
+                      key={item.id}
                       type="button"
-                      onClick={() => addGoal(drive)}
-                      className="rounded-lg border border-gray-700 px-3 py-2 text-sm text-indigo-300 hover:bg-gray-800"
+                      onClick={() => updateGoal(index, { horizon: item.id as Horizon })}
+                      className={`rounded-full border px-3 py-1 text-xs ${
+                        goal.horizon === item.id
+                          ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
+                          : "border-gray-700 text-gray-300"
+                      }`}
                     >
-                      + Add goal
+                      {item.label}
                     </button>
-                  )}
+                  ))}
                 </div>
-              );
-            })}
-          </div>
+              </div>
 
-          <div className="mt-5 rounded-xl border border-gray-800 bg-gray-950/50 p-3">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Health note</p>
-            <input
-              value={health.note}
-              onChange={(event) => setHealth({ note: event.target.value })}
-              placeholder="Optional health context"
-              className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
-            />
-          </div>
+              <div className="mt-4">
+                <p className="text-xs uppercase tracking-wide text-gray-400">Skills for this goal</p>
+                <input
+                  value={goal.skill}
+                  onChange={(event) => updateGoal(index, { skill: event.target.value })}
+                  placeholder="Add a skill"
+                  className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
+                />
 
-          <div className="mt-4 flex items-center gap-3">
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[
+                    { id: "beginner", label: "Beginner" },
+                    { id: "intermediate", label: "Intermediate" },
+                    { id: "advanced", label: "Advanced" },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => updateGoal(index, { skillLevel: item.id as SkillLevel })}
+                      className={`rounded-full border px-3 py-1 text-xs ${
+                        goal.skillLevel === item.id
+                          ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
+                          : "border-gray-700 text-gray-300"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => updateGoal(index, { earnFromSkill: !goal.earnFromSkill })}
+                    className={`rounded-full border px-3 py-1 text-xs ${
+                      goal.earnFromSkill
+                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
+                        : "border-gray-700 text-gray-300"
+                    }`}
+                  >
+                    Earn from this?
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+
+          {activeGoals.length < MAX_GOALS && (
             <button
               type="button"
-              onClick={handleSave}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold hover:bg-indigo-500"
+              onClick={addGoal}
+              className="rounded-lg border border-gray-700 px-3 py-2 text-sm text-indigo-300 hover:bg-gray-800"
             >
-              Save goals
+              + Add goal for {MOTIVATIONS.find((m) => m.id === state.activeMotivation)?.title}
             </button>
-            <span className="text-xs text-gray-400">
-              {saveState === "saving" && "Saving..."}
-              {saveState === "saved" && "Saved"}
-              {saveState === "error" && "Save failed"}
-              {saveState === "idle" && ""}
-            </span>
-          </div>
-        </section>
-      )}
+          )}
+        </div>
 
-      {loaded && (
-        <p className="text-xs text-emerald-400">
-          Local state is preserved. Drive columns appear only for selected drives.
-        </p>
-      )}
+        {loaded && (
+          <p className="mt-4 text-xs text-emerald-400">
+            Saved locally. Refresh-safe and tab-specific for {MOTIVATIONS.find((m) => m.id === state.activeMotivation)?.title}.
+          </p>
+        )}
+      </section>
     </div>
   );
 }
