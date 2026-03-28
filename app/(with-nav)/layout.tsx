@@ -7,9 +7,10 @@ import { prisma } from "@/lib/prisma";
 import { ProfileProvider } from "@/lib/ProfileContext";
 import WithNavClient from "./WithNavClient";
 
+
 async function getProfileFromCookie(): Promise<any | null> {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const token = cookieStore.get(COOKIE_NAME)?.value;
     if (!token) return null;
 

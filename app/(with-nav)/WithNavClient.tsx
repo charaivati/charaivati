@@ -173,22 +173,25 @@ function WithNavLayoutInner({
 
   return (
     <>
-      {/* MOBILE */}
+      {/* ── MOBILE ─────────────────────────────────────────── */}
       <div className="md:hidden min-h-screen bg-black text-white pb-20">
-        <div className="fixed top-0 left-0 right-0 z-50 bg-gray-700/95 backdrop-blur-lg">
-          <div className="flex items-center px-4 py-1.5 gap-3">
+
+        {/* Top bar */}
+        <div className="nav-bar mobile-top-bar fixed top-0 left-0 right-0 z-50">
+          <div className="flex items-center px-4 py-2 gap-3">
+            {/* Logo mark */}
             <div className="flex-none">
-              <div className="flex items-center gap-2">
-                <span className="w-8 h-8 rounded-full flex items-center justify-center">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-                    xmlns="http://www.w3.org/2000/svg" aria-hidden>
-                    <path d="M3 18s4-6 9-6 9 6 9 6" stroke="#6CA8D9"
-                      strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    <circle cx="18" cy="6" r="2.2" fill="#6CA8D9" />
-                  </svg>
-                </span>
-              </div>
+              <span className="w-8 h-8 rounded-full flex items-center justify-center">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                  xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                  <path d="M3 18s4-6 9-6 9 6 9 6" stroke="var(--accent)"
+                    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <circle cx="18" cy="6" r="2.4" fill="var(--accent)" />
+                </svg>
+              </span>
             </div>
+
+            {/* Search */}
             <div className="flex-1 min-w-0 flex justify-center">
               <UnifiedSearch
                 placeholder="Search people or pages…"
@@ -199,28 +202,36 @@ function WithNavLayoutInner({
                 className="w-full max-w-lg"
               />
             </div>
+
+            {/* Profile */}
             <div className="flex-none">
               <ProfileMenu profile={profile} onLogout={handleLogout} compact />
             </div>
           </div>
-          <div className="px-3 pb-0">
+
+          {/* Tab strip */}
+          <div className="tab-strip-wrapper px-3">
             <div className="flex justify-center">
               <div className="w-full max-w-3xl overflow-x-auto no-scrollbar">
-                <Suspense fallback={<div className="h-10 flex items-center text-xs text-gray-400">Loading...</div>}>
+                <Suspense fallback={<div className="h-10 flex items-center text-xs text-gray-500">Loading…</div>}>
                   <HeaderTabs onNavigate={navigateToLayerById} />
                 </Suspense>
               </div>
             </div>
           </div>
         </div>
-        <div className="h-[136px]" />
-        <main className="px-4 py-6">
+
+        <div className="h-[132px]" />
+
+        <main className="px-4 py-5">
           <div className="max-w-6xl mx-auto">{children}</div>
         </main>
-        <div className={`fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-lg
-          border-t border-white/10 transition-transform duration-300 ${
+
+        {/* Bottom nav */}
+        <div className={`bottom-nav-bar fixed bottom-0 left-0 right-0 z-40
+          transition-transform duration-300 ease-out ${
           showBottomNav ? "translate-y-0" : "translate-y-full"}`}>
-          <div className="px-4 py-3">
+          <div className="px-2 py-2">
             <ResponsiveWorldNav
               activeId={activeId}
               onSelect={(id) => navigateToLayerById(mapNavIdToLayerId(id))}
@@ -230,13 +241,14 @@ function WithNavLayoutInner({
         </div>
       </div>
 
-      {/* DESKTOP */}
+      {/* ── DESKTOP ────────────────────────────────────────── */}
       <div className="hidden md:flex md:flex-col min-h-screen bg-black text-white">
-        <div className="fixed top-0 left-0 right-0 z-50 bg-gray-700/95 backdrop-blur-lg border-b border-black">
-          <div className="flex items-center px-6 py-2">
+
+        {/* Top bar row 1 — wordmark + search + profile */}
+        <div className="nav-bar fixed top-0 left-0 right-0 z-50">
+          <div className="flex items-center px-6 py-2.5 gap-4">
             <div className="flex-none">
-              <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white
-                to-gray-400 bg-clip-text text-transparent">Charaivati</h1>
+              <h1 className="nav-wordmark">Charaivati</h1>
             </div>
             <div className="flex-1 min-w-0 flex justify-center">
               <UnifiedSearch
@@ -253,23 +265,26 @@ function WithNavLayoutInner({
             </div>
           </div>
         </div>
-        <div className="fixed top-[56px] left-0 right-0 z-40 bg-gray-700/95 backdrop-blur-lg">
+
+        {/* Top bar row 2 — header tabs */}
+        <div className="tab-strip-wrapper fixed top-[52px] left-0 right-0 z-40 bg-[#0d0d0d]/95 backdrop-blur-xl">
           <div className="flex justify-center px-6">
             <div className="w-full max-w-3xl">
-              <Suspense fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}>
+              <Suspense fallback={<div className="h-10 flex items-center text-sm text-gray-500">Loading…</div>}>
                 <HeaderTabs onNavigate={navigateToLayerById} />
               </Suspense>
             </div>
           </div>
         </div>
-        <div className="h-[104px]" />
+
+        <div className="h-[100px]" />
+
         <div className="flex flex-1">
-          <aside className="fixed top-[72px] left-0 h-[calc(100vh-72px)] w-64 bg-black
-            border-r border-white/10 flex flex-col overflow-y-auto">
-            <div className="p-4">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                Navigate
-              </div>
+          {/* Sidebar */}
+          <aside className="fixed top-[100px] left-0 h-[calc(100vh-100px)] w-60
+            flex flex-col overflow-y-auto">
+            <div className="p-4 pt-5">
+              <div className="sidebar-label mb-3">Navigate</div>
               <ResponsiveWorldNav
                 activeId={activeId}
                 onSelect={(id) => navigateToLayerById(mapNavIdToLayerId(id))}
@@ -277,8 +292,10 @@ function WithNavLayoutInner({
               />
             </div>
           </aside>
-          <main className="flex-1 ml-64">
-            <div className="p-6">
+
+          {/* Main */}
+          <main className="flex-1 ml-60">
+            <div className="p-6 pt-5">
               <div className="max-w-6xl mx-auto">{children}</div>
             </div>
           </main>
