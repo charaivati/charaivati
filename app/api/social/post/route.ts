@@ -39,6 +39,9 @@ export async function POST(req: Request) {
     if (!payload || typeof payload === "boolean") {
       return NextResponse.json({ ok: false, error: "unauthenticated" }, { status: 401 });
     }
+    if (payload.role === "guest") {
+      return NextResponse.json({ ok: false, error: "guest_readonly" }, { status: 403 });
+    }
 
     const userId = payload.userId;
     if (!userId) {
