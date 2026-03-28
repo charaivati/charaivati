@@ -788,10 +788,11 @@ export default function SelfTab({ profile }: { profile?: any }) {
   const [roadmapLoading, setRoadmapLoading] = useState(false);
   const [roadmapError,   setRoadmapError]   = useState<string | null>(null);
 
-  const profileApplied = useRef(false);
-  const saveTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const guestLoaded    = useRef(false);
-  const lastRoadmapKey = useRef("");
+  const profileApplied     = useRef(false);
+  const saveTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guestLoaded        = useRef(false);
+  const lastRoadmapKey     = useRef("");
+  const roadmapFromCache   = useRef(false);
 
   // ── Goals visible in the current session (drive is active) ────
   const visibleGoals = goals.filter(g => drives.includes(g.driveId));
@@ -905,16 +906,51 @@ export default function SelfTab({ profile }: { profile?: any }) {
   useEffect(() => {
     if (!profile || profileApplied.current) return;
     profileApplied.current = true;
-    if (profile.drive) setDrives(Array.isArray(profile.drive) ? profile.drive : [profile.drive]);
-    if (profile.health) setHealth(h => ({ ...h, ...profile.health }));
+
+    // Drives — accept new array field or legacy single-string field
+    const loadedDrives: DriveType[] = Array.isArray(profile.drives)
+      ? profile.drives
+      : profile.drive
+        ? (Array.isArray(profile.drive) ? profile.drive : [profile.drive])
+        : [];
+    if (loadedDrives.length > 0) setDrives(loadedDrives);
+
+    const loadedHealth = profile.health ? { ...defaultHealth(), ...profile.health } : defaultHealth();
+    if (profile.health) setHealth(loadedHealth);
+
+    // Goals — handle both new flat array and old drive-keyed object
+    let loadedGoals: GoalEntry[] = [];
     if (Array.isArray(profile.goals) && profile.goals.length) {
-      // Backfill driveId for old goals that don't have it
-      const migrated = profile.goals.map((g: GoalEntry) => ({
+      // New format: flat array with driveId on each entry
+      loadedGoals = profile.goals.map((g: GoalEntry) => ({
         ...g,
-        driveId: g.driveId ?? (Array.isArray(profile.drive) ? profile.drive[0] : profile.drive) ?? "building",
+        driveId: g.driveId ?? loadedDrives[0] ?? "building",
       }));
-      setGoals(migrated);
+    } else if (profile.goals && typeof profile.goals === "object") {
+      // Old format: { learning: [...], building: [...] } — migrate on the fly
+      const OLD_DRIVES: DriveType[] = ["learning", "helping", "building", "doing"];
+      OLD_DRIVES.forEach(driveId => {
+        const driveGoals = (profile.goals as any)[driveId];
+        if (Array.isArray(driveGoals)) {
+          driveGoals.forEach((g: any) => loadedGoals.push({ ...g, driveId }));
+        }
+      });
+    }
+    if (loadedGoals.length) {
+      setGoals(loadedGoals);
       setGoalsOpen(true);
+    }
+
+    // Restore cached AI plan — pre-set the key so generateRoadmap skips re-generation
+    if (profile.aiPlan?.phases) {
+      roadmapFromCache.current = true;
+      setRoadmap(profile.aiPlan as AIRoadmap);
+      const visibleLoaded = loadedGoals.filter(g => loadedDrives.includes(g.driveId));
+      lastRoadmapKey.current = JSON.stringify({
+        currentDrives: loadedDrives,
+        currentGoals:  visibleLoaded,
+        currentHealth: loadedHealth,
+      });
     }
   }, [profile]);
 
@@ -935,13 +971,24 @@ export default function SelfTab({ profile }: { profile?: any }) {
       try {
         const resp = await safeFetchJson("/api/user/profile", {
           method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({ drive: nextDrives, goals: nextGoals, health: nextHealth }),
+          body: JSON.stringify({ drives: nextDrives, goals: nextGoals, health: nextHealth }),
         });
         setSaveState(resp.ok && resp.json?.ok ? "saved" : "error");
         if (resp.ok && resp.json?.ok) setTimeout(() => setSaveState("idle"), 1500);
       } catch { setSaveState("error"); }
     }, 800);
   }
+
+  // ── Persist AI plan to DB after generation ────────────────────
+  useEffect(() => {
+    if (!roadmap || isGuest) return;
+    if (roadmapFromCache.current) { roadmapFromCache.current = false; return; }
+    safeFetchJson("/api/user/profile", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+      body: JSON.stringify({ aiPlan: roadmap }),
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roadmap]);
 
   // ── Drive toggle ───────────────────────────────────────────────
   function toggleDrive(d: DriveType) {
@@ -1113,8 +1160,8 @@ export default function SelfTab({ profile }: { profile?: any }) {
               })}
             </div>
 
-            {/* Roadmap error */}
-            {roadmapError && (
+            {/* Roadmap status bar */}
+            {roadmapError ? (
               <div className="mx-5 mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3
                 flex items-center justify-between gap-3">
                 <p className="text-xs text-red-400">{roadmapError}</p>
@@ -1122,6 +1169,14 @@ export default function SelfTab({ profile }: { profile?: any }) {
                   onClick={() => { lastRoadmapKey.current = ""; generateRoadmap(drives, visibleGoals, health); }}
                   className="text-xs text-red-300 hover:text-white underline flex-shrink-0 transition-colors">
                   Retry
+                </button>
+              </div>
+            ) : roadmap && !roadmapLoading && (
+              <div className="mx-5 mb-5 flex justify-end">
+                <button type="button"
+                  onClick={() => { lastRoadmapKey.current = ""; generateRoadmap(drives, visibleGoals, health); }}
+                  className="text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+                  ↺ Regenerate plan
                 </button>
               </div>
             )}

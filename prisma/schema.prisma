@@ -112,16 +112,20 @@ model Profile {
   preferredPayment       String?
 
   /// SelfTab — purpose layer
-  /// One of: "learning" | "helping" | "building" | "doing"
+  /// Legacy single drive (kept for backward compat)
   drive                  String?
-  /// GoalEntry[] — max 2, stored as JSON
-  /// Shape: [{ id, statement, horizon, skills: [{ id, name, level, monetize }], linkedBusinessIds }]
+  /// Selected drives — DriveType[] e.g. ["learning", "building"]
+  drives                 Json?
+  /// GoalEntry[] — flat array with driveId on each entry
+  /// Shape: [{ id, driveId, statement, horizon, skills: [...], linkedBusinessIds, saved }]
   goals                  Json?
   /// HealthProfile — stored as JSON
   /// Shape: { food, exercise, sessionsPerWeek, heightCm, weightKg, age }
   /// Note: heightCm / weightKg here are string inputs from the form;
   /// the scalar heightCm / weightKg columns above are the validated numeric store.
   health                 Json?
+  /// Cached AI roadmap — { phases: Phase[], suggestions: Suggestion[] }
+  aiPlan                 Json?
 
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
