@@ -1,11 +1,9 @@
+// app/api/ai/generate-week-plan/route.ts
 import { NextResponse } from "next/server";
+import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import type { Phase, DayPlan } from "@/app/api/ai/types.ts";
 
-type Phase = {
-  id?: string;
-  name?: string;
-  duration?: string;
-  actions?: string[];
-};
+const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
 type Body = {
   phases?: Phase[];
@@ -13,31 +11,74 @@ type Body = {
   availableDays?: number;
 };
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+// ─── Fallback ─────────────────────────────────────────────────────────────────
+
+function buildFallback(actions: string[], availableDays: number): DayPlan[] {
+  return ALL_DAYS.slice(0, availableDays).map((day, i) => ({
+    day,
+    tasks: [
+      actions[i % actions.length],
+      actions[(i + 1) % actions.length],
+    ],
+  }));
+}
+
+// ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as Body;
-  const phases = Array.isArray(body.phases) ? body.phases : [];
+  const body          = (await req.json().catch(() => ({}))) as Body;
+  const phases        = Array.isArray(body.phases) ? body.phases : [];
   const requestedDays = Number(body.availableDays);
   const availableDays = Number.isFinite(requestedDays)
     ? Math.max(1, Math.min(7, Math.floor(requestedDays)))
     : 5;
 
-  const fallbackActions = ["Deep work session", "Skill rehearsal", "Recovery + review"];
-  const chosenPhase = phases.find((phase) => phase.id === body.currentPhase) ?? phases[0];
-  const sourceActions =
-    chosenPhase && Array.isArray(chosenPhase.actions) && chosenPhase.actions.length > 0
-      ? chosenPhase.actions
-      : fallbackActions;
+  const chosenPhase = phases.find((p) => p.id === body.currentPhase) ?? phases[0];
+  const actions     = chosenPhase?.actions?.length ? chosenPhase.actions : ["Deep work session", "Skill rehearsal", "Recovery + review"];
+  const days        = ALL_DAYS.slice(0, availableDays);
 
-  const week = DAYS.slice(0, availableDays).map((day, index) => {
-    const first = sourceActions[index % sourceActions.length];
-    const second = sourceActions[(index + 1) % sourceActions.length];
-    return {
-      day,
-      tasks: [first, second],
-    };
-  });
+  const systemPrompt = `You are a productivity coach who builds practical weekly schedules. 
+Always respond with ONLY valid JSON — no explanation, no markdown, no preamble.`;
 
-  return NextResponse.json({ week });
+  const prompt = `Build a realistic weekly plan for someone in the "${chosenPhase?.name ?? "Foundation"}" phase of their growth.
+
+Phase actions they need to make progress on:
+${actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}
+
+Available days this week: ${days.join(", ")} (${availableDays} days)
+
+Return this exact JSON structure:
+{
+  "week": [
+    { "day": "Mon", "tasks": ["specific task 1", "specific task 2"] },
+    { "day": "Tue", "tasks": ["specific task 1", "specific task 2"] }
+  ]
+}
+
+Rules:
+- Exactly ${availableDays} day entries, matching these days in order: ${days.join(", ")}
+- 2 tasks per day
+- Tasks should be specific, time-bound actions (e.g. "30-min focused session on X" not just "do X")
+- Spread the phase actions thoughtfully across the week — don't just repeat the same thing every day
+- Mix heavier work days with lighter recovery/review days
+- Reference the actual phase actions above, don't invent new unrelated tasks
+- Each task max 12 words`;
+
+  try {
+    const raw    = await callAI({ prompt, systemPrompt });
+    const parsed = safeJsonParse<{ week: DayPlan[] }>(raw);
+
+    const week = parsed?.week;
+    const isValid =
+      Array.isArray(week) &&
+      week.length === availableDays &&
+      week.every((d) => typeof d.day === "string" && Array.isArray(d.tasks) && d.tasks.length > 0);
+
+    if (!isValid) throw new Error("AI returned invalid week structure");
+
+    return NextResponse.json({ week });
+  } catch (err) {
+    console.error("[generate-week-plan] AI failed, using fallback:", err);
+    return NextResponse.json({ week: buildFallback(actions, availableDays), _fallback: true });
+  }
 }
