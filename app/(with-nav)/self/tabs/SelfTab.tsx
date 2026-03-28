@@ -1,8 +1,8 @@
 // app/(with-nav)/self/tabs/SelfTab.tsx
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
-import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, Check } from "lucide-react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, Check, X, Loader2, ChevronRight, Calendar, Zap } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ type GoalEntry = {
   horizon: "This year" | "3 Years" | "Lifetime";
   skills: SkillEntry[];
   linkedBusinessIds: string[];
-  saved: boolean; // collapsed/saved state
+  saved: boolean;
 };
 
 type HealthProfile = {
@@ -40,6 +40,36 @@ type PageItem = {
 };
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+
+// ─── AI Types ─────────────────────────────────────────────────────────────────
+
+type Phase = {
+  id: string;
+  name: string;
+  duration: string;
+  actions: string[];
+};
+
+type DayPlan = {
+  day: string;
+  tasks: string[];
+};
+
+type Suggestion = {
+  id: string;
+  text: string;
+  type: "skill" | "health" | "network" | "execution";
+  priority: "low" | "medium" | "high";
+};
+
+type AIRoadmap = {
+  phases: Phase[];
+  suggestions: Suggestion[];
+};
+
+type WeekPlan = {
+  week: DayPlan[];
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -62,8 +92,21 @@ const MEAL_PREVIEW: Record<string, string> = {
   "Non-Vegetarian": "Balanced protein + whole foods",
 };
 
+const SUGGESTION_TYPE_COLOR: Record<Suggestion["type"], string> = {
+  skill:     "border-indigo-500/40 bg-indigo-500/10 text-indigo-300",
+  execution: "border-amber-500/40 bg-amber-500/10 text-amber-300",
+  health:    "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
+  network:   "border-purple-500/40 bg-purple-500/10 text-purple-300",
+};
+
+const SUGGESTION_PRIORITY_DOT: Record<Suggestion["priority"], string> = {
+  high:   "bg-red-400",
+  medium: "bg-amber-400",
+  low:    "bg-gray-500",
+};
+
 const GUEST_KEY    = "charaivati_guest_self";
-const GUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const GUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -87,7 +130,6 @@ async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
   return { ok: res.ok, status: res.status, json };
 }
 
-// ── Guest localStorage helpers ────────────────────────────────────
 function guestLoad() {
   try {
     const raw = localStorage.getItem(GUEST_KEY);
@@ -143,73 +185,335 @@ function TextInput({ value, onChange, placeholder, className = "" }: {
   );
 }
 
-// ─── Goal Summary (collapsed view) ───────────────────────────────────────────
+// ─── AI Plan Modal ────────────────────────────────────────────────────────────
 
-function GoalSummary({ goal, pages, onEdit, onRemove }: {
+function AIPlanModal({
+  goal,
+  roadmap,
+  onClose,
+}: {
   goal: GoalEntry;
-  pages: PageItem[];
-  onEdit: () => void;
-  onRemove: () => void;
+  roadmap: AIRoadmap;
+  onClose: () => void;
 }) {
-  const namedSkills  = goal.skills.filter(s => s.name);
-  const linkedPages  = pages.filter(p => goal.linkedBusinessIds.includes(p.id));
-  const monetizable  = namedSkills.filter(s => s.monetize);
+  const [selectedPhaseId, setSelectedPhaseId] = useState<string>(roadmap.phases[0]?.id ?? "foundation");
+  const [weekExpanded, setWeekExpanded] = useState(false);
+  const [availableDays, setAvailableDays] = useState(5);
+  const [weekPlan, setWeekPlan] = useState<WeekPlan | null>(null);
+  const [weekLoading, setWeekLoading] = useState(false);
+  const [weekError, setWeekError] = useState<string | null>(null);
+
+  const selectedPhase = roadmap.phases.find(p => p.id === selectedPhaseId) ?? roadmap.phases[0];
+
+  async function fetchWeekPlan(phaseId: string, days: number) {
+    setWeekLoading(true);
+    setWeekError(null);
+    try {
+      const resp = await safeFetchJson("/api/ai/generate-week-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phases: roadmap.phases,
+          currentPhase: phaseId,
+          availableDays: days,
+        }),
+      });
+      if (!resp.ok || !resp.json?.week) throw new Error("Failed to generate week plan");
+      setWeekPlan(resp.json as WeekPlan);
+    } catch {
+      setWeekError("Could not generate week plan. Try again.");
+    } finally {
+      setWeekLoading(false);
+    }
+  }
+
+  function handleExpandWeek() {
+    if (!weekExpanded) {
+      setWeekExpanded(true);
+      fetchWeekPlan(selectedPhaseId, availableDays);
+    } else {
+      setWeekExpanded(false);
+    }
+  }
+
+  function handlePhaseChange(id: string) {
+    setSelectedPhaseId(id);
+    if (weekExpanded) fetchWeekPlan(id, availableDays);
+  }
+
+  function handleDaysChange(days: number) {
+    setAvailableDays(days);
+    if (weekExpanded) fetchWeekPlan(selectedPhaseId, days);
+  }
+
+  // Goal-specific suggestions only
+  const goalSkillNames = goal.skills.map(s => s.name).filter(Boolean);
+  const goalSuggestions = roadmap.suggestions.filter(s =>
+    s.type === "execution" || s.type === "skill"
+  );
+
+  // Close on backdrop click
+  function handleBackdrop(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.target === e.currentTarget) onClose();
+  }
 
   return (
-    <div className="rounded-2xl border border-gray-800 bg-gray-950/40 px-5 py-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          {/* Statement + horizon */}
-          <p className="text-sm font-semibold text-white truncate">
-            {goal.statement || <span className="text-gray-500 italic">No goal stated</span>}
-          </p>
-          <p className="text-xs text-gray-500 mt-0.5">{goal.horizon}</p>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4"
+      onClick={handleBackdrop}
+    >
+      <div className="w-full sm:max-w-xl max-h-[92vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl
+        border border-gray-800 bg-gray-950 shadow-2xl flex flex-col">
 
-          {/* Skills */}
-          {namedSkills.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {namedSkills.map(s => (
-                <span key={s.id}
-                  className={`px-2 py-0.5 rounded-full text-xs border ${
-                    s.monetize
-                      ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300"
-                      : "border-gray-700 text-gray-400"
-                  }`}>
-                  {s.name}
-                  {s.monetize && " 💰"}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Linked pages */}
-          {linkedPages.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {linkedPages.map(p => (
-                <span key={p.id}
-                  className="px-2 py-0.5 rounded-full text-xs border border-gray-700 text-gray-500">
-                  🏢 {p.title}
-                </span>
-              ))}
-            </div>
-          )}
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-gray-800 flex-shrink-0">
+          <div className="flex-1 min-w-0 pr-3">
+            <p className="text-xs text-indigo-400 uppercase tracking-wider mb-1">AI Roadmap</p>
+            <h2 className="text-base font-semibold text-white truncate">
+              {goal.statement || "Your Goal"}
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">{goal.horizon}</p>
+          </div>
+          <button type="button" onClick={onClose}
+            className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700
+              text-gray-400 hover:text-white transition-colors flex-shrink-0">
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
-        {/* Actions */}
-        <div className="flex gap-2 flex-shrink-0">
-          <button type="button" onClick={onEdit}
-            className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700
-              text-gray-400 hover:text-white transition-colors" title="Edit">
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-          <button type="button" onClick={onRemove}
-            className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-red-900/30
-              text-gray-400 hover:text-red-400 transition-colors" title="Remove">
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+        <div className="px-5 py-5 space-y-6 overflow-y-auto">
+
+          {/* Phase selector */}
+          <div>
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Phase</p>
+            <div className="flex gap-2 flex-wrap">
+              {roadmap.phases.map(phase => (
+                <button key={phase.id} type="button"
+                  onClick={() => handlePhaseChange(phase.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
+                    selectedPhaseId === phase.id
+                      ? "border-indigo-500 bg-indigo-500/20 text-indigo-300 font-medium"
+                      : "border-gray-700 text-gray-400 hover:border-gray-500"
+                  }`}>
+                  {phase.name}
+                  <span className="ml-1.5 text-gray-500">{phase.duration}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Phase actions */}
+          {selectedPhase && (
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">
+                {selectedPhase.name} Actions
+              </p>
+              <div className="space-y-2">
+                {selectedPhase.actions.map((action, i) => (
+                  <div key={i}
+                    className="flex items-start gap-3 rounded-xl border border-gray-800 bg-gray-900/60 px-4 py-3">
+                    <span className="flex-none w-5 h-5 rounded-full bg-indigo-600/30 border border-indigo-500/40
+                      text-indigo-400 text-xs flex items-center justify-center font-semibold mt-0.5">
+                      {i + 1}
+                    </span>
+                    <p className="text-sm text-gray-200 leading-relaxed">{action}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Week plan expander */}
+          <div className="rounded-xl border border-gray-800 bg-gray-900/40 overflow-hidden">
+            <button type="button" onClick={handleExpandWeek}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-800/40 transition-colors">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-indigo-400" />
+                <span className="text-sm font-medium text-white">Weekly Breakdown</span>
+              </div>
+              {weekExpanded
+                ? <ChevronUp className="w-4 h-4 text-gray-500" />
+                : <ChevronRight className="w-4 h-4 text-gray-500" />}
+            </button>
+
+            {weekExpanded && (
+              <div className="px-4 pb-4 border-t border-gray-800 pt-4 space-y-4">
+                {/* Controls */}
+                <div className="flex flex-wrap items-center gap-4">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-2">Days available</p>
+                    <div className="flex gap-1.5">
+                      {[3, 4, 5, 6, 7].map(n => (
+                        <button key={n} type="button"
+                          onClick={() => handleDaysChange(n)}
+                          className={`w-8 h-8 rounded-lg text-xs border transition-colors ${
+                            availableDays === n
+                              ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+                              : "border-gray-700 text-gray-400 hover:border-gray-600"
+                          }`}>
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Week plan content */}
+                {weekLoading && (
+                  <div className="flex items-center gap-2 text-gray-400 py-4 justify-center">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Generating week plan…</span>
+                  </div>
+                )}
+
+                {weekError && !weekLoading && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-red-400">{weekError}</p>
+                    <button type="button" onClick={() => fetchWeekPlan(selectedPhaseId, availableDays)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {weekPlan && !weekLoading && (
+                  <div className="space-y-2">
+                    {weekPlan.week.map((dayPlan) => (
+                      <div key={dayPlan.day}
+                        className="rounded-lg border border-gray-800 bg-gray-950/60 px-3 py-2.5">
+                        <p className="text-xs font-semibold text-indigo-400 mb-1.5">{dayPlan.day}</p>
+                        <div className="space-y-1">
+                          {dayPlan.tasks.map((task, ti) => (
+                            <p key={ti} className="text-xs text-gray-300 flex items-start gap-1.5">
+                              <span className="text-gray-600 mt-0.5">·</span>
+                              {task}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Suggestions */}
+          {goalSuggestions.length > 0 && (
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="w-3.5 h-3.5 text-amber-400" />
+                <p className="text-xs text-gray-500 uppercase tracking-wider">Suggested Actions</p>
+              </div>
+              <div className="space-y-2">
+                {goalSuggestions.map(s => (
+                  <div key={s.id}
+                    className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 ${SUGGESTION_TYPE_COLOR[s.type]}`}>
+                    <span className={`flex-none w-1.5 h-1.5 rounded-full mt-1.5 ${SUGGESTION_PRIORITY_DOT[s.priority]}`} />
+                    <p className="text-xs leading-relaxed">{s.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Goal Summary (collapsed view) ───────────────────────────────────────────
+
+function GoalSummary({ goal, pages, roadmap, roadmapLoading, onEdit, onRemove }: {
+  goal: GoalEntry;
+  pages: PageItem[];
+  roadmap: AIRoadmap | null;
+  roadmapLoading: boolean;
+  onEdit: () => void;
+  onRemove: () => void;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const namedSkills = goal.skills.filter(s => s.name);
+  const linkedPages = pages.filter(p => goal.linkedBusinessIds.includes(p.id));
+
+  return (
+    <>
+      <div className="rounded-2xl border border-gray-800 bg-gray-950/40 px-5 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white truncate">
+              {goal.statement || <span className="text-gray-500 italic">No goal stated</span>}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">{goal.horizon}</p>
+
+            {namedSkills.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {namedSkills.map(s => (
+                  <span key={s.id}
+                    className={`px-2 py-0.5 rounded-full text-xs border ${
+                      s.monetize
+                        ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300"
+                        : "border-gray-700 text-gray-400"
+                    }`}>
+                    {s.name}{s.monetize && " 💰"}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {linkedPages.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {linkedPages.map(p => (
+                  <span key={p.id}
+                    className="px-2 py-0.5 rounded-full text-xs border border-gray-700 text-gray-500">
+                    🏢 {p.title}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 flex-shrink-0 flex-wrap justify-end">
+            {/* View Plan button */}
+            <button type="button"
+              onClick={() => setModalOpen(true)}
+              disabled={roadmapLoading || !roadmap}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                roadmap
+                  ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
+                  : "border-gray-700 bg-gray-800 text-gray-500 cursor-not-allowed"
+              }`}>
+              {roadmapLoading
+                ? <><Loader2 className="w-3 h-3 animate-spin" />Generating…</>
+                : roadmap
+                  ? <><Zap className="w-3 h-3" />View Plan</>
+                  : <><Zap className="w-3 h-3" />No plan yet</>
+              }
+            </button>
+
+            <button type="button" onClick={onEdit}
+              className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700
+                text-gray-400 hover:text-white transition-colors" title="Edit">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button type="button" onClick={onRemove}
+              className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-red-900/30
+                text-gray-400 hover:text-red-400 transition-colors" title="Remove">
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {modalOpen && roadmap && (
+        <AIPlanModal
+          goal={goal}
+          roadmap={roadmap}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -271,7 +575,6 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
   return (
     <div className="rounded-2xl border border-indigo-500/30 bg-gray-950/40 p-5 space-y-5">
 
-      {/* Header */}
       <div className="flex items-center gap-3">
         <span className="flex-none w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold
           flex items-center justify-center">{idx + 1}</span>
@@ -289,7 +592,6 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
         )}
       </div>
 
-      {/* Horizon */}
       <div>
         <FieldLabel>Horizon</FieldLabel>
         <div className="flex gap-2">
@@ -300,7 +602,6 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
         </div>
       </div>
 
-      {/* Skills */}
       <div>
         <FieldLabel>Skills for this goal</FieldLabel>
         <div className="space-y-2">
@@ -331,7 +632,6 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
         </button>
       </div>
 
-      {/* Business pages */}
       <div>
         <div className="flex items-center justify-between mb-2">
           <FieldLabel>Business pages for this goal</FieldLabel>
@@ -384,7 +684,6 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
         )}
       </div>
 
-      {/* Save button */}
       <div className="flex justify-end pt-1 border-t border-gray-800">
         <button type="button" onClick={onSave} disabled={!canSave}
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500
@@ -472,7 +771,7 @@ function HealthSection({ health, setHealth }: {
 // ─── Main SelfTab ─────────────────────────────────────────────────────────────
 
 export default function SelfTab({ profile }: { profile?: any }) {
-  const [drives,    setDrives]    = useState<DriveType[]>([]);        // up to 2
+  const [drives,    setDrives]    = useState<DriveType[]>([]);
   const [goals,     setGoals]     = useState<GoalEntry[]>([defaultGoal()]);
   const [health,    setHealth]    = useState<HealthProfile>(defaultHealth());
   const [pages,     setPages]     = useState<PageItem[]>([]);
@@ -480,20 +779,104 @@ export default function SelfTab({ profile }: { profile?: any }) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [isGuest,   setIsGuest]   = useState(false);
 
-  const profileApplied = useRef(false);
-  const saveTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const guestLoaded    = useRef(false);
+  // AI state — one roadmap shared across all goals (phases + suggestions)
+  const [roadmap,        setRoadmap]        = useState<AIRoadmap | null>(null);
+  const [roadmapLoading, setRoadmapLoading] = useState(false);
+  const [roadmapError,   setRoadmapError]   = useState<string | null>(null);
 
-  // ── Detect guest — re-runs whenever profile prop changes ───────
-  // profile starts as undefined while layout fetches, then arrives.
-  // We only commit to guest mode after a deliberate delay, giving
-  // the profile prop time to arrive from the parent.
+  const profileApplied  = useRef(false);
+  const saveTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guestLoaded     = useRef(false);
+  // Track the last input snapshot used to generate roadmap — avoids duplicate calls
+  const lastRoadmapKey  = useRef<string>("");
+
+  // ── Generate AI roadmap ────────────────────────────────────────
+  const generateRoadmap = useCallback(async (
+    currentDrives: DriveType[],
+    currentGoals: GoalEntry[],
+    currentHealth: HealthProfile,
+  ) => {
+    // Build a stable key to deduplicate identical calls
+    const key = JSON.stringify({ currentDrives, currentGoals, currentHealth });
+    if (key === lastRoadmapKey.current) return;
+    lastRoadmapKey.current = key;
+
+    setRoadmapLoading(true);
+    setRoadmapError(null);
+
+    try {
+      // Build a simplified health note for the API
+      const healthNote = [
+        currentHealth.food,
+        `${currentHealth.exercise} ${currentHealth.sessionsPerWeek}x/wk`,
+        currentHealth.age ? `age ${currentHealth.age}` : "",
+      ].filter(Boolean).join(", ");
+
+      // Build drives and goals payload
+      const driveLabels = currentDrives.map(d => DRIVES.find(x => x.id === d)?.label ?? d);
+      const goalsPayload = currentGoals
+        .filter(g => g.statement)
+        .map(g => ({
+          id: g.id,
+          title: g.statement,
+          skill: g.skills.find(s => s.name)?.name ?? "",
+          drive: driveLabels[0] ?? "",
+        }));
+
+      // 1. Generate timeline
+      const timelineResp = await safeFetchJson("/api/ai/generate-timeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          drives: driveLabels,
+          goals: goalsPayload,
+          health: { note: healthNote },
+        }),
+      });
+      if (!timelineResp.ok || !timelineResp.json?.phases) {
+        throw new Error("Timeline generation failed");
+      }
+      const phases: Phase[] = timelineResp.json.phases;
+
+      // 2. Generate suggestions
+      const suggestResp = await safeFetchJson("/api/ai/suggest-actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPhase: "foundation",
+          recentActivity: [],
+          goals: goalsPayload,
+          skills: currentGoals.flatMap(g => g.skills.map(s => s.name)).filter(Boolean),
+        }),
+      });
+      const suggestions: Suggestion[] = suggestResp.json?.suggestions ?? [];
+
+      setRoadmap({ phases, suggestions });
+    } catch {
+      setRoadmapError("Could not generate your plan. Try saving goals again.");
+      lastRoadmapKey.current = ""; // allow retry
+    } finally {
+      setRoadmapLoading(false);
+    }
+  }, []);
+
+  // ── Auto-trigger roadmap when all goals are saved ──────────────
+  useEffect(() => {
+    const allSaved = goals.every(g => g.saved);
+    const hasFilledGoals = goals.some(g => g.statement.trim());
+    const hasDrives = drives.length > 0;
+
+    if (allSaved && hasFilledGoals && hasDrives && profileApplied.current) {
+      generateRoadmap(drives, goals, health);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goals, drives, health]);
+
+  // ── Detect guest ───────────────────────────────────────────────
   useEffect(() => {
     if (profile !== undefined) {
-      // Profile has arrived (even if null) — we know the fetch is done
       setIsGuest(!profile);
       if (!profile && !guestLoaded.current) {
-        // Logged-out guest: load localStorage
         guestLoaded.current = true;
         const saved = guestLoad();
         if (saved) {
@@ -509,7 +892,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
     }
   }, [profile]);
 
-  // ── Load pages (skip for guests — they can't persist pages) ────
+  // ── Load pages ─────────────────────────────────────────────────
   useEffect(() => {
     if (isGuest) return;
     safeFetchJson("/api/user/pages", { method: "GET", credentials: "include" })
@@ -527,11 +910,10 @@ export default function SelfTab({ profile }: { profile?: any }) {
     return () => window.removeEventListener("charaivati:page-created", handler);
   }, []);
 
-  // ── Pre-fill from DB profile (logged-in, runs once) ─────────────
+  // ── Pre-fill from DB profile ───────────────────────────────────
   useEffect(() => {
     if (!profile || profileApplied.current) return;
     profileApplied.current = true;
-    // drive was previously a single string — coerce to array
     if (profile.drive) {
       setDrives(Array.isArray(profile.drive) ? profile.drive : [profile.drive]);
     }
@@ -548,14 +930,12 @@ export default function SelfTab({ profile }: { profile?: any }) {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
     if (isGuest) {
-      // Guest: save to localStorage immediately (no debounce needed for local)
       guestSave({ drives: nextDrives, goals: nextGoals, health: nextHealth });
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 1200);
       return;
     }
 
-    // Logged-in: debounced API save
     setSaveState("saving");
     saveTimerRef.current = setTimeout(async () => {
       try {
@@ -563,7 +943,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          // Store drives array as JSON in the `drive` field
           body: JSON.stringify({ drive: nextDrives, goals: nextGoals, health: nextHealth }),
         });
         setSaveState(resp.ok && resp.json?.ok ? "saved" : "error");
@@ -574,13 +953,13 @@ export default function SelfTab({ profile }: { profile?: any }) {
     }, 800);
   }
 
-  // ── Drive toggle (max 2) ───────────────────────────────────────
+  // ── Drive toggle ───────────────────────────────────────────────
   function toggleDrive(d: DriveType) {
     let next: DriveType[];
     if (drives.includes(d)) {
       next = drives.filter(x => x !== d);
     } else {
-      next = drives.length < 2 ? [...drives, d] : [drives[1], d]; // slide window if already 2
+      next = drives.length < 2 ? [...drives, d] : [drives[1], d];
     }
     setDrives(next);
     if (next.length > 0) setGoalsOpen(true);
@@ -591,16 +970,22 @@ export default function SelfTab({ profile }: { profile?: any }) {
   function updateGoal(id: string, u: GoalEntry) {
     const next = goals.map(g => g.id === id ? u : g);
     setGoals(next);
+    // Editing a goal invalidates the existing roadmap
+    setRoadmap(null);
+    lastRoadmapKey.current = "";
   }
 
   function saveGoal(id: string) {
     const next = goals.map(g => g.id === id ? { ...g, saved: true } : g);
     setGoals(next);
     persist(drives, next, health);
+    // Roadmap auto-trigger fires via useEffect
   }
 
   function editGoal(id: string) {
     setGoals(prev => prev.map(g => g.id === id ? { ...g, saved: false } : g));
+    setRoadmap(null);
+    lastRoadmapKey.current = "";
   }
 
   function removeGoal(id: string) {
@@ -608,6 +993,8 @@ export default function SelfTab({ profile }: { profile?: any }) {
     const final = next.length === 0 ? [defaultGoal()] : next;
     setGoals(final);
     persist(drives, final, health);
+    setRoadmap(null);
+    lastRoadmapKey.current = "";
   }
 
   function handleHealthChange(h: HealthProfile) {
@@ -623,7 +1010,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
   return (
     <div className="text-white space-y-5">
 
-      {/* ── What keeps you moving? — always visible ──────────────── */}
+      {/* ── What keeps you moving? ───────────────────────────────── */}
       <SectionCard>
         <div className="px-5 pt-5 pb-2 flex items-start justify-between">
           <div>
@@ -632,12 +1019,12 @@ export default function SelfTab({ profile }: { profile?: any }) {
               Pick up to 2.{" "}
               {isGuest && (
                 <span className="text-yellow-600 text-xs">
-                  Guest mode — saved locally for 7 days. <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
+                  Guest mode — saved locally for 7 days.{" "}
+                  <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
                 </span>
               )}
             </p>
           </div>
-          {/* Save indicator */}
           <span className={`text-xs mt-1 transition-opacity ${
             saveState === "idle"   ? "opacity-0"                   :
             saveState === "saving" ? "opacity-100 text-gray-500"   :
@@ -701,6 +1088,8 @@ export default function SelfTab({ profile }: { profile?: any }) {
                     key={goal.id}
                     goal={goal}
                     pages={pages}
+                    roadmap={roadmap}
+                    roadmapLoading={roadmapLoading}
                     onEdit={() => editGoal(goal.id)}
                     onRemove={() => removeGoal(goal.id)}
                   />
@@ -728,9 +1117,25 @@ export default function SelfTab({ profile }: { profile?: any }) {
                 </button>
               )}
             </div>
+
+            {/* Roadmap error inline */}
+            {roadmapError && (
+              <div className="mx-5 mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3
+                flex items-center justify-between gap-3">
+                <p className="text-xs text-red-400">{roadmapError}</p>
+                <button type="button"
+                  onClick={() => {
+                    lastRoadmapKey.current = "";
+                    generateRoadmap(drives, goals, health);
+                  }}
+                  className="text-xs text-red-300 hover:text-white underline flex-shrink-0 transition-colors">
+                  Retry
+                </button>
+              </div>
+            )}
           </SectionCard>
 
-          {/* Health — shared, outside goals */}
+          {/* Health */}
           <div>
             <div className="flex items-center gap-3 mb-3 px-1">
               <div className="h-px flex-1 bg-gray-800" />
@@ -750,6 +1155,16 @@ export default function SelfTab({ profile }: { profile?: any }) {
                     <span>{filledGoals} goal{filledGoals > 1 ? "s" : ""}</span>
                     <span>{totalSkills} skill{totalSkills !== 1 ? "s" : ""}</span>
                     {monetizable > 0 && <span className="text-indigo-400">{monetizable} monetizable</span>}
+                    {roadmap && (
+                      <span className="text-emerald-400 flex items-center gap-1">
+                        <Zap className="w-3 h-3" />Plan ready
+                      </span>
+                    )}
+                    {roadmapLoading && (
+                      <span className="text-gray-500 flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />Generating plan…
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-2">
