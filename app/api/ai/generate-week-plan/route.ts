@@ -40,29 +40,22 @@ export async function POST(req: Request) {
   const systemPrompt = `You are a productivity coach who builds practical weekly schedules. 
 Always respond with ONLY valid JSON — no explanation, no markdown, no preamble.`;
 
-  const prompt = `Build a realistic weekly plan for someone in the "${chosenPhase?.name ?? "Foundation"}" phase of their growth.
+  const prompt = `Build a realistic weekly plan for someone in the ${chosenPhase?.name ?? "Foundation"} phase of their growth.
 
 Phase actions they need to make progress on:
 ${actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}
 
 Available days this week: ${days.join(", ")} (${availableDays} days)
 
-Return this exact JSON structure:
-{
-  "week": [
-    { "day": "Mon", "tasks": ["specific task 1", "specific task 2"] },
-    { "day": "Tue", "tasks": ["specific task 1", "specific task 2"] }
-  ]
-}
+Return ONLY this JSON, no other text:
+{"week":[{"day":"Mon","tasks":["task one here","task two here"]},{"day":"Tue","tasks":["task one here","task two here"]}]}
 
 Rules:
-- Exactly ${availableDays} day entries, matching these days in order: ${days.join(", ")}
-- 2 tasks per day
-- Tasks should be specific, time-bound actions (e.g. "30-min focused session on X" not just "do X")
-- Spread the phase actions thoughtfully across the week — don't just repeat the same thing every day
-- Mix heavier work days with lighter recovery/review days
-- Reference the actual phase actions above, don't invent new unrelated tasks
-- Each task max 12 words`;
+- Exactly ${availableDays} entries in the week array, one per day in order: ${days.join(", ")}
+- Exactly 2 tasks per day entry
+- Tasks must be plain text only — NO quotation marks, NO apostrophes, NO special characters inside task text
+- Keep each task under 10 words
+- Tasks should be specific and actionable, referencing the phase actions above`;
 
   try {
     const raw    = await callAI({ prompt, systemPrompt });

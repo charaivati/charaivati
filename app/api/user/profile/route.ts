@@ -21,6 +21,7 @@ type GoalEntry = {
   skills: SkillEntry[];
   linkedBusinessIds: string[];
   saved?: boolean;
+  plan?: unknown;
 };
 
 type HealthInput = {
@@ -97,6 +98,8 @@ export async function PATCH(req: Request) {
         linkedBusinessIds: Array.isArray(g.linkedBusinessIds)
           ? g.linkedBusinessIds.map(String).slice(0, 20)
           : [],
+        // Preserve AI-generated plan as-is — no validation needed
+        plan: (g.plan && typeof g.plan === "object") ? g.plan : null,
       }));
     }
 

@@ -1,7 +1,7 @@
 // app/(with-nav)/self/tabs/SelfTab.tsx
 "use client";
 
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Plus, Trash2, ChevronDown, ChevronUp, Pencil, Check,
   X, Loader2, ChevronRight, Calendar, Zap,
@@ -20,12 +20,13 @@ type SkillEntry = {
 
 type GoalEntry = {
   id: string;
-  driveId: DriveType;          // ← which drive this goal belongs to
+  driveId: DriveType;
   statement: string;
   horizon: "This year" | "3 Years" | "Lifetime";
   skills: SkillEntry[];
   linkedBusinessIds: string[];
   saved: boolean;
+  plan?: AIRoadmap | null;
 };
 
 type HealthProfile = {
@@ -69,11 +70,9 @@ type Suggestion = {
 type AIRoadmap = {
   phases: Phase[];
   suggestions: Suggestion[];
+  weekPlans?: Record<string, DayPlan[]>; // key: `${phaseId}-${availableDays}`
 };
 
-type WeekPlan = {
-  week: DayPlan[];
-};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -94,19 +93,6 @@ const MEAL_PREVIEW: Record<string, string> = {
   Vegan:            "Legumes, grains, nuts & seeds",
   Eggetarian:       "Eggs + plant-based meals",
   "Non-Vegetarian": "Balanced protein + whole foods",
-};
-
-const SUGGESTION_TYPE_COLOR: Record<Suggestion["type"], string> = {
-  skill:     "border-indigo-500/40 bg-indigo-500/10 text-indigo-300",
-  execution: "border-amber-500/40 bg-amber-500/10 text-amber-300",
-  health:    "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-  network:   "border-purple-500/40 bg-purple-500/10 text-purple-300",
-};
-
-const SUGGESTION_PRIORITY_DOT: Record<Suggestion["priority"], string> = {
-  high:   "bg-red-400",
-  medium: "bg-amber-400",
-  low:    "bg-gray-500",
 };
 
 // Drive accent colours — used for column headers
@@ -199,50 +185,103 @@ function TextInput({ value, onChange, placeholder, className = "" }: {
 
 // ─── AI Plan Modal ────────────────────────────────────────────────────────────
 
-function AIPlanModal({ goal, roadmap, onClose }: {
+function AIPlanModal({ goal, onClose, onSavePlan, onRegenerate, planLoading }: {
   goal: GoalEntry;
-  roadmap: AIRoadmap;
   onClose: () => void;
+  onSavePlan: (plan: AIRoadmap) => void;
+  onRegenerate: () => void;
+  planLoading: boolean;
 }) {
-  const [selectedPhaseId, setSelectedPhaseId] = useState(roadmap.phases[0]?.id ?? "foundation");
+  const roadmap = goal.plan!;
+  const [selectedPhaseId, setSelectedPhaseId] = useState(roadmap.phases[0]?.id ?? "");
+  const [phases,          setPhases]          = useState<Phase[]>(roadmap.phases);
+  const [dirty,           setDirty]           = useState(false);
   const [weekExpanded,    setWeekExpanded]    = useState(false);
   const [availableDays,   setAvailableDays]   = useState(5);
-  const [weekPlan,        setWeekPlan]        = useState<WeekPlan | null>(null);
   const [weekLoading,     setWeekLoading]     = useState(false);
   const [weekError,       setWeekError]       = useState<string | null>(null);
+  const [editingWeek,     setEditingWeek]     = useState(false);
+  const [localWeekPlan,   setLocalWeekPlan]   = useState<DayPlan[] | null>(null);
 
-  const selectedPhase = roadmap.phases.find(p => p.id === selectedPhaseId) ?? roadmap.phases[0];
+  const selectedPhase  = phases.find(p => p.id === selectedPhaseId) ?? phases[0];
+  const weekKey        = `${selectedPhaseId}-${availableDays}`;
+  // Derive current week plan from persisted roadmap — no local state needed
+  const currentWeekPlan: DayPlan[] | null = roadmap.weekPlans?.[weekKey] ?? null;
+
+  function updateAction(phaseId: string, idx: number, value: string) {
+    setPhases(prev => prev.map(p =>
+      p.id === phaseId ? { ...p, actions: p.actions.map((a, i) => i === idx ? value : a) } : p
+    ));
+    setDirty(true);
+  }
+
+  function addAction(phaseId: string) {
+    setPhases(prev => prev.map(p =>
+      p.id === phaseId ? { ...p, actions: [...p.actions, ""] } : p
+    ));
+    setDirty(true);
+  }
+
+  function removeAction(phaseId: string, idx: number) {
+    setPhases(prev => prev.map(p =>
+      p.id === phaseId ? { ...p, actions: p.actions.filter((_, i) => i !== idx) } : p
+    ));
+    setDirty(true);
+  }
+
+  function handleSave() {
+    onSavePlan({ ...roadmap, phases });
+    setDirty(false);
+  }
 
   async function fetchWeekPlan(phaseId: string, days: number) {
+    const key = `${phaseId}-${days}`;
     setWeekLoading(true); setWeekError(null);
     try {
       const resp = await safeFetchJson("/api/ai/generate-week-plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phases: roadmap.phases, currentPhase: phaseId, availableDays: days }),
+        body: JSON.stringify({ phases, currentPhase: phaseId, availableDays: days }),
       });
       if (!resp.ok || !resp.json?.week) throw new Error("Failed");
-      setWeekPlan(resp.json as WeekPlan);
+      // Save into roadmap.weekPlans so it persists across refreshes
+      const updatedWeekPlans = { ...(roadmap.weekPlans ?? {}), [key]: resp.json.week as DayPlan[] };
+      onSavePlan({ ...roadmap, phases, weekPlans: updatedWeekPlans });
     } catch { setWeekError("Could not generate week plan. Try again."); }
     finally   { setWeekLoading(false); }
   }
 
-  function handleExpandWeek() {
-    if (!weekExpanded) { setWeekExpanded(true); fetchWeekPlan(selectedPhaseId, availableDays); }
-    else setWeekExpanded(false);
-  }
-
   function handlePhaseChange(id: string) {
     setSelectedPhaseId(id);
-    if (weekExpanded) fetchWeekPlan(id, availableDays);
+    // No need to clear — currentWeekPlan is derived from roadmap.weekPlans[key]
   }
 
   function handleDaysChange(days: number) {
     setAvailableDays(days);
-    if (weekExpanded) fetchWeekPlan(selectedPhaseId, days);
+    setEditingWeek(false);
+    setLocalWeekPlan(null);
+    // Plans per day-count are stored separately — switching days shows cached plan if available
   }
 
-  const goalSuggestions = roadmap.suggestions.filter(s => s.type === "execution" || s.type === "skill");
+  function startEditingWeek() {
+    setLocalWeekPlan(currentWeekPlan ? currentWeekPlan.map(d => ({ ...d, tasks: [...d.tasks] })) : null);
+    setEditingWeek(true);
+  }
+
+  function updateWeekTask(dayIdx: number, taskIdx: number, value: string) {
+    setLocalWeekPlan(prev => prev
+      ? prev.map((d, di) => di === dayIdx ? { ...d, tasks: d.tasks.map((t, ti) => ti === taskIdx ? value : t) } : d)
+      : prev
+    );
+  }
+
+  function saveWeekPlan() {
+    if (!localWeekPlan) return;
+    const updatedWeekPlans = { ...(roadmap.weekPlans ?? {}), [weekKey]: localWeekPlan };
+    onSavePlan({ ...roadmap, phases, weekPlans: updatedWeekPlans });
+    setEditingWeek(false);
+    setLocalWeekPlan(null);
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-0 sm:p-4"
@@ -255,7 +294,6 @@ function AIPlanModal({ goal, roadmap, onClose }: {
           <div className="flex-1 min-w-0 pr-3">
             <p className="text-xs text-indigo-400 uppercase tracking-wider mb-1">AI Roadmap</p>
             <h2 className="text-base font-semibold text-white truncate">{goal.statement || "Your Goal"}</h2>
-            <p className="text-xs text-gray-500 mt-0.5">{goal.horizon}</p>
           </div>
           <button type="button" onClick={onClose}
             className="p-1.5 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700
@@ -269,7 +307,7 @@ function AIPlanModal({ goal, roadmap, onClose }: {
           <div>
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Phase</p>
             <div className="flex gap-2 flex-wrap">
-              {roadmap.phases.map(phase => (
+              {phases.map(phase => (
                 <button key={phase.id} type="button" onClick={() => handlePhaseChange(phase.id)}
                   className={`px-3 py-1.5 rounded-full text-xs border transition-all ${
                     selectedPhaseId === phase.id
@@ -277,31 +315,62 @@ function AIPlanModal({ goal, roadmap, onClose }: {
                       : "border-gray-700 text-gray-400 hover:border-gray-500"
                   }`}>
                   {phase.name}
-                  <span className="ml-1.5 text-gray-500">{phase.duration}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Phase actions */}
+          {/* Editable phase actions */}
           {selectedPhase && (
             <div>
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">{selectedPhase.name} Actions</p>
               <div className="space-y-2">
                 {selectedPhase.actions.map((action, i) => (
-                  <div key={i} className="flex items-start gap-3 rounded-xl border border-gray-800 bg-gray-900/60 px-4 py-3">
+                  <div key={i} className="flex items-start gap-2">
                     <span className="flex-none w-5 h-5 rounded-full bg-indigo-600/30 border border-indigo-500/40
-                      text-indigo-400 text-xs flex items-center justify-center font-semibold mt-0.5">{i + 1}</span>
-                    <p className="text-sm text-gray-200 leading-relaxed">{action}</p>
+                      text-indigo-400 text-xs flex items-center justify-center font-semibold mt-2.5">{i + 1}</span>
+                    <textarea
+                      value={action}
+                      onChange={e => updateAction(selectedPhase.id, i, e.target.value)}
+                      rows={2}
+                      className="flex-1 rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2 text-sm
+                        text-gray-200 leading-relaxed resize-none outline-none focus:border-indigo-500 transition-colors"
+                    />
+                    <button type="button" onClick={() => removeAction(selectedPhase.id, i)}
+                      className="mt-2.5 p-1 text-gray-600 hover:text-red-400 transition-colors flex-shrink-0">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 ))}
+                <button type="button" onClick={() => addAction(selectedPhase.id)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed
+                    border-gray-700 text-xs text-gray-500 hover:border-gray-500 hover:text-gray-300 transition-colors">
+                  <Plus className="w-3.5 h-3.5" />Add action
+                </button>
               </div>
             </div>
           )}
 
+          {/* Save / Regenerate bar */}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-800">
+            <button type="button" onClick={() => { onRegenerate(); onClose(); }} disabled={planLoading}
+              className="text-xs text-gray-500 hover:text-indigo-400 transition-colors disabled:opacity-40 flex items-center gap-1.5">
+              {planLoading
+                ? <><Loader2 className="w-3 h-3 animate-spin" />Regenerating…</>
+                : <>↺ Regenerate</>}
+            </button>
+            {dirty && (
+              <button type="button" onClick={handleSave}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500
+                  text-white text-xs font-medium transition-colors">
+                <Check className="w-3.5 h-3.5" />Save changes
+              </button>
+            )}
+          </div>
+
           {/* Week plan expander */}
           <div className="rounded-xl border border-gray-800 bg-gray-900/40 overflow-hidden">
-            <button type="button" onClick={handleExpandWeek}
+            <button type="button" onClick={() => setWeekExpanded(v => !v)}
               className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-800/40 transition-colors">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-indigo-400" />
@@ -312,26 +381,33 @@ function AIPlanModal({ goal, roadmap, onClose }: {
 
             {weekExpanded && (
               <div className="px-4 pb-4 border-t border-gray-800 pt-4 space-y-4">
-                <div>
-                  <p className="text-xs text-gray-500 mb-2">Days available</p>
-                  <div className="flex gap-1.5">
-                    {[3, 4, 5, 6, 7].map(n => (
-                      <button key={n} type="button" onClick={() => handleDaysChange(n)}
-                        className={`w-8 h-8 rounded-lg text-xs border transition-colors ${
-                          availableDays === n
-                            ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
-                            : "border-gray-700 text-gray-400 hover:border-gray-600"
-                        }`}>{n}</button>
-                    ))}
+                {/* Controls row */}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-xs text-gray-500 mb-2">Days available</p>
+                    <div className="flex gap-1.5">
+                      {[3, 4, 5, 6, 7].map(n => (
+                        <button key={n} type="button" onClick={() => handleDaysChange(n)}
+                          className={`w-8 h-8 rounded-lg text-xs border transition-colors ${
+                            availableDays === n
+                              ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+                              : "border-gray-700 text-gray-400 hover:border-gray-600"
+                          }`}>{n}</button>
+                      ))}
+                    </div>
                   </div>
+                  <button type="button"
+                    onClick={() => fetchWeekPlan(selectedPhaseId, availableDays)}
+                    disabled={weekLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-500/50
+                      bg-indigo-500/10 text-xs text-indigo-300 hover:bg-indigo-500/20 transition-colors
+                      disabled:opacity-40 disabled:cursor-not-allowed self-end">
+                    {weekLoading
+                      ? <><Loader2 className="w-3 h-3 animate-spin" />Generating…</>
+                      : currentWeekPlan ? <>↺ Regenerate</> : <><Calendar className="w-3 h-3" />Generate</>}
+                  </button>
                 </div>
 
-                {weekLoading && (
-                  <div className="flex items-center gap-2 text-gray-400 py-4 justify-center">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-sm">Generating week plan…</span>
-                  </div>
-                )}
                 {weekError && !weekLoading && (
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-red-400">{weekError}</p>
@@ -339,16 +415,50 @@ function AIPlanModal({ goal, roadmap, onClose }: {
                       className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Retry</button>
                   </div>
                 )}
-                {weekPlan && !weekLoading && (
+                {!currentWeekPlan && !weekLoading && !weekError && (
+                  <p className="text-xs text-gray-600 text-center py-2">
+                    Select a phase and days, then click Generate.
+                  </p>
+                )}
+                {currentWeekPlan && !weekLoading && (
                   <div className="space-y-2">
-                    {weekPlan.week.map(dayPlan => (
+                    {/* Edit / Save row */}
+                    <div className="flex justify-end gap-2">
+                      {editingWeek ? (
+                        <>
+                          <button type="button" onClick={() => { setEditingWeek(false); setLocalWeekPlan(null); }}
+                            className="text-xs text-gray-400 hover:text-gray-300 transition-colors px-2 py-1">
+                            Cancel
+                          </button>
+                          <button type="button" onClick={saveWeekPlan}
+                            className="flex items-center gap-1 text-xs px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors">
+                            <Check className="w-3 h-3" />Save
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" onClick={startEditingWeek}
+                          className="text-xs text-gray-400 hover:text-indigo-300 transition-colors px-2 py-1">
+                          Edit tasks
+                        </button>
+                      )}
+                    </div>
+
+                    {(editingWeek ? localWeekPlan! : currentWeekPlan).map((dayPlan: DayPlan, di: number) => (
                       <div key={dayPlan.day} className="rounded-lg border border-gray-800 bg-gray-950/60 px-3 py-2.5">
                         <p className="text-xs font-semibold text-indigo-400 mb-1.5">{dayPlan.day}</p>
                         <div className="space-y-1">
-                          {dayPlan.tasks.map((task, ti) => (
-                            <p key={ti} className="text-xs text-gray-300 flex items-start gap-1.5">
-                              <span className="text-gray-600 mt-0.5">·</span>{task}
-                            </p>
+                          {dayPlan.tasks.map((task: string, ti: number) => (
+                            editingWeek ? (
+                              <textarea key={ti} value={task}
+                                onChange={e => updateWeekTask(di, ti, e.target.value)}
+                                rows={2}
+                                className="w-full rounded-md border border-gray-700 bg-gray-900 px-2 py-1
+                                  text-xs text-gray-200 resize-none focus:outline-none focus:border-indigo-500" />
+                            ) : (
+                              <p key={ti} className="text-xs text-gray-300 flex items-start gap-1.5">
+                                <span className="text-gray-600 mt-0.5">·</span>{task}
+                              </p>
+                            )
                           ))}
                         </div>
                       </div>
@@ -358,25 +468,6 @@ function AIPlanModal({ goal, roadmap, onClose }: {
               </div>
             )}
           </div>
-
-          {/* Suggestions */}
-          {goalSuggestions.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Zap className="w-3.5 h-3.5 text-amber-400" />
-                <p className="text-xs text-gray-500 uppercase tracking-wider">Suggested Actions</p>
-              </div>
-              <div className="space-y-2">
-                {goalSuggestions.map(s => (
-                  <div key={s.id}
-                    className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 ${SUGGESTION_TYPE_COLOR[s.type]}`}>
-                    <span className={`flex-none w-1.5 h-1.5 rounded-full mt-1.5 ${SUGGESTION_PRIORITY_DOT[s.priority]}`} />
-                    <p className="text-xs leading-relaxed">{s.text}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -385,13 +476,15 @@ function AIPlanModal({ goal, roadmap, onClose }: {
 
 // ─── Goal Summary (collapsed view) ───────────────────────────────────────────
 
-function GoalSummary({ goal, pages, roadmap, roadmapLoading, onEdit, onRemove }: {
+function GoalSummary({ goal, pages, planLoading, onEdit, onRemove, onGeneratePlan, onSavePlan, onRegenerate }: {
   goal: GoalEntry;
   pages: PageItem[];
-  roadmap: AIRoadmap | null;
-  roadmapLoading: boolean;
+  planLoading: boolean;
   onEdit: () => void;
   onRemove: () => void;
+  onGeneratePlan: () => void;
+  onSavePlan: (plan: AIRoadmap) => void;
+  onRegenerate: () => void;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const namedSkills = goal.skills.filter(s => s.name);
@@ -431,16 +524,19 @@ function GoalSummary({ goal, pages, roadmap, roadmapLoading, onEdit, onRemove }:
           </div>
 
           <div className="flex flex-col gap-1.5 flex-shrink-0 items-end">
-            <button type="button" onClick={() => setModalOpen(true)}
-              disabled={roadmapLoading || !roadmap}
+            <button type="button"
+              onClick={() => goal.plan ? setModalOpen(true) : onGeneratePlan()}
+              disabled={planLoading}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors ${
-                roadmap
+                goal.plan
                   ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300 hover:bg-indigo-500/20"
-                  : "border-gray-700 bg-gray-800 text-gray-500 cursor-not-allowed"
+                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-indigo-500/40 hover:text-indigo-300"
               }`}>
-              {roadmapLoading
+              {planLoading
                 ? <><Loader2 className="w-3 h-3 animate-spin" />Generating…</>
-                : roadmap ? <><Zap className="w-3 h-3" />View Plan</> : <><Zap className="w-3 h-3" />No plan</>}
+                : goal.plan
+                  ? <><Zap className="w-3 h-3" />Check plan</>
+                  : <><Zap className="w-3 h-3" />Generate plan</>}
             </button>
             <div className="flex gap-1">
               <button type="button" onClick={onEdit}
@@ -458,8 +554,14 @@ function GoalSummary({ goal, pages, roadmap, roadmapLoading, onEdit, onRemove }:
         </div>
       </div>
 
-      {modalOpen && roadmap && (
-        <AIPlanModal goal={goal} roadmap={roadmap} onClose={() => setModalOpen(false)} />
+      {modalOpen && goal.plan && (
+        <AIPlanModal
+          goal={goal}
+          onClose={() => setModalOpen(false)}
+          onSavePlan={onSavePlan}
+          onRegenerate={onRegenerate}
+          planLoading={planLoading}
+        />
       )}
     </>
   );
@@ -634,19 +736,22 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
 // ─── Drive Goal Column ────────────────────────────────────────────────────────
 
 function DriveColumn({
-  drive, goals, pages, roadmap, roadmapLoading,
+  drive, goals, pages,
   onUpdateGoal, onSaveGoal, onEditGoal, onRemoveGoal, onAddGoal,
+  planLoading, onGeneratePlan, onSavePlan, onRegenerate,
 }: {
   drive: { id: DriveType; label: string; description: string };
-  goals: GoalEntry[];               // only goals belonging to this drive
+  goals: GoalEntry[];
   pages: PageItem[];
-  roadmap: AIRoadmap | null;
-  roadmapLoading: boolean;
   onUpdateGoal: (id: string, g: GoalEntry) => void;
   onSaveGoal:   (id: string) => void;
   onEditGoal:   (id: string) => void;
   onRemoveGoal: (id: string) => void;
   onAddGoal:    (driveId: DriveType) => void;
+  planLoading:    Record<string, boolean>;
+  onGeneratePlan: (id: string) => void;
+  onSavePlan:     (id: string, plan: AIRoadmap) => void;
+  onRegenerate:   (id: string) => void;
 }) {
   const colorClass = DRIVE_COLOR[drive.id];
   const savedGoals = goals.filter(g => g.saved);
@@ -667,10 +772,12 @@ function DriveColumn({
             key={goal.id}
             goal={goal}
             pages={pages}
-            roadmap={roadmap}
-            roadmapLoading={roadmapLoading}
+            planLoading={!!planLoading[goal.id]}
             onEdit={() => onEditGoal(goal.id)}
             onRemove={() => onRemoveGoal(goal.id)}
+            onGeneratePlan={() => onGeneratePlan(goal.id)}
+            onSavePlan={plan => onSavePlan(goal.id, plan)}
+            onRegenerate={() => onRegenerate(goal.id)}
           />
         ) : (
           <GoalCard
@@ -784,86 +891,56 @@ export default function SelfTab({ profile }: { profile?: any }) {
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [isGuest,   setIsGuest]   = useState(false);
 
-  const [roadmap,        setRoadmap]        = useState<AIRoadmap | null>(null);
-  const [roadmapLoading, setRoadmapLoading] = useState(false);
-  const [roadmapError,   setRoadmapError]   = useState<string | null>(null);
+  const [planLoading, setPlanLoading] = useState<Record<string, boolean>>({});
 
-  const profileApplied     = useRef(false);
-  const saveTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const guestLoaded        = useRef(false);
-  const lastRoadmapKey     = useRef("");
-  const roadmapFromCache   = useRef(false);
+  const profileApplied = useRef(false);
+  const saveTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guestLoaded    = useRef(false);
 
   // ── Goals visible in the current session (drive is active) ────
   const visibleGoals = goals.filter(g => drives.includes(g.driveId));
 
-  // ── Generate AI roadmap ────────────────────────────────────────
-  const generateRoadmap = useCallback(async (
-    currentDrives: DriveType[],
-    currentGoals: GoalEntry[],
-    currentHealth: HealthProfile,
-  ) => {
-    const key = JSON.stringify({ currentDrives, currentGoals, currentHealth });
-    if (key === lastRoadmapKey.current) return;
-    lastRoadmapKey.current = key;
+  // ── Generate AI plan for a single goal ────────────────────────
+  async function generateGoalPlan(goalId: string) {
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal || !goal.statement) return;
 
-    setRoadmapLoading(true); setRoadmapError(null);
-
+    setPlanLoading(prev => ({ ...prev, [goalId]: true }));
     try {
       const healthNote = [
-        currentHealth.food,
-        `${currentHealth.exercise} ${currentHealth.sessionsPerWeek}x/wk`,
-        currentHealth.age ? `age ${currentHealth.age}` : "",
+        health.food,
+        `${health.exercise} ${health.sessionsPerWeek}x/wk`,
+        health.age ? `age ${health.age}` : "",
       ].filter(Boolean).join(", ");
 
-      const driveLabels  = currentDrives.map(d => DRIVES.find(x => x.id === d)?.label ?? d);
-      const goalsPayload = currentGoals
-        .filter(g => g.statement && currentDrives.includes(g.driveId))
-        .map(g => ({
-          id: g.id,
-          title: g.statement,
-          skill: g.skills.find(s => s.name)?.name ?? "",
-          drive: DRIVES.find(x => x.id === g.driveId)?.label ?? g.driveId,
-        }));
+      const driveLabel  = DRIVES.find(d => d.id === goal.driveId)?.label ?? goal.driveId;
+      const goalPayload = [{
+        id:    goal.id,
+        title: goal.statement,
+        skill: goal.skills.find(s => s.name)?.name ?? "",
+        drive: driveLabel,
+      }];
 
-      const [timelineResp, suggestResp] = await Promise.all([
-        safeFetchJson("/api/ai/generate-timeline", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ drives: driveLabels, goals: goalsPayload, health: { note: healthNote } }),
-        }),
-        safeFetchJson("/api/ai/suggest-actions", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            currentPhase: "foundation", recentActivity: [],
-            goals: goalsPayload,
-            skills: currentGoals.flatMap(g => g.skills.map(s => s.name)).filter(Boolean),
-          }),
-        }),
-      ]);
+      const timelineResp = await safeFetchJson("/api/ai/generate-timeline", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ drives: [driveLabel], goals: goalPayload, health: { note: healthNote } }),
+      });
 
       if (!timelineResp.ok || !timelineResp.json?.phases) throw new Error("Timeline failed");
-      setRoadmap({
-        phases:      timelineResp.json.phases,
-        suggestions: suggestResp.json?.suggestions ?? [],
+
+      const plan: AIRoadmap = { phases: timelineResp.json.phases, suggestions: [] };
+      setGoals(prev => {
+        const next = prev.map(g => g.id === goalId ? { ...g, plan } : g);
+        persist(drives, next, health);
+        return next;
       });
     } catch {
-      setRoadmapError("Could not generate your plan. Try saving goals again.");
-      lastRoadmapKey.current = "";
+      // button returns to "Generate plan" on failure
     } finally {
-      setRoadmapLoading(false);
+      setPlanLoading(prev => { const n = { ...prev }; delete n[goalId]; return n; });
     }
-  }, []);
+  }
 
-  // ── Auto-trigger roadmap when all visible goals are saved ──────
-  useEffect(() => {
-    const allSaved       = visibleGoals.length > 0 && visibleGoals.every(g => g.saved);
-    const hasFilledGoals = visibleGoals.some(g => g.statement.trim());
-
-    if (allSaved && hasFilledGoals && drives.length > 0 && profileApplied.current) {
-      generateRoadmap(drives, visibleGoals, health);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goals, drives, health]);
 
   // ── Detect guest ───────────────────────────────────────────────
   useEffect(() => {
@@ -941,17 +1018,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
       setGoalsOpen(true);
     }
 
-    // Restore cached AI plan — pre-set the key so generateRoadmap skips re-generation
-    if (profile.aiPlan?.phases) {
-      roadmapFromCache.current = true;
-      setRoadmap(profile.aiPlan as AIRoadmap);
-      const visibleLoaded = loadedGoals.filter(g => loadedDrives.includes(g.driveId));
-      lastRoadmapKey.current = JSON.stringify({
-        currentDrives: loadedDrives,
-        currentGoals:  visibleLoaded,
-        currentHealth: loadedHealth,
-      });
-    }
   }, [profile]);
 
   // ── Persist ────────────────────────────────────────────────────
@@ -979,16 +1045,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
     }, 800);
   }
 
-  // ── Persist AI plan to DB after generation ────────────────────
-  useEffect(() => {
-    if (!roadmap || isGuest) return;
-    if (roadmapFromCache.current) { roadmapFromCache.current = false; return; }
-    safeFetchJson("/api/user/profile", {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ aiPlan: roadmap }),
-    }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roadmap]);
 
   // ── Drive toggle ───────────────────────────────────────────────
   function toggleDrive(d: DriveType) {
@@ -1018,15 +1074,12 @@ export default function SelfTab({ profile }: { profile?: any }) {
     if (nextGoals !== goals) setGoals(nextGoals);
 
     persist(next, nextGoals, health);
-    // Roadmap no longer valid when drives change
-    setRoadmap(null); lastRoadmapKey.current = "";
   }
 
   // ── Goal helpers ───────────────────────────────────────────────
   function updateGoal(id: string, u: GoalEntry) {
     const next = goals.map(g => g.id === id ? u : g);
     setGoals(next);
-    setRoadmap(null); lastRoadmapKey.current = "";
   }
 
   function saveGoal(id: string) {
@@ -1037,7 +1090,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
 
   function editGoal(id: string) {
     setGoals(prev => prev.map(g => g.id === id ? { ...g, saved: false } : g));
-    setRoadmap(null); lastRoadmapKey.current = "";
   }
 
   function removeGoal(id: string) {
@@ -1049,7 +1101,14 @@ export default function SelfTab({ profile }: { profile?: any }) {
     }, filtered);
     setGoals(nextGoals);
     persist(drives, nextGoals, health);
-    setRoadmap(null); lastRoadmapKey.current = "";
+  }
+
+  function saveGoalPlan(id: string, plan: AIRoadmap) {
+    setGoals(prev => {
+      const next = prev.map(g => g.id === id ? { ...g, plan } : g);
+      persist(drives, next, health);
+      return next;
+    });
   }
 
   function addGoal(driveId: DriveType) {
@@ -1148,38 +1207,20 @@ export default function SelfTab({ profile }: { profile?: any }) {
                     drive={driveInfo}
                     goals={driveGoals}
                     pages={pages}
-                    roadmap={roadmap}
-                    roadmapLoading={roadmapLoading}
                     onUpdateGoal={updateGoal}
                     onSaveGoal={saveGoal}
                     onEditGoal={editGoal}
                     onRemoveGoal={removeGoal}
                     onAddGoal={addGoal}
+                    planLoading={planLoading}
+                    onGeneratePlan={generateGoalPlan}
+                    onSavePlan={saveGoalPlan}
+                    onRegenerate={generateGoalPlan}
                   />
                 );
               })}
             </div>
 
-            {/* Roadmap status bar */}
-            {roadmapError ? (
-              <div className="mx-5 mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3
-                flex items-center justify-between gap-3">
-                <p className="text-xs text-red-400">{roadmapError}</p>
-                <button type="button"
-                  onClick={() => { lastRoadmapKey.current = ""; generateRoadmap(drives, visibleGoals, health); }}
-                  className="text-xs text-red-300 hover:text-white underline flex-shrink-0 transition-colors">
-                  Retry
-                </button>
-              </div>
-            ) : roadmap && !roadmapLoading && (
-              <div className="mx-5 mb-5 flex justify-end">
-                <button type="button"
-                  onClick={() => { lastRoadmapKey.current = ""; generateRoadmap(drives, visibleGoals, health); }}
-                  className="text-xs text-gray-500 hover:text-indigo-400 transition-colors">
-                  ↺ Regenerate plan
-                </button>
-              </div>
-            )}
           </SectionCard>
 
           {/* Health */}
@@ -1202,16 +1243,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
                     <span>{filledGoals} goal{filledGoals > 1 ? "s" : ""}</span>
                     <span>{totalSkills} skill{totalSkills !== 1 ? "s" : ""}</span>
                     {monetizable > 0 && <span className="text-indigo-400">{monetizable} monetizable</span>}
-                    {roadmap && (
-                      <span className="text-emerald-400 flex items-center gap-1">
-                        <Zap className="w-3 h-3" />Plan ready
-                      </span>
-                    )}
-                    {roadmapLoading && (
-                      <span className="text-gray-500 flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" />Generating plan…
-                      </span>
-                    )}
                   </p>
                 </div>
                 <div className="flex gap-2">
