@@ -601,9 +601,14 @@ model Post {
   pageId          String?
   content         String?
   
-  // Media - Google Drive file IDs
-  imageFileIds    String[] // Array of file IDs
-  videoFileId     String?  // Single file ID
+  // Media - Google Drive file IDs (legacy)
+  imageFileIds    String[] // Array of GDrive file IDs
+  videoFileId     String?  // Single GDrive file ID
+
+  // Media - Cloudinary CDN URLs
+  imageUrls       String[] @default([]) // Cloudinary https:// URLs
+  videoUrl        String?               // Cloudinary https:// URL
+
   youtubeLinks    String[] // YouTube URLs
   
   // Tagging

@@ -10,17 +10,16 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const {
       content,
-      imageFileIds = [],
-      videoFileId,
+      imageUrls = [],
+      videoUrl,
       youtubeLinks = [],
       slugTags = [],
       pageId,
       visibility = "public",
-      gdriveFolder,
     } = body;
 
     // Validate
-    if (!content?.trim() && imageFileIds.length === 0 && !videoFileId && youtubeLinks.length === 0) {
+    if (!content?.trim() && imageUrls.length === 0 && !videoUrl && youtubeLinks.length === 0) {
       return NextResponse.json({ error: "Post must have content or media" }, { status: 400 });
     }
 
@@ -35,12 +34,11 @@ export async function POST(req: NextRequest) {
         userId: user.id,
         pageId,
         content: content?.trim() || null,
-        imageFileIds,
-        videoFileId,
+        imageUrls,
+        videoUrl,
         youtubeLinks,
         slugTags,
         visibility,
-        gdriveFolder,
       },
       include: {
         user: { select: { id: true, name: true, email: true, avatarUrl: true } },

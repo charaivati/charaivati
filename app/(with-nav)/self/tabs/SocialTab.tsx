@@ -1,27 +1,18 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import {
-  MessageSquare,
-  Cloud,
-  AlertCircle,
-  CheckCircle,
-} from "lucide-react";
-import { useGoogleDrive } from "@/hooks/useGoogleDrive";
+import { MessageSquare } from "lucide-react";
 
-type StoredPost = {
+type FeedPost = {
   id: string;
-  gdriveId?: string;
-  author?: string | { name?: string; email?: string } | null;
+  author: string;
   timeISO: string;
   content?: string;
-  images?: string[];
-  video?: { name: string; size: number; url: string; gdriveId?: string } | null;
-  likes?: number;
-  synced?: boolean;
-  youtubeLinks?: string[];
-  pageId?: string;
-  visibility?: "public" | "friends" | "private";
+  imageUrls: string[];
+  videoUrl: string | null;
+  likes: number;
+  youtubeLinks: string[];
+  visibility: "public" | "friends" | "private";
 };
 
 function extractYouTubeId(url: string): string | null {
@@ -36,242 +27,198 @@ function extractYouTubeId(url: string): string | null {
   return null;
 }
 
+function formatTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export default function SocialTab({ profile }: { profile?: any }) {
-  const gDrive = useGoogleDrive();
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const [posts, setPosts] = useState<StoredPost[]>([]);
-  const [loadingFeed, setLoadingFeed] = useState(false);
-  const [syncStatus, setSyncStatus] = useState<
-    "idle" | "syncing" | "synced" | "error"
-  >("idle");
-
-  // -------- LOAD FEED --------
   async function loadFeed() {
-    setLoadingFeed(true);
-
+    setLoading(true);
     try {
       const res = await fetch("/api/posts?limit=30");
       const json = await res.json();
+      if (!json.ok) return;
 
-      if (json.ok) {
-        const mapped = json.data.map((p: any) => ({
-          id: p.id,
-          author:
-            p.user?.profile?.displayName ||
-            p.user?.name ||
-            p.user?.email ||
-            "User",
+      const mapped: FeedPost[] = json.data.map((p: any) => ({
+        id: p.id,
+        author:
+          p.user?.profile?.displayName ||
+          p.user?.name ||
+          p.user?.email ||
+          "User",
+        timeISO: p.createdAt,
+        content: p.content ?? undefined,
+        // Cloudinary URLs — fall back to legacy GDrive thumbnails for old posts
+        imageUrls:
+          p.imageUrls?.length > 0
+            ? p.imageUrls
+            : (p.imageFileIds || []).map(
+                (id: string) =>
+                  `https://drive.google.com/thumbnail?id=${id}&sz=w1200`
+              ),
+        videoUrl:
+          p.videoUrl ??
+          (p.videoFileId
+            ? `https://drive.google.com/uc?id=${p.videoFileId}`
+            : null),
+        likes: p.likes ?? 0,
+        youtubeLinks: p.youtubeLinks ?? [],
+        visibility: p.visibility ?? "public",
+      }));
 
-          timeISO: p.createdAt,
-          content: p.content,
-          likes: p.likes,
-          visibility: p.visibility,
-          youtubeLinks: p.youtubeLinks || [],
-
-          images: (p.imageFileIds || []).map(
-            (id: string) =>
-              `https://drive.google.com/thumbnail?id=${id}&sz=w1200`
-          ),
-
-          video: p.videoFileId
-            ? {
-                name: "video",
-                size: 0,
-                url: `https://drive.google.com/uc?id=${p.videoFileId}`,
-              }
-            : null,
-        }));
-
-        setPosts(mapped);
-      }
+      setPosts(mapped);
     } catch (err) {
       console.error("Feed load error:", err);
     } finally {
-      setLoadingFeed(false);
+      setLoading(false);
     }
   }
 
-  // Load once
   useEffect(() => {
     loadFeed();
   }, []);
 
-  const formatTime = (iso: string) => {
-    const date = new Date(iso);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-
-    const mins = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-
-    if (mins < 1) return "Just now";
-    if (mins < 60) return `${mins}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
-
-    return date.toLocaleDateString();
-  };
-
-  function authorDisplay(a?: any) {
-    if (!a) return profile?.displayName ?? "You";
-    if (typeof a === "string") return a;
-    if (a.name) return a.name;
-    if (a.email) return a.email;
-    return profile?.displayName ?? "You";
-  }
-
   return (
-    <div
-      className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900"
-      style={{ minHeight: "200vh" }}
-    >
+    <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
       {/* Header */}
-      <div className="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5">
+      <div className="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5 mb-6">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-light text-white tracking-wide">
-            Social
-          </h1>
-
-          <div className="flex items-center gap-3">
-            {syncStatus === "syncing" && (
-              <Cloud className="w-5 h-5 text-blue-400 animate-spin" />
-            )}
-            {syncStatus === "synced" && (
-              <CheckCircle className="w-5 h-5 text-green-400" />
-            )}
-            {syncStatus === "error" && (
-              <AlertCircle className="w-5 h-5 text-red-400" />
-            )}
-
-            {!gDrive.isAuthenticated && (
-              <button
-                onClick={() => gDrive.connectDrive()}
-                className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm hover:from-blue-600 hover:to-blue-700 transition-all font-medium"
-              >
-                Connect Google Drive
-              </button>
-            )}
-
-            {gDrive.isAuthenticated && gDrive.userInfo && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/5 border border-white/10">
-                <span className="text-xs text-green-400 font-medium">
-                  ✓ {gDrive.userInfo.email}
-                </span>
-                <button
-                  onClick={() => gDrive.disconnect()}
-                  className="text-xs text-gray-400 hover:text-red-400 transition-colors ml-2"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-          </div>
+          <h1 className="text-2xl font-light text-white tracking-wide">Social</h1>
+          <button
+            onClick={loadFeed}
+            disabled={loading}
+            className="text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-40"
+          >
+            {loading ? "Loading…" : "Refresh"}
+          </button>
         </div>
-
-        {gDrive.uploadProgress && (
-          <div className="h-1 bg-gray-700">
-            <div
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all"
-              style={{ width: `${gDrive.uploadProgress.percent}%` }}
-            />
-          </div>
-        )}
       </div>
 
       {/* Feed */}
-      <div className="max-w-2xl mx-auto px-4 py-6 pb-32">
+      <div className="max-w-2xl mx-auto px-4 pb-32">
         <div className="space-y-6">
-          {loadingFeed && posts.length === 0 && (
+          {loading && posts.length === 0 && (
             <div className="text-center py-20">
               <MessageSquare className="w-16 h-16 text-gray-700 mx-auto mb-4" />
               <p className="text-gray-500 text-lg">Loading posts…</p>
             </div>
           )}
 
-          {!loadingFeed && posts.length === 0 && (
+          {!loading && posts.length === 0 && (
             <div className="text-center py-20">
               <MessageSquare className="w-16 h-16 text-gray-700 mx-auto mb-4" />
               <p className="text-gray-500 text-lg">No posts yet</p>
-              <p className="text-gray-600 text-sm mt-2">
-                Content will appear here
-              </p>
+              <p className="text-gray-600 text-sm mt-2">Content will appear here</p>
             </div>
           )}
 
           {posts.map((post) => {
-            const author = authorDisplay(post.author);
-            const avatarLetter = (author || "Y")[0].toUpperCase();
+            const avatarLetter = (post.author || "U")[0].toUpperCase();
 
             return (
               <article
                 key={post.id}
-                className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm hover:bg-white/8 transition-colors"
+                className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm hover:bg-white/[0.08] transition-colors"
               >
                 <div className="p-6 pb-4">
+                  {/* Author row */}
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium">
+                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium shrink-0">
                       {avatarLetter}
                     </div>
-
-                    <div>
-                      <p className="font-medium text-white">{author}</p>
-                      <p className="text-sm text-gray-500">
-                        {formatTime(post.timeISO)}
-                      </p>
+                    <div className="min-w-0">
+                      <p className="font-medium text-white truncate">{post.author}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm text-gray-500">{formatTime(post.timeISO)}</p>
+                        {post.visibility === "friends" && (
+                          <span className="text-xs text-gray-500 px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
+                            👥 Friends
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   {post.content && (
-                    <p className="text-gray-200 whitespace-pre-wrap">
+                    <p className="text-gray-200 whitespace-pre-wrap leading-relaxed">
                       {post.content}
                     </p>
                   )}
                 </div>
 
-                {post.images && post.images.length > 0 && (
+                {/* Images */}
+                {post.imageUrls.length > 0 && (
                   <div
-                    className={`${
-                      post.images.length === 1 ? "" : "grid grid-cols-2 gap-1"
-                    }`}
+                    className={
+                      post.imageUrls.length === 1
+                        ? ""
+                        : post.imageUrls.length === 2
+                        ? "grid grid-cols-2 gap-0.5"
+                        : "grid grid-cols-2 gap-0.5"
+                    }
                   >
-                    {post.images.map((url, i) => (
-                      <img
-                        key={i}
-                        src={url}
-                        className="w-full object-cover"
-                        loading="lazy"
-                      />
-                    ))}
+                    {post.imageUrls.map((url, i) => {
+                      // For 3+ images: first image spans full width, rest are 2-col
+                      const isFirst = i === 0 && post.imageUrls.length >= 3;
+                      return (
+                        <img
+                          key={i}
+                          src={url}
+                          alt=""
+                          loading="lazy"
+                          className={`w-full object-cover ${
+                            post.imageUrls.length === 1
+                              ? "max-h-[480px]"
+                              : isFirst
+                              ? "col-span-2 max-h-64"
+                              : "h-40"
+                          }`}
+                        />
+                      );
+                    })}
                   </div>
                 )}
 
-                {post.video && (
+                {/* Video */}
+                {post.videoUrl && (
                   <video
-                    src={post.video.url}
+                    src={post.videoUrl}
                     controls
-                    className="w-full bg-black"
+                    className="w-full bg-black max-h-[480px]"
                   />
                 )}
 
-                {post.youtubeLinks?.map((link, i) => {
+                {/* YouTube embeds */}
+                {post.youtubeLinks.map((link, i) => {
                   const id = extractYouTubeId(link);
                   if (!id) return null;
-
                   return (
-                    <iframe
-                      key={i}
-                      width="100%"
-                      height="315"
-                      src={`https://www.youtube.com/embed/${id}`}
-                      className="rounded-lg"
-                    />
+                    <div key={i} className="aspect-video">
+                      <iframe
+                        width="100%"
+                        height="100%"
+                        src={`https://www.youtube.com/embed/${id}`}
+                        allowFullScreen
+                        className="border-0"
+                      />
+                    </div>
                   );
                 })}
 
-                <div className="px-6 py-4 border-t border-white/5">
-                  <span className="text-sm text-gray-400">
-                    Likes: {post.likes || 0}
+                <div className="px-6 py-3 border-t border-white/5">
+                  <span className="text-sm text-gray-500">
+                    {post.likes > 0 ? `${post.likes} like${post.likes !== 1 ? "s" : ""}` : "Be the first to like"}
                   </span>
                 </div>
               </article>

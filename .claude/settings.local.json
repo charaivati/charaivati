@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/madhu/OneDrive/Desktop/Charaivati/Main_Charaivati/Website/charaivati -name *.prisma -type f)",
+      "Bash(find /c/Users/madhu/OneDrive/Desktop/Charaivati/Main_Charaivati/Website/charaivati/app/api -type f -name *.ts -o -name *.js)"
+    ]
+  }
+}
