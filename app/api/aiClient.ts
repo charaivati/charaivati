@@ -26,7 +26,7 @@ export async function callAI({
   maxTokens?: number;
 }): Promise<string> {
   try {
-    if (provider === "ollama")      return await withTimeout(callOllama(prompt, systemPrompt), TIMEOUT_MS);
+    if (provider === "ollama")      return await withTimeout(callOllama(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     if (provider === "openrouter")  return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     return await withTimeout(callGemini(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
   } catch (err) {
@@ -79,7 +79,7 @@ export function safeJsonParse<T = unknown>(text: string): T {
 
 // ─── Providers ────────────────────────────────────────────────────────────────
 
-async function callOllama(prompt: string, systemPrompt?: string): Promise<string> {
+async function callOllama(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
   const messages = [
     ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
     { role: "user", content: prompt },
@@ -93,6 +93,7 @@ async function callOllama(prompt: string, systemPrompt?: string): Promise<string
       messages,
       temperature: 0.7,
       stream: false,
+      max_tokens: maxTokens,
     }),
   });
 
