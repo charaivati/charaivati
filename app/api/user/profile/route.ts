@@ -103,6 +103,16 @@ export async function PATCH(req: Request) {
       }));
     }
 
+    // ── GENERAL SKILLS
+    if ("generalSkills" in body && Array.isArray(body.generalSkills)) {
+      patch.generalSkills = body.generalSkills.slice(0, 50).map((s: SkillEntry) => ({
+        id:       String(s.id || ""),
+        name:     String(s.name || "").slice(0, 100),
+        level:    VALID_LEVELS.has(s.level) ? s.level : "Beginner",
+        monetize: Boolean(s.monetize),
+      }));
+    }
+
     // ── AI PLAN (cached roadmap — save as-is, no validation needed)
     if ("aiPlan" in body && body.aiPlan && typeof body.aiPlan === "object") {
       patch.aiPlan = body.aiPlan;

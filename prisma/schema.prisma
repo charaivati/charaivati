@@ -124,6 +124,8 @@ model Profile {
   /// Note: heightCm / weightKg here are string inputs from the form;
   /// the scalar heightCm / weightKg columns above are the validated numeric store.
   health                 Json?
+  /// General skills — SkillEntry[] — abilities that apply across all goals
+  generalSkills          Json?
   /// Cached AI roadmap — { phases: Phase[], suggestions: Suggestion[] }
   aiPlan                 Json?
 

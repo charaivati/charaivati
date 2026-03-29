@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import {
   Plus, Trash2, ChevronDown, ChevronUp, Pencil, Check,
-  X, Loader2, ChevronRight, Calendar, Zap,
+  X, Loader2, ChevronRight, Calendar, Zap, Sparkles,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -584,12 +584,6 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
   const [bizAdding,   setBizAdding]   = useState(false);
   const [bizError,    setBizError]    = useState<string | null>(null);
 
-  const setSkills   = (skills: SkillEntry[]) => onChange({ ...goal, skills });
-  const updateSkill = (si: number, patch: Partial<SkillEntry>) =>
-    setSkills(goal.skills.map((s, i) => i === si ? { ...s, ...patch } : s));
-  const addSkill    = () => setSkills([...goal.skills, { id: uid(), name: "", level: "Beginner", monetize: false }]);
-  const removeSkill = (si: number) => setSkills(goal.skills.filter((_, i) => i !== si));
-
   const toggleBiz = (id: string) => {
     const linked = goal.linkedBusinessIds.includes(id)
       ? goal.linkedBusinessIds.filter(b => b !== id)
@@ -645,34 +639,6 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
             <PillButton key={h} active={goal.horizon === h} onClick={() => onChange({ ...goal, horizon: h })}>{h}</PillButton>
           ))}
         </div>
-      </div>
-
-      {/* Skills */}
-      <div>
-        <FieldLabel>Skills</FieldLabel>
-        <div className="space-y-2">
-          {goal.skills.map((skill, si) => (
-            <div key={skill.id} className="flex flex-wrap gap-1.5 items-center">
-              <TextInput value={skill.name} onChange={v => updateSkill(si, { name: v })}
-                placeholder="Skill name…" className="w-32" />
-              {SKILL_LEVELS.map(l => (
-                <PillButton key={l} active={skill.level === l} onClick={() => updateSkill(si, { level: l })}>{l}</PillButton>
-              ))}
-              <PillButton active={skill.monetize} onClick={() => updateSkill(si, { monetize: !skill.monetize })}>
-                {skill.monetize ? "💰 Earning" : "Earn?"}
-              </PillButton>
-              {goal.skills.length > 1 && (
-                <button type="button" onClick={() => removeSkill(si)} className="text-gray-600 hover:text-red-400 transition-colors">
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-        <button type="button" onClick={addSkill}
-          className="mt-2 flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
-          <Plus className="w-3 h-3" /> Add skill
-        </button>
       </div>
 
       {/* Business pages */}
@@ -806,6 +772,131 @@ function DriveColumn({
   );
 }
 
+// ─── Skill Row (shared) ───────────────────────────────────────────────────────
+
+function SkillRow({ skill, onChange, onRemove, compact = false }: {
+  skill: SkillEntry;
+  onChange: (s: SkillEntry) => void;
+  onRemove: () => void;
+  compact?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5 items-center">
+      <TextInput value={skill.name} onChange={v => onChange({ ...skill, name: v })}
+        placeholder="Skill name…" className={compact ? "w-28" : "w-40"} />
+      {SKILL_LEVELS.map(l => (
+        <PillButton key={l} active={skill.level === l} onClick={() => onChange({ ...skill, level: l })}>{l}</PillButton>
+      ))}
+      <PillButton active={skill.monetize} onClick={() => onChange({ ...skill, monetize: !skill.monetize })}>
+        {skill.monetize ? "💰" : "Earn?"}
+      </PillButton>
+      <button type="button" onClick={onRemove} className="text-gray-600 hover:text-red-400 transition-colors">
+        <Trash2 className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
+// ─── Skills Section ───────────────────────────────────────────────────────────
+
+function SkillsSection({
+  generalSkills,
+  goals,
+  skillsLoading,
+  onUpdateGeneralSkills,
+  onUpdateGoalSkills,
+  onSuggestSkills,
+}: {
+  generalSkills: SkillEntry[];
+  goals: GoalEntry[];
+  skillsLoading: Record<string, boolean>;
+  onUpdateGeneralSkills: (skills: SkillEntry[]) => void;
+  onUpdateGoalSkills: (goalId: string, skills: SkillEntry[]) => void;
+  onSuggestSkills: (goalId: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const savedGoals = goals.filter(g => g.saved && g.statement);
+
+  return (
+    <SectionCard>
+      <button type="button" onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left">
+        <div>
+          <h3 className="text-base font-semibold text-white">Skills</h3>
+          <p className="text-xs text-gray-400 mt-0.5">General abilities + goal-specific skills</p>
+        </div>
+        {open ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+      </button>
+
+      {open && (
+        <div className="px-5 pb-5 space-y-6">
+          {/* General Skills — one column */}
+          <div>
+            <p className="text-sm font-medium text-white mb-0.5">General Skills</p>
+            <p className="text-xs text-gray-500 mb-3">Apply to all goals — e.g. Communication, Leadership</p>
+            <div className="space-y-2">
+              {generalSkills.map((skill, i) => (
+                <SkillRow key={skill.id} skill={skill}
+                  onChange={s => onUpdateGeneralSkills(generalSkills.map((gs, j) => j === i ? s : gs))}
+                  onRemove={() => onUpdateGeneralSkills(generalSkills.filter((_, j) => j !== i))}
+                />
+              ))}
+            </div>
+            <button type="button"
+              onClick={() => onUpdateGeneralSkills([...generalSkills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
+              className="mt-2 flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+              <Plus className="w-3 h-3" /> Add general skill
+            </button>
+          </div>
+
+          {/* Goal-specific Skills — two-column grid */}
+          {savedGoals.length > 0 && (
+            <div>
+              <p className="text-sm font-medium text-white mb-0.5">Goal Skills</p>
+              <p className="text-xs text-gray-500 mb-3">Skills tied to a specific objective — e.g. Python for a coding goal</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {savedGoals.map(goal => (
+                  <div key={goal.id} className="rounded-xl border border-gray-800 bg-gray-950/60 p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-medium text-gray-300 line-clamp-2 flex-1">{goal.statement}</p>
+                      <button type="button"
+                        onClick={() => onSuggestSkills(goal.id)}
+                        disabled={!!skillsLoading[goal.id]}
+                        className="flex-none flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-500/40
+                          bg-indigo-500/10 text-xs text-indigo-300 hover:bg-indigo-500/20 transition-colors
+                          disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+                        {skillsLoading[goal.id]
+                          ? <><Loader2 className="w-3 h-3 animate-spin" />Suggesting…</>
+                          : <><Sparkles className="w-3 h-3" />AI suggest</>}
+                      </button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {goal.skills.map((skill, si) => (
+                        <SkillRow key={skill.id} skill={skill} compact
+                          onChange={s => onUpdateGoalSkills(goal.id, goal.skills.map((gs, j) => j === si ? s : gs))}
+                          onRemove={() => onUpdateGoalSkills(goal.id, goal.skills.filter((_, j) => j !== si))}
+                        />
+                      ))}
+                      {goal.skills.length === 0 && !skillsLoading[goal.id] && (
+                        <p className="text-xs text-gray-600 italic">No skills needed for this goal.</p>
+                      )}
+                    </div>
+                    <button type="button"
+                      onClick={() => onUpdateGoalSkills(goal.id, [...goal.skills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
+                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+                      <Plus className="w-3 h-3" /> Add skill
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
 // ─── Health Section ───────────────────────────────────────────────────────────
 
 function HealthSection({ health, setHealth }: {
@@ -885,8 +976,11 @@ export default function SelfTab({ profile }: { profile?: any }) {
   const [drives,    setDrives]    = useState<DriveType[]>([]);
   // All goals for all drives are stored together; hidden ones stay in state
   const [goals,     setGoals]     = useState<GoalEntry[]>([]);
-  const [health,    setHealth]    = useState<HealthProfile>(defaultHealth());
-  const [pages,     setPages]     = useState<PageItem[]>([]);
+  const [health,         setHealth]         = useState<HealthProfile>(defaultHealth());
+  const [generalSkills,  setGeneralSkills]  = useState<SkillEntry[]>([]);
+  const [skillsLoading,  setSkillsLoading]  = useState<Record<string, boolean>>({});
+  const [pages,          setPages]          = useState<PageItem[]>([]);
+  const generalSkillsRef = useRef<SkillEntry[]>([]);
   const [goalsOpen, setGoalsOpen] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [isGuest,   setIsGuest]   = useState(false);
@@ -995,6 +1089,12 @@ export default function SelfTab({ profile }: { profile?: any }) {
     const loadedHealth = profile.health ? { ...defaultHealth(), ...profile.health } : defaultHealth();
     if (profile.health) setHealth(loadedHealth);
 
+    if (Array.isArray(profile.generalSkills)) {
+      const gs = profile.generalSkills as SkillEntry[];
+      setGeneralSkills(gs);
+      generalSkillsRef.current = gs;
+    }
+
     // Goals — handle both new flat array and old drive-keyed object
     let loadedGoals: GoalEntry[] = [];
     if (Array.isArray(profile.goals) && profile.goals.length) {
@@ -1037,7 +1137,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
       try {
         const resp = await safeFetchJson("/api/user/profile", {
           method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({ drives: nextDrives, goals: nextGoals, health: nextHealth }),
+          body: JSON.stringify({ drives: nextDrives, goals: nextGoals, health: nextHealth, generalSkills: generalSkillsRef.current }),
         });
         setSaveState(resp.ok && resp.json?.ok ? "saved" : "error");
         if (resp.ok && resp.json?.ok) setTimeout(() => setSaveState("idle"), 1500);
@@ -1119,6 +1219,48 @@ export default function SelfTab({ profile }: { profile?: any }) {
   function handleHealthChange(h: HealthProfile) {
     setHealth(h);
     persist(drives, goals, h);
+  }
+
+  function handleGeneralSkillsChange(skills: SkillEntry[]) {
+    setGeneralSkills(skills);
+    generalSkillsRef.current = skills;
+    persist(drives, goals, health);
+  }
+
+  function handleGoalSkillsChange(goalId: string, skills: SkillEntry[]) {
+    setGoals(prev => {
+      const next = prev.map(g => g.id === goalId ? { ...g, skills } : g);
+      persist(drives, next, health);
+      return next;
+    });
+  }
+
+  async function suggestGoalSkills(goalId: string) {
+    const goal = goals.find(g => g.id === goalId);
+    if (!goal?.statement) return;
+    setSkillsLoading(prev => ({ ...prev, [goalId]: true }));
+    try {
+      const resp = await safeFetchJson("/api/ai/suggest-skills", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ goal: goal.statement }),
+      });
+      if (!resp.ok) return;
+      if (resp.json?.needsSkills && Array.isArray(resp.json.skills) && resp.json.skills.length > 0) {
+        // Merge AI suggestions with any existing manual skills
+        const existing = goal.skills.filter(s => s.name);
+        const aiSkills = resp.json.skills as SkillEntry[];
+        const merged   = [
+          ...existing,
+          ...aiSkills.filter(ai => !existing.some(e => e.name.toLowerCase() === ai.name.toLowerCase())),
+        ];
+        handleGoalSkillsChange(goalId, merged);
+      } else if (resp.json?.needsSkills === false) {
+        // AI decided no skills needed — clear list so card shows the "no skills" hint
+        handleGoalSkillsChange(goalId, []);
+      }
+    } finally {
+      setSkillsLoading(prev => { const n = { ...prev }; delete n[goalId]; return n; });
+    }
   }
 
   // ── Summary stats (visible goals only) ────────────────────────
@@ -1222,6 +1364,23 @@ export default function SelfTab({ profile }: { profile?: any }) {
             </div>
 
           </SectionCard>
+
+          {/* Skills */}
+          <div>
+            <div className="flex items-center gap-3 mb-3 px-1">
+              <div className="h-px flex-1 bg-gray-800" />
+              <span className="text-xs text-gray-600 uppercase tracking-wider">Skills · general &amp; goal-specific</span>
+              <div className="h-px flex-1 bg-gray-800" />
+            </div>
+            <SkillsSection
+              generalSkills={generalSkills}
+              goals={goals}
+              skillsLoading={skillsLoading}
+              onUpdateGeneralSkills={handleGeneralSkillsChange}
+              onUpdateGoalSkills={handleGoalSkillsChange}
+              onSuggestSkills={suggestGoalSkills}
+            />
+          </div>
 
           {/* Health */}
           <div>
