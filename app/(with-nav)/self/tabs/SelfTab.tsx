@@ -71,6 +71,7 @@ type AIRoadmap = {
   phases: Phase[];
   suggestions: Suggestion[];
   weekPlans?: Record<string, DayPlan[]>; // key: `${phaseId}-${availableDays}`
+  fallback?: boolean; // true when AI was unavailable
 };
 
 
@@ -313,6 +314,15 @@ function AIPlanModal({ goal, onClose, onSavePlan, onRegenerate, planLoading }: {
         </div>
 
         <div className="px-5 py-5 space-y-6 overflow-y-auto">
+          {/* AI unavailable banner */}
+          {roadmap.fallback && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 leading-relaxed">
+              Our AI suggestions are unavailable right now — we'll get back to you soon.
+              <br />
+              <span className="text-amber-400/70 text-xs">In the meantime, add your own plan below. Hit Regenerate anytime to let AI improve it.</span>
+            </div>
+          )}
+
           {/* Phase selector */}
           <div>
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">Phase</p>
@@ -1026,14 +1036,41 @@ export default function SelfTab({ profile }: { profile?: any }) {
         drive:       driveLabel,
       }];
 
+      // Pass existing plan as context so AI refines rather than replaces
+      const existingPlan = goal.plan && !goal.plan.fallback
+        ? { phases: goal.plan.phases.map(p => ({ id: p.id, name: p.name, actions: p.actions })) }
+        : undefined;
+
       const timelineResp = await safeFetchJson("/api/ai/generate-timeline", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ drives: [driveLabel], goals: goalPayload }),
+        body: JSON.stringify({ drives: [driveLabel], goals: goalPayload, existingPlan }),
       });
 
-      if (!timelineResp.ok || !timelineResp.json?.phases) throw new Error("Timeline failed");
+      const isFallback = timelineResp.json?._fallback === true;
+      const phases     = timelineResp.json?.phases ?? [];
 
-      const plan: AIRoadmap = { phases: timelineResp.json.phases, suggestions: [] };
+      if (isFallback) {
+        // AI unavailable — open modal with empty editable plan and fallback flag
+        const plan: AIRoadmap = {
+          phases: [
+            { id: "foundation", name: "Foundation", duration: "2–4 weeks", actions: [""] },
+            { id: "growth",     name: "Growth",     duration: "4–8 weeks", actions: [""] },
+            { id: "mastery",    name: "Mastery",    duration: "8+ weeks",  actions: [""] },
+          ],
+          suggestions: [],
+          fallback: true,
+        };
+        setGoals(prev => {
+          const next = prev.map(g => g.id === goalId ? { ...g, plan } : g);
+          persist(drives, next, health);
+          return next;
+        });
+        return;
+      }
+
+      if (!phases.length) throw new Error("No phases returned");
+
+      const plan: AIRoadmap = { phases, suggestions: [], fallback: false };
       setGoals(prev => {
         const next = prev.map(g => g.id === goalId ? { ...g, plan } : g);
         persist(drives, next, health);
