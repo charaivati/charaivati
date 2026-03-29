@@ -1,19 +1,19 @@
 // app/api/ai/generate-timeline/route.ts
 import { NextResponse } from "next/server";
 import { callAI, safeJsonParse } from "@/app/api/aiClient";
-import type { GoalEntry, HealthProfile, Phase } from "@/app/api/ai/types.ts";
+import type { GoalEntry, Phase } from "@/app/api/ai/types.ts";
 
 type Body = {
   drives?: string[];
   goals?: GoalEntry[];
-  health?: HealthProfile;
 };
 
 // ─── Fallback (used if AI fails or returns bad JSON) ──────────────────────────
 
-function buildFallback(drives: string[], goals: GoalEntry[], health: HealthProfile): Phase[] {
-  const goalTitles = goals.map((g) => g.title?.trim()).filter(Boolean) as string[];
-  const skills     = goals.map((g) => g.skill?.trim()).filter(Boolean) as string[];
+function buildFallback(goals: GoalEntry[]): Phase[] {
+  const g     = goals[0];
+  const title = g?.title?.trim() ?? "your goal";
+  const skill = g?.skill?.trim();
 
   return [
     {
@@ -21,9 +21,9 @@ function buildFallback(drives: string[], goals: GoalEntry[], health: HealthProfi
       name: "Foundation",
       duration: "2–4 weeks",
       actions: [
-        drives.length ? `Define baseline habits for your ${drives.join(" + ")} focus` : "Define your primary focus area",
-        skills[0] ? `Practice ${skills[0]} for 30 focused minutes daily` : "Identify one core skill to start",
-        health.note?.trim() ? `Build this health habit: ${health.note.trim()}` : "Establish one health-supporting routine",
+        `Research the fundamentals and key requirements of: ${title}`,
+        skill ? `Build daily practice around ${skill}` : "Identify the core skill you need first",
+        `Set up your tools, resources, and environment for ${title}`,
       ],
     },
     {
@@ -31,9 +31,9 @@ function buildFallback(drives: string[], goals: GoalEntry[], health: HealthProfi
       name: "Growth",
       duration: "4–8 weeks",
       actions: [
-        goalTitles[0] ? `Ship first milestone for: ${goalTitles[0]}` : "Ship a visible mini-milestone",
-        skills[1] ? `Deepen ${skills[1]} through one guided project` : "Strengthen execution through a weekly project",
-        "Share a progress update with one accountability partner",
+        `Complete your first concrete deliverable toward: ${title}`,
+        skill ? `Apply ${skill} in a real project or scenario` : "Take on a hands-on project to test your progress",
+        "Seek feedback and iterate — fix the biggest gap you find",
       ],
     },
     {
@@ -41,9 +41,9 @@ function buildFallback(drives: string[], goals: GoalEntry[], health: HealthProfi
       name: "Mastery",
       duration: "8+ weeks",
       actions: [
-        goalTitles[1] ? `Scale the second milestone: ${goalTitles[1]}` : "Scale your strongest output channel",
-        "Systemize your weekly review and iteration loop",
-        "Mentor or collaborate to compound your outcomes",
+        `Reach measurable progress on: ${title}`,
+        "Systematize your process so results become repeatable",
+        "Teach, share, or apply the outcome to a bigger challenge",
       ],
     },
   ];
@@ -52,80 +52,79 @@ function buildFallback(drives: string[], goals: GoalEntry[], health: HealthProfi
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const body    = (await req.json().catch(() => ({}))) as Body;
-  const drives  = Array.isArray(body.drives) ? body.drives.filter(Boolean).slice(0, 2) : [];
-  const goals   = Array.isArray(body.goals)  ? body.goals  : [];
-  const health  = body.health ?? {};
+  const body   = (await req.json().catch(() => ({}))) as Body;
+  const drives = Array.isArray(body.drives) ? body.drives.filter(Boolean).slice(0, 2) : [];
+  const goals  = Array.isArray(body.goals)  ? body.goals  : [];
 
-  const goalSummaries = goals
-    .filter((g) => g.title)
-    .map((g, i) =>
-      `Goal ${i + 1}: "${g.title}"${g.skill ? ` (skill: ${g.skill})` : ""}${g.drive ? ` (drive: ${g.drive})` : ""}`
-    )
-    .join("\n");
+  const goal  = goals[0];
+  const title = goal?.title?.trim() ?? "";
+  const skill = goal?.skill?.trim() ?? "";
+  const drive = goal?.drive?.trim() ?? drives[0] ?? "";
 
-  const systemPrompt = `You are a personal growth strategist. You generate structured, realistic action plans in JSON.
+  if (!title) {
+    return NextResponse.json({ phases: buildFallback(goals) });
+  }
+
+  const systemPrompt = `You are an expert coach and strategic planner. You deeply understand what a specific goal actually requires to achieve — the real steps, domain knowledge, and milestones involved.
 Always respond with ONLY valid JSON — no explanation, no markdown, no preamble.`;
 
-  const prompt = `Create a 3-phase personal growth roadmap for this person.
+  const prompt = `You are creating a focused 3-phase action plan for this specific goal:
 
-Their drives: ${drives.length ? drives.join(", ") : "not specified"}
-Their goals:
-${goalSummaries || "Not specified"}
-Health context: ${health.note || "not specified"}
+Goal: "${title}"${skill ? `\nSkills involved: ${skill}` : ""}${drive ? `\nDrive / motivation: ${drive}` : ""}
 
-Return this exact JSON structure:
+IMPORTANT RULES:
+- Every action must be DIRECTLY about achieving this goal — about the subject matter, the domain, the craft
+- Do NOT mention health, diet, exercise, sleep, or wellness — those are handled separately
+- Think about what someone actually needs to DO to make progress on THIS specific goal
+- Be concrete: name specific activities, tools, techniques relevant to this domain
+- Avoid generic advice like "work harder", "stay motivated", "review progress"
+
+Think step by step:
+1. What does someone need to learn or set up first for "${title}"?
+2. What does early traction look like for this goal?
+3. What does mastery or significant achievement look like?
+
+Return ONLY this JSON:
 {
   "phases": [
     {
       "id": "foundation",
       "name": "Foundation",
       "duration": "2–4 weeks",
-      "actions": ["action 1", "action 2", "action 3"]
+      "actions": ["specific action 1", "specific action 2", "specific action 3"]
     },
     {
       "id": "growth",
       "name": "Growth",
       "duration": "4–8 weeks",
-      "actions": ["action 1", "action 2", "action 3"]
+      "actions": ["specific action 1", "specific action 2", "specific action 3"]
     },
     {
       "id": "mastery",
       "name": "Mastery",
       "duration": "8+ weeks",
-      "actions": ["action 1", "action 2", "action 3"]
+      "actions": ["specific action 1", "specific action 2", "specific action 3"]
     }
   ]
 }
 
-Rules:
-- Each action must be specific to THIS person's goals and drives, not generic
-- Actions must be concrete and doable (not vague like "work harder")
-- Foundation = habits and clarity. Growth = shipping and feedback. Mastery = systems and leverage
-- 3 actions per phase, each one sentence, max 15 words
-- Reference the actual goal titles and skills where possible`;
+Each action: one sentence, max 15 words, plain text only — no quotes, no special characters inside action text.`;
 
   try {
     const raw    = await callAI({ prompt, systemPrompt });
     const parsed = safeJsonParse<{ phases: Phase[] }>(raw);
 
-    // Validate structure — if AI skimped, fall back
-    const phases = parsed?.phases;
+    const phases  = parsed?.phases;
     const isValid =
       Array.isArray(phases) &&
       phases.length === 3 &&
-      phases.every(
-        (p) =>
-          typeof p.id === "string" &&
-          Array.isArray(p.actions) &&
-          p.actions.length > 0
-      );
+      phases.every(p => typeof p.id === "string" && Array.isArray(p.actions) && p.actions.length > 0);
 
     if (!isValid) throw new Error("AI returned incomplete phases");
 
     return NextResponse.json({ phases });
   } catch (err) {
     console.error("[generate-timeline] AI failed, using fallback:", err);
-    return NextResponse.json({ phases: buildFallback(drives, goals, health), _fallback: true });
+    return NextResponse.json({ phases: buildFallback(goals), _fallback: true });
   }
 }

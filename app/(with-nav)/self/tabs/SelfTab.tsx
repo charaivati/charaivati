@@ -1001,23 +1001,18 @@ export default function SelfTab({ profile }: { profile?: any }) {
 
     setPlanLoading(prev => ({ ...prev, [goalId]: true }));
     try {
-      const healthNote = [
-        health.food,
-        `${health.exercise} ${health.sessionsPerWeek}x/wk`,
-        health.age ? `age ${health.age}` : "",
-      ].filter(Boolean).join(", ");
-
       const driveLabel  = DRIVES.find(d => d.id === goal.driveId)?.label ?? goal.driveId;
+      const goalSkills  = goal.skills.filter(s => s.name).map(s => s.name);
       const goalPayload = [{
         id:    goal.id,
         title: goal.statement,
-        skill: goal.skills.find(s => s.name)?.name ?? "",
+        skill: goalSkills.join(", "),
         drive: driveLabel,
       }];
 
       const timelineResp = await safeFetchJson("/api/ai/generate-timeline", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ drives: [driveLabel], goals: goalPayload, health: { note: healthNote } }),
+        body: JSON.stringify({ drives: [driveLabel], goals: goalPayload }),
       });
 
       if (!timelineResp.ok || !timelineResp.json?.phases) throw new Error("Timeline failed");
