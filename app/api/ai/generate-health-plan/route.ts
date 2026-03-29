@@ -91,7 +91,9 @@ Goal: Reach healthy BMI and sustainable energy levels.`;
 
   try {
     const raw    = await callAI({ prompt, systemPrompt, maxTokens: 2000 });
+    console.log("[generate-health-plan] raw:", raw.slice(0, 500));
     const parsed = safeJsonParse<HealthPlanResponse>(raw);
+    console.log("[generate-health-plan] meals count:", parsed?.meals?.length, "has targets:", !!parsed?.health_targets);
 
     const isValid =
       Array.isArray(parsed?.meals) &&
@@ -99,7 +101,7 @@ Goal: Reach healthy BMI and sustainable energy levels.`;
       parsed.meals.every(m => typeof m.name === "string" && typeof m.calories === "number") &&
       typeof parsed.health_targets?.target_bmi === "number";
 
-    if (!isValid) throw new Error("AI returned invalid health plan");
+    if (!isValid) throw new Error(`AI returned invalid health plan: meals=${parsed?.meals?.length}, bmi=${parsed?.health_targets?.target_bmi}`);
 
     return NextResponse.json({ meals: parsed.meals, health_targets: parsed.health_targets });
   } catch (err) {
