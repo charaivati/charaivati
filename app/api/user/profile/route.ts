@@ -31,6 +31,8 @@ type HealthInput = {
   heightCm?: string;
   weightKg?: string;
   age?: string;
+  // Extended health fields — passed through as-is
+  [key: string]: unknown;
 };
 
 const VALID_DRIVES = new Set<string>(["learning", "helping", "building", "doing"]);
@@ -132,7 +134,10 @@ export async function PATCH(req: Request) {
     // ── HEALTH (global, not per-drive)
     if ("health" in body && body.health && typeof body.health === "object") {
       const h = body.health as HealthInput;
+      // Spread all fields first (preserves healthPlan, availableFoods, etc.)
+      // then override the known scalar fields with sanitized values
       patch.health = {
+        ...h,
         food:            String(h.food     || "Vegetarian").slice(0, 50),
         exercise:        String(h.exercise || "Mixed").slice(0, 50),
         sessionsPerWeek: Math.min(Math.max(Number(h.sessionsPerWeek) || 3, 1), 7),
