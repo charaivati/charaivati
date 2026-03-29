@@ -7,6 +7,7 @@ export type Priority = "low" | "medium" | "high";
 export type GoalEntry = {
   id?: string;
   title?: string;
+  description?: string;
   skill?: string;
   drive?: string;
 };

@@ -58,6 +58,7 @@ export async function POST(req: Request) {
 
   const goal  = goals[0];
   const title = goal?.title?.trim() ?? "";
+  const desc  = goal?.description?.trim() ?? "";
   const skill = goal?.skill?.trim() ?? "";
   const drive = goal?.drive?.trim() ?? drives[0] ?? "";
 
@@ -65,50 +66,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ phases: buildFallback(goals) });
   }
 
-  const systemPrompt = `You are an expert coach and strategic planner. You deeply understand what a specific goal actually requires to achieve — the real steps, domain knowledge, and milestones involved.
+  const systemPrompt = `You are a domain expert and hands-on practitioner. You give SPECIFIC, REAL-WORLD advice based on exactly what the goal is about — not generic productivity tips.
 Always respond with ONLY valid JSON — no explanation, no markdown, no preamble.`;
 
-  const prompt = `You are creating a focused 3-phase action plan for this specific goal:
+  const prompt = `Create a 3-phase action plan for someone who wants to: "${title}"
+${desc ? `\nMore context from the person: ${desc}` : ""}${skill ? `\nRelevant skills: ${skill}` : ""}${drive ? `\nMotivation: ${drive}` : ""}
 
-Goal: "${title}"${skill ? `\nSkills involved: ${skill}` : ""}${drive ? `\nDrive / motivation: ${drive}` : ""}
+CRITICAL — actions must be SPECIFIC to this exact goal:
+- Name real activities, places, tools, communities, or techniques in this domain
+- Example for "Feed birds": study local bird species → set up feeders → join birding groups — NOT "research fundamentals"
+- Example for "Learn guitar": buy a beginner guitar → learn 3 chords → play a full song — NOT "set up your environment"
+- Think: what would a practitioner in this field actually DO in week 1? month 2? month 6?
+- Do NOT use generic advice: no "research fundamentals", no "set up your environment", no "stay consistent"
+- Do NOT mention health, diet, exercise, sleep
 
-IMPORTANT RULES:
-- Every action must be DIRECTLY about achieving this goal — about the subject matter, the domain, the craft
-- Do NOT mention health, diet, exercise, sleep, or wellness — those are handled separately
-- Think about what someone actually needs to DO to make progress on THIS specific goal
-- Be concrete: name specific activities, tools, techniques relevant to this domain
-- Avoid generic advice like "work harder", "stay motivated", "review progress"
-
-Think step by step:
-1. What does someone need to learn or set up first for "${title}"?
-2. What does early traction look like for this goal?
-3. What does mastery or significant achievement look like?
-
-Return ONLY this JSON:
+Return ONLY this JSON (no other text):
 {
   "phases": [
     {
       "id": "foundation",
       "name": "Foundation",
       "duration": "2–4 weeks",
-      "actions": ["specific action 1", "specific action 2", "specific action 3"]
+      "actions": ["specific real-world action", "specific real-world action", "specific real-world action"]
     },
     {
       "id": "growth",
       "name": "Growth",
       "duration": "4–8 weeks",
-      "actions": ["specific action 1", "specific action 2", "specific action 3"]
+      "actions": ["specific real-world action", "specific real-world action", "specific real-world action"]
     },
     {
       "id": "mastery",
       "name": "Mastery",
       "duration": "8+ weeks",
-      "actions": ["specific action 1", "specific action 2", "specific action 3"]
+      "actions": ["specific real-world action", "specific real-world action", "specific real-world action"]
     }
   ]
 }
 
-Each action: one sentence, max 15 words, plain text only — no quotes, no special characters inside action text.`;
+Each action: 1 sentence, max 15 words, plain text only.`;
 
   try {
     const raw    = await callAI({ prompt, systemPrompt });

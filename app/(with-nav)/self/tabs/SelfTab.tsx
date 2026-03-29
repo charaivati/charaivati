@@ -22,7 +22,7 @@ type GoalEntry = {
   id: string;
   driveId: DriveType;
   statement: string;
-  horizon: "This year" | "3 Years" | "Lifetime";
+  description: string;
   skills: SkillEntry[];
   linkedBusinessIds: string[];
   saved: boolean;
@@ -83,7 +83,6 @@ const DRIVES: { id: DriveType; label: string; description: string }[] = [
   { id: "doing",    label: "Doing",    description: "Master of the craft"      },
 ];
 
-const HORIZONS     = ["This year", "3 Years", "Lifetime"] as const;
 const SKILL_LEVELS = ["Beginner", "Intermediate", "Advanced"] as const;
 const FOOD_OPTIONS     = ["Vegetarian", "Eggetarian", "Non-Vegetarian", "Vegan"];
 const EXERCISE_OPTIONS = ["Yoga", "Cardio", "Strength", "Mixed"];
@@ -112,7 +111,7 @@ function uid() { return Math.random().toString(36).slice(2, 9); }
 
 function defaultGoal(driveId: DriveType): GoalEntry {
   return {
-    id: uid(), driveId, statement: "", horizon: "This year",
+    id: uid(), driveId, statement: "", description: "",
     skills: [{ id: uid(), name: "", level: "Beginner", monetize: false }],
     linkedBusinessIds: [], saved: false,
   };
@@ -494,9 +493,8 @@ function AIPlanModal({ goal, onClose, onSavePlan, onRegenerate, planLoading }: {
 
 // ─── Goal Summary (collapsed view) ───────────────────────────────────────────
 
-function GoalSummary({ goal, pages, planLoading, onEdit, onRemove, onGeneratePlan, onSavePlan, onRegenerate }: {
+function GoalSummary({ goal, planLoading, onEdit, onRemove, onGeneratePlan, onSavePlan, onRegenerate }: {
   goal: GoalEntry;
-  pages: PageItem[];
   planLoading: boolean;
   onEdit: () => void;
   onRemove: () => void;
@@ -506,7 +504,6 @@ function GoalSummary({ goal, pages, planLoading, onEdit, onRemove, onGeneratePla
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const namedSkills = goal.skills.filter(s => s.name);
-  const linkedPages = pages.filter(p => goal.linkedBusinessIds.includes(p.id));
 
   return (
     <>
@@ -526,15 +523,6 @@ function GoalSummary({ goal, pages, planLoading, onEdit, onRemove, onGeneratePla
                       s.monetize ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-300" : "border-gray-700 text-gray-400"
                     }`}>
                     {s.name}{s.monetize && " 💰"}
-                  </span>
-                ))}
-              </div>
-            )}
-            {linkedPages.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">
-                {linkedPages.map(p => (
-                  <span key={p.id} className="px-2 py-0.5 rounded-full text-xs border border-gray-700 text-gray-500">
-                    🏢 {p.title}
                   </span>
                 ))}
               </div>
@@ -638,7 +626,7 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
           flex items-center justify-center">{idx + 1}</span>
         <input type="text" value={goal.statement}
           onChange={e => onChange({ ...goal, statement: e.target.value })}
-          placeholder="I want to…"
+          placeholder="Goal in one line…"
           className="flex-1 bg-transparent border-b border-gray-700 focus:border-indigo-500
             text-white text-sm py-1 outline-none placeholder-gray-600 transition-colors"
         />
@@ -649,20 +637,20 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
         )}
       </div>
 
-      {/* Horizon */}
-      <div>
-        <FieldLabel>Horizon</FieldLabel>
-        <div className="flex gap-2 flex-wrap">
-          {HORIZONS.map(h => (
-            <PillButton key={h} active={goal.horizon === h} onClick={() => onChange({ ...goal, horizon: h })}>{h}</PillButton>
-          ))}
-        </div>
-      </div>
+      {/* Description */}
+      <textarea
+        value={goal.description}
+        onChange={e => onChange({ ...goal, description: e.target.value })}
+        placeholder="Describe this goal in more detail — why it matters, what success looks like, any context that helps…"
+        rows={3}
+        className="w-full bg-transparent rounded-lg border border-gray-800 focus:border-indigo-500/60
+          text-sm text-white placeholder-gray-600 px-3 py-2 outline-none resize-none transition-colors"
+      />
 
       {/* Business pages */}
       <div>
-        <div className="flex items-center justify-between mb-1.5">
-          <FieldLabel>Business pages</FieldLabel>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-medium text-gray-400">Business pages</span>
           <button type="button" onClick={() => { setShowAddBiz(v => !v); setBizError(null); }}
             className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
             <Plus className="w-3 h-3" />{showAddBiz ? "Cancel" : "Create new"}
@@ -684,10 +672,10 @@ function GoalCard({ goal, idx, pages, onChange, onSave, onRemove, canRemove }: {
           </div>
         )}
         {pages.length === 0 && !showAddBiz && (
-          <p className="text-xs text-gray-600 mb-2">No business pages yet.</p>
+          <p className="text-xs text-gray-600">No business pages yet.</p>
         )}
         {showAddBiz && (
-          <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-3 space-y-2">
+          <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-3 space-y-2">
             <TextInput value={newBizTitle} onChange={setNewBizTitle} placeholder="Business name" />
             <textarea value={newBizDesc} onChange={e => setNewBizDesc(e.target.value)}
               placeholder="Description (optional)" rows={2}
@@ -738,8 +726,7 @@ function DriveColumn({
   onRegenerate:   (id: string) => void;
 }) {
   const colorClass = DRIVE_COLOR[drive.id];
-  const savedGoals = goals.filter(g => g.saved);
-  const canAdd     = savedGoals.length < 2 && goals.every(g => g.saved);
+  const canAdd = goals.every(g => g.saved);
 
   return (
     <div className="flex-1 min-w-0 space-y-3">
@@ -755,7 +742,6 @@ function DriveColumn({
           <GoalSummary
             key={goal.id}
             goal={goal}
-            pages={pages}
             planLoading={!!planLoading[goal.id]}
             onEdit={() => onEditGoal(goal.id)}
             onRemove={() => onRemoveGoal(goal.id)}
@@ -792,25 +778,43 @@ function DriveColumn({
 
 // ─── Skill Row (shared) ───────────────────────────────────────────────────────
 
-function SkillRow({ skill, onChange, onRemove, compact = false }: {
+function SkillRow({ skill, onChange, onRemove }: {
   skill: SkillEntry;
   onChange: (s: SkillEntry) => void;
   onRemove: () => void;
-  compact?: boolean;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5 items-center">
-      <TextInput value={skill.name} onChange={v => onChange({ ...skill, name: v })}
-        placeholder="Skill name…" className={compact ? "w-28" : "w-40"} />
-      {SKILL_LEVELS.map(l => (
-        <PillButton key={l} active={skill.level === l} onClick={() => onChange({ ...skill, level: l })}>{l}</PillButton>
-      ))}
-      <PillButton active={skill.monetize} onClick={() => onChange({ ...skill, monetize: !skill.monetize })}>
-        {skill.monetize ? "💰" : "Earn?"}
-      </PillButton>
-      <button type="button" onClick={onRemove} className="text-gray-600 hover:text-red-400 transition-colors">
-        <Trash2 className="w-3 h-3" />
-      </button>
+    <div className="rounded-lg bg-gray-900 border border-gray-800 px-3 py-2 group space-y-1.5">
+      <div className="flex items-center gap-2">
+        <input
+          value={skill.name}
+          onChange={e => onChange({ ...skill, name: e.target.value })}
+          placeholder="Skill name"
+          className="flex-1 min-w-0 bg-transparent text-sm text-white placeholder-gray-600 outline-none"
+        />
+        <button type="button" onClick={onRemove}
+          className="text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="flex items-center gap-1">
+        {SKILL_LEVELS.map(l => (
+          <button key={l} type="button"
+            onClick={() => onChange({ ...skill, level: l })}
+            className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+              skill.level === l
+                ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40"
+                : "text-gray-600 hover:text-gray-400"
+            }`}>{l}</button>
+        ))}
+        <button type="button"
+          onClick={() => onChange({ ...skill, monetize: !skill.monetize })}
+          className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ml-auto ${
+            skill.monetize
+              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+              : "text-gray-600 hover:text-gray-400"
+          }`}>Earn</button>
+      </div>
     </div>
   );
 }
@@ -839,76 +843,69 @@ function SkillsSection({
     <SectionCard>
       <button type="button" onClick={() => setOpen(v => !v)}
         className="w-full flex items-center justify-between px-5 py-4 text-left">
-        <div>
-          <h3 className="text-base font-semibold text-white">Skills</h3>
-          <p className="text-xs text-gray-400 mt-0.5">General abilities + goal-specific skills</p>
-        </div>
+        <h3 className="text-lg font-semibold text-white">Skills</h3>
         {open ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
       </button>
 
       {open && (
-        <div className="px-5 pb-5 space-y-6">
-          {/* General Skills — one column */}
-          <div>
-            <p className="text-sm font-medium text-white mb-0.5">General Skills</p>
-            <p className="text-xs text-gray-500 mb-3">Apply to all goals — e.g. Communication, Leadership</p>
-            <div className="space-y-2">
-              {generalSkills.map((skill, i) => (
-                <SkillRow key={skill.id} skill={skill}
-                  onChange={s => onUpdateGeneralSkills(generalSkills.map((gs, j) => j === i ? s : gs))}
-                  onRemove={() => onUpdateGeneralSkills(generalSkills.filter((_, j) => j !== i))}
-                />
-              ))}
-            </div>
-            <button type="button"
-              onClick={() => onUpdateGeneralSkills([...generalSkills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
-              className="mt-2 flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
-              <Plus className="w-3 h-3" /> Add general skill
-            </button>
-          </div>
-
-          {/* Goal-specific Skills — two-column grid */}
-          {savedGoals.length > 0 && (
-            <div>
-              <p className="text-sm font-medium text-white mb-0.5">Goal Skills</p>
-              <p className="text-xs text-gray-500 mb-3">Skills tied to a specific objective — e.g. Python for a coding goal</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {savedGoals.map(goal => (
-                  <div key={goal.id} className="rounded-xl border border-gray-800 bg-gray-950/60 p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs font-medium text-gray-300 line-clamp-2 flex-1">{goal.statement}</p>
-                      <button type="button"
-                        onClick={() => onSuggestSkills(goal.id)}
-                        disabled={!!skillsLoading[goal.id]}
-                        className="flex-none flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-500/40
-                          bg-indigo-500/10 text-xs text-indigo-300 hover:bg-indigo-500/20 transition-colors
-                          disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
-                        {skillsLoading[goal.id]
-                          ? <><Loader2 className="w-3 h-3 animate-spin" />Suggesting…</>
-                          : <><Sparkles className="w-3 h-3" />AI suggest</>}
-                      </button>
-                    </div>
-                    <div className="space-y-1.5">
-                      {goal.skills.map((skill, si) => (
-                        <SkillRow key={skill.id} skill={skill} compact
-                          onChange={s => onUpdateGoalSkills(goal.id, goal.skills.map((gs, j) => j === si ? s : gs))}
-                          onRemove={() => onUpdateGoalSkills(goal.id, goal.skills.filter((_, j) => j !== si))}
-                        />
-                      ))}
-                      {goal.skills.length === 0 && !skillsLoading[goal.id] && (
-                        <p className="text-xs text-gray-600 italic">No skills needed for this goal.</p>
-                      )}
-                    </div>
-                    <button type="button"
-                      onClick={() => onUpdateGoalSkills(goal.id, [...goal.skills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
-                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
-                      <Plus className="w-3 h-3" /> Add skill
-                    </button>
-                  </div>
+        <div className="px-5 pb-6 space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* General Skills */}
+            <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3">
+              <p className="text-sm font-semibold text-white">General</p>
+              <div className="space-y-2">
+                {generalSkills.map((skill, i) => (
+                  <SkillRow key={skill.id} skill={skill}
+                    onChange={s => onUpdateGeneralSkills(generalSkills.map((gs, j) => j === i ? s : gs))}
+                    onRemove={() => onUpdateGeneralSkills(generalSkills.filter((_, j) => j !== i))}
+                  />
                 ))}
+                {generalSkills.length === 0 && (
+                  <p className="text-xs text-gray-600">e.g. Communication, Leadership</p>
+                )}
               </div>
+              <button type="button"
+                onClick={() => onUpdateGeneralSkills([...generalSkills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+                <Plus className="w-3 h-3" /> Add skill
+              </button>
             </div>
-          )}
+
+            {/* Goal-specific Skills */}
+            {savedGoals.map(goal => (
+              <div key={goal.id} className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-semibold text-white line-clamp-2 flex-1">{goal.statement}</p>
+                  <button type="button"
+                    onClick={() => onSuggestSkills(goal.id)}
+                    disabled={!!skillsLoading[goal.id]}
+                    className="flex-none flex items-center gap-1 px-2 py-1 rounded-lg border border-indigo-500/40
+                      bg-indigo-500/10 text-xs text-indigo-300 hover:bg-indigo-500/20 transition-colors
+                      disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+                    {skillsLoading[goal.id]
+                      ? <><Loader2 className="w-3 h-3 animate-spin" />Suggesting…</>
+                      : <><Sparkles className="w-3 h-3" />AI suggest</>}
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {goal.skills.map((skill, si) => (
+                    <SkillRow key={skill.id} skill={skill}
+                      onChange={s => onUpdateGoalSkills(goal.id, goal.skills.map((gs, j) => j === si ? s : gs))}
+                      onRemove={() => onUpdateGoalSkills(goal.id, goal.skills.filter((_, j) => j !== si))}
+                    />
+                  ))}
+                  {goal.skills.length === 0 && !skillsLoading[goal.id] && (
+                    <p className="text-xs text-gray-600">No skills added yet.</p>
+                  )}
+                </div>
+                <button type="button"
+                  onClick={() => onUpdateGoalSkills(goal.id, [...goal.skills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+                  <Plus className="w-3 h-3" /> Add skill
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </SectionCard>
@@ -1022,10 +1019,11 @@ export default function SelfTab({ profile }: { profile?: any }) {
       const driveLabel  = DRIVES.find(d => d.id === goal.driveId)?.label ?? goal.driveId;
       const goalSkills  = goal.skills.filter(s => s.name).map(s => s.name);
       const goalPayload = [{
-        id:    goal.id,
-        title: goal.statement,
-        skill: goalSkills.join(", "),
-        drive: driveLabel,
+        id:          goal.id,
+        title:       goal.statement,
+        description: goal.description?.trim() || "",
+        skill:       goalSkills.join(", "),
+        drive:       driveLabel,
       }];
 
       const timelineResp = await safeFetchJson("/api/ai/generate-timeline", {
@@ -1290,15 +1288,12 @@ export default function SelfTab({ profile }: { profile?: any }) {
         <div className="px-5 pt-5 pb-2 flex items-start justify-between">
           <div>
             <h2 className="text-xl font-semibold">What keeps you moving?</h2>
-            <p className="text-sm text-gray-400 mt-1">
-              Pick up to 2.{" "}
-              {isGuest && (
-                <span className="text-yellow-600 text-xs">
-                  Guest mode — saved locally for 7 days.{" "}
-                  <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
-                </span>
-              )}
-            </p>
+            {isGuest && (
+              <p className="text-sm text-yellow-600 mt-1">
+                Guest mode — saved locally for 7 days.{" "}
+                <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
+              </p>
+            )}
           </div>
           <span className={`text-xs mt-1 transition-opacity ${
             saveState === "idle"   ? "opacity-0"                  :
@@ -1348,7 +1343,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
           <SectionCard>
             <div className="px-5 pt-5 pb-3">
               <h2 className="text-xl font-semibold">What do you want to do?</h2>
-              <p className="text-sm text-gray-400 mt-1">Up to 2 goals per drive. Save each to collapse it.</p>
             </div>
 
             {/* Two-column layout — one column per active drive */}
@@ -1387,7 +1381,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
             </div>
             <SkillsSection
               generalSkills={generalSkills}
-              goals={goals}
+              goals={visibleGoals}
               skillsLoading={skillsLoading}
               onUpdateGeneralSkills={handleGeneralSkillsChange}
               onUpdateGoalSkills={handleGoalSkillsChange}

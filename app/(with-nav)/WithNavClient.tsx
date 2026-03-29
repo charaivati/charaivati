@@ -233,32 +233,35 @@ function WithNavLayoutInner({
       {/* DESKTOP */}
       <div className="hidden md:flex md:flex-col min-h-screen bg-black text-white">
         <div className="fixed top-0 left-0 right-0 z-50 bg-gray-700/95 backdrop-blur-lg border-b border-black">
-          <div className="flex items-center px-6 py-2">
-            <div className="flex-none">
+          {/* Row 1: logo pinned to sidebar width, search + profile in content area */}
+          <div className="flex items-center py-2">
+            <div className="w-64 flex-none flex items-center px-6">
               <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white
                 to-gray-400 bg-clip-text text-transparent">Charaivati</h1>
             </div>
-            <div className="flex-1 min-w-0 flex justify-center">
+            <div className="flex-1 min-w-0 flex items-center gap-4 pr-6">
               <UnifiedSearch
                 placeholder="Search people or pages…"
                 onFollowPage={onFollowPage}
                 onSendFriend={onSendFriend}
                 onActionComplete={onActionComplete}
                 friendState={friendState}
-                className="w-full max-w-xl"
+                className="flex-1 max-w-xl mx-auto"
               />
-            </div>
-            <div className="flex-none">
-              <ProfileMenu profile={profile} onLogout={handleLogout} compact />
+              <div className="flex-none">
+                <ProfileMenu profile={profile} onLogout={handleLogout} compact />
+              </div>
             </div>
           </div>
-        </div>
-        <div className="fixed top-[56px] left-0 right-0 z-40 bg-gray-700/95 backdrop-blur-lg">
-          <div className="flex justify-center px-6">
-            <div className="w-full max-w-3xl">
-              <Suspense fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}>
-                <HeaderTabs onNavigate={navigateToLayerById} />
-              </Suspense>
+          {/* Row 2: tabs aligned with content area */}
+          <div className="flex">
+            <div className="w-64 flex-none" />
+            <div className="flex-1 flex justify-center px-6">
+              <div className="w-full max-w-3xl">
+                <Suspense fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}>
+                  <HeaderTabs onNavigate={navigateToLayerById} />
+                </Suspense>
+              </div>
             </div>
           </div>
         </div>

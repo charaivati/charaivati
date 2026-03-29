@@ -33,9 +33,8 @@ type HealthInput = {
   age?: string;
 };
 
-const VALID_DRIVES   = new Set<string>(["learning", "helping", "building", "doing"]);
-const VALID_HORIZONS = new Set(["This year", "3 Years", "Lifetime"]);
-const VALID_LEVELS   = new Set(["Beginner", "Intermediate", "Advanced"]);
+const VALID_DRIVES = new Set<string>(["learning", "helping", "building", "doing"]);
+const VALID_LEVELS = new Set(["Beginner", "Intermediate", "Advanced"]);
 
 // ── GET ───────────────────────────────────────────────
 export async function GET(req: Request) {
@@ -85,7 +84,7 @@ export async function PATCH(req: Request) {
         id:               String(g.id || ""),
         driveId:          VALID_DRIVES.has(g.driveId ?? "") ? g.driveId : "learning",
         statement:        String(g.statement || "").slice(0, 500),
-        horizon:          VALID_HORIZONS.has(g.horizon) ? g.horizon : "This year",
+        description:      String(g.description || "").slice(0, 2000),
         saved:            Boolean(g.saved),
         skills: Array.isArray(g.skills)
           ? g.skills.slice(0, 10).map((s: SkillEntry) => ({

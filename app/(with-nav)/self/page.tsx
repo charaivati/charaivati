@@ -47,18 +47,6 @@ function SelfPageContent() {
 
   return (
     <>
-      <div className="flex items-start justify-between mb-6">
-        <div className="text-left">
-          <h3 className="text-lg font-semibold capitalize">{active} Overview</h3>
-          <p className="text-sm text-gray-300 mt-1">
-            {profile
-              ? `Steps today: ${profile.stepsToday ?? "-"} | Sleep: ${
-                  profile.sleepHours ?? "-"}h | Water: ${profile.waterLitres ?? "-"}L`
-              : "No stats yet - click Edit to add your health and profile data."}
-          </p>
-        </div>
-      </div>
-
       <div className="max-w-3xl mx-auto">
         {active === "personal" && <SelfTab profile={profile} />}
         {active === "social" && <SocialTab profile={profile} />}
