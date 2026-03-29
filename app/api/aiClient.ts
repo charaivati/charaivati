@@ -18,28 +18,30 @@ export async function callAI({
   prompt,
   provider = "ollama",
   systemPrompt,
+  maxTokens = 800,
 }: {
   prompt: string;
   provider?: AIProvider;
   systemPrompt?: string;
+  maxTokens?: number;
 }): Promise<string> {
   try {
     if (provider === "ollama")      return await withTimeout(callOllama(prompt, systemPrompt), TIMEOUT_MS);
-    if (provider === "openrouter")  return await withTimeout(callOpenRouter(prompt, systemPrompt), TIMEOUT_MS);
-    return await withTimeout(callGemini(prompt, systemPrompt), TIMEOUT_MS);
+    if (provider === "openrouter")  return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+    return await withTimeout(callGemini(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
   } catch (err) {
     if (provider === "ollama") {
       console.warn("[aiClient] Ollama failed, falling back to OpenRouter:", err);
       try {
-        return await withTimeout(callOpenRouter(prompt, systemPrompt), TIMEOUT_MS);
+        return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
       } catch (err2) {
         console.warn("[aiClient] OpenRouter failed, falling back to Gemini:", err2);
-        return await withTimeout(callGemini(prompt, systemPrompt), TIMEOUT_MS);
+        return await withTimeout(callGemini(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
       }
     }
     if (provider === "openrouter") {
       console.warn("[aiClient] OpenRouter failed, falling back to Gemini:", err);
-      return await withTimeout(callGemini(prompt, systemPrompt), TIMEOUT_MS);
+      return await withTimeout(callGemini(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     }
     throw err;
   }
@@ -105,7 +107,7 @@ async function callOllama(prompt: string, systemPrompt?: string): Promise<string
   return content as string;
 }
 
-async function callOpenRouter(prompt: string, systemPrompt?: string): Promise<string> {
+async function callOpenRouter(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
 
@@ -125,7 +127,7 @@ async function callOpenRouter(prompt: string, systemPrompt?: string): Promise<st
       model: OPENROUTER_MODEL,
       messages,
       temperature: 0.7,
-      max_tokens: 800,
+      max_tokens: maxTokens,
     }),
   });
 
@@ -140,7 +142,7 @@ async function callOpenRouter(prompt: string, systemPrompt?: string): Promise<st
   return content as string;
 }
 
-async function callGemini(prompt: string, systemPrompt?: string): Promise<string> {
+async function callGemini(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
@@ -154,7 +156,7 @@ async function callGemini(prompt: string, systemPrompt?: string): Promise<string
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: fullPrompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 800 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
       }),
     }
   );

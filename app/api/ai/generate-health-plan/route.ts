@@ -90,7 +90,7 @@ Exercise: ${exercise}, ${sessions}x/week
 Goal: Reach healthy BMI and sustainable energy levels.`;
 
   try {
-    const raw    = await callAI({ prompt, systemPrompt });
+    const raw    = await callAI({ prompt, systemPrompt, maxTokens: 2000 });
     const parsed = safeJsonParse<HealthPlanResponse>(raw);
 
     const isValid =
