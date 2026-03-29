@@ -196,6 +196,17 @@ function AIPlanModal({ goal, onClose, onSavePlan, onRegenerate, planLoading }: {
   const [selectedPhaseId, setSelectedPhaseId] = useState(roadmap.phases[0]?.id ?? "");
   const [phases,          setPhases]          = useState<Phase[]>(roadmap.phases);
   const [dirty,           setDirty]           = useState(false);
+
+  // Sync phases when a regenerated plan arrives from the parent
+  const prevPlanRef = React.useRef(roadmap);
+  React.useEffect(() => {
+    if (goal.plan && goal.plan !== prevPlanRef.current) {
+      prevPlanRef.current = goal.plan;
+      setPhases(goal.plan.phases);
+      setSelectedPhaseId(goal.plan.phases[0]?.id ?? "");
+      setDirty(false);
+    }
+  }, [goal.plan]);
   const [weekExpanded,    setWeekExpanded]    = useState(false);
   const [availableDays,   setAvailableDays]   = useState(5);
   const [weekLoading,     setWeekLoading]     = useState(false);
@@ -322,8 +333,13 @@ function AIPlanModal({ goal, onClose, onSavePlan, onRegenerate, planLoading }: {
 
           {/* Editable phase actions */}
           {selectedPhase && (
-            <div>
+            <div className={planLoading ? "opacity-40 pointer-events-none" : ""}>
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">{selectedPhase.name} Actions</p>
+              {planLoading && (
+                <div className="flex items-center gap-2 text-xs text-indigo-400 mb-3">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />Generating new plan…
+                </div>
+              )}
               <div className="space-y-2">
                 {selectedPhase.actions.map((action, i) => (
                   <div key={i} className="flex items-start gap-2">
@@ -351,15 +367,17 @@ function AIPlanModal({ goal, onClose, onSavePlan, onRegenerate, planLoading }: {
             </div>
           )}
 
-          {/* Save / Regenerate bar */}
+          {/* Regenerate / Save bar */}
           <div className="flex items-center justify-between pt-2 border-t border-gray-800">
-            <button type="button" onClick={() => { onRegenerate(); onClose(); }} disabled={planLoading}
-              className="text-xs text-gray-500 hover:text-indigo-400 transition-colors disabled:opacity-40 flex items-center gap-1.5">
+            <button type="button" onClick={onRegenerate} disabled={planLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-500/50
+                bg-indigo-500/10 text-xs text-indigo-300 hover:bg-indigo-500/20 transition-colors
+                disabled:opacity-40 disabled:cursor-not-allowed">
               {planLoading
                 ? <><Loader2 className="w-3 h-3 animate-spin" />Regenerating…</>
-                : <>↺ Regenerate</>}
+                : <>↺ Regenerate plan</>}
             </button>
-            {dirty && (
+            {dirty && !planLoading && (
               <button type="button" onClick={handleSave}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500
                   text-white text-xs font-medium transition-colors">
