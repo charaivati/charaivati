@@ -1,0 +1,140 @@
+"use client";
+// components/self/shared.tsx — primitive UI components shared across all Self blocks
+
+import React, { useState } from "react";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+
+// ─── Tiny utility ─────────────────────────────────────────────────────────────
+
+export function uid() {
+  return Math.random().toString(36).slice(2, 9);
+}
+
+// ─── Primitive UI ─────────────────────────────────────────────────────────────
+
+export function PillButton({ active, onClick, children }: {
+  active: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <button type="button" onClick={onClick}
+      className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+        active
+          ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+          : "border-gray-700 bg-transparent text-gray-400 hover:border-gray-500"
+      }`}>
+      {children}
+    </button>
+  );
+}
+
+export function SectionCard({ children, className = "" }: {
+  children: React.ReactNode; className?: string;
+}) {
+  return (
+    <div className={`rounded-2xl border border-gray-800 bg-gray-900/70 ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+export function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">{children}</p>;
+}
+
+export function TextInput({ value, onChange, placeholder, className = "" }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; className?: string;
+}) {
+  return (
+    <input type="text" value={value} onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      className={`w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm text-white
+        placeholder-gray-600 outline-none focus:border-indigo-500 transition-colors ${className}`}
+    />
+  );
+}
+
+// ─── Collapsible section wrapper ──────────────────────────────────────────────
+
+export function CollapsibleSection({
+  title,
+  subtitle,
+  children,
+  defaultOpen = true,
+  headerExtra,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+  headerExtra?: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <SectionCard>
+      <button type="button" onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 text-left">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-base font-semibold text-white">{title}</h3>
+          {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+        </div>
+        <div className="flex items-center gap-2">
+          {headerExtra}
+          {open
+            ? <ChevronUp className="w-4 h-4 text-gray-500 flex-shrink-0" />
+            : <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />}
+        </div>
+      </button>
+      {open && <div className="px-5 pb-6">{children}</div>}
+    </SectionCard>
+  );
+}
+
+// ─── AI generate / regenerate button ─────────────────────────────────────────
+
+export function AIGenerateButton({
+  loading,
+  hasResult,
+  onGenerate,
+  labels = {},
+  className = "",
+}: {
+  loading: boolean;
+  hasResult: boolean;
+  onGenerate: () => void;
+  labels?: { generate?: string; regenerate?: string; loading?: string };
+  className?: string;
+}) {
+  const {
+    generate    = "Generate",
+    regenerate  = "↺ Regenerate",
+    loading: lbl = "Generating…",
+  } = labels;
+
+  return (
+    <button type="button" onClick={onGenerate} disabled={loading}
+      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors
+        disabled:opacity-50 disabled:cursor-not-allowed ${
+        hasResult
+          ? "border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-300"
+          : "bg-indigo-600 hover:bg-indigo-500 text-white"
+      } ${className}`}>
+      {loading
+        ? <><Loader2 className="w-4 h-4 animate-spin" />{lbl}</>
+        : hasResult ? regenerate : generate}
+    </button>
+  );
+}
+
+// ─── Amber "AI unavailable" fallback banner ───────────────────────────────────
+
+export function FallbackBanner({ message }: { message?: string }) {
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300 leading-relaxed">
+      {message ?? "Our AI suggestions are unavailable right now — we'll get back to you soon."}
+      <br />
+      <span className="text-amber-400/70 text-xs">
+        In the meantime, add your own content below. Hit Regenerate anytime to let AI improve it.
+      </span>
+    </div>
+  );
+}
