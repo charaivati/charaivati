@@ -616,18 +616,18 @@ export default function EarningTab() {
                       <p className="text-xs text-gray-500 mt-3">Created {new Date(page.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button
-                        onClick={() => {
-                          setSelectedBusiness(page.id);
-                          try {
-                            localStorage.setItem(LS_SELECTED_BUSINESS, page.id);
-                          } catch {}
-                          setShowComposer(true);
-                        }}
-                        className="px-3 py-1 rounded text-xs bg-white/10 hover:bg-white/20 text-white transition-colors"
+                      <a
+                        href="/business"
+                        className="px-3 py-1 rounded text-xs bg-blue-600/80 hover:bg-blue-600 text-white transition-colors text-center"
                       >
-                        Post
-                      </button>
+                        Evaluate and Plan
+                      </a>
+                      <a
+                        href={`/business/store/${page.id}`}
+                        className="px-3 py-1 rounded text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center"
+                      >
+                        Your Store
+                      </a>
                       <button
                         onClick={() => deletePage(page.id)}
                         disabled={deleting === page.id}

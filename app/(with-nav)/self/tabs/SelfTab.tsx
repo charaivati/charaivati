@@ -143,6 +143,21 @@ const DRIVE_COLOR: Record<DriveType, string> = {
 const GUEST_KEY    = "charaivati_guest_self";
 const GUEST_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
+// Drive identity + goal question copy
+const DRIVE_IDENTITY: Record<DriveType, string> = {
+  learning: "a curious mind",
+  helping:  "here for people",
+  building: "a builder",
+  doing:    "a doer",
+};
+
+const DRIVE_QUESTION: Record<DriveType, string> = {
+  learning: "What are you curious about?",
+  helping:  "Who or what do you want to help?",
+  building: "What would you like to build?",
+  doing:    "What do you want to master?",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
@@ -1419,15 +1434,22 @@ export default function SelfTab({ profile }: { profile?: any }) {
   const [skillsLoading,  setSkillsLoading]  = useState<Record<string, boolean>>({});
   const [pages,          setPages]          = useState<PageItem[]>([]);
   const generalSkillsRef = useRef<SkillEntry[]>([]);
-  const [goalsOpen, setGoalsOpen] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [isGuest,   setIsGuest]   = useState(false);
 
-  const [planLoading, setPlanLoading] = useState<Record<string, boolean>>({});
+  const [planLoading,     setPlanLoading]     = useState<Record<string, boolean>>({});
+  const [typedLine1,      setTypedLine1]      = useState<string>("");
+  const [typedLine2,      setTypedLine2]      = useState<string>("");
+  const [line2Started,    setLine2Started]    = useState(false);
+  const [typingDone,      setTypingDone]      = useState(false);
+  const [drivesVisible,   setDrivesVisible]   = useState(false);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+  const [profileReady,    setProfileReady]    = useState(false);
 
-  const profileApplied = useRef(false);
-  const saveTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const guestLoaded    = useRef(false);
+  const profileApplied   = useRef(false);
+  const saveTimerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const guestLoaded      = useRef(false);
+  const animationStarted = useRef(false);
 
   // ── Goals visible in the current session (drive is active) ────
   const visibleGoals = goals.filter(g => drives.includes(g.driveId));
@@ -1497,9 +1519,16 @@ export default function SelfTab({ profile }: { profile?: any }) {
   }
 
 
+  // ── 2-second fallback: unblock animation if profile never resolves ──
+  useEffect(() => {
+    const t = setTimeout(() => setProfileReady(true), 2000);
+    return () => clearTimeout(t);
+  }, []);
+
   // ── Detect guest ───────────────────────────────────────────────
   useEffect(() => {
     if (profile !== undefined) {
+      setProfileReady(true);
       setIsGuest(!profile);
       if (!profile && !guestLoaded.current) {
         guestLoaded.current = true;
@@ -1509,7 +1538,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
           if (saved.health) setHealth(h => ({ ...h, ...saved.health }));
           if (Array.isArray(saved.goals) && saved.goals.length) {
             setGoals(saved.goals);
-            setGoalsOpen(true);
           }
         }
         profileApplied.current = true;
@@ -1576,10 +1604,72 @@ export default function SelfTab({ profile }: { profile?: any }) {
     }
     if (loadedGoals.length) {
       setGoals(loadedGoals);
-      setGoalsOpen(true);
     }
 
   }, [profile]);
+
+  // ── Typewriter greeting animation ──────────────────────────────
+  useEffect(() => {
+    if (animationStarted.current) return;
+    if (!profileReady) return; // wait for profile or 2s fallback
+    animationStarted.current = true;
+
+    // profile may still be undefined if the 2s fallback fired — treat as guest
+    const effectiveProfile = profile ?? null;
+
+    const profileDrives: DriveType[] = Array.isArray(effectiveProfile?.drives)
+      ? effectiveProfile.drives
+      : effectiveProfile?.drive ? [effectiveProfile.drive] : [];
+    const guestDrives: DriveType[] = !effectiveProfile
+      ? (() => { try { return guestLoad()?.drives ?? []; } catch { return []; } })()
+      : [];
+    const isReturning = profileDrives.length > 0 || guestDrives.length > 0;
+
+    const h = new Date().getHours();
+    const timeOfDay = h >= 5 && h <= 11 ? "morning" : h >= 12 && h <= 16 ? "afternoon" : h >= 17 && h <= 20 ? "evening" : "night";
+    const rawName   = effectiveProfile?.name ?? effectiveProfile?.firstName ?? "";
+    const firstName = rawName.split(" ")[0] || "there";
+    const line1Full = `Good ${timeOfDay}, ${firstName}.`;
+    const line2Full = "What do you think keeps you moving?";
+
+    if (isReturning) {
+      setTypedLine1(line1Full);
+      setTypedLine2(line2Full);
+      setLine2Started(true);
+      setTypingDone(true);
+      setDrivesVisible(true);
+      return;
+    }
+
+    // New user — sequential typewriter
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let cancelled = false;
+
+    function typeStr(full: string, setter: React.Dispatch<React.SetStateAction<string>>, speed: number, onDone: () => void) {
+      let idx = 0;
+      function tick() {
+        if (cancelled) return;
+        idx++;
+        setter(full.slice(0, idx));
+        if (idx < full.length) timers.push(setTimeout(tick, speed));
+        else onDone();
+      }
+      tick();
+    }
+
+    typeStr(line1Full, setTypedLine1, 38, () => {
+      timers.push(setTimeout(() => {
+        if (cancelled) return;
+        setLine2Started(true);
+        typeStr(line2Full, setTypedLine2, 28, () => {
+          setTypingDone(true);
+          timers.push(setTimeout(() => { if (!cancelled) setDrivesVisible(true); }, 600));
+        });
+      }, 400));
+    });
+
+    return () => { cancelled = true; timers.forEach(clearTimeout); };
+  }, [profileReady, profile]);
 
   // ── Persist ────────────────────────────────────────────────────
   function persist(nextDrives: DriveType[], nextGoals: GoalEntry[], nextHealth: HealthProfile) {
@@ -1623,7 +1713,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
       }
     }
     setDrives(next);
-    if (next.length > 0) setGoalsOpen(true);
+    setDrivePickerOpen(false);
 
     // When a new drive is added and has no goals yet, create a blank one for it
     const newDrives = next.filter(id => !drives.includes(id));
@@ -1733,66 +1823,164 @@ export default function SelfTab({ profile }: { profile?: any }) {
   return (
     <div className="text-white space-y-5">
 
-      {/* ── What keeps you moving? ───────────────────────────────── */}
-      <SectionCard>
-        <div className="px-5 pt-5 pb-2 flex items-start justify-between">
-          <div>
-            <h2 className="text-xl font-semibold">What keeps you moving?</h2>
-            {isGuest && (
-              <p className="text-sm text-yellow-600 mt-1">
-                Guest mode — saved locally for 7 days.{" "}
-                <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
+      {/* ── Drive section: State A (no drives) or State B (drives selected) ─── */}
+      <div style={{ opacity: profileReady ? 1 : 0, transition: "opacity 400ms ease" }}>
+      {drives.length === 0 ? (
+
+        /* ── State A: typewriter + full drive grid ────────────────── */
+        <SectionCard>
+          <style>{`
+            @keyframes tw-blink{0%,100%{opacity:1}50%{opacity:0}}
+            .tw-cursor{animation:tw-blink 0.8s step-start infinite;color:#818cf8}
+            @keyframes tw-cursor-fade{to{opacity:0}}
+            .tw-cursor-done{animation:tw-cursor-fade 0.4s ease 0.4s forwards;color:#818cf8}
+            .drive-card{transition:opacity 300ms ease-out,transform 300ms ease-out}
+          `}</style>
+          <div className="px-6 pt-8 pb-4 flex items-start justify-between">
+            <div className="flex-1 min-h-[6rem]">
+              <p className="text-base text-gray-400 tracking-wide">
+                {typedLine1}
+                {typedLine1 && !line2Started && (
+                  <span className={typingDone ? "tw-cursor-done" : "tw-cursor"}>|</span>
+                )}
               </p>
-            )}
+              {line2Started && (
+                <h2 className="text-3xl font-bold text-white mt-2 leading-snug">
+                  {typedLine2}
+                  <span className={typingDone ? "tw-cursor-done" : "tw-cursor"}>|</span>
+                </h2>
+              )}
+              {isGuest && (
+                <p className="text-sm text-yellow-600 mt-2">
+                  Guest mode — saved locally for 7 days.{" "}
+                  <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
+                </p>
+              )}
+            </div>
+            <span className={`text-xs mt-1 transition-opacity ${
+              saveState === "idle"   ? "opacity-0"                  :
+              saveState === "saving" ? "opacity-100 text-gray-500"  :
+              saveState === "saved"  ? "opacity-100 text-green-500" :
+                                       "opacity-100 text-red-400"
+            }`}>
+              {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "·"}
+            </span>
           </div>
-          <span className={`text-xs mt-1 transition-opacity ${
-            saveState === "idle"   ? "opacity-0"                  :
-            saveState === "saving" ? "opacity-100 text-gray-500"  :
-            saveState === "saved"  ? "opacity-100 text-green-500" :
-                                     "opacity-100 text-red-400"
-          }`}>
-            {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "·"}
-          </span>
-        </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-6 pb-7">
+            {DRIVES.map((d, idx) => {
+              const selected = drives.includes(d.id);
+              const atLimit  = !selected && drives.length >= 2;
+              return (
+                <button key={d.id} type="button" onClick={() => toggleDrive(d.id)} disabled={atLimit}
+                  className={`drive-card rounded-xl border px-4 py-4 text-left transition-colors ${
+                    selected
+                      ? "border-indigo-500 bg-indigo-500/10"
+                      : atLimit
+                        ? "border-gray-800 bg-gray-950/20 opacity-40 cursor-not-allowed"
+                        : "border-gray-800 bg-gray-950/40 hover:border-gray-600"
+                  }`}
+                  style={{
+                    opacity:         drivesVisible ? 1 : 0,
+                    transform:       drivesVisible ? "translateY(0)" : "translateY(8px)",
+                    transitionDelay: `${idx * 120}ms`,
+                  }}>
+                  <div className={`text-sm font-semibold mb-1 ${selected ? "text-indigo-300" : "text-white"}`}>
+                    {selected && <span className="mr-1.5 text-indigo-400">✓</span>}{d.label}
+                  </div>
+                  <div className="text-xs text-gray-500">{d.description}</div>
+                </button>
+              );
+            })}
+          </div>
+        </SectionCard>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 px-5 pb-5">
-          {DRIVES.map(d => {
-            const selected = drives.includes(d.id);
-            const atLimit  = !selected && drives.length >= 2;
-            return (
-              <button key={d.id} type="button" onClick={() => toggleDrive(d.id)} disabled={atLimit}
-                className={`rounded-xl border px-4 py-4 text-left transition-all ${
-                  selected
-                    ? "border-indigo-500 bg-indigo-500/10"
-                    : atLimit
-                      ? "border-gray-800 bg-gray-950/20 opacity-40 cursor-not-allowed"
-                      : "border-gray-800 bg-gray-950/40 hover:border-gray-600"
-                }`}>
-                <div className={`text-sm font-semibold mb-1 ${selected ? "text-indigo-300" : "text-white"}`}>
-                  {selected && <span className="mr-1.5 text-indigo-400">✓</span>}{d.label}
+      ) : (
+
+        /* ── State B: compact identity + optional inline picker ───── */
+        <div>
+          <div className="group flex items-start justify-between px-1 py-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-indigo-500 text-xs select-none">◆</span>
+                <span className="text-sm text-gray-300 group-hover:text-gray-200 transition-colors">
+                  {drives.length === 1
+                    ? `You are ${DRIVE_IDENTITY[drives[0]]}.`
+                    : `You are ${DRIVE_IDENTITY[drives[0]]} · and ${DRIVE_IDENTITY[drives[1]]}.`
+                  }
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {drives.map(driveId => {
+                    const driveInfo = DRIVES.find(d => d.id === driveId)!;
+                    return (
+                      <span key={driveId}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${DRIVE_COLOR[driveId]}`}>
+                        {driveInfo.label}
+                        <button type="button" onClick={() => toggleDrive(driveId)}
+                          className="opacity-50 hover:opacity-100 transition-opacity leading-none ml-0.5">×</button>
+                      </span>
+                    );
+                  })}
                 </div>
-                <div className="text-xs text-gray-500">{d.description}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDrivePickerOpen(v => !v)}
+                className="text-xs text-gray-600 hover:text-indigo-400 transition-colors mt-1.5"
+              >
+                {drives.length < 2 ? "+ Add a second drive" : "✎ Change drives"}
               </button>
-            );
-          })}
+              {isGuest && (
+                <p className="text-xs text-yellow-600/80 mt-1">
+                  Guest mode — saved locally for 7 days.{" "}
+                  <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
+                </p>
+              )}
+            </div>
+            <span className={`text-xs mt-0.5 transition-opacity ${
+              saveState === "idle"   ? "opacity-0"                  :
+              saveState === "saving" ? "opacity-100 text-gray-500"  :
+              saveState === "saved"  ? "opacity-100 text-green-500" :
+                                       "opacity-100 text-red-400"
+            }`}>
+              {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Save failed" : "·"}
+            </span>
+          </div>
+          {drivePickerOpen && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 px-1">
+              {DRIVES.map(d => {
+                const selected = drives.includes(d.id);
+                const atLimit  = !selected && drives.length >= 2;
+                return (
+                  <button key={d.id} type="button" onClick={() => toggleDrive(d.id)} disabled={atLimit}
+                    className={`rounded-xl border px-4 py-4 text-left transition-all ${
+                      selected
+                        ? "border-indigo-500 bg-indigo-500/10"
+                        : atLimit
+                          ? "border-gray-800 bg-gray-950/20 opacity-40 cursor-not-allowed"
+                          : "border-gray-800 bg-gray-950/40 hover:border-gray-600"
+                    }`}>
+                    <div className={`text-sm font-semibold mb-1 ${selected ? "text-indigo-300" : "text-white"}`}>
+                      {selected && <span className="mr-1.5 text-indigo-400">✓</span>}{d.label}
+                    </div>
+                    <div className="text-xs text-gray-500">{d.description}</div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {drives.length > 0 && (
-          <div className="px-5 pb-4 border-t border-gray-800 pt-3">
-            <button type="button" onClick={() => setGoalsOpen(v => !v)}
-              className="flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300 transition-colors">
-              {goalsOpen ? <><ChevronUp className="w-4 h-4" />Hide goals</> : <><ChevronDown className="w-4 h-4" />Set my goals</>}
-            </button>
-          </div>
-        )}
-      </SectionCard>
+      )}
+      </div>
 
       {/* ── Goals columns + Health ────────────────────────────────── */}
-      {drives.length > 0 && goalsOpen && (
+      {drives.length > 0 && (
         <>
           <SectionCard>
             <div className="px-5 pt-5 pb-3">
-              <h2 className="text-xl font-semibold">What do you want to do?</h2>
+              <h2 className="text-xl font-semibold">
+                {DRIVE_QUESTION[drives[0]] ?? "What do you want to do?"}
+              </h2>
             </div>
 
             {/* Two-column layout — one column per active drive */}

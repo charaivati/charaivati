@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { MessageSquare } from "lucide-react";
+import CirclesPanel from "@/components/CirclesPanel";
 
 type FeedPost = {
   id: string;
@@ -91,6 +92,11 @@ export default function SocialTab({ profile }: { profile?: any }) {
 
   return (
     <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
+      {/* Circles */}
+      <div className="max-w-2xl mx-auto px-4 pt-4 pb-2">
+        <CirclesPanel />
+      </div>
+
       {/* Header */}
       <div className="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5 mb-6">
         <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">

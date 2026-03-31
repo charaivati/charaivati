@@ -464,6 +464,22 @@ export default function IdeaBatchPage(): React.ReactElement {
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <div className="mb-8">
+            {/* Navigation row */}
+            <div className="flex gap-2 mb-5 flex-wrap">
+              <a
+                href="/self?tab=earn"
+                className="px-3 py-1.5 rounded-lg text-xs bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 hover:text-white border border-slate-700 transition flex items-center gap-1.5"
+              >
+                ← Back to Earn Tab
+              </a>
+              <a
+                href="/business/plan/new"
+                className="px-3 py-1.5 rounded-lg text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 hover:text-white border border-blue-600/40 transition flex items-center gap-1.5"
+              >
+                Skip to Business Plan →
+              </a>
+            </div>
+
             <h1 className="text-3xl font-bold text-white mb-2">Validate Your Idea</h1>
             <p className="text-slate-400">
               Answer all questions below. Your path adapts based on your answers.
