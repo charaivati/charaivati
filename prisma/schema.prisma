@@ -207,8 +207,10 @@ model Store {
   name        String
   description String?
   ownerId     String
+  pageId      String?   @unique
   createdAt   DateTime  @default(now())
-  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  owner       User      @relation("UserStores", fields: [ownerId], references: [id], onDelete: Cascade)
   sections    Section[]
 
   @@index([ownerId])
@@ -218,45 +220,56 @@ model Section {
   id          String       @id @default(cuid())
   storeId     String
   title       String
-  order       Int
-  type        String       @default("grid")
+  order       Int          @default(0)
+  type        String       @default("grid") // IMPORTANT: default fix
   createdAt   DateTime     @default(now())
-  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  blocks      Block[]
-  subsections Subsection[]
 
-  @@index([storeId, order])
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  subsections Subsection[]
+  blocks      Block[]
+
+  @@index([storeId])
+  @@index([order])
 }
 
 model Subsection {
   id        String   @id @default(cuid())
   sectionId String
   title     String
-  order     Int
+  order     Int      @default(0)
   createdAt DateTime @default(now())
+
   section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   blocks    Block[]
 
-  @@index([sectionId, order])
+  @@index([sectionId])
+  @@index([order])
 }
 
 model Block {
   id           String      @id @default(cuid())
+
   sectionId    String?
   subsectionId String?
+
   title        String
   description  String?
-  mediaType    String
+
+  mediaType    String      @default("image") // image | video
   mediaUrl     String?
-  actionType   String
+
+  actionType   String      @default("view")  // view | buy | unlock | book
   price        Float?
-  order        Int
+
+  order        Int         @default(0)
   createdAt    DateTime    @default(now())
+
   section      Section?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subsection   Subsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
 
-  @@index([sectionId, order])
-  @@index([subsectionId, order])
+  @@index([sectionId])
+  @@index([subsectionId])
+  @@index([order])
 }
 
 /// *
