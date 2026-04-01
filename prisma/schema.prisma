@@ -14,46 +14,46 @@ datasource db {
 /// Existing application models (kept & slightly extended)
 /// ----------------------
 model User {
-  id                      String              @id @default(cuid())
-  email                   String?             @unique
-  phone                   String?             @unique
+  id                      String               @id @default(cuid())
+  email                   String?              @unique
+  phone                   String?              @unique
   passwordHash            String?
-  verified                Boolean             @default(false)
-  emailVerified           Boolean             @default(false)
+  verified                Boolean              @default(false)
+  emailVerified           Boolean              @default(false)
   avatarUrl               String?
   avatarStorageKey        String?
-  status                  String              @default("active")
+  status                  String               @default("active")
   deletionScheduledAt     DateTime?
-  tokenVersion            Int                 @default(0)
-  createdAt               DateTime            @default(now())
-  updatedAt               DateTime            @updatedAt
+  tokenVersion            Int                  @default(0)
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
   avatarAt                DateTime?
   name                    String?
   selectedCountry         String?
   lastSelectedLocalAreaId Int?
   shortBio                String?
   title                   String?
-  preferredLanguage       String?             @default("en")
-  businessIdeas           BusinessIdea[]      @relation("UserBusinessIdeas")
-  businessPlans           BusinessPlan[]      @relation("UserBusinessPlans")
-  customTabs              CustomTab[]         @relation("UserCustomTabs")
-  embeddings              Embedding[]         @relation("UserEmbeddings")
-  events                  Event[]             @relation("UserEvents")
-  requestsReceived        FriendRequest[]     @relation("req_receiver")
-  requestsSent            FriendRequest[]     @relation("req_sender")
-  friendshipsA            Friendship[]        @relation("friendA")
-  friendshipsB            Friendship[]        @relation("friendB")
+  preferredLanguage       String?              @default("en")
+  businessIdeas           BusinessIdea[]       @relation("UserBusinessIdeas")
+  businessPlans           BusinessPlan[]       @relation("UserBusinessPlans")
+  customTabs              CustomTab[]          @relation("UserCustomTabs")
+  embeddings              Embedding[]          @relation("UserEmbeddings")
+  events                  Event[]              @relation("UserEvents")
+  requestsReceived        FriendRequest[]      @relation("req_receiver")
+  requestsSent            FriendRequest[]      @relation("req_sender")
+  friendshipsA            Friendship[]         @relation("friendA")
+  friendshipsB            Friendship[]         @relation("friendB")
   magicLinks              MagicLink[]
-  pages                   Page[]              @relation("UserPages")
+  pages                   Page[]               @relation("UserPages")
   pageFollows             PageFollow[]
   profile                 Profile?
-  proposals               Proposal[]          @relation("UserProposals")
-  reviews                 Review[]            @relation("UserReviews")
-  userTabs                UserTab[]           @relation("UserUserTabs")
+  proposals               Proposal[]           @relation("UserProposals")
+  reviews                 Review[]             @relation("UserReviews")
+  userTabs                UserTab[]            @relation("UserUserTabs")
   verificationTokens      VerificationToken[]
-  votes                   Vote[]              @relation("UserVotes")
-  posts                   Post[]              @relation("UserPosts")
-  circles                 FriendCircle[]      @relation("UserCircles")
+  votes                   Vote[]               @relation("UserVotes")
+  posts                   Post[]               @relation("UserPosts")
+  circles                 FriendCircle[]       @relation("UserCircles")
   circleMemberships       FriendCircleMember[] @relation("CircleMemberships")
   stores                  Store[]             @relation("UserStores")
 
@@ -127,45 +127,45 @@ model FriendCircleMember {
 /// *
 /// * User profile / health
 model Profile {
-  id                     String   @id @default(cuid())
-  userId                 String   @unique
+  id                     String  @id @default(cuid())
+  userId                 String  @unique
   heightCm               Int?
   weightKg               Float?
-  stepsToday             Int?     @default(0)
+  stepsToday             Int?    @default(0)
   sleepHours             Float?
   waterLitres            Float?
   displayName            String?
   bio                    String?
   socialHandles          Json?
   topics                 Json?
-  streakDays             Int?     @default(0)
+  streakDays             Int?    @default(0)
   learningNotes          String?
   businesses             Json?
   weeklyEarningsEstimate Float?
-  desiredMonthlyIncome   Float?   @default(0)
+  desiredMonthlyIncome   Float?  @default(0)
   preferredPayment       String?
 
   /// SelfTab — purpose layer
   /// Legacy single drive (kept for backward compat)
-  drive                  String?
+  drive         String?
   /// Selected drives — DriveType[] e.g. ["learning", "building"]
-  drives                 Json?
+  drives        Json?
   /// GoalEntry[] — flat array with driveId on each entry
   /// Shape: [{ id, driveId, statement, horizon, skills: [...], linkedBusinessIds, saved }]
-  goals                  Json?
+  goals         Json?
   /// HealthProfile — stored as JSON
   /// Shape: { food, exercise, sessionsPerWeek, heightCm, weightKg, age }
   /// Note: heightCm / weightKg here are string inputs from the form;
   /// the scalar heightCm / weightKg columns above are the validated numeric store.
-  health                 Json?
+  health        Json?
   /// General skills — SkillEntry[] — abilities that apply across all goals
-  generalSkills          Json?
+  generalSkills Json?
   /// Cached AI roadmap — { phases: Phase[], suggestions: Suggestion[] }
-  aiPlan                 Json?
+  aiPlan        Json?
 
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model MagicLink {
@@ -199,6 +199,64 @@ model Page {
   followers        PageFollow[]
 
   @@index([ownerId])
+}
+
+/// Universal Store page models (products/videos/services)
+model Store {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String
+  createdAt   DateTime  @default(now())
+  owner       User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  sections    Section[]
+
+  @@index([ownerId])
+}
+
+model Section {
+  id          String       @id @default(cuid())
+  storeId     String
+  title       String
+  order       Int
+  type        String       @default("grid")
+  createdAt   DateTime     @default(now())
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  blocks      Block[]
+  subsections Subsection[]
+
+  @@index([storeId, order])
+}
+
+model Subsection {
+  id        String   @id @default(cuid())
+  sectionId String
+  title     String
+  order     Int
+  createdAt DateTime @default(now())
+  section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  blocks    Block[]
+
+  @@index([sectionId, order])
+}
+
+model Block {
+  id           String      @id @default(cuid())
+  sectionId    String?
+  subsectionId String?
+  title        String
+  description  String?
+  mediaType    String
+  mediaUrl     String?
+  actionType   String
+  price        Float?
+  order        Int
+  createdAt    DateTime    @default(now())
+  section      Section?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subsection   Subsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId, order])
+  @@index([subsectionId, order])
 }
 
 /// *
@@ -629,39 +687,40 @@ model IdeaResponse {
   @@unique([ideaId, questionId])
   @@index([ideaId])
 }
+
 model Post {
-  id              String   @id @default(cuid())
-  userId          String
-  pageId          String?
-  content         String?
-  
+  id      String  @id @default(cuid())
+  userId  String
+  pageId  String?
+  content String?
+
   // Media - Google Drive file IDs (legacy)
-  imageFileIds    String[] // Array of GDrive file IDs
-  videoFileId     String?  // Single GDrive file ID
+  imageFileIds String[] // Array of GDrive file IDs
+  videoFileId  String? // Single GDrive file ID
 
   // Media - Cloudinary CDN URLs
-  imageUrls       String[] @default([]) // Cloudinary https:// URLs
-  videoUrl        String?               // Cloudinary https:// URL
+  imageUrls String[] @default([]) // Cloudinary https:// URLs
+  videoUrl  String? // Cloudinary https:// URL
 
-  youtubeLinks    String[] // YouTube URLs
-  
+  youtubeLinks String[] // YouTube URLs
+
   // Tagging
-  slugTags        String[] // ["epfo-login", "hindi", "video"]
-  
+  slugTags String[] // ["epfo-login", "hindi", "video"]
+
   // Engagement - anonymous voting
-  likes           Int      @default(0)
-  dislikes        Int      @default(0)
-  
+  likes    Int @default(0)
+  dislikes Int @default(0)
+
   // Metadata
-  gdriveFolder    String?  // Parent folder ID
-  status          String   @default("active") // active, hidden
-  visibility      String   @default("public") // public, friends, private
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  
-  user            User     @relation("UserPosts", fields: [userId], references: [id], onDelete: Cascade)
-  
+  gdriveFolder String? // Parent folder ID
+  status       String  @default("active") // active, hidden
+  visibility   String  @default("public") // public, friends, private
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation("UserPosts", fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([pageId])
   @@index([createdAt])
@@ -670,13 +729,13 @@ model Post {
 
 model HelpLink {
   id        String   @id @default(cuid())
-  pageSlug  String?  // optional canonical page slug (e.g. "epfo")
+  pageSlug  String? // optional canonical page slug (e.g. "epfo")
   slugTags  String[] @default([]) // tag this link to one or more tab slugs (canonical Tab.slug)
-  country   String   // e.g. "India", "All"
-  title     String   // friendly title (page name)
+  country   String // e.g. "India", "All"
+  title     String // friendly title (page name)
   url       String
-  notes     String?  // optional internal notes
-  createdBy String?  // user id who created
+  notes     String? // optional internal notes
+  createdBy String? // user id who created
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
