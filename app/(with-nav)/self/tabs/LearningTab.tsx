@@ -1,405 +1,521 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BookOpen, ChevronDown, ChevronUp } from "lucide-react";
+import { useProfile } from "@/lib/ProfileContext";
+import type { SkillEntry } from "@/types/self";
 
-type MotivationId = "learning" | "helping" | "building" | "doing";
-type Horizon = "thisYear" | "threeYears" | "lifetime";
-type SkillLevel = "beginner" | "intermediate" | "advanced";
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type GoalDraft = {
-  title: string;
-  horizon: Horizon;
-  skill: string;
-  skillLevel: SkillLevel;
-  earnFromSkill: boolean;
+type SkillLevel = "Beginner" | "Intermediate" | "Advanced" | "Mastered";
+
+const COLUMNS: SkillLevel[] = ["Beginner", "Intermediate", "Advanced", "Mastered"];
+
+type FeedPost = {
+  id: string;
+  author: string;
+  timeISO: string;
+  content?: string;
+  imageUrls: string[];
+  videoUrl: string | null;
+  likes: number;
+  youtubeLinks: string[];
+  slugTags: string[];
 };
 
-type StoredState = {
-  selectedMotivations: MotivationId[];
-  activeMotivation: MotivationId;
-  goalsByMotivation: Record<MotivationId, GoalDraft[]>;
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-type MotivationOption = {
-  id: MotivationId;
-  title: string;
-  subtitle: string;
-};
-
-const LS_KEY = "self_learning_tab_state_v1";
-const MAX_GOALS = 2;
-
-const MOTIVATIONS: MotivationOption[] = [
-  { id: "learning", title: "Learning", subtitle: "Curious about everything" },
-  { id: "helping", title: "Helping", subtitle: "Here for the people" },
-  { id: "building", title: "Building", subtitle: "Making things happen" },
-  { id: "doing", title: "Doing", subtitle: "Master of the craft" },
-];
-
-const defaultGoalsByMotivation: Record<MotivationId, GoalDraft[]> = {
-  learning: [],
-  helping: [],
-  building: [],
-  doing: [],
-};
-
-function createEmptyGoal(): GoalDraft {
-  return {
-    title: "",
-    horizon: "thisYear",
-    skill: "",
-    skillLevel: "beginner",
-    earnFromSkill: false,
-  };
+function extractYouTubeId(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /^([a-zA-Z0-9_-]{11})$/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
 }
 
-function isMotivationId(value: unknown): value is MotivationId {
-  return ["learning", "helping", "building", "doing"].includes(String(value));
+function formatTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
-function sanitizeStoredState(input: unknown): StoredState {
-  const fallback: StoredState = {
-    selectedMotivations: ["learning"],
-    activeMotivation: "learning",
-    goalsByMotivation: defaultGoalsByMotivation,
-  };
-
-  if (!input || typeof input !== "object") return fallback;
-
-  const obj = input as Partial<StoredState>;
-  const selected = Array.isArray(obj.selectedMotivations)
-    ? obj.selectedMotivations.filter(isMotivationId).slice(0, 2)
-    : [];
-
-  const goalsRaw = obj.goalsByMotivation && typeof obj.goalsByMotivation === "object" ? obj.goalsByMotivation : {};
-
-  const normalizedGoals: Record<MotivationId, GoalDraft[]> = {
-    learning: [],
-    helping: [],
-    building: [],
-    doing: [],
-  };
-
-  (Object.keys(normalizedGoals) as MotivationId[]).forEach((motivation) => {
-    const source = (goalsRaw as Record<string, unknown>)[motivation];
-    if (!Array.isArray(source)) return;
-    normalizedGoals[motivation] = source.slice(0, MAX_GOALS).map((g) => {
-      const goal = g as Partial<GoalDraft>;
-      return {
-        title: typeof goal.title === "string" ? goal.title : "",
-        horizon:
-          goal.horizon === "thisYear" || goal.horizon === "threeYears" || goal.horizon === "lifetime"
-            ? goal.horizon
-            : "thisYear",
-        skill: typeof goal.skill === "string" ? goal.skill : "",
-        skillLevel:
-          goal.skillLevel === "beginner" || goal.skillLevel === "intermediate" || goal.skillLevel === "advanced"
-            ? goal.skillLevel
-            : "beginner",
-        earnFromSkill: Boolean(goal.earnFromSkill),
-      };
-    });
-  });
-
-  const firstSelected = selected[0] ?? "learning";
-  const active = isMotivationId(obj.activeMotivation) ? obj.activeMotivation : firstSelected;
-
-  return {
-    selectedMotivations: selected.length ? selected : ["learning"],
-    activeMotivation: selected.includes(active) ? active : firstSelected,
-    goalsByMotivation: normalizedGoals,
-  };
+// Normalize a skill name to a slug-like string for tag matching
+function toSlugKey(s: string) {
+  return s.toLowerCase().replace(/\s+/g, "-");
 }
+
+// ─── Level style tokens ───────────────────────────────────────────────────────
+
+const LEVEL_COLOR: Record<SkillLevel, string> = {
+  Beginner:     "text-emerald-400",
+  Intermediate: "text-blue-400",
+  Advanced:     "text-purple-400",
+  Mastered:     "text-amber-400",
+};
+
+const LEVEL_BORDER: Record<SkillLevel, string> = {
+  Beginner:     "border-emerald-500/30",
+  Intermediate: "border-blue-500/30",
+  Advanced:     "border-purple-500/30",
+  Mastered:     "border-amber-500/30",
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LearningTab() {
-  const [state, setState] = useState<StoredState>({
-    selectedMotivations: ["learning"],
-    activeMotivation: "learning",
-    goalsByMotivation: defaultGoalsByMotivation,
+  const { profile } = useProfile();
+
+  // ── Derive skills grouped by level ────────────────────────────────────────
+  const skillsByLevel = useMemo<Record<SkillLevel, SkillEntry[]>>(() => {
+    const groups: Record<SkillLevel, SkillEntry[]> = {
+      Beginner: [], Intermediate: [], Advanced: [], Mastered: [],
+    };
+    const seen = new Set<string>();
+
+    function addBatch(skills: SkillEntry[]) {
+      for (const s of skills) {
+        const key = (s.name || "").toLowerCase().trim();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        const lvl = (COLUMNS as string[]).includes(s.level) ? (s.level as SkillLevel) : "Beginner";
+        groups[lvl].push(s);
+      }
+    }
+
+    if (Array.isArray(profile?.generalSkills)) addBatch(profile.generalSkills);
+    if (Array.isArray(profile?.goals)) {
+      for (const g of profile.goals) {
+        if (Array.isArray(g.skills)) addBatch(g.skills);
+      }
+    }
+
+    return groups;
+  }, [profile]);
+
+  const totalSkills = COLUMNS.reduce((acc, l) => acc + skillsByLevel[l].length, 0);
+
+  // ── Per-column expand ──────────────────────────────────────────────────────
+  const [expanded, setExpanded] = useState<Record<SkillLevel, boolean>>({
+    Beginner: false, Intermediate: false, Advanced: false, Mastered: false,
   });
-  const [loaded, setLoaded] = useState(false);
+
+  function toggleColumn(lvl: SkillLevel) {
+    setExpanded(prev => ({ ...prev, [lvl]: !prev[lvl] }));
+  }
+
+  // ── Skill selection ────────────────────────────────────────────────────────
+  const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
+
+  function toggleSkill(name: string) {
+    setSelectedSkills(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  // ── Scroll-aware panel ─────────────────────────────────────────────────────
+  const [panelOpen, setPanelOpen] = useState(true);
+  const lastScrollY = useRef(0);
 
   useEffect(() => {
+    function onScroll() {
+      const y = window.scrollY;
+      if (y > lastScrollY.current + 40) setPanelOpen(false);
+      else if (y < lastScrollY.current - 15) setPanelOpen(true);
+      lastScrollY.current = y;
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // ── Feed ───────────────────────────────────────────────────────────────────
+  const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const loadFeed = useCallback(async () => {
+    setLoading(true);
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setState(sanitizeStoredState(parsed));
-      }
-    } catch {
-      // ignore bad local state
+      const res = await fetch("/api/posts?limit=30");
+      const json = await res.json();
+      if (!json.ok) return;
+      const mapped: FeedPost[] = json.data.map((p: any) => ({
+        id: p.id,
+        author:
+          p.user?.profile?.displayName ||
+          p.user?.name ||
+          p.user?.email ||
+          "User",
+        timeISO: p.createdAt,
+        content: p.content ?? undefined,
+        imageUrls:
+          p.imageUrls?.length > 0
+            ? p.imageUrls
+            : (p.imageFileIds || []).map(
+                (id: string) =>
+                  `https://drive.google.com/thumbnail?id=${id}&sz=w1200`
+              ),
+        videoUrl:
+          p.videoUrl ??
+          (p.videoFileId ? `https://drive.google.com/uc?id=${p.videoFileId}` : null),
+        likes: p.likes ?? 0,
+        youtubeLinks: p.youtubeLinks ?? [],
+        slugTags: p.slugTags ?? [],
+      }));
+      setPosts(mapped);
+    } catch (err) {
+      console.error("LearnTab feed error:", err);
     } finally {
-      setLoaded(true);
+      setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    if (!loaded) return;
-    localStorage.setItem(LS_KEY, JSON.stringify(state));
-  }, [state, loaded]);
+  useEffect(() => { loadFeed(); }, [loadFeed]);
 
-  const activeGoals = useMemo(() => state.goalsByMotivation[state.activeMotivation] ?? [], [state]);
+  // ── Skill filtering ────────────────────────────────────────────────────────
+  const skillFiltered = useMemo(() => {
+    if (selectedSkills.size === 0) return posts;
+    const slugKeys = Array.from(selectedSkills).map(toSlugKey);
+    return posts.filter(p =>
+      p.slugTags.some(tag => {
+        const t = tag.toLowerCase();
+        return slugKeys.some(s => t.includes(s) || s.includes(t));
+      })
+    );
+  }, [posts, selectedSkills]);
 
-  function toggleMotivation(id: MotivationId) {
-    setState((prev) => {
-      const selected = prev.selectedMotivations;
-      const isSelected = selected.includes(id);
+  // ── Teacher list (order of first appearance = priority) ───────────────────
+  const teachers = useMemo(() => {
+    const seen = new Set<string>();
+    const list: string[] = [];
+    for (const p of skillFiltered) {
+      if (!seen.has(p.author)) { seen.add(p.author); list.push(p.author); }
+    }
+    return list;
+  }, [skillFiltered]);
 
-      if (isSelected) {
-        const nextSelected = selected.filter((item) => item !== id);
-        if (nextSelected.length === 0) {
-          return {
-            ...prev,
-            selectedMotivations: [id],
-            activeMotivation: id,
-          };
-        }
-        return {
-          ...prev,
-          selectedMotivations: nextSelected,
-          activeMotivation: nextSelected.includes(prev.activeMotivation)
-            ? prev.activeMotivation
-            : nextSelected[0],
-        };
-      }
+  const [selectedTeacher, setSelectedTeacher] = useState("All");
 
-      if (selected.length >= 2) {
-        const nextSelected = [selected[1], id];
-        return {
-          ...prev,
-          selectedMotivations: nextSelected,
-          activeMotivation: id,
-        };
-      }
+  useEffect(() => { setSelectedTeacher("All"); }, [selectedSkills]);
 
-      return {
-        ...prev,
-        selectedMotivations: [...selected, id],
-        activeMotivation: id,
-      };
-    });
-  }
+  // ── Final posts ────────────────────────────────────────────────────────────
+  const finalPosts = useMemo(() => {
+    if (selectedTeacher === "All") return skillFiltered;
+    return skillFiltered.filter(p => p.author === selectedTeacher);
+  }, [skillFiltered, selectedTeacher]);
 
-  function setActiveMotivation(id: MotivationId) {
-    setState((prev) => ({
-      ...prev,
-      activeMotivation: prev.selectedMotivations.includes(id) ? id : prev.activeMotivation,
-    }));
-  }
-
-  function updateGoal(index: number, patch: Partial<GoalDraft>) {
-    setState((prev) => {
-      const current = [...(prev.goalsByMotivation[prev.activeMotivation] ?? [])];
-      current[index] = { ...createEmptyGoal(), ...current[index], ...patch };
-      return {
-        ...prev,
-        goalsByMotivation: {
-          ...prev.goalsByMotivation,
-          [prev.activeMotivation]: current,
-        },
-      };
-    });
-  }
-
-  function addGoal() {
-    setState((prev) => {
-      const current = prev.goalsByMotivation[prev.activeMotivation] ?? [];
-      if (current.length >= MAX_GOALS) return prev;
-      return {
-        ...prev,
-        goalsByMotivation: {
-          ...prev.goalsByMotivation,
-          [prev.activeMotivation]: [...current, createEmptyGoal()],
-        },
-      };
-    });
-  }
-
-  function removeGoal(index: number) {
-    setState((prev) => {
-      const current = [...(prev.goalsByMotivation[prev.activeMotivation] ?? [])];
-      current.splice(index, 1);
-      return {
-        ...prev,
-        goalsByMotivation: {
-          ...prev.goalsByMotivation,
-          [prev.activeMotivation]: current,
-        },
-      };
-    });
-  }
-
-  const activeMotivationTitle = MOTIVATIONS.find(
-    (m) => m.id === state.activeMotivation,
-  )?.title;
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-5 text-white">
-      <section className="rounded-2xl border border-gray-800 bg-gray-900/70">
-        <div className="px-5 py-5">
-          <h2 className="text-3xl font-semibold">What keeps you moving?</h2>
-          <p className="mt-1 text-gray-300">Pick up to 2.</p>
+    <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
 
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            {MOTIVATIONS.map((motivation) => {
-              const selected = state.selectedMotivations.includes(motivation.id);
-              const active = state.activeMotivation === motivation.id;
+      {/* ── Sticky skill panel ── */}
+      <div className="sticky top-0 z-40">
+        <div
+          className={`overflow-hidden transition-all duration-300 ${
+            panelOpen ? "max-h-[480px]" : "max-h-0"
+          }`}
+        >
+          <div className="backdrop-blur-xl bg-black/60 border-b border-white/10">
+            <div className="max-w-2xl mx-auto px-4 pt-3 pb-4">
 
-              return (
-                <button
-                  key={motivation.id}
-                  type="button"
-                  onClick={() => {
-                    toggleMotivation(motivation.id);
-                    setActiveMotivation(motivation.id);
-                  }}
-                  className={`rounded-xl border px-4 py-4 text-left transition ${
-                    selected
-                      ? active
-                        ? "border-indigo-500/60 bg-indigo-500/20"
-                        : "border-indigo-500/40 bg-indigo-500/10"
-                      : "border-gray-700 bg-gray-950/60 hover:bg-gray-900"
-                  }`}
-                >
-                  <div className="font-semibold">{selected ? `✓ ${motivation.title}` : motivation.title}</div>
-                  <div className="mt-1 text-sm text-gray-400">{motivation.subtitle}</div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {state.selectedMotivations.map((id) => {
-              const item = MOTIVATIONS.find((m) => m.id === id);
-              if (!item) return null;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setActiveMotivation(id)}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-                    state.activeMotivation === id
-                      ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                      : "border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800"
-                  }`}
-                >
-                  {item.title} {state.activeMotivation === id ? "(Active)" : ""}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-gray-800 bg-gray-900/70 p-5">
-        <h3 className="text-3xl font-semibold">What do you want to do?</h3>
-        <p className="mt-1 text-gray-300">Up to 2 goals. Each tab keeps separate goals.</p>
-
-        <div className="mt-4 space-y-4">
-          {activeGoals.map((goal, index) => (
-            <article key={`${state.activeMotivation}-${index}`} className="rounded-xl border border-gray-800 bg-gray-950/60 p-4">
-              <div className="flex items-center gap-3">
-                <div className="h-7 w-7 rounded-full bg-indigo-500/80 text-xs font-bold flex items-center justify-center">{index + 1}</div>
-                <input
-                  value={goal.title}
-                  onChange={(event) => updateGoal(index, { title: event.target.value })}
-                  placeholder="Describe this goal"
-                  className="flex-1 border-b border-gray-700 bg-transparent pb-1 text-white outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeGoal(index)}
-                  className="text-sm text-gray-400 hover:text-red-300"
-                >
-                  Delete
-                </button>
-              </div>
-
-              <div className="mt-4">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Horizon</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {[
-                    { id: "thisYear", label: "This year" },
-                    { id: "threeYears", label: "3 Years" },
-                    { id: "lifetime", label: "Lifetime" },
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => updateGoal(index, { horizon: item.id as Horizon })}
-                      className={`rounded-full border px-3 py-1 text-xs ${
-                        goal.horizon === item.id
-                          ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                          : "border-gray-700 text-gray-300"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <p className="text-xs uppercase tracking-wide text-gray-400">Skills for this goal</p>
-                <input
-                  value={goal.skill}
-                  onChange={(event) => updateGoal(index, { skill: event.target.value })}
-                  placeholder="Add a skill"
-                  className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
-                />
-
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {[
-                    { id: "beginner", label: "Beginner" },
-                    { id: "intermediate", label: "Intermediate" },
-                    { id: "advanced", label: "Advanced" },
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => updateGoal(index, { skillLevel: item.id as SkillLevel })}
-                      className={`rounded-full border px-3 py-1 text-xs ${
-                        goal.skillLevel === item.id
-                          ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                          : "border-gray-700 text-gray-300"
-                      }`}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
+              {/* Panel header */}
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                  Skills
+                </span>
+                {selectedSkills.size > 0 && (
                   <button
                     type="button"
-                    onClick={() => updateGoal(index, { earnFromSkill: !goal.earnFromSkill })}
-                    className={`rounded-full border px-3 py-1 text-xs ${
-                      goal.earnFromSkill
-                        ? "border-emerald-500 bg-emerald-500/20 text-emerald-200"
-                        : "border-gray-700 text-gray-300"
-                    }`}
+                    onClick={() => setSelectedSkills(new Set())}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
                   >
-                    Earn from this?
+                    Clear {selectedSkills.size} selected
                   </button>
-                </div>
+                )}
               </div>
-            </article>
-          ))}
 
-          {activeGoals.length < MAX_GOALS && (
-            <button
-              type="button"
-              onClick={addGoal}
-              className="rounded-lg border border-gray-700 px-3 py-2 text-sm text-indigo-300 hover:bg-gray-800"
-            >
-              + Add goal for {MOTIVATIONS.find((m) => m.id === state.activeMotivation)?.title}
-            </button>
-          )}
+              {totalSkills === 0 ? (
+                <p className="text-xs text-gray-600 py-1">
+                  Add skills in the Personal tab — they&apos;ll appear here for filtering.
+                </p>
+              ) : (
+                <div className="grid grid-cols-4 gap-2">
+                  {COLUMNS.map(level => {
+                    const skills = skillsByLevel[level];
+                    const isOpen = expanded[level];
+                    const visible = isOpen ? skills : skills.slice(0, 2);
+                    const hiddenCount = skills.length - 2;
+
+                    return (
+                      <div
+                        key={level}
+                        className={`rounded-xl border ${LEVEL_BORDER[level]} bg-white/[0.03] p-2`}
+                      >
+                        {/* Column header */}
+                        <button
+                          type="button"
+                          onClick={() => toggleColumn(level)}
+                          className="w-full flex items-center justify-between mb-1.5 group"
+                        >
+                          <span className={`text-[10px] font-bold uppercase tracking-wider ${LEVEL_COLOR[level]}`}>
+                            {level}
+                          </span>
+                          {skills.length > 2 && (
+                            isOpen
+                              ? <ChevronUp className="w-3 h-3 text-gray-600 group-hover:text-gray-400" />
+                              : <ChevronDown className="w-3 h-3 text-gray-600 group-hover:text-gray-400" />
+                          )}
+                        </button>
+
+                        {/* Skill chips */}
+                        <div className="space-y-1">
+                          {visible.length === 0 && (
+                            <p className="text-[10px] text-gray-700 px-1">—</p>
+                          )}
+                          {visible.map(skill => {
+                            const active = selectedSkills.has(skill.name);
+                            return (
+                              <button
+                                key={skill.id}
+                                type="button"
+                                onClick={() => toggleSkill(skill.name)}
+                                className={`w-full text-left text-[11px] px-2 py-1 rounded-lg border transition-colors leading-tight ${
+                                  active
+                                    ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+                                    : "border-gray-800 text-gray-400 hover:border-gray-600 hover:text-gray-200"
+                                }`}
+                              >
+                                {skill.name}
+                              </button>
+                            );
+                          })}
+                          {!isOpen && hiddenCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => toggleColumn(level)}
+                              className="w-full text-[10px] text-gray-600 hover:text-gray-400 transition-colors text-center pt-0.5"
+                            >
+                              +{hiddenCount} more
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
-        {loaded && (
-          <p className="mt-4 text-xs text-emerald-400">
-            Saved locally. Refresh-safe and tab-specific for {MOTIVATIONS.find((m) => m.id === state.activeMotivation)?.title}.
-          </p>
+        {/* Collapsed indicator bar */}
+        {!panelOpen && (
+          <button
+            type="button"
+            onClick={() => setPanelOpen(true)}
+            className="w-full backdrop-blur-xl bg-black/60 border-b border-white/10 py-1.5 flex items-center justify-center gap-2"
+          >
+            <ChevronDown className="w-3 h-3 text-gray-600" />
+            <span className="text-[10px] text-gray-600 tracking-widest uppercase">Skills</span>
+            {selectedSkills.size > 0 && (
+              <span className="text-[10px] text-indigo-500">
+                ({selectedSkills.size} selected)
+              </span>
+            )}
+          </button>
         )}
-      </section>
+      </div>
+
+      {/* ── Page header ── */}
+      <div className="max-w-2xl mx-auto px-4 pt-4 pb-2 flex items-center justify-between">
+        <h1 className="text-2xl font-light text-white tracking-wide">Learn</h1>
+        <button
+          onClick={loadFeed}
+          disabled={loading}
+          className="text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-40"
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      </div>
+
+      {/* ── Teacher filter ── */}
+      {teachers.length > 0 && (
+        <div className="max-w-2xl mx-auto px-4 pb-3">
+          <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {["All", ...teachers].map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setSelectedTeacher(t)}
+                className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                  selectedTeacher === t
+                    ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+                    : "border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-200"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Feed ── */}
+      <div className="max-w-2xl mx-auto px-4 pb-32">
+        <div className="space-y-6">
+
+          {loading && finalPosts.length === 0 && (
+            <div className="text-center py-20">
+              <BookOpen className="w-16 h-16 text-gray-700 mx-auto mb-4" />
+              <p className="text-gray-500 text-lg">Loading…</p>
+            </div>
+          )}
+
+          {!loading && finalPosts.length === 0 && (
+            <div className="text-center py-20">
+              <BookOpen className="w-16 h-16 text-gray-700 mx-auto mb-4" />
+              <p className="text-gray-500 text-lg">No content found</p>
+              <p className="text-gray-600 text-sm mt-2">
+                {selectedSkills.size > 0
+                  ? "Try selecting different skills or clear the filter"
+                  : "Videos from teachers will appear here"}
+              </p>
+            </div>
+          )}
+
+          {finalPosts.map(post => {
+            const avatarLetter = (post.author || "U")[0].toUpperCase();
+            return (
+              <article
+                key={post.id}
+                className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm hover:bg-white/[0.08] transition-colors"
+              >
+                {/* Author row */}
+                <div className="p-6 pb-4">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-medium shrink-0">
+                      {avatarLetter}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-white truncate">{post.author}</p>
+                      <p className="text-sm text-gray-500">{formatTime(post.timeISO)}</p>
+                    </div>
+                  </div>
+                  {post.content && (
+                    <p className="text-gray-200 whitespace-pre-wrap leading-relaxed">
+                      {post.content}
+                    </p>
+                  )}
+                </div>
+
+                {/* Images */}
+                {post.imageUrls.length > 0 && (
+                  <div
+                    className={
+                      post.imageUrls.length === 1
+                        ? ""
+                        : "grid grid-cols-2 gap-0.5"
+                    }
+                  >
+                    {post.imageUrls.map((url, i) => {
+                      const isFirst = i === 0 && post.imageUrls.length >= 3;
+                      return (
+                        <img
+                          key={i}
+                          src={url}
+                          alt=""
+                          loading="lazy"
+                          className={`w-full object-cover ${
+                            post.imageUrls.length === 1
+                              ? "max-h-[480px]"
+                              : isFirst
+                              ? "col-span-2 max-h-64"
+                              : "h-40"
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Video */}
+                {post.videoUrl && (
+                  <video
+                    src={post.videoUrl}
+                    controls
+                    className="w-full bg-black max-h-[480px]"
+                  />
+                )}
+
+                {/* YouTube embeds */}
+                {post.youtubeLinks.map((link, i) => {
+                  const id = extractYouTubeId(link);
+                  if (!id) return null;
+                  return (
+                    <div key={i} className="aspect-video">
+                      <iframe
+                        width="100%"
+                        height="100%"
+                        src={`https://www.youtube.com/embed/${id}`}
+                        allowFullScreen
+                        className="border-0"
+                      />
+                    </div>
+                  );
+                })}
+
+                {/* Tags */}
+                {post.slugTags.length > 0 && (
+                  <div className="px-6 py-2.5 border-t border-white/5 flex flex-wrap gap-1.5">
+                    {post.slugTags.map(tag => {
+                      const isMatched =
+                        selectedSkills.size > 0 &&
+                        Array.from(selectedSkills).some(s => {
+                          const sk = toSlugKey(s);
+                          const t = tag.toLowerCase();
+                          return t.includes(sk) || sk.includes(t);
+                        });
+                      return (
+                        <span
+                          key={tag}
+                          className={`text-xs px-2 py-0.5 rounded-full border ${
+                            isMatched
+                              ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-400"
+                              : "bg-white/5 border-white/10 text-gray-600"
+                          }`}
+                        >
+                          {tag}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Likes */}
+                <div className="px-6 py-3 border-t border-white/5">
+                  <span className="text-sm text-gray-500">
+                    {post.likes > 0
+                      ? `${post.likes} like${post.likes !== 1 ? "s" : ""}`
+                      : "Be the first to like"}
+                  </span>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

@@ -73,12 +73,11 @@ export default function StorePage() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-100 text-neutral-900">
+    <div className="min-h-screen bg-[#0f0f0f] text-white">
       {/* Banner */}
-      <div className="relative h-40 sm:h-48 overflow-hidden border-b border-neutral-200">
-        <div className="absolute inset-0 bg-gradient-to-r from-red-500 via-pink-400 to-amber-300" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.5),transparent_38%)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(to_top,rgba(0,0,0,0.2),transparent_45%)]" />
+      <div className="relative h-36 sm:h-44 overflow-hidden border-b border-white/10">
+        <div className="absolute inset-0 bg-gradient-to-r from-red-600/40 via-fuchsia-500/20 to-indigo-500/40" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.2),transparent_40%)]" />
       </div>
 
       {/* Store Header */}
@@ -86,25 +85,25 @@ export default function StorePage() {
         <div className="max-w-6xl mx-auto">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div className="flex items-end gap-3">
-              <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-white border-4 border-white shadow-xl flex items-center justify-center text-3xl font-bold text-red-600">
-                {businessName?.charAt(0)?.toUpperCase() || "S"}
+              <div className="h-20 w-20 sm:h-24 sm:w-24 rounded-full bg-neutral-900 border-2 border-white/15 shadow-xl flex items-center justify-center text-2xl">
+                🛍️
               </div>
               <div className="pb-1">
                 <Link
                   href="/self?tab=earn"
-                  className="text-red-700 hover:text-red-800 text-xs sm:text-sm transition font-medium"
+                  className="text-red-300/80 hover:text-red-200 text-xs sm:text-sm transition"
                 >
                   ← Back to Businesses
                 </Link>
                 <h1 className="text-2xl sm:text-3xl font-bold mt-1">{businessName}</h1>
-                <p className="text-neutral-600 text-xs sm:text-sm">Your store • Channel-style layout</p>
+                <p className="text-neutral-400 text-xs sm:text-sm">Your store • Channel-style layout</p>
               </div>
             </div>
 
             <div className="flex gap-2 pb-1">
               <button
                 onClick={addItem}
-                className="px-4 py-2 rounded-full bg-white hover:bg-neutral-50 text-neutral-900 text-sm transition border border-neutral-200 shadow-sm"
+                className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/15 text-white text-sm transition border border-white/10"
               >
                 + Add Item
               </button>
@@ -123,8 +122,8 @@ export default function StorePage() {
                 key={tab}
                 className={`shrink-0 px-4 py-1.5 rounded-full border ${
                   idx === 0
-                    ? "bg-neutral-900 text-white border-neutral-900"
-                    : "bg-white hover:bg-neutral-50 border-neutral-200 text-neutral-700"
+                    ? "bg-white text-black border-white"
+                    : "bg-white/5 hover:bg-white/10 border-white/10 text-neutral-200"
                 }`}
               >
                 {tab}
@@ -132,14 +131,14 @@ export default function StorePage() {
             ))}
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-700">
-            <span className="px-2.5 py-1 rounded-full bg-white border border-neutral-200 shadow-sm">
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-300">
+            <span className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
               {items.length} items
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-white border border-neutral-200 shadow-sm">
+            <span className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
               Updated instantly
             </span>
-            <span className="px-2.5 py-1 rounded-full bg-white border border-neutral-200 shadow-sm">
+            <span className="px-2.5 py-1 rounded-full bg-white/5 border border-white/10">
               Mobile friendly
             </span>
           </div>
@@ -150,12 +149,12 @@ export default function StorePage() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-6">
           <h2 className="text-xl sm:text-2xl font-semibold">Latest products</h2>
-          <p className="text-neutral-600 text-sm mt-1">A clean shelf layout inspired by video platforms.</p>
+          <p className="text-neutral-400 text-sm mt-1">A clean shelf layout inspired by video platforms.</p>
         </div>
 
         {items.length === 0 ? (
-          <div className="rounded-2xl border border-neutral-200 bg-white p-10 text-center shadow-sm">
-            <p className="text-neutral-700">No items yet.</p>
+          <div className="rounded-2xl border border-white/10 bg-[#181818] p-10 text-center">
+            <p className="text-neutral-300">No items yet.</p>
             <button
               onClick={addItem}
               className="mt-3 px-4 py-2 rounded-full bg-red-600 hover:bg-red-500 text-sm font-medium"
@@ -168,10 +167,10 @@ export default function StorePage() {
           {items.map((item) => (
             <div
               key={item.id}
-              className="bg-white border border-neutral-200 rounded-2xl overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition group"
+              className="bg-[#181818] border border-white/10 rounded-2xl overflow-hidden hover:border-red-500/40 transition group shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
             >
               {/* Image placeholder */}
-              <div className="h-44 bg-neutral-100 flex items-center justify-center relative">
+              <div className="h-40 bg-neutral-900 flex items-center justify-center relative">
                 {item.image ? (
                   <img
                     src={item.image}
@@ -180,11 +179,11 @@ export default function StorePage() {
                   />
                 ) : (
                   <div className="text-neutral-500 text-sm text-center px-4">
-                    <div className="text-3xl mb-1">Image</div>
+                    <div className="text-3xl mb-1">📺</div>
                     <span>No image</span>
                   </div>
                 )}
-                <span className="absolute bottom-2 right-2 px-2 py-0.5 text-xs rounded bg-neutral-900 text-white">
+                <span className="absolute bottom-2 right-2 px-2 py-0.5 text-xs rounded bg-black/70 text-neutral-200">
                   Product
                 </span>
               </div>
@@ -199,20 +198,20 @@ export default function StorePage() {
                       value={item.name}
                       onChange={(e) => updateItem(item.id, "name", e.target.value)}
                       placeholder="Item name"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border border-neutral-300 text-neutral-900 text-sm focus:outline-none focus:border-red-500"
+                      className="w-full px-3 py-1.5 rounded-lg bg-neutral-900 border border-white/10 text-white text-sm focus:outline-none focus:border-red-500"
                     />
                     <input
                       value={item.price}
                       onChange={(e) => updateItem(item.id, "price", e.target.value)}
                       placeholder="Price (e.g. ₹299)"
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border border-neutral-300 text-neutral-900 text-sm focus:outline-none focus:border-red-500"
+                      className="w-full px-3 py-1.5 rounded-lg bg-neutral-900 border border-white/10 text-white text-sm focus:outline-none focus:border-red-500"
                     />
                     <textarea
                       value={item.description}
                       onChange={(e) => updateItem(item.id, "description", e.target.value)}
                       placeholder="Short description..."
                       rows={2}
-                      className="w-full px-3 py-1.5 rounded-lg bg-white border border-neutral-300 text-neutral-900 text-sm resize-none focus:outline-none focus:border-red-500"
+                      className="w-full px-3 py-1.5 rounded-lg bg-neutral-900 border border-white/10 text-white text-sm resize-none focus:outline-none focus:border-red-500"
                     />
                     <div className="flex gap-2 pt-1">
                       <button
@@ -233,12 +232,12 @@ export default function StorePage() {
                   /* View mode */
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="font-semibold text-neutral-900 text-sm leading-tight line-clamp-2">
+                      <h3 className="font-semibold text-white text-sm leading-tight line-clamp-2">
                         {item.name}
                       </h3>
                       <button
                         onClick={() => setEditingId(item.id)}
-                        className="text-neutral-500 hover:text-neutral-800 text-xs opacity-0 group-hover:opacity-100 transition shrink-0"
+                        className="text-neutral-500 hover:text-neutral-300 text-xs opacity-0 group-hover:opacity-100 transition shrink-0"
                       >
                         Edit
                       </button>
@@ -247,7 +246,7 @@ export default function StorePage() {
                       <p className="text-red-400 text-sm font-medium mb-1">{item.price}</p>
                     )}
                     {item.description ? (
-                      <p className="text-neutral-600 text-xs leading-relaxed line-clamp-3">{item.description}</p>
+                      <p className="text-neutral-400 text-xs leading-relaxed line-clamp-3">{item.description}</p>
                     ) : (
                       <p className="text-neutral-600 text-xs italic">
                         Hover and click Edit to add details

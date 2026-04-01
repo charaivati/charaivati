@@ -1,7 +1,8 @@
 // app/(with-nav)/self/tabs/EarningTab.tsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   Camera,
   Video,
@@ -54,6 +55,7 @@ function extractYouTubeId(url: string): string | null {
 }
 
 export default function EarningTab() {
+  const router = useRouter();
   const cloudinary = useCloudinaryUpload();
 
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -185,6 +187,21 @@ export default function EarningTab() {
       setAdding(false);
     }
   }
+
+  const [openingStore, setOpeningStore] = useState<string | null>(null);
+
+  const openStore = useCallback(async (pageId: string) => {
+    setOpeningStore(pageId);
+    try {
+      const res = await fetch(`/api/store/for-page/${pageId}`, { credentials: "include" });
+      if (res.ok) {
+        const { storeId } = await res.json();
+        router.push(`/store/${storeId}`);
+      }
+    } finally {
+      setOpeningStore(null);
+    }
+  }, [router]);
 
   async function deletePage(id: string) {
     if (!confirm("Are you sure you want to delete this business?")) return;
@@ -622,12 +639,13 @@ export default function EarningTab() {
                       >
                         Evaluate and Plan
                       </a>
-                      <a
-                        href={`/business/store/${page.id}`}
-                        className="px-3 py-1 rounded text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center"
+                      <button
+                        onClick={() => openStore(page.id)}
+                        disabled={openingStore === page.id}
+                        className="px-3 py-1 rounded text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center disabled:opacity-50"
                       >
-                        Your Store
-                      </a>
+                        {openingStore === page.id ? "Opening…" : "Your Store"}
+                      </button>
                       <button
                         onClick={() => deletePage(page.id)}
                         disabled={deleting === page.id}
