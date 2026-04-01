@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const updated = await prisma.$executeRawUnsafe(
-    `UPDATE "StoreSection" SET "type" = 'grid' WHERE "type" IS NULL OR "type" = ''`
+    `UPDATE "Section" SET "type" = 'grid' WHERE "type" IS NULL OR "type" = ''`
   );
 
   console.log(`[backfill-section-types] updated ${updated} section rows to type=grid`);

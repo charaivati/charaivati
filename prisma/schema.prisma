@@ -55,7 +55,7 @@ model User {
   posts                   Post[]               @relation("UserPosts")
   circles                 FriendCircle[]       @relation("UserCircles")
   circleMemberships       FriendCircleMember[] @relation("CircleMemberships")
-  stores                  Store[]
+  stores                  Store[]             @relation("UserStores")
 
   @@index([email])
   @@index([phone])
@@ -203,60 +203,73 @@ model Page {
 
 /// Universal Store page models (products/videos/services)
 model Store {
-  id          String         @id @default(cuid())
+  id          String    @id @default(cuid())
   name        String
   description String?
   ownerId     String
-  createdAt   DateTime       @default(now())
-  owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  sections    StoreSection[]
+  pageId      String?   @unique
+  createdAt   DateTime  @default(now())
+
+  owner       User      @relation("UserStores", fields: [ownerId], references: [id], onDelete: Cascade)
+  sections    Section[]
 
   @@index([ownerId])
 }
 
-model StoreSection {
-  id          String            @id @default(cuid())
+model Section {
+  id          String       @id @default(cuid())
   storeId     String
   title       String
-  order       Int
-  type        String            @default("grid")
-  createdAt   DateTime          @default(now())
-  store       Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  blocks      StoreBlock[]
-  subsections StoreSubsection[]
+  order       Int          @default(0)
+  type        String       @default("grid") // IMPORTANT: default fix
+  createdAt   DateTime     @default(now())
 
-  @@index([storeId, order])
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  subsections Subsection[]
+  blocks      Block[]
+
+  @@index([storeId])
+  @@index([order])
 }
 
-model StoreSubsection {
-  id        String       @id @default(cuid())
+model Subsection {
+  id        String   @id @default(cuid())
   sectionId String
   title     String
-  order     Int
-  createdAt DateTime     @default(now())
-  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  blocks    StoreBlock[]
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
 
-  @@index([sectionId, order])
+  section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  blocks    Block[]
+
+  @@index([sectionId])
+  @@index([order])
 }
 
-model StoreBlock {
-  id           String           @id @default(cuid())
+model Block {
+  id           String      @id @default(cuid())
+
   sectionId    String?
   subsectionId String?
+
   title        String
   description  String?
-  mediaType    String
-  mediaUrl     String?
-  actionType   String
-  price        Float?
-  order        Int
-  createdAt    DateTime         @default(now())
-  section      StoreSection?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  subsection   StoreSubsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
 
-  @@index([sectionId, order])
-  @@index([subsectionId, order])
+  mediaType    String      @default("image") // image | video
+  mediaUrl     String?
+
+  actionType   String      @default("view")  // view | buy | unlock | book
+  price        Float?
+
+  order        Int         @default(0)
+  createdAt    DateTime    @default(now())
+
+  section      Section?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subsection   Subsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId])
+  @@index([subsectionId])
+  @@index([order])
 }
 
 /// *
@@ -741,4 +754,69 @@ model HelpLink {
 
   @@index([pageSlug])
   @@index([country])
+}
+
+// ─────────────────────────────────────────────
+// Universal Store Page
+// ─────────────────────────────────────────────
+
+model Store {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String
+  pageId      String?   @unique  // optional 1-to-1 link to a Page (business)
+  createdAt   DateTime  @default(now())
+  owner       User      @relation("UserStores", fields: [ownerId], references: [id], onDelete: Cascade)
+  sections    Section[]
+
+  @@index([ownerId])
+}
+
+model Section {
+  id          String       @id @default(cuid())
+  storeId     String
+  title       String
+  order       Int          @default(0)
+  type        String       @default("list") // "list" | "grid" | "series"
+  createdAt   DateTime     @default(now())
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  subsections Subsection[]
+  blocks      Block[]
+
+  @@index([storeId])
+  @@index([order])
+}
+
+model Subsection {
+  id        String   @id @default(cuid())
+  sectionId String
+  title     String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  section   Section  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  blocks    Block[]
+
+  @@index([sectionId])
+  @@index([order])
+}
+
+model Block {
+  id           String      @id @default(cuid())
+  sectionId    String?
+  subsectionId String?
+  title        String
+  description  String?
+  mediaType    String      @default("image") // "image" | "video"
+  mediaUrl     String?
+  actionType   String      @default("view")  // "view" | "buy" | "unlock" | "book"
+  price        Float?
+  order        Int         @default(0)
+  createdAt    DateTime    @default(now())
+  section      Section?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  subsection   Subsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+
+  @@index([sectionId])
+  @@index([subsectionId])
+  @@index([order])
 }
