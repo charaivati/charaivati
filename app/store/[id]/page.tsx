@@ -1,97 +1,75 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   DndContext,
-  closestCenter,
+  DragEndEvent,
   PointerSensor,
+  closestCenter,
   useSensor,
   useSensors,
-  DragEndEvent,
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  arrayMove,
   verticalListSortingStrategy,
   useSortable,
-  arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// --- TYPE DEFINITIONS ---
+type MediaType = "image" | "video" | "link" | "none";
+type ActionType = "view" | "buy" | "book" | "contact";
+type SectionType = "grid" | "list" | "featured" | "carousel";
 
-type ActionType = "view" | "buy" | "unlock" | "book";
-type MediaType = "image" | "video";
-type SectionType = "list" | "grid" | "series";
-
-interface Block {
+type Block = {
   id: string;
   title: string;
-  description: string | null;
+  description?: string | null;
   mediaType: MediaType;
-  mediaUrl: string | null;
+  mediaUrl?: string | null;
   actionType: ActionType;
-  price: number | null;
-  order: number;
-}
+  price?: number | null;
+};
 
-interface Subsection {
-  id: string;
-  title: string;
-  order: number;
-  blocks: Block[];
-}
-
-interface Section {
+type Section = {
   id: string;
   title: string;
   type: SectionType;
-  order: number;
   blocks: Block[];
-  subsections: Subsection[];
-}
+  subsections?: Section[];
+};
 
-interface Store {
+type Store = {
   id: string;
   name: string;
-  description: string | null;
-  ownerId: string;
+  description?: string | null;
+  avatarUrl?: string | null;
+  bannerUrl?: string | null;
   isOwner: boolean;
   sections: Section[];
-}
-
-// ─── Action config ────────────────────────────────────────────────────────────
-
-const ACTION_LABELS: Record<ActionType, string> = {
-  view: "View",
-  buy: "Buy",
-  unlock: "Unlock",
-  book: "Book",
 };
 
-const ACTION_STYLES: Record<ActionType, string> = {
-  view:   "bg-indigo-600 hover:bg-indigo-500 text-white",
-  buy:    "bg-emerald-600 hover:bg-emerald-500 text-white",
-  unlock: "bg-amber-500  hover:bg-amber-400  text-white",
-  book:   "bg-violet-600 hover:bg-violet-500 text-white",
+// --- THEME & STYLES ---
+const A = {
+  bg: "#E3E6E6",
+  nav: "#131921",
+  nav2: "#232F3E",
+  surface: "#FFFFFF",
+  border: "#DDDDDD",
+  text: "#0F1111",
+  textMuted: "#565959",
+  accent: "#FFD814",
+  accentHover: "#F7CA00",
+  link: "#007185",
+  deal: "#CC0C39",
 };
 
-// ─── Gradient palette ─────────────────────────────────────────────────────────
+const inputCls = "w-full text-sm px-3 py-2 rounded-md outline-none placeholder:text-zinc-500";
+const inputStyle = { background: "#fff", color: A.text, border: `1px solid ${A.border}` };
 
-const GRADIENTS = [
-  "from-indigo-500 to-purple-600",
-  "from-emerald-500 to-teal-600",
-  "from-amber-500 to-orange-600",
-  "from-rose-500 to-pink-600",
-  "from-sky-500 to-blue-600",
-];
-
-function gradientFor(title: string) {
-  return GRADIENTS[title.charCodeAt(0) % GRADIENTS.length];
-}
-
-// ─── Media thumbnail ──────────────────────────────────────────────────────────
-
+// --- COMPONENTS ---
 function MediaThumb({
   block,
   className,
@@ -101,193 +79,120 @@ function MediaThumb({
   className?: string;
   editMode: boolean;
 }) {
-  const initials = block.title.slice(0, 2).toUpperCase();
+  const base = "relative overflow-hidden bg-white " + (className ?? "aspect-[4/3]");
+  const url = block.mediaUrl ?? "";
   return (
-    <div className={`relative overflow-hidden bg-white/5 ${className ?? ""}`}>
-      {block.mediaUrl ? (
-        block.mediaType === "video" ? (
-          <video
-            src={block.mediaUrl}
-            className="w-full h-full object-cover"
-            controls={!editMode}
-            muted
-            playsInline
-          />
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={block.mediaUrl} alt={block.title} className="w-full h-full object-cover" />
-        )
+    <div className={base}>
+      {block.mediaType === "video" && url ? (
+        <video src={url} className="w-full h-full object-contain bg-white" muted playsInline preload="metadata" />
+      ) : block.mediaType === "image" && url ? (
+        <img src={url} alt={block.title} className="w-full h-full object-contain bg-white" />
       ) : (
-        <div
-          className={`w-full h-full bg-gradient-to-br ${gradientFor(block.title)} flex items-center justify-center`}
-        >
-          <span className="text-white font-bold text-lg select-none">{initials}</span>
+        <div className="w-full h-full flex items-center justify-center text-xs" style={{ color: A.textMuted }}>
+          No media
+        </div>
+      )}
+      {editMode && (
+        <div className="absolute top-1 left-1 text-xs px-1.5 py-0.5 rounded bg-black/70 text-white">
+          {block.mediaType}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Grid card (16:9, title below — YouTube style) ────────────────────────────
-
-function GridCard({ block, editMode }: { block: Block; editMode: boolean }) {
+function ProductCard({ block }: { block: Block }) {
   return (
-    <div className="group cursor-pointer">
-      <MediaThumb
-        block={block}
-        className="aspect-video rounded-2xl w-full group-hover:brightness-90 transition-[filter]"
-        editMode={editMode}
-      />
-      <div className="mt-2.5 px-0.5">
-        <p className="font-semibold text-sm leading-snug text-white line-clamp-2">
+    <div className="rounded-md bg-white hover:shadow-md transition-shadow" style={{ border: `1px solid ${A.border}` }}>
+      <div className="p-3">
+        <MediaThumb block={block} className="w-full aspect-[4/3]" editMode={false} />
+      </div>
+      <div className="px-3 pb-4">
+        <p className="text-sm leading-snug line-clamp-2" style={{ color: A.text }}>
+          {block.title || "Untitled"}
+        </p>
+        <div className="flex items-center gap-1 mt-1 text-xs">
+          <span style={{ color: A.link }}>★★★★☆</span>
+          <span style={{ color: A.link }}>(1,234)</span>
+        </div>
+        <p className="text-xs mt-1" style={{ color: A.text }}>
+          Get it by <span className="font-medium">Tomorrow</span>. <span className="font-medium">FREE Delivery by Amazon.</span>
+        </p>
+        {block.price != null && (
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className="text-sm font-medium" style={{ color: A.text }}>
+              ₹{block.price.toLocaleString("en-IN")}
+            </span>
+          </div>
+        )}
+        <div className="mt-3 flex gap-2">
+          <button
+            className="text-xs font-medium px-3 py-2 rounded-md"
+            style={{ background: A.accent, border: `1px solid #FCD200`, color: "#111" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = A.accentHover)}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = A.accent)}
+          >
+            Add to Cart
+          </button>
+          <button
+            className="text-xs font-medium px-3 py-2 rounded-md"
+            style={{ background: "#FFA41C", border: `1px solid #FF8F00`, color: "#111" }}
+          >
+            Buy Now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProductRow({ block }: { block: Block }) {
+  return (
+    <div className="flex gap-4 p-4 rounded-md" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
+      <div className="w-52 shrink-0">
+        <MediaThumb block={block} className="w-full aspect-square" editMode={false} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-lg leading-snug line-clamp-2 hover:text-orange-600 cursor-pointer" style={{ color: A.text }}>
           {block.title}
         </p>
-        {block.description && (
-          <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{block.description}</p>
-        )}
-        <div className="flex items-center justify-between mt-2 gap-2">
-          {block.price != null && (
-            <span className="text-sm font-bold text-white">
-              ₹{block.price.toLocaleString("en-IN")}
-            </span>
-          )}
-          <button
-            className={`ml-auto text-xs font-semibold px-3 py-1 rounded-full transition-colors ${ACTION_STYLES[block.actionType]}`}
-          >
-            {ACTION_LABELS[block.actionType]}
-          </button>
+        <div className="flex items-center gap-1 mt-1 text-xs">
+          <span style={{ color: A.link }}>★★★★☆</span>
+          <span className="hover:underline cursor-pointer" style={{ color: A.link }}>(1,234)</span>
         </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── List card (compact horizontal, 2-col grid) ───────────────────────────────
-
-function ListCard({ block, editMode }: { block: Block; editMode: boolean }) {
-  return (
-    <div className="flex gap-3 rounded-2xl bg-white/5 border border-white/10 p-3 hover:bg-white/[0.08] transition-colors cursor-pointer group">
-      <MediaThumb
-        block={block}
-        className="rounded-xl shrink-0 w-28 sm:w-32 aspect-video group-hover:brightness-90 transition-[filter]"
-        editMode={editMode}
-      />
-      <div className="flex flex-col justify-between flex-1 min-w-0 py-0.5">
-        <div>
-          <p className="font-semibold text-sm leading-snug text-white line-clamp-2">
-            {block.title}
-          </p>
-          {block.description && (
-            <p className="text-xs text-gray-500 mt-1 line-clamp-2">{block.description}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 mt-2">
-          {block.price != null && (
-            <span className="text-xs font-bold text-white">
-              ₹{block.price.toLocaleString("en-IN")}
-            </span>
-          )}
-          <button
-            className={`ml-auto shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${ACTION_STYLES[block.actionType]}`}
-          >
-            {ACTION_LABELS[block.actionType]}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Series card (numbered list) ──────────────────────────────────────────────
-
-function SeriesCard({
-  block,
-  index,
-  editMode,
-}: {
-  block: Block;
-  index: number;
-  editMode: boolean;
-}) {
-  return (
-    <div className="flex gap-3 items-start rounded-2xl bg-white/5 border border-white/10 p-3 hover:bg-white/[0.08] transition-colors cursor-pointer group">
-      <span className="shrink-0 w-6 text-center text-xs font-bold text-gray-600 mt-2 select-none">
-        {index + 1}
-      </span>
-      <MediaThumb
-        block={block}
-        className="rounded-xl shrink-0 w-28 sm:w-32 aspect-video group-hover:brightness-90 transition-[filter]"
-        editMode={editMode}
-      />
-      <div className="flex flex-col justify-between flex-1 min-w-0 py-0.5">
-        <p className="font-semibold text-sm leading-snug text-white line-clamp-2">
-          {block.title}
+        {block.price != null ? (
+          <div className="mt-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs px-2 py-1 font-semibold" style={{ background: A.deal, color: "white" }}>
+                Limited time deal
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-2xl" style={{ color: A.deal }}>
+                -17%
+              </span>
+              <span className="text-2xl" style={{ color: A.text }}>
+                <sup>₹</sup>
+                {block.price.toLocaleString("en-IN")}
+              </span>
+            </div>
+            <div className="text-xs" style={{ color: A.textMuted }}>
+              M.R.P.: <span className="line-through">₹{(block.price * 1.2).toLocaleString("en-IN")}</span>
+            </div>
+          </div>
+        ) : null}
+        <p className="text-sm mt-2" style={{ color: A.text }}>
+          Get it by <span className="font-semibold text-green-800">Tomorrow, April 4</span>.
         </p>
-        {block.description && (
-          <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{block.description}</p>
-        )}
-        <div className="flex items-center gap-2 mt-2">
-          {block.price != null && (
-            <span className="text-xs font-bold text-white">
-              ₹{block.price.toLocaleString("en-IN")}
-            </span>
-          )}
-          <button
-            className={`ml-auto text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${ACTION_STYLES[block.actionType]}`}
-          >
-            {ACTION_LABELS[block.actionType]}
+        <div className="mt-3">
+          <button className="text-xs font-medium px-4 py-1.5 rounded-full" style={{ background: A.accent, border: `1px solid #FCD200` }}>
+            Add to Cart
           </button>
         </div>
       </div>
     </div>
   );
 }
-
-// ─── Block dispatcher ─────────────────────────────────────────────────────────
-
-function BlockCard({
-  block,
-  layout,
-  index,
-  editMode,
-}: {
-  block: Block;
-  layout: SectionType;
-  index: number;
-  editMode: boolean;
-}) {
-  if (layout === "grid")   return <GridCard   block={block} editMode={editMode} />;
-  if (layout === "series") return <SeriesCard block={block} index={index} editMode={editMode} />;
-  return <ListCard block={block} editMode={editMode} />;
-}
-
-// ─── Sortable block ───────────────────────────────────────────────────────────
-
-function SortableBlock({ block, index, layout }: { block: Block; index: number; layout: SectionType }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id });
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={isDragging ? "opacity-50" : ""}
-    >
-      <div className="relative">
-        <div
-          {...attributes}
-          {...listeners}
-          className="absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing bg-black/50 hover:bg-black/70 rounded-lg p-1.5"
-          title="Drag to reorder"
-        >
-          <GripIcon />
-        </div>
-        <BlockCard block={block} layout={layout} index={index} editMode />
-      </div>
-    </div>
-  );
-}
-
-// ─── Sortable section ─────────────────────────────────────────────────────────
 
 function SortableSection({
   section,
@@ -297,123 +202,184 @@ function SortableSection({
 }: {
   section: Section;
   editMode: boolean;
-  onBlocksReorder: (sectionId: string, newOrder: Block[]) => void;
+  onBlocksReorder: (sectionId: string, newBlocks: Block[]) => void;
   onAddBlock: (sectionId: string) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: section.id });
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: section.id });
+  const style = { transform: CSS.Transform.toString(transform), transition };
+  const sensorsBlocks = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   function handleBlockDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const oldIndex = section.blocks.findIndex((b) => b.id === active.id);
     const newIndex = section.blocks.findIndex((b) => b.id === over.id);
-    onBlocksReorder(section.id, arrayMove(section.blocks, oldIndex, newIndex));
+    const reordered = arrayMove(section.blocks, oldIndex, newIndex);
+    onBlocksReorder(section.id, reordered);
   }
 
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={isDragging ? "opacity-50" : ""}
-    >
-      <SectionView
-        section={section}
-        editMode={editMode}
-        dragHandleProps={editMode ? { ...attributes, ...listeners } : undefined}
-        sensors={sensors}
-        onBlockDragEnd={handleBlockDragEnd}
-        onAddBlock={onAddBlock}
-      />
-    </div>
-  );
-}
-
-// ─── Section view ─────────────────────────────────────────────────────────────
-
-function SectionView({
-  section,
-  editMode,
-  dragHandleProps,
-  sensors,
-  onBlockDragEnd,
-  onAddBlock,
-}: {
-  section: Section;
-  editMode: boolean;
-  dragHandleProps?: Record<string, unknown>;
-  sensors?: ReturnType<typeof useSensors>;
-  onBlockDragEnd?: (e: DragEndEvent) => void;
-  onAddBlock?: (sectionId: string) => void;
-}) {
-  const blocks = section.blocks;
-
-  // Grid: 2→3→4 cols. List: 1→2 cols. Series: 1 col.
-  const containerClass =
-    section.type === "grid"
-      ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-3 gap-y-6"
-      : section.type === "list"
-      ? "grid grid-cols-1 sm:grid-cols-2 gap-3"
-      : "flex flex-col gap-2";
+  // Render blocks based on section type
+  const renderBlocks = () => {
+    switch (section.type) {
+      case "carousel":
+        return (
+          <div className="overflow-x-auto -mx-3 px-3">
+            <div className="flex gap-4">
+              {section.blocks.map((b) => (
+                <div key={b.id} className="w-64 shrink-0">
+                  <ProductCard block={b} />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      case "featured":
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {section.blocks.map((b) => (
+              <ProductRow key={b.id} block={b} />
+            ))}
+          </div>
+        );
+      case "list":
+      case "grid":
+      default:
+        // Both list and grid now render as a 5-column grid
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
+            {section.blocks.map((b) => (
+              <ProductCard key={b.id} block={b} />
+            ))}
+          </div>
+        );
+    }
+  };
 
   return (
-    <section className="mb-10">
-      {/* Section header */}
-      <div className="flex items-center justify-between mb-4">
+    <section ref={setNodeRef} style={style} className="mb-8">
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          {editMode && dragHandleProps && (
-            <span
-              {...dragHandleProps}
-              className="cursor-grab active:cursor-grabbing text-gray-600 hover:text-gray-400"
+          {editMode && (
+            <button
+              className="cursor-grab text-xs px-2 py-1 rounded"
+              style={{ color: A.textMuted, border: `1px solid ${A.border}`, background: "#fff" }}
+              {...attributes}
+              {...listeners}
               title="Drag section"
             >
-              <GripIcon />
-            </span>
+              ☰
+            </button>
           )}
-          <h2 className="text-base font-bold text-white tracking-tight">{section.title}</h2>
-          <span className="text-[10px] uppercase tracking-widest text-gray-600 font-medium">
-            {section.type === "series" ? `Series · ${blocks.length}` : blocks.length}
-          </span>
+          <h2 className="text-lg font-semibold" style={{ color: A.text }}>{section.title}</h2>
         </div>
-        {!editMode && blocks.length > 4 && (
-          <button className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline transition-colors">
-            See all
+        {editMode && (
+          <button
+            onClick={() => onAddBlock(section.id)}
+            className="text-xs font-semibold px-3 py-1.5 rounded-md"
+            style={{ background: "#fff", color: A.text, border: `1px solid ${A.border}` }}
+          >
+            + Add block
           </button>
         )}
       </div>
 
-      {/* Blocks */}
-      {editMode && sensors && onBlockDragEnd ? (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onBlockDragEnd}>
-          <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-            <div className={containerClass}>
-              {blocks.map((block, i) => (
-                <SortableBlock key={block.id} block={block} index={i} layout={section.type} />
-              ))}
-            </div>
+      {renderBlocks()}
+
+      {editMode && section.blocks.length > 0 && (
+        <DndContext sensors={sensorsBlocks} collisionDetection={closestCenter} onDragEnd={handleBlockDragEnd}>
+          <SortableContext items={section.blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+            <div className="hidden">{section.blocks.map((b) => <div key={b.id} id={b.id} />)}</div>
           </SortableContext>
         </DndContext>
-      ) : (
-        <div className={containerClass}>
-          {blocks.map((block, i) => (
-            <BlockCard key={block.id} block={block} layout={section.type} index={i} editMode={false} />
-          ))}
-        </div>
-      )}
-
-      {editMode && onAddBlock && (
-        <button
-          onClick={() => onAddBlock(section.id)}
-          className="mt-4 w-full border-2 border-dashed border-white/10 rounded-2xl py-3 text-sm text-gray-600 hover:border-white/20 hover:text-gray-400 transition-colors"
-        >
-          + Add block
-        </button>
       )}
     </section>
   );
 }
 
-// ─── Add Section modal ────────────────────────────────────────────────────────
+function TopNav({ editMode, onToggleEdit, isOwner }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean }) {
+  const [q, setQ] = useState("");
+  return (
+    <header className="w-full sticky top-0 z-50">
+      <div className="w-full" style={{ background: A.nav }}>
+        <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
+          <div className="flex items-center gap-2 pr-2">
+            <div className="w-24 h-8 rounded-sm flex items-center justify-center font-bold" style={{ background: "#fff", color: A.nav }}>store</div>
+          </div>
+          <div className="hidden md:flex flex-col text-white text-xs leading-tight pr-3">
+            <span className="opacity-80">Deliver to</span>
+            <span className="font-bold">Kolkata 700001</span>
+          </div>
+          <div className="flex-1 flex">
+            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}>
+              <option>All</option>
+            </select>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Store" className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
+            <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: `1px solid #FEBD69` }}>🔍</button>
+          </div>
+          <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
+            <div className="leading-tight">
+              <div className="opacity-80">Hello, Sign in</div>
+              <div className="font-bold">Account & Lists ▾</div>
+            </div>
+            <div className="leading-tight">
+              <div className="opacity-80">Returns</div>
+              <div className="font-bold">& Orders</div>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-lg">🛒</span>
+              <span className="font-bold">Cart</span>
+            </div>
+            {isOwner && (
+              <button
+                onClick={onToggleEdit}
+                className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                style={editMode ? { background: A.accent, color: "#111", border: `1px solid #FCD200` } : { background: "transparent", color: "#fff", border: `1px solid #848688` }}
+              >
+                {editMode ? "Done" : "Edit"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="w-full" style={{ background: A.nav2 }}>
+        <div className="max-w-7xl mx-auto px-3 h-10 flex items-center gap-4 text-white text-sm">
+          <span className="font-semibold">☰ All</span>
+          {["Today's Deals", "Mobiles", "Electronics", "Fashion", "Home", "Books", "Prime ▾"].map((c) => (
+            <span key={c} className="opacity-90 hover:opacity-100 cursor-pointer">{c}</span>
+          ))}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function StoreHero({ store, totalBlocks }: { store: Store; totalBlocks: number }) {
+  return (
+    <div className="w-full" style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
+      {store.bannerUrl ? (
+        <img src={store.bannerUrl} alt="banner" className="w-full h-40 sm:h-56 object-cover" />
+      ) : (
+        <div className="w-full h-24 sm:h-32" style={{ background: "linear-gradient(90deg,#232F3E,#37475A)" }} />
+      )}
+      <div className="max-w-7xl mx-auto px-3 py-3 flex items-center gap-3">
+        <div className="w-12 h-12 rounded-full overflow-hidden" style={{ background: "#fff", border: `1px solid ${A.border}` }}>
+          {store.avatarUrl ? (
+            <img src={store.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+          ) : null}
+        </div>
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-xl font-bold truncate" style={{ color: A.text }}>{store.name}</h1>
+          <p className="text-sm" style={{ color: A.textMuted }}>
+            {store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <div className="ml-auto hidden md:flex items-center gap-2">
+          <span className="text-sm" style={{ color: A.link }}>Visit the {store.name} Store</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AddSectionModal({
   storeId,
@@ -448,43 +414,26 @@ function AddSectionModal({
   return (
     <Overlay onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <h3 className="text-base font-semibold text-white">New Section</h3>
-        <input
-          autoFocus
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Section title…"
-          className={inputClass}
-        />
+        <div>
+          <h3 className="text-sm font-semibold mb-0.5" style={{ color: A.text }}>New section</h3>
+          <p className="text-xs" style={{ color: A.textMuted }}>Choose a layout that best fits this content.</p>
+        </div>
+        <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Section title" className={inputCls} style={inputStyle} />
         <div className="flex gap-2">
-          {(["grid", "list", "series"] as SectionType[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setType(t)}
-              className={`flex-1 py-1.5 rounded-xl text-sm capitalize border transition-colors ${
-                type === t
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "border-white/10 text-gray-400 hover:border-white/20 hover:text-gray-200"
-              }`}
-            >
-              {t}
+          {(["grid", "list", "featured", "carousel"] as SectionType[]).map((opt) => (
+            <button type="button" key={opt} onClick={() => setType(opt)} className="text-xs px-3 py-1.5 rounded-md capitalize"
+              style={{ background: type === opt ? "#FFF4CC" : "#fff", color: A.text, border: `1px solid ${A.border}` }}>
+              {opt}
             </button>
           ))}
         </div>
-        <button
-          type="submit"
-          disabled={loading || !title.trim()}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-xl text-sm font-semibold disabled:opacity-40 transition-colors"
-        >
-          {loading ? "Creating…" : "Create Section"}
+        <button type="submit" disabled={loading || !title.trim()} className="py-2 rounded-md text-xs font-semibold disabled:opacity-40" style={{ background: A.accent, border: `1px solid #FCD200` }}>
+          {loading ? "Creating…" : "Create section"}
         </button>
       </form>
     </Overlay>
   );
 }
-
-// ─── Add Block modal ──────────────────────────────────────────────────────────
 
 function AddBlockModal({
   sectionId,
@@ -504,10 +453,7 @@ function AddBlockModal({
     price: "",
   });
   const [loading, setLoading] = useState(false);
-
-  function set(k: string, v: string) {
-    setForm((f) => ({ ...f, [k]: v }));
-  }
+  function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -537,93 +483,44 @@ function AddBlockModal({
   return (
     <Overlay onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold text-white">New Block</h3>
-        <input
-          autoFocus
-          value={form.title}
-          onChange={(e) => set("title", e.target.value)}
-          placeholder="Title"
-          className={inputClass}
-        />
-        <textarea
-          value={form.description}
-          onChange={(e) => set("description", e.target.value)}
-          placeholder="Description (optional)"
-          rows={2}
-          className={inputClass}
-        />
-        <input
-          value={form.mediaUrl}
-          onChange={(e) => set("mediaUrl", e.target.value)}
-          placeholder="Media URL (image or video)"
-          className={inputClass}
-        />
+        <div>
+          <h3 className="text-sm font-semibold mb-0.5" style={{ color: A.text }}>New block</h3>
+          <p className="text-xs" style={{ color: A.textMuted }}>Add a product, service, or piece of content.</p>
+        </div>
+        <input autoFocus value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Title" className={inputCls} style={inputStyle} />
+        <textarea value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Description (optional)" rows={2} className={inputCls} style={inputStyle} />
+        <input value={form.mediaUrl} onChange={(e) => set("mediaUrl", e.target.value)} placeholder="Media URL (image or video)" className={inputCls} style={inputStyle} />
         <div className="flex gap-2">
-          {(["image", "video"] as MediaType[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => set("mediaType", t)}
-              className={`flex-1 py-1.5 rounded-xl text-sm capitalize border transition-colors ${
-                form.mediaType === t
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "border-white/10 text-gray-400 hover:border-white/20"
-              }`}
-            >
-              {t}
+          {(["image", "video", "link", "none"] as MediaType[]).map((m) => (
+            <button type="button" key={m} onClick={() => set("mediaType", m)} className="text-xs px-3 py-1.5 rounded-md capitalize"
+              style={{ background: form.mediaType === m ? "#FFF4CC" : "#fff", color: A.text, border: `1px solid ${A.border}` }}>
+              {m}
             </button>
           ))}
         </div>
-        <select
-          value={form.actionType}
-          onChange={(e) => set("actionType", e.target.value)}
-          className={inputClass}
-        >
-          <option value="view">View</option>
-          <option value="buy">Buy</option>
-          <option value="unlock">Unlock</option>
-          <option value="book">Book</option>
-        </select>
-        {(form.actionType === "buy" || form.actionType === "unlock" || form.actionType === "book") && (
-          <input
-            type="number"
-            value={form.price}
-            onChange={(e) => set("price", e.target.value)}
-            placeholder="Price (₹)"
-            min="0"
-            step="0.01"
-            className={inputClass}
-          />
-        )}
-        <button
-          type="submit"
-          disabled={loading || !form.title.trim()}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white py-2 rounded-xl text-sm font-semibold disabled:opacity-40 transition-colors"
-        >
-          {loading ? "Adding…" : "Add Block"}
+        <div className="flex gap-2">
+          {(["view", "buy", "book", "contact"] as ActionType[]).map((a) => (
+            <button type="button" key={a} onClick={() => set("actionType", a)} className="text-xs px-3 py-1.5 rounded-md capitalize"
+              style={{ background: form.actionType === a ? "#FFF4CC" : "#fff", color: A.text, border: `1px solid ${A.border}` }}>
+              {a}
+            </button>
+          ))}
+        </div>
+        <input value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="Price (optional)" inputMode="decimal" className={inputCls} style={inputStyle} />
+        <button type="submit" disabled={loading || !form.title.trim()} className="py-2 rounded-md text-xs font-semibold disabled:opacity-40" style={{ background: A.accent, border: `1px solid #FCD200` }}>
+          {loading ? "Adding…" : "Add block"}
         </button>
       </form>
     </Overlay>
   );
 }
 
-// ─── Shared helpers ───────────────────────────────────────────────────────────
-
-const inputClass =
-  "w-full px-3 py-2 text-sm rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50";
-
 function Overlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="bg-gray-950 border border-white/10 rounded-3xl p-5 w-full max-w-sm shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="w-full max-w-sm rounded-xl p-5 shadow-2xl" style={{ background: "#fff", border: `1px solid ${A.border}` }}>
         {children}
-        <button
-          onClick={onClose}
-          className="mt-4 w-full text-sm text-gray-600 hover:text-gray-400 transition-colors"
-        >
+        <button onClick={onClose} className="mt-3 w-full text-xs py-2 rounded-md" style={{ color: A.textMuted, border: `1px solid ${A.border}`, background: "#fff" }}>
           Cancel
         </button>
       </div>
@@ -631,21 +528,18 @@ function Overlay({ onClose, children }: { onClose: () => void; children: React.R
   );
 }
 
-function GripIcon() {
+function LoadingSkeleton() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" className="text-white/70">
-      <circle cx="5" cy="5" r="1.2" />
-      <circle cx="11" cy="5" r="1.2" />
-      <circle cx="5" cy="8" r="1.2" />
-      <circle cx="11" cy="8" r="1.2" />
-      <circle cx="5" cy="11" r="1.2" />
-      <circle cx="11" cy="11" r="1.2" />
-    </svg>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 rounded-full animate-pulse" style={{ background: "#fff", border: `1px solid ${A.border}` }} />
+        <span className="text-xs" style={{ color: A.textMuted }}>Loading…</span>
+      </div>
+    </div>
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
-
+// --- MAIN PAGE COMPONENT ---
 export default function StorePage() {
   const params = useParams();
   const id = params?.id as string;
@@ -653,25 +547,28 @@ export default function StorePage() {
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
-
   const [showAddSection, setShowAddSection] = useState(false);
   const [addBlockForSection, setAddBlockForSection] = useState<string | null>(null);
 
   const fetchStore = useCallback(async () => {
-    const res = await fetch(`/api/store/${id}`);
-    if (res.ok) setStore(await res.json());
-    setLoading(false);
+    try {
+      const res = await fetch(`/api/store/${id}`);
+      if (res.ok) {
+        setStore(await res.json());
+      }
+    } catch (error) {
+      console.error("Failed to fetch store:", error);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
-  useEffect(() => { fetchStore(); }, [fetchStore]);
+  useEffect(() => {
+    fetchStore();
+  }, [fetchStore]);
 
-  const isOwner = store?.isOwner ?? false;
   const totalBlocks = store?.sections.reduce((a, s) => a + s.blocks.length, 0) ?? 0;
-
-  // ── Section DnD ─────────────────────────────────────────────────────────────
-  const sensorsSections = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
-  );
+  const sensorsSections = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   async function handleSectionDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -689,10 +586,7 @@ export default function StorePage() {
 
   async function handleBlocksReorder(sectionId: string, newBlocks: Block[]) {
     if (!store) return;
-    setStore({
-      ...store,
-      sections: store.sections.map((s) => s.id === sectionId ? { ...s, blocks: newBlocks } : s),
-    });
+    setStore({ ...store, sections: store.sections.map((s) => (s.id === sectionId ? { ...s, blocks: newBlocks } : s)) });
     await fetch("/api/block/reorder", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -707,92 +601,35 @@ export default function StorePage() {
 
   function onBlockCreated(sectionId: string, block: Block) {
     if (!store) return;
-    setStore({
-      ...store,
-      sections: store.sections.map((s) =>
-        s.id === sectionId ? { ...s, blocks: [...s.blocks, block] } : s
-      ),
-    });
+    setStore({ ...store, sections: store.sections.map((s) => (s.id === sectionId ? { ...s, blocks: [...s.blocks, block] } : s)) });
   }
 
-  // ── Loading / not found ─────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center text-gray-500">
-        Loading…
-      </div>
-    );
-  }
-
+  if (loading) return <LoadingSkeleton />;
   if (!store) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center text-gray-500">
-        Store not found.
+      <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
+        <div className="text-center"><p className="text-sm" style={{ color: A.textMuted }}>Store not found.</p></div>
       </div>
     );
   }
 
-  const initials = store.name.slice(0, 2).toUpperCase();
-  const bannerGradient = gradientFor(store.name);
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900">
+    <div className="min-h-screen" style={{ background: A.bg }}>
+      <TopNav editMode={editMode} onToggleEdit={() => setEditMode((e) => !e)} isOwner={store.isOwner} />
+      <StoreHero store={store} totalBlocks={totalBlocks} />
 
-      {/* ── Banner ──────────────────────────────────────────────────────────── */}
-      <div className={`h-28 sm:h-40 w-full bg-gradient-to-r ${bannerGradient} opacity-80`} />
-
-      {/* ── Channel header ───────────────────────────────────────────────────── */}
-      <div className="max-w-5xl mx-auto px-4">
-        <div className="flex items-end sm:items-center gap-4 -mt-8 sm:-mt-10 mb-6">
-
-          {/* Avatar */}
-          <div
-            className={`shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-br ${bannerGradient} flex items-center justify-center ring-4 ring-gray-950 shadow-xl`}
-          >
-            <span className="text-white font-bold text-xl select-none">{initials}</span>
-          </div>
-
-          {/* Name + meta */}
-          <div className="flex-1 min-w-0 pt-8 sm:pt-10">
-            <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight truncate">
-              {store.name}
-            </h1>
-            <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-              {store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}
-            </p>
-            {store.description && (
-              <p className="text-sm text-gray-400 mt-1 line-clamp-2">{store.description}</p>
-            )}
-          </div>
-
-          {/* Edit toggle */}
-          {isOwner && (
-            <button
-              onClick={() => setEditMode((e) => !e)}
-              className={`shrink-0 text-sm px-4 py-1.5 rounded-full border font-semibold transition-colors ${
-                editMode
-                  ? "bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-500"
-                  : "border-white/10 text-gray-300 hover:bg-white/5"
-              }`}
-            >
-              {editMode ? "Done" : "Edit"}
-            </button>
-          )}
-        </div>
-
-        {/* Divider */}
-        <div className="border-t border-white/10 mb-8" />
-
-        {/* ── Empty state ─────────────────────────────────────────────────── */}
+      <main className="max-w-7xl mx-auto px-3 py-4">
         {store.sections.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-24 text-center gap-2">
-            <p className="text-gray-600 text-sm">
-              {isOwner ? "No sections yet. Click Edit to get started." : "This store has no content yet."}
+          <div className="flex flex-col items-center justify-center py-20 text-center gap-2" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
+            <div className="w-12 h-12 rounded-md flex items-center justify-center mb-2" style={{ background: "#fff", border: `1px solid ${A.border}` }}>
+              <span style={{ color: A.textMuted, fontSize: 18 }}>▤</span>
+            </div>
+            <p className="text-sm" style={{ color: A.textMuted }}>
+              {store.isOwner ? "No sections yet. Click Edit to get started." : "This store has no content yet."}
             </p>
           </div>
         )}
 
-        {/* ── Sections ────────────────────────────────────────────────────── */}
         {editMode ? (
           <DndContext sensors={sensorsSections} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
             <SortableContext items={store.sections.map((s) => s.id)} strategy={verticalListSortingStrategy}>
@@ -809,37 +646,34 @@ export default function StorePage() {
           </DndContext>
         ) : (
           store.sections.map((section) => (
-            <SectionView key={section.id} section={section} editMode={false} />
+            <SortableSection
+              key={section.id}
+              section={section}
+              editMode={editMode}
+              onBlocksReorder={handleBlocksReorder}
+              onAddBlock={(sid) => setAddBlockForSection(sid)}
+            />
           ))
         )}
 
-        {editMode && (
-          <button
-            onClick={() => setShowAddSection(true)}
-            className="w-full border-2 border-dashed border-white/10 rounded-2xl py-4 text-sm text-gray-600 hover:border-white/20 hover:text-gray-400 transition-colors mb-10"
-          >
-            + Add Section
-          </button>
+        {store.isOwner && (
+          <div className="mt-6">
+            <button
+              onClick={() => setShowAddSection(true)}
+              className="text-xs font-semibold px-4 py-2 rounded-md"
+              style={{ background: "#fff", color: A.text, border: `1px solid ${A.border}` }}
+            >
+              + Add section
+            </button>
+          </div>
         )}
-      </div>
+      </main>
 
-      {/* ── Modals ──────────────────────────────────────────────────────────── */}
-      {showAddSection && (
-        <AddSectionModal
-          storeId={store.id}
-          onClose={() => setShowAddSection(false)}
-          onCreated={onSectionCreated}
-        />
+      {showAddSection && store && (
+        <AddSectionModal storeId={store.id} onClose={() => setShowAddSection(false)} onCreated={onSectionCreated} />
       )}
       {addBlockForSection && (
-        <AddBlockModal
-          sectionId={addBlockForSection}
-          onClose={() => setAddBlockForSection(null)}
-          onCreated={(block) => {
-            onBlockCreated(addBlockForSection, block);
-            setAddBlockForSection(null);
-          }}
-        />
+        <AddBlockModal sectionId={addBlockForSection} onClose={() => setAddBlockForSection(null)} onCreated={(block) => onBlockCreated(addBlockForSection, block)} />
       )}
     </div>
   );
