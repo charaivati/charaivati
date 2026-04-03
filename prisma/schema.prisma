@@ -207,6 +207,7 @@ model Store {
   name        String
   description String?
   ownerId     String
+  pageId      String?        @unique
   createdAt   DateTime       @default(now())
   owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   sections    StoreSection[]
@@ -218,26 +219,30 @@ model StoreSection {
   id          String            @id @default(cuid())
   storeId     String
   title       String
-  order       Int
+  order       Int               @default(0)
   type        String            @default("grid")
   createdAt   DateTime          @default(now())
   store       Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
   blocks      StoreBlock[]
   subsections StoreSubsection[]
 
-  @@index([storeId, order])
+  @@index([storeId])
+  @@index([order])
+  @@map("Section")
 }
 
 model StoreSubsection {
   id        String       @id @default(cuid())
   sectionId String
   title     String
-  order     Int
+  order     Int          @default(0)
   createdAt DateTime     @default(now())
   section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   blocks    StoreBlock[]
 
-  @@index([sectionId, order])
+  @@index([sectionId])
+  @@index([order])
+  @@map("Subsection")
 }
 
 model StoreBlock {
@@ -246,17 +251,19 @@ model StoreBlock {
   subsectionId String?
   title        String
   description  String?
-  mediaType    String
+  mediaType    String           @default("image")
   mediaUrl     String?
-  actionType   String
+  actionType   String           @default("view")
   price        Float?
-  order        Int
+  order        Int              @default(0)
   createdAt    DateTime         @default(now())
   section      StoreSection?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subsection   StoreSubsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
 
-  @@index([sectionId, order])
-  @@index([subsectionId, order])
+  @@index([sectionId])
+  @@index([subsectionId])
+  @@index([order])
+  @@map("Block")
 }
 
 /// *
