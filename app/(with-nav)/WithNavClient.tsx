@@ -149,10 +149,21 @@ function WithNavLayoutInner({
     );
   }
 
+  async function onUnfriend(userId: string) {
+    const res = await fetch("/api/user/friends", {
+      method: "DELETE", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ friendId: userId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!json.ok) throw new Error(json.error ?? "Failed to unfriend");
+    setFriendState((s) => ({ ...s, friends: s.friends.filter((id) => id !== userId) }));
+  }
+
   function onActionComplete(
     kind: "page" | "person",
     id: string,
-    status: "following" | "requested" | "friends"
+    status: "following" | "requested" | "friends" | "unfriended"
   ) {
     if (kind === "page" && status === "following") {
       setFriendState((s) =>
@@ -167,6 +178,8 @@ function WithNavLayoutInner({
         setFriendState((s) =>
           s.friends.includes(id) ? s : { ...s, friends: [...s.friends, id] }
         );
+      } else if (status === "unfriended") {
+        setFriendState((s) => ({ ...s, friends: s.friends.filter((f) => f !== id) }));
       }
     }
   }
@@ -194,6 +207,7 @@ function WithNavLayoutInner({
                 placeholder="Search people or pages…"
                 onFollowPage={onFollowPage}
                 onSendFriend={onSendFriend}
+                onUnfriend={onUnfriend}
                 onActionComplete={onActionComplete}
                 friendState={friendState}
                 className="w-full max-w-lg"
@@ -244,6 +258,7 @@ function WithNavLayoutInner({
                 placeholder="Search people or pages…"
                 onFollowPage={onFollowPage}
                 onSendFriend={onSendFriend}
+                onUnfriend={onUnfriend}
                 onActionComplete={onActionComplete}
                 friendState={friendState}
                 className="flex-1 max-w-xl mx-auto"

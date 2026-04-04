@@ -2,10 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import { MessageSquare } from "lucide-react";
-import CirclesPanel from "@/components/CirclesPanel";
+import Link from "next/link";
+import { CollapsibleSection } from "@/components/self/shared";
+import FriendRequestsBox from "@/components/social/FriendRequestsBox";
+import ChatPanel from "@/components/social/ChatPanel";
 
 type FeedPost = {
   id: string;
+  authorId: string;
   author: string;
   timeISO: string;
   content?: string;
@@ -41,8 +45,11 @@ function formatTime(iso: string): string {
 }
 
 export default function SocialTab({ profile }: { profile?: any }) {
+  const myId: string | undefined = profile?.userId;
+
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(false);
+  const [requestCount, setRequestCount] = useState(0);
 
   async function loadFeed() {
     setLoading(true);
@@ -53,6 +60,7 @@ export default function SocialTab({ profile }: { profile?: any }) {
 
       const mapped: FeedPost[] = json.data.map((p: any) => ({
         id: p.id,
+        authorId: p.user?.id ?? "",
         author:
           p.user?.profile?.displayName ||
           p.user?.name ||
@@ -60,7 +68,6 @@ export default function SocialTab({ profile }: { profile?: any }) {
           "User",
         timeISO: p.createdAt,
         content: p.content ?? undefined,
-        // Cloudinary URLs — fall back to legacy GDrive thumbnails for old posts
         imageUrls:
           p.imageUrls?.length > 0
             ? p.imageUrls
@@ -90,42 +97,63 @@ export default function SocialTab({ profile }: { profile?: any }) {
     loadFeed();
   }, []);
 
+  const refreshButton = (
+    <button
+      onClick={(e) => { e.stopPropagation(); loadFeed(); }}
+      disabled={loading}
+      className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40"
+    >
+      {loading ? "Loading…" : "Refresh"}
+    </button>
+  );
+
+  const requestBadge = requestCount > 0 ? (
+    <span className="px-2 py-0.5 rounded-full bg-indigo-600 text-white text-xs font-semibold">
+      {requestCount}
+    </span>
+  ) : null;
+
   return (
-    <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
-      {/* Circles */}
-      <div className="max-w-2xl mx-auto px-4 pt-4 pb-2">
-        <CirclesPanel />
-      </div>
+    <div className="text-white space-y-5">
 
-      {/* Header */}
-      <div className="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5 mb-6">
-        <div className="max-w-2xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-light text-white tracking-wide">Social</h1>
-          <button
-            onClick={loadFeed}
-            disabled={loading}
-            className="text-xs text-gray-400 hover:text-white transition-colors disabled:opacity-40"
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
+      {/* ── Friend Requests ──────────────────────────────────────────── */}
+      <CollapsibleSection
+        title="Friend Requests"
+        subtitle="People who want to connect with you"
+        defaultOpen={requestCount > 0}
+        headerExtra={requestBadge}
+      >
+        <div className="pt-1">
+          <FriendRequestsBox onCountChange={setRequestCount} />
         </div>
-      </div>
+      </CollapsibleSection>
 
-      {/* Feed */}
-      <div className="max-w-2xl mx-auto px-4 pb-32">
-        <div className="space-y-6">
+      {/* ── Messages (E2E encrypted) ──────────────────────────────────── */}
+      <CollapsibleSection
+        title="Messages"
+        subtitle="End-to-end encrypted direct messages"
+        defaultOpen={false}
+      >
+        <div className="pt-1">
+          <ChatPanel myId={myId} />
+        </div>
+      </CollapsibleSection>
+
+      {/* ── Social Feed ───────────────────────────────────────────────── */}
+      <CollapsibleSection title="Feed" headerExtra={refreshButton}>
+        <div className="space-y-5 pt-1">
           {loading && posts.length === 0 && (
-            <div className="text-center py-20">
-              <MessageSquare className="w-16 h-16 text-gray-700 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">Loading posts…</p>
+            <div className="flex flex-col items-center py-12 gap-3">
+              <MessageSquare className="w-12 h-12 text-gray-700" />
+              <p className="text-gray-500">Loading posts…</p>
             </div>
           )}
 
           {!loading && posts.length === 0 && (
-            <div className="text-center py-20">
-              <MessageSquare className="w-16 h-16 text-gray-700 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">No posts yet</p>
-              <p className="text-gray-600 text-sm mt-2">Content will appear here</p>
+            <div className="flex flex-col items-center py-12 gap-3">
+              <MessageSquare className="w-12 h-12 text-gray-700" />
+              <p className="text-gray-500">No posts yet</p>
+              <p className="text-gray-600 text-sm">Content will appear here</p>
             </div>
           )}
 
@@ -135,20 +163,24 @@ export default function SocialTab({ profile }: { profile?: any }) {
             return (
               <article
                 key={post.id}
-                className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm hover:bg-white/[0.08] transition-colors"
+                className="rounded-2xl border border-gray-800 bg-gray-900/70 overflow-hidden"
               >
-                <div className="p-6 pb-4">
-                  {/* Author row */}
+                <div className="p-5 pb-4">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-11 h-11 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-medium shrink-0">
                       {avatarLetter}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-white truncate">{post.author}</p>
+                      <Link
+                        href={`/user/${post.authorId}`}
+                        className="font-medium text-white truncate hover:underline"
+                      >
+                        {post.author}
+                      </Link>
                       <div className="flex items-center gap-2">
-                        <p className="text-sm text-gray-500">{formatTime(post.timeISO)}</p>
+                        <p className="text-xs text-gray-500">{formatTime(post.timeISO)}</p>
                         {post.visibility === "friends" && (
-                          <span className="text-xs text-gray-500 px-1.5 py-0.5 rounded bg-white/5 border border-white/10">
+                          <span className="text-xs text-gray-500 px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">
                             👥 Friends
                           </span>
                         )}
@@ -157,25 +189,15 @@ export default function SocialTab({ profile }: { profile?: any }) {
                   </div>
 
                   {post.content && (
-                    <p className="text-gray-200 whitespace-pre-wrap leading-relaxed">
+                    <p className="text-gray-300 whitespace-pre-wrap leading-relaxed text-sm">
                       {post.content}
                     </p>
                   )}
                 </div>
 
-                {/* Images */}
                 {post.imageUrls.length > 0 && (
-                  <div
-                    className={
-                      post.imageUrls.length === 1
-                        ? ""
-                        : post.imageUrls.length === 2
-                        ? "grid grid-cols-2 gap-0.5"
-                        : "grid grid-cols-2 gap-0.5"
-                    }
-                  >
+                  <div className={post.imageUrls.length === 1 ? "" : "grid grid-cols-2 gap-0.5"}>
                     {post.imageUrls.map((url, i) => {
-                      // For 3+ images: first image spans full width, rest are 2-col
                       const isFirst = i === 0 && post.imageUrls.length >= 3;
                       return (
                         <img
@@ -196,7 +218,6 @@ export default function SocialTab({ profile }: { profile?: any }) {
                   </div>
                 )}
 
-                {/* Video */}
                 {post.videoUrl && (
                   <video
                     src={post.videoUrl}
@@ -205,7 +226,6 @@ export default function SocialTab({ profile }: { profile?: any }) {
                   />
                 )}
 
-                {/* YouTube embeds */}
                 {post.youtubeLinks.map((link, i) => {
                   const id = extractYouTubeId(link);
                   if (!id) return null;
@@ -222,16 +242,18 @@ export default function SocialTab({ profile }: { profile?: any }) {
                   );
                 })}
 
-                <div className="px-6 py-3 border-t border-white/5">
-                  <span className="text-sm text-gray-500">
-                    {post.likes > 0 ? `${post.likes} like${post.likes !== 1 ? "s" : ""}` : "Be the first to like"}
+                <div className="px-5 py-3 border-t border-gray-800">
+                  <span className="text-xs text-gray-500">
+                    {post.likes > 0
+                      ? `${post.likes} like${post.likes !== 1 ? "s" : ""}`
+                      : "Be the first to like"}
                   </span>
                 </div>
               </article>
             );
           })}
         </div>
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }

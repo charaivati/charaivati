@@ -56,6 +56,10 @@ model User {
   circles                 FriendCircle[]       @relation("UserCircles")
   circleMemberships       FriendCircleMember[] @relation("CircleMemberships")
   stores                  Store[]
+  publicKey               UserPublicKey?
+  chatConvsA              ChatConversation[]   @relation("ChatConvA")
+  chatConvsB              ChatConversation[]   @relation("ChatConvB")
+  sentMessages            ChatMessage[]        @relation("ChatSender")
 
   @@index([email])
   @@index([phone])
@@ -732,6 +736,48 @@ model Post {
   @@index([pageId])
   @@index([createdAt])
   @@index([slugTags])
+}
+
+/// ECDH public key for end-to-end encrypted chat
+model UserPublicKey {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  publicKey String   // JWK JSON string (ECDH P-256)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Direct message conversation between two users
+model ChatConversation {
+  id            String        @id @default(cuid())
+  userAId       String        // canonical: smaller id
+  userBId       String        // canonical: larger id
+  createdAt     DateTime      @default(now())
+  lastMessageAt DateTime?
+  userA         User          @relation("ChatConvA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB         User          @relation("ChatConvB", fields: [userBId], references: [id], onDelete: Cascade)
+  messages      ChatMessage[]
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@index([lastMessageAt])
+}
+
+/// End-to-end encrypted message — server stores ciphertext only
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  senderId       String
+  ciphertext     String           // base64 AES-GCM encrypted content
+  iv             String           // base64 initialization vector
+  createdAt      DateTime         @default(now())
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User             @relation("ChatSender", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([senderId])
 }
 
 model HelpLink {

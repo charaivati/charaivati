@@ -127,6 +127,38 @@ export async function POST(req: Request) {
 }
 
 /**
+ * DELETE: remove a friendship (unfriend)
+ * body: { friendId: string }
+ */
+export async function DELETE(req: Request) {
+  try {
+    const me = await getCurrentUser(req);
+    if (!me) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+    const body = await req.json().catch(() => ({}));
+    const friendId = String(body?.friendId ?? "").trim();
+
+    if (!friendId || friendId === me.id) {
+      return NextResponse.json({ ok: false, error: "Invalid friendId" }, { status: 400 });
+    }
+
+    await db.friendship.deleteMany({
+      where: {
+        OR: [
+          { userAId: me.id, userBId: friendId },
+          { userAId: friendId, userBId: me.id },
+        ],
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error("DELETE /api/user/friends error:", err);
+    return NextResponse.json({ ok: false, error: String(err?.message ?? err) }, { status: 500 });
+  }
+}
+
+/**
  * PUT: accept/reject a friend request
  * body: { requestId: string, action: "accept" | "reject" }
  */

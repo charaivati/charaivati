@@ -16,10 +16,26 @@ async function getProfileFromCookie(): Promise<any | null> {
     const payload = await verifySessionToken(token);
     if (!payload?.userId) return null;
 
-    const profile = await prisma.profile.findUnique({
-      where: { userId: String(payload.userId) },
-    });
-    return profile ?? null;
+    const userId = String(payload.userId);
+
+    const [profile, user] = await Promise.all([
+      prisma.profile.findUnique({ where: { userId } }),
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, name: true, email: true, avatarUrl: true },
+      }),
+    ]);
+
+    if (!user) return null;
+
+    return {
+      ...(profile ?? {}),
+      userId: user.id,
+      // surface name/email on the profile object so ProfileMenu can read them
+      name: profile?.displayName || user.name || null,
+      email: user.email ?? null,
+      avatarUrl: user.avatarUrl ?? null,
+    };
   } catch {
     return null;
   }

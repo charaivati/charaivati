@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 
 type ResultType = "person" | "page" | "unknown";
 
@@ -25,7 +26,8 @@ type Props = {
   placeholder?: string;
   onFollowPage?: (pageId: string) => Promise<void> | void;
   onSendFriend?: (userId: string) => Promise<void> | void;
-  onActionComplete?: (kind: "page" | "person", id: string, status: "following" | "requested" | "friends") => void;
+  onUnfriend?: (userId: string) => Promise<void> | void;
+  onActionComplete?: (kind: "page" | "person", id: string, status: "following" | "requested" | "friends" | "unfriended") => void;
   friendState?: FriendState | null;
   initialQuery?: string;
   className?: string;
@@ -70,6 +72,7 @@ export default function UnifiedSearch({
   placeholder = "Search people or pages…",
   onFollowPage,
   onSendFriend,
+  onUnfriend,
   onActionComplete,
   friendState = { friends: [], outgoing: [], incoming: [], following: [] },
   initialQuery = "",
@@ -83,6 +86,7 @@ export default function UnifiedSearch({
   const [error, setError] = useState<string | null>(null);
   const [actionPendingIds, setActionPendingIds] = useState<Record<string, boolean>>({});
 
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -90,14 +94,14 @@ export default function UnifiedSearch({
 
   const [portalStyle, setPortalStyle] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  function labelForItem(r: SearchResult) {
+  function labelForItem(r: SearchResult): { label: string | null; disabled: boolean; variant?: "default" | "danger" } {
     if (!r?.id) return { label: null, disabled: true };
     if (r.type === "page") {
       if ((friendState?.following ?? []).includes(r.id)) return { label: "Following", disabled: true };
       return { label: "Follow", disabled: false };
     } else if (r.type === "person") {
-      if ((friendState?.friends ?? []).includes(r.id)) return { label: "Friends", disabled: true };
-      if ((friendState?.outgoing ?? []).includes(r.id)) return { label: "Requested", disabled: true };
+      if ((friendState?.friends ?? []).includes(r.id)) return { label: "Unfriend", disabled: false, variant: "danger" };
+      if ((friendState?.outgoing ?? []).includes(r.id)) return { label: "Request sent", disabled: true };
       if ((friendState?.incoming ?? []).includes(r.id)) return { label: "Respond", disabled: false };
       return { label: "Add friend", disabled: false };
     }
@@ -249,10 +253,15 @@ export default function UnifiedSearch({
   }, [open, results, highlightIndex]);
 
   function selectResult(r: SearchResult) {
-    setQuery(r.name);
     setOpen(false);
-    const idx = results.findIndex((x) => x.id === r.id);
-    setHighlightIndex(idx);
+    setQuery("");
+    if (r.type === "person" && r.id && !looksLikeDevMockId(r.id)) {
+      router.push(`/user/${r.id}`);
+    } else {
+      setQuery(r.name);
+      const idx = results.findIndex((x) => x.id === r.id);
+      setHighlightIndex(idx);
+    }
   }
 
   async function handleItemAction(r: SearchResult) {
@@ -271,9 +280,15 @@ export default function UnifiedSearch({
         await onFollowPage(id);
         onActionComplete?.("page", id, "following");
       } else if (r.type === "person") {
-        if (!onSendFriend) throw new Error("onSendFriend not provided");
-        await onSendFriend(id);
-        onActionComplete?.("person", id, "requested");
+        if ((friendState?.friends ?? []).includes(id)) {
+          if (!onUnfriend) throw new Error("onUnfriend not provided");
+          await onUnfriend(id);
+          onActionComplete?.("person", id, "unfriended");
+        } else {
+          if (!onSendFriend) throw new Error("onSendFriend not provided");
+          await onSendFriend(id);
+          onActionComplete?.("person", id, "requested");
+        }
       }
     } catch (err: any) {
       console.error("UnifiedSearch item action failed", err);
@@ -342,6 +357,7 @@ export default function UnifiedSearch({
       <div
         id="unified-search-listbox"
         role="listbox"
+        onMouseDown={(e) => e.stopPropagation()}
         style={{
           position: "absolute",
           top: portalStyle.top,
@@ -398,8 +414,12 @@ export default function UnifiedSearch({
                         handleItemAction(r);
                       }}
                       disabled={actionState.disabled || pending}
-                      className={`rounded-md border border-white/10 px-3 py-1 text-sm font-medium ${
-                        actionState.disabled || pending ? "bg-white/3 text-gray-300" : "bg-white/5 text-white"
+                      className={`rounded-md border px-3 py-1 text-sm font-medium ${
+                        actionState.disabled || pending
+                          ? "border-white/10 bg-white/3 text-gray-300"
+                          : actionState.variant === "danger"
+                          ? "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                          : "border-white/10 bg-white/5 text-white hover:bg-white/10"
                       }`}
                     >
                       {pending ? "..." : actionState.label}

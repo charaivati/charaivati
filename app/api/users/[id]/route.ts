@@ -1,9 +1,10 @@
 // app/api/users/[id]/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getCurrentUser } from "@/lib/session";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { id } = params;
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
 
   // Use include (not select) to bring the profile relation with typed shape.
   const user = await prisma.user.findUnique({
@@ -39,17 +40,52 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     links = [];
   }
 
+  // Relationship status between viewer and this profile
+  let relationship: "self" | "friends" | "outgoing" | "incoming" | "none" = "none";
+  try {
+    const viewer = await getCurrentUser(req as any);
+    if (viewer?.id) {
+      if (viewer.id === id) {
+        relationship = "self";
+      } else {
+        const [friendship, outgoing, incoming] = await Promise.all([
+          prisma.friendship.findFirst({
+            where: {
+              OR: [
+                { userAId: viewer.id, userBId: id },
+                { userAId: id, userBId: viewer.id },
+              ],
+            },
+          }),
+          prisma.friendRequest.findFirst({
+            where: { senderId: viewer.id, receiverId: id, status: "pending" },
+          }),
+          prisma.friendRequest.findFirst({
+            where: { senderId: id, receiverId: viewer.id, status: "pending" },
+          }),
+        ]);
+
+        if (friendship) relationship = "friends";
+        else if (outgoing) relationship = "outgoing";
+        else if (incoming) relationship = "incoming";
+      }
+    }
+  } catch {
+    // relationship stays "none"
+  }
+
   const payload = {
     id: user.id,
     name: user.name ?? null,
     email: user.email ?? null,
     avatar: user.avatarUrl ?? null,
-    title: (user as any).title ?? null, // after regen these will be typed; fallback keeps runtime safe
+    title: (user as any).title ?? null,
     shortBio: (user as any).shortBio ?? null,
     location: user.selectedCountry ?? null,
     joinedAt: user.createdAt?.toISOString?.() ?? null,
     about: (profile?.bio ?? profile?.learningNotes) ?? null,
     links,
+    relationship,
   };
 
   return NextResponse.json(payload);

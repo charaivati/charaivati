@@ -3,6 +3,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { User, LogOut, Settings, ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 type Props = {
   profile: any | null;
@@ -13,6 +14,7 @@ type Props = {
 export default function ProfileMenu({ profile, onLogout, compact = false }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -79,7 +81,7 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
               <button
                 onClick={() => {
                   setIsOpen(false);
-                  window.location.href = "/self";
+                  router.push(`/user/${profile.userId}`);
                 }}
                 className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
               >
