@@ -61,6 +61,7 @@ export function HealthSection({ health, setHealth }: {
   setHealth: (h: HealthProfile) => void;
 }) {
   const [bodyMetricsOpen, setBodyMetricsOpen] = useState(false);
+  const [foodExpanded,    setFoodExpanded]    = useState(false);
   const [planLoading,     setPlanLoading]     = useState(false);
   const [altLoading,      setAltLoading]      = useState<Record<string, boolean>>({});
   const [customFoodInput, setCustomFoodInput] = useState("");
@@ -190,6 +191,9 @@ export function HealthSection({ health, setHealth }: {
     <CollapsibleSection title="Health Foundation" subtitle="Fuels every goal — shared across all">
       <div className="space-y-5 pt-2">
 
+        {/* ── General Status ── */}
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">General Status</p>
+
         {/* A. Core inputs */}
         <div className="grid grid-cols-3 gap-3">
           {(["heightCm", "weightKg", "age"] as const).map(k => (
@@ -204,96 +208,122 @@ export function HealthSection({ health, setHealth }: {
           ))}
         </div>
 
-        {/* B. Body metrics expandable */}
+        {/* B. Daily vitals — Sleep, Mood, Stress */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {/* Sleep quality */}
+          <div>
+            <FieldLabel>Sleep quality</FieldLabel>
+            <select
+              value={health.sleepQuality ?? ""}
+              onChange={e => set("sleepQuality", e.target.value as "bad" | "moderate" | "good")}
+              className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
+                text-white outline-none focus:border-indigo-500 transition-colors appearance-none cursor-pointer">
+              <option value="" disabled>Select…</option>
+              <option value="bad">Bad · &lt;6 hrs</option>
+              <option value="moderate">Moderate · disturbed 6+</option>
+              <option value="good">Good · 6–8 hrs</option>
+            </select>
+          </div>
+
+          {/* Mood */}
+          <div>
+            <FieldLabel>Mood</FieldLabel>
+            <select
+              value={health.mood ?? ""}
+              onChange={e => set("mood", e.target.value as "😞" | "😐" | "🙂" | "😄")}
+              className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
+                text-white outline-none focus:border-indigo-500 transition-colors appearance-none cursor-pointer">
+              <option value="" disabled>Select…</option>
+              <option value="😞">😞 Low</option>
+              <option value="😐">😐 Neutral</option>
+              <option value="🙂">🙂 Good</option>
+              <option value="😄">😄 Great</option>
+            </select>
+          </div>
+
+          {/* Stress level */}
+          <div>
+            <FieldLabel>Stress level</FieldLabel>
+            <div className="flex gap-2 pt-0.5">
+              {(["Low", "Mid", "High"] as const).map(v => (
+                <PillButton key={v} active={health.stressLevel === v} onClick={() => set("stressLevel", v)}>
+                  {v}
+                </PillButton>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* C. More information (expandable) */}
         <div>
           <button type="button" onClick={() => setBodyMetricsOpen(v => !v)}
             className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
-            {bodyMetricsOpen ? "− Hide body measurements" : "＋ Add body measurements"}
+            {bodyMetricsOpen ? "− Less information" : "＋ More information"}
           </button>
           {bodyMetricsOpen && (
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              {([
-                ["bodyFatPct", "Body fat %"],
-                ["waistCm",   "Waist (cm)"],
-                ["hipCm",     "Hip (cm)"],
-                ["bicepCm",   "Bicep (cm)"],
-                ["chestCm",   "Chest (cm)"],
-              ] as [keyof HealthProfile, string][]).map(([k, label]) => (
-                <div key={k}>
-                  <FieldLabel>{label}</FieldLabel>
-                  <input type="number" value={(health[k] as string) ?? ""}
-                    onChange={e => set(k, e.target.value)}
-                    className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
-                      text-white placeholder-gray-600 outline-none focus:border-indigo-500 transition-colors"
-                  />
-                </div>
-              ))}
+            <div className="mt-4 space-y-4">
+              {/* Body measurements */}
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  ["bodyFatPct", "Body fat %"],
+                  ["waistCm",   "Waist (cm)"],
+                  ["hipCm",     "Hip (cm)"],
+                  ["bicepCm",   "Bicep (cm)"],
+                  ["chestCm",   "Chest (cm)"],
+                ] as [keyof HealthProfile, string][]).map(([k, label]) => (
+                  <div key={k}>
+                    <FieldLabel>{label}</FieldLabel>
+                    <input type="number" value={(health[k] as string) ?? ""}
+                      onChange={e => set(k, e.target.value)}
+                      className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
+                        text-white placeholder-gray-600 outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Medical conditions */}
+              <div>
+                <FieldLabel>Medical conditions (optional)</FieldLabel>
+                <textarea
+                  value={health.medicalConditions ?? ""}
+                  onChange={e => set("medicalConditions", e.target.value)}
+                  placeholder="e.g. Type 2 diabetes, lactose intolerance, hypertension…"
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
+                    text-white placeholder-gray-600 outline-none focus:border-indigo-500 resize-none transition-colors"
+                />
+              </div>
+
+              {/* Extra daily stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {([
+                  ["focusClarity",     "Focus / Mental Clarity"],
+                  ["socialInteraction","Social Interaction"],
+                  ["energyLevel",      "Energy Level"],
+                ] as [keyof HealthProfile, string][]).map(([k, label]) => (
+                  <div key={k}>
+                    <FieldLabel>{label}</FieldLabel>
+                    <div className="flex gap-2 pt-0.5">
+                      {(["Low", "Mid", "High"] as const).map(v => (
+                        <PillButton key={v} active={health[k] === v} onClick={() => set(k, v)}>
+                          {v}
+                        </PillButton>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
 
-        {/* C. Medical conditions */}
-        <div>
-          <FieldLabel>Medical conditions (optional)</FieldLabel>
-          <textarea
-            value={health.medicalConditions ?? ""}
-            onChange={e => set("medicalConditions", e.target.value)}
-            placeholder="e.g. Type 2 diabetes, lactose intolerance, hypertension…"
-            rows={2}
-            className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 text-sm
-              text-white placeholder-gray-600 outline-none focus:border-indigo-500 resize-none transition-colors"
-          />
-        </div>
+        <div className="h-[2px] rounded-full bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
+        {/* ── Movement ── */}
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Movement</p>
 
-        {/* D. Food preference pills */}
+        {/* D. Movement — before food */}
         <div>
-          <FieldLabel>Food preference</FieldLabel>
-          <div className="flex flex-wrap gap-2">
-            {FOOD_OPTIONS.map(f => (
-              <PillButton key={f} active={health.food === f} onClick={() => set("food", f)}>{f}</PillButton>
-            ))}
-          </div>
-        </div>
-
-        {/* E. Available foods grid */}
-        <div>
-          <FieldLabel>What's available at home?</FieldLabel>
-          <div className="grid grid-cols-2 gap-1.5 mb-3">
-            {allDisplayFoods.map(food => {
-              const selected = availableFoods.includes(food);
-              return (
-                <button key={food} type="button" onClick={() => toggleFood(food)}
-                  className={`px-3 py-1.5 rounded-lg border text-xs text-left transition-colors ${
-                    selected
-                      ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
-                      : "border-gray-700 bg-gray-950/40 text-gray-400 hover:border-gray-500"
-                  }`}>
-                  {food}
-                </button>
-              );
-            })}
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={customFoodInput}
-              onChange={e => setCustomFoodInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomFood(); } }}
-              placeholder="+ Add custom food"
-              className="flex-1 rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-1.5 text-xs
-                text-white placeholder-gray-500 outline-none focus:border-indigo-500 transition-colors"
-            />
-            <button type="button" onClick={addCustomFood}
-              className="px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-800 text-xs text-gray-400
-                hover:border-indigo-500/50 hover:text-indigo-300 transition-colors">
-              Add
-            </button>
-          </div>
-        </div>
-
-        {/* F. Movement */}
-        <div>
-          <FieldLabel>Movement</FieldLabel>
           <div className="flex flex-wrap gap-2 mb-2">
             {EXERCISE_OPTIONS.map(e => (
               <PillButton key={e} active={health.exercise === e} onClick={() => set("exercise", e)}>{e}</PillButton>
@@ -308,142 +338,197 @@ export function HealthSection({ health, setHealth }: {
           </div>
         </div>
 
-        {/* G. Generate / regenerate plan button */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <button type="button" onClick={generateHealthPlan} disabled={planLoading}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors
-              disabled:opacity-50 disabled:cursor-not-allowed ${
-              health.healthPlan
-                ? "border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-300"
-                : "bg-indigo-600 hover:bg-indigo-500 text-white"
-            }`}>
-            {planLoading
-              ? <><Loader2 className="w-4 h-4 animate-spin" />Generating…</>
-              : health.healthPlan
-                ? <>↺ Regenerate full plan</>
-                : <>Generate meal plan →</>}
-          </button>
-          {health.healthPlanGeneratedAt && (
-            <p className="text-xs text-gray-500">
-              Last generated: {relativeTime(health.healthPlanGeneratedAt)}
-            </p>
-          )}
+        <div className="h-[2px] rounded-full bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
+        {/* ── Food Preference ── */}
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Food Preference</p>
+
+        {/* E. Food preference pills */}
+        <div>
+          <div className="flex flex-wrap gap-2">
+            {FOOD_OPTIONS.map(f => (
+              <PillButton key={f} active={health.food === f} onClick={() => set("food", f)}>{f}</PillButton>
+            ))}
+          </div>
         </div>
 
-        {/* H. Meal plan carousel */}
-        {health.healthPlan && (
-          <div>
-            {health.healthPlan.fallback && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300 mb-3">
-                AI unavailable — this is a placeholder plan. Try regenerating later.
-              </div>
-            )}
-            <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
-              {health.healthPlan.meals.map(meal => (
-                <div key={meal.id}
-                  className="flex-shrink-0 w-64 rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-2.5 snap-start">
-
-                  {/* Card header */}
-                  <div className="flex items-center justify-between">
-                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${MEAL_COLORS[meal.meal] ?? ""}`}>
-                      {meal.meal}
-                    </span>
-                    <button type="button" onClick={() => deleteMeal(meal.id)}
-                      className="p-1 rounded-md text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                      title="Remove this meal">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <p className="text-sm font-semibold text-white leading-snug">{meal.name}</p>
-                  {meal.ingredients.length > 0 && (
-                    <p className="text-xs text-gray-400 leading-relaxed">{meal.ingredients.join(", ")}</p>
-                  )}
-                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
-                    <span className="text-white font-medium">{meal.calories} kcal</span>
-                    <span>P {meal.protein_g}g</span>
-                    <span>C {meal.carbs_g}g</span>
-                    <span>F {meal.fat_g}g</span>
-                  </div>
-                  <p className="text-xs text-gray-500">{meal.prep_minutes} min prep</p>
-
-                  {/* Alternatives */}
-                  {(health.healthPlan!.mealAlternatives?.[meal.id]?.length ?? 0) > 0 && (
-                    <div className="border-t border-gray-700/60 pt-2 space-y-1.5">
-                      <p className="text-xs text-gray-500 uppercase tracking-wider">Switch to</p>
-                      {health.healthPlan!.mealAlternatives![meal.id].map((alt, i) => (
-                        <div key={alt.id} className="flex items-start justify-between gap-2 rounded-lg bg-gray-900/80 border border-gray-800 px-2.5 py-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs text-white leading-snug truncate">{alt.name}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{alt.calories} kcal · P {alt.protein_g}g · C {alt.carbs_g}g</p>
-                          </div>
-                          <button type="button" onClick={() => swapMealWithAlternative(meal.id, i)}
-                            className="flex-shrink-0 px-2 py-0.5 rounded text-xs bg-indigo-600 hover:bg-indigo-500 text-white transition-colors mt-0.5">
-                            Use
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Try other options */}
-                  <div className="border-t border-gray-800 pt-2">
-                    <button type="button" onClick={() => suggestAlternatives(meal.id)}
-                      disabled={!!altLoading[meal.id]}
-                      className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-400
-                        transition-colors disabled:opacity-40">
-                      {altLoading[meal.id]
-                        ? <><Loader2 className="w-3 h-3 animate-spin" />Fetching options…</>
-                        : <><Sparkles className="w-3 h-3" />Try other options</>}
-                    </button>
-                  </div>
-                </div>
-              ))}
+        {/* F. Available foods grid */}
+        <div>
+          <FieldLabel>What's available at home?</FieldLabel>
+          <div className="grid grid-cols-2 gap-1.5 mb-2">
+            {(foodExpanded ? allDisplayFoods : allDisplayFoods.slice(0, 2)).map(food => {
+              const selected = availableFoods.includes(food);
+              return (
+                <button key={food} type="button" onClick={() => toggleFood(food)}
+                  className={`px-3 py-1.5 rounded-lg border text-xs text-left transition-colors ${
+                    selected
+                      ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+                      : "border-gray-700 bg-gray-950/40 text-gray-400 hover:border-gray-500"
+                  }`}>
+                  {food}
+                </button>
+              );
+            })}
+            {/* Custom food input as last grid cell */}
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={customFoodInput}
+                onChange={e => setCustomFoodInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustomFood(); } }}
+                placeholder="+ Add custom food"
+                className="flex-1 min-w-0 rounded-lg border border-dashed border-gray-700 bg-gray-950/40
+                  px-3 py-1.5 text-xs text-white placeholder-gray-500 outline-none
+                  focus:border-indigo-500 transition-colors"
+              />
+              {customFoodInput.trim() && (
+                <button type="button" onClick={addCustomFood}
+                  className="px-2.5 py-1.5 rounded-lg border border-gray-700 bg-gray-800 text-xs text-gray-400
+                    hover:border-indigo-500/50 hover:text-indigo-300 transition-colors flex-shrink-0">
+                  Add
+                </button>
+              )}
             </div>
           </div>
-        )}
+          <button type="button" onClick={() => setFoodExpanded(v => !v)}
+            className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors mt-1">
+            {foodExpanded ? "− Collapse" : `＋ Expand all (${allDisplayFoods.length} items)`}
+          </button>
+        </div>
 
-        {/* I. Health targets + insight */}
+        <div className="h-[2px] rounded-full bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
+        {/* ── Analysis ── */}
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Analysis of Lifestyle and Suggestions</p>
+
+        {/* G. Analysis of lifestyle — shown after first generation */}
         {health.healthPlan && (
           <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 overflow-hidden">
-            {health.healthPlan.health_targets.insight ? (
-              <div className="px-4 pt-4 pb-3 border-b border-indigo-500/15">
-                <p className="text-xs text-indigo-400 uppercase tracking-wider mb-1.5 font-medium">Why this plan</p>
-                <p className="text-sm text-gray-200 leading-relaxed">
-                  {health.healthPlan.health_targets.insight}
+            <div className="px-4 pt-4 pb-3">
+              {(health.healthPlan.health_targets.insight || health.healthPlan.health_targets.notes) && (
+                <p className="text-sm text-gray-200 leading-relaxed mb-3">
+                  {health.healthPlan.health_targets.insight || health.healthPlan.health_targets.notes}
                 </p>
-              </div>
-            ) : health.healthPlan.health_targets.notes ? (
-              <div className="px-4 pt-4 pb-3 border-b border-indigo-500/15">
-                <p className="text-xs text-indigo-400 uppercase tracking-wider mb-1.5 font-medium">Summary</p>
-                <p className="text-sm text-gray-300 leading-relaxed">{health.healthPlan.health_targets.notes}</p>
-              </div>
-            ) : null}
-            <div className="px-4 py-3 flex flex-wrap gap-5">
-              <div>
-                <span className="text-xs text-gray-500 block mb-0.5">Target BMI</span>
-                <span className="text-white font-semibold text-sm">{health.healthPlan.health_targets.target_bmi}</span>
-              </div>
-              {health.healthPlan.health_targets.target_body_fat_pct !== null && (
+              )}
+              <div className="flex flex-wrap gap-5">
                 <div>
-                  <span className="text-xs text-gray-500 block mb-0.5">Target Body Fat</span>
-                  <span className="text-white font-semibold text-sm">{health.healthPlan.health_targets.target_body_fat_pct}%</span>
+                  <span className="text-xs text-gray-500 block mb-0.5">Target BMI</span>
+                  <span className="text-white font-semibold text-sm">{health.healthPlan.health_targets.target_bmi}</span>
                 </div>
-              )}
-              <div>
-                <span className="text-xs text-gray-500 block mb-0.5">Daily Calories</span>
-                <span className="text-white font-semibold text-sm">{health.healthPlan.health_targets.daily_calories_kcal} kcal</span>
+                {health.healthPlan.health_targets.target_body_fat_pct !== null && (
+                  <div>
+                    <span className="text-xs text-gray-500 block mb-0.5">Target Body Fat</span>
+                    <span className="text-white font-semibold text-sm">{health.healthPlan.health_targets.target_body_fat_pct}%</span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-xs text-gray-500 block mb-0.5">Daily Calories</span>
+                  <span className="text-white font-semibold text-sm">{health.healthPlan.health_targets.daily_calories_kcal} kcal</span>
+                </div>
+                {health.healthPlan.health_targets.insight && health.healthPlan.health_targets.notes && (
+                  <div className="w-full">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
+                      {health.healthPlan.health_targets.notes}
+                    </span>
+                  </div>
+                )}
               </div>
-              {health.healthPlan.health_targets.insight && health.healthPlan.health_targets.notes && (
-                <div className="w-full">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs border border-indigo-500/30 bg-indigo-500/10 text-indigo-300">
-                    {health.healthPlan.health_targets.notes}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         )}
+
+        {/* H. Suggested meal plan heading + generate button */}
+        <div>
+          <FieldLabel>Suggested Meal Plan</FieldLabel>
+          <div className="flex items-center gap-3 flex-wrap mb-4">
+            <button type="button" onClick={generateHealthPlan} disabled={planLoading}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors
+                disabled:opacity-50 disabled:cursor-not-allowed ${
+                health.healthPlan
+                  ? "border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-300"
+                  : "bg-indigo-600 hover:bg-indigo-500 text-white"
+              }`}>
+              {planLoading
+                ? <><Loader2 className="w-4 h-4 animate-spin" />Generating…</>
+                : health.healthPlan
+                  ? <>↺ Regenerate full plan</>
+                  : <>Generate meal plan →</>}
+            </button>
+            {health.healthPlanGeneratedAt && (
+              <p className="text-xs text-gray-500">
+                Last generated: {relativeTime(health.healthPlanGeneratedAt)}
+              </p>
+            )}
+          </div>
+
+          {/* Meal plan carousel */}
+          {health.healthPlan && (
+            <div>
+              {health.healthPlan.fallback && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300 mb-3">
+                  AI unavailable — this is a placeholder plan. Try regenerating later.
+                </div>
+              )}
+              <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
+                {health.healthPlan.meals.map(meal => (
+                  <div key={meal.id}
+                    className="flex-shrink-0 w-64 rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-2.5 snap-start">
+
+                    <div className="flex items-center justify-between">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${MEAL_COLORS[meal.meal] ?? ""}`}>
+                        {meal.meal}
+                      </span>
+                      <button type="button" onClick={() => deleteMeal(meal.id)}
+                        className="p-1 rounded-md text-gray-600 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                        title="Remove this meal">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <p className="text-sm font-semibold text-white leading-snug">{meal.name}</p>
+                    {meal.ingredients.length > 0 && (
+                      <p className="text-xs text-gray-400 leading-relaxed">{meal.ingredients.join(", ")}</p>
+                    )}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-400">
+                      <span className="text-white font-medium">{meal.calories} kcal</span>
+                      <span>P {meal.protein_g}g</span>
+                      <span>C {meal.carbs_g}g</span>
+                      <span>F {meal.fat_g}g</span>
+                    </div>
+                    <p className="text-xs text-gray-500">{meal.prep_minutes} min prep</p>
+
+                    {(health.healthPlan!.mealAlternatives?.[meal.id]?.length ?? 0) > 0 && (
+                      <div className="border-t border-gray-700/60 pt-2 space-y-1.5">
+                        <p className="text-xs text-gray-500 uppercase tracking-wider">Switch to</p>
+                        {health.healthPlan!.mealAlternatives![meal.id].map((alt, i) => (
+                          <div key={alt.id} className="flex items-start justify-between gap-2 rounded-lg bg-gray-900/80 border border-gray-800 px-2.5 py-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs text-white leading-snug truncate">{alt.name}</p>
+                              <p className="text-xs text-gray-500 mt-0.5">{alt.calories} kcal · P {alt.protein_g}g · C {alt.carbs_g}g</p>
+                            </div>
+                            <button type="button" onClick={() => swapMealWithAlternative(meal.id, i)}
+                              className="flex-shrink-0 px-2 py-0.5 rounded text-xs bg-indigo-600 hover:bg-indigo-500 text-white transition-colors mt-0.5">
+                              Use
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="border-t border-gray-800 pt-2">
+                      <button type="button" onClick={() => suggestAlternatives(meal.id)}
+                        disabled={!!altLoading[meal.id]}
+                        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-400
+                          transition-colors disabled:opacity-40">
+                        {altLoading[meal.id]
+                          ? <><Loader2 className="w-3 h-3 animate-spin" />Fetching options…</>
+                          : <><Sparkles className="w-3 h-3" />Try other options</>}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
 
       </div>
     </CollapsibleSection>

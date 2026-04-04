@@ -77,8 +77,12 @@ export function CollapsibleSection({
   }, [triggerOpen]);
   return (
     <SectionCard>
-      <button type="button" onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 text-left">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen(v => !v)}
+        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(v => !v); } }}
+        className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer select-none">
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-semibold text-white">{title}</h3>
           {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
@@ -89,7 +93,7 @@ export function CollapsibleSection({
             ? <ChevronUp className="w-4 h-4 text-gray-500 flex-shrink-0" />
             : <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />}
         </div>
-      </button>
+      </div>
       {open && (
         <div className="px-5 pb-6" style={{ animation: "sectionOpen 400ms ease both" }}>
           <style>{`

@@ -78,12 +78,18 @@ export type HealthProfile = {
   heightCm: string;
   weightKg: string;
   age: string;
+  sleepQuality?: "bad" | "moderate" | "good";
+  mood?: "😞" | "😐" | "🙂" | "😄";
+  stressLevel?: "Low" | "Mid" | "High";
   bodyFatPct?: string;
   waistCm?: string;
   hipCm?: string;
   bicepCm?: string;
   chestCm?: string;
   medicalConditions?: string;
+  focusClarity?: "Low" | "Mid" | "High";
+  socialInteraction?: "Low" | "Mid" | "High";
+  energyLevel?: "Low" | "Mid" | "High";
   availableFoods?: string[];
   healthPlan?: AIHealthPlan | null;
   healthPlanGeneratedAt?: string | null;

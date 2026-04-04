@@ -2,8 +2,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { SectionCard, CollapsibleSection } from "@/components/self/shared";
+import { CollapsibleSection } from "@/components/self/shared";
 import { DrivePickerStateA, DrivePickerStateB } from "@/blocks/DriveBlock";
 import { DriveColumn } from "@/blocks/GoalBlock";
 import { SkillsSection } from "@/blocks/SkillBlock";
@@ -12,7 +11,6 @@ import CirclesPanel from "@/components/CirclesPanel";
 import { useSelfState, DRIVES, DRIVE_QUESTION } from "@/hooks/useSelfState";
 
 export default function SelfTab({ profile }: { profile?: any }) {
-  const router = useRouter();
   const s = useSelfState(profile);
 
   // ── Delayed content reveal after drive picker collapses ──────────────────────
@@ -125,11 +123,11 @@ export default function SelfTab({ profile }: { profile?: any }) {
               </div>
             </CollapsibleSection>
 
-            {/* ── Skills · Health · Circles — single box, shown after goals are set ── */}
+            {/* ── Skills & Health — single box, shown after goals are set ── */}
             {s.filledGoals > 0 && (
               <div ref={skillsSectionRef} style={{ animation: "fadeSlideUp 500ms ease both" }}>
                 <CollapsibleSection
-                  title="Skills, Health & Circles"
+                  title="Skills, Health & Network"
                   subtitle="Your foundation across all goals"
                   defaultOpen={false}
                   triggerOpen={skillsOpenTrigger}
@@ -164,9 +162,11 @@ export default function SelfTab({ profile }: { profile?: any }) {
 
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                        Friend circles · people in your life
+                        Network · people &amp; organizations
                       </p>
-                      <CirclesPanel />
+                      <CollapsibleSection title="Network" subtitle="Your people and organizations">
+                        <CirclesPanel />
+                      </CollapsibleSection>
                     </div>
 
                   </div>
@@ -174,31 +174,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
               </div>
             )}
 
-            {/* ── Summary CTA ── */}
-            {s.filledGoals > 0 && s.allVisibleSaved && (
-              <SectionCard className="px-5 py-4">
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div>
-                    <p className="text-sm font-semibold text-white">Foundation set</p>
-                    <p className="text-xs text-gray-500 mt-0.5 flex gap-3 flex-wrap">
-                      <span>{s.filledGoals} goal{s.filledGoals > 1 ? "s" : ""}</span>
-                      <span>{s.totalSkills} skill{s.totalSkills !== 1 ? "s" : ""}</span>
-                      {s.monetizable > 0 && <span className="text-indigo-400">{s.monetizable} monetizable</span>}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => router.push("/self?tab=learn")}
-                      className="px-4 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700 text-sm text-gray-300 transition-colors">
-                      Go to Learn →
-                    </button>
-                    <button onClick={() => router.push("/self?tab=earn")}
-                      className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-medium transition-colors">
-                      Go to Earn →
-                    </button>
-                  </div>
-                </div>
-              </SectionCard>
-            )}
+
 
           </div>
         </div>
