@@ -1,7 +1,7 @@
 "use client";
 // components/self/shared.tsx — primitive UI components shared across all Self blocks
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 
 // ─── Tiny utility ─────────────────────────────────────────────────────────────
@@ -61,14 +61,20 @@ export function CollapsibleSection({
   children,
   defaultOpen = true,
   headerExtra,
+  triggerOpen,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
   headerExtra?: React.ReactNode;
+  triggerOpen?: number;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (triggerOpen && triggerOpen > 0) setOpen(true);
+  }, [triggerOpen]);
   return (
     <SectionCard>
       <button type="button" onClick={() => setOpen(v => !v)}
@@ -84,7 +90,17 @@ export function CollapsibleSection({
             : <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />}
         </div>
       </button>
-      {open && <div className="px-5 pb-6">{children}</div>}
+      {open && (
+        <div className="px-5 pb-6" style={{ animation: "sectionOpen 400ms ease both" }}>
+          <style>{`
+            @keyframes sectionOpen {
+              from { opacity: 0; transform: translateY(-6px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
+          {children}
+        </div>
+      )}
     </SectionCard>
   );
 }

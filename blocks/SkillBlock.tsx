@@ -62,6 +62,7 @@ export function SkillsSection({
   onUpdateGeneralSkills,
   onUpdateGoalSkills,
   onSuggestSkills,
+  highlightGoalId,
 }: {
   generalSkills: SkillEntry[];
   goals: GoalEntry[];
@@ -69,37 +70,33 @@ export function SkillsSection({
   onUpdateGeneralSkills: (skills: SkillEntry[]) => void;
   onUpdateGoalSkills: (goalId: string, skills: SkillEntry[]) => void;
   onSuggestSkills: (goalId: string) => void;
+  highlightGoalId?: string | null;
 }) {
   const savedGoals = goals.filter(g => g.saved && g.statement);
 
   return (
     <CollapsibleSection title="Skills">
+      <style>{`
+        @keyframes goalSkillHighlight {
+          0%   { border-color: rgb(31,41,55); box-shadow: none; }
+          25%  { border-color: rgba(99,102,241,0.9);
+                 box-shadow: -140px 0 100px rgba(129,140,248,0.55) inset, 0 0 22px rgba(99,102,241,0.45); }
+          65%  { border-color: rgba(99,102,241,0.6);
+                 box-shadow: 140px 0 100px rgba(129,140,248,0.4) inset, 0 0 14px rgba(99,102,241,0.25); }
+          100% { border-color: rgb(31,41,55); box-shadow: none; }
+        }
+        .goal-skill-highlight {
+          animation: goalSkillHighlight 0.9s ease-in-out 3 forwards;
+        }
+      `}</style>
       <div className="space-y-6 pt-2">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* General Skills */}
-          <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3">
-            <p className="text-sm font-semibold text-white">General</p>
-            <div className="space-y-2">
-              {generalSkills.map((skill, i) => (
-                <SkillRow key={skill.id} skill={skill}
-                  onChange={s => onUpdateGeneralSkills(generalSkills.map((gs, j) => j === i ? s : gs))}
-                  onRemove={() => onUpdateGeneralSkills(generalSkills.filter((_, j) => j !== i))}
-                />
-              ))}
-              {generalSkills.length === 0 && (
-                <p className="text-xs text-gray-600">e.g. Communication, Leadership</p>
-              )}
-            </div>
-            <button type="button"
-              onClick={() => onUpdateGeneralSkills([...generalSkills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
-              <Plus className="w-3 h-3" /> Add skill
-            </button>
-          </div>
-
-          {/* Goal-specific Skills */}
-          {savedGoals.map(goal => (
-            <div key={goal.id} className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3">
+          {/* Goal-specific Skills — newest first */}
+          {[...savedGoals].reverse().map(goal => (
+            <div key={goal.id}
+              className={`rounded-xl border bg-gray-950/60 p-4 space-y-3 ${
+                highlightGoalId === goal.id ? "goal-skill-highlight border-indigo-500/60" : "border-gray-800"
+              }`}>
               <div className="flex items-start justify-between gap-2">
                 <p className="text-sm font-semibold text-white line-clamp-2 flex-1">{goal.statement}</p>
                 <button type="button"
@@ -131,6 +128,27 @@ export function SkillsSection({
               </button>
             </div>
           ))}
+
+          {/* General Skills — always last */}
+          <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3">
+            <p className="text-sm font-semibold text-white">General</p>
+            <div className="space-y-2">
+              {generalSkills.map((skill, i) => (
+                <SkillRow key={skill.id} skill={skill}
+                  onChange={s => onUpdateGeneralSkills(generalSkills.map((gs, j) => j === i ? s : gs))}
+                  onRemove={() => onUpdateGeneralSkills(generalSkills.filter((_, j) => j !== i))}
+                />
+              ))}
+              {generalSkills.length === 0 && (
+                <p className="text-xs text-gray-600">e.g. Communication, Leadership</p>
+              )}
+            </div>
+            <button type="button"
+              onClick={() => onUpdateGeneralSkills([...generalSkills, { id: uid(), name: "", level: "Beginner", monetize: false }])}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-indigo-400 transition-colors">
+              <Plus className="w-3 h-3" /> Add skill
+            </button>
+          </div>
         </div>
       </div>
     </CollapsibleSection>
