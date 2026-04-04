@@ -213,8 +213,8 @@ function WithNavLayoutInner({
             </div>
           </div>
         </div>
-        <div className="h-[136px]" />
-        <main className="px-4 py-6">
+        <div className="h-[104px]" />
+        <main className="px-4 pt-0 pb-6">
           <div className="max-w-6xl mx-auto">{children}</div>
         </main>
         <div className={`fixed bottom-0 left-0 right-0 z-40 bg-black/95 backdrop-blur-lg
