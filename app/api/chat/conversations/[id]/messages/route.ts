@@ -11,13 +11,14 @@ import { getCurrentUser } from "@/lib/session";
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const me = await getCurrentUser(req);
     if (!me) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    const conv = await db.chatConversation.findUnique({ where: { id: params.id } });
+    const { id } = await params;
+    const conv = await db.chatConversation.findUnique({ where: { id } });
     if (!conv) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
     if (conv.userAId !== me.id && conv.userBId !== me.id) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
@@ -28,7 +29,7 @@ export async function GET(
 
     const messages = await db.chatMessage.findMany({
       where: {
-        conversationId: params.id,
+        conversationId: id,
         ...(after ? { createdAt: { gt: after } } : {}),
       },
       orderBy: { createdAt: "asc" },
@@ -50,13 +51,14 @@ export async function GET(
  */
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const me = await getCurrentUser(req);
     if (!me) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-    const conv = await db.chatConversation.findUnique({ where: { id: params.id } });
+    const { id } = await params;
+    const conv = await db.chatConversation.findUnique({ where: { id } });
     if (!conv) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
     if (conv.userAId !== me.id && conv.userBId !== me.id) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
@@ -73,11 +75,11 @@ export async function POST(
     const now = new Date();
     const [msg] = await db.$transaction([
       db.chatMessage.create({
-        data: { conversationId: params.id, senderId: me.id, ciphertext, iv },
+        data: { conversationId: id, senderId: me.id, ciphertext, iv },
         select: { id: true, senderId: true, ciphertext: true, iv: true, createdAt: true },
       }),
       db.chatConversation.update({
-        where: { id: params.id },
+        where: { id },
         data: { lastMessageAt: now },
       }),
     ]);

@@ -22,7 +22,17 @@ export async function POST(req: Request) {
   const fr = await db.friendRequest.findUnique({ where: { id: requestId } });
   if (!fr) return NextResponse.json({ ok: false, error: "Friend request not found" }, { status: 404 });
   if (fr.receiverId !== user.id) return NextResponse.json({ ok: false, error: "Not permitted" }, { status: 403 });
-  if (fr.status !== "pending") return NextResponse.json({ ok: false, error: "Request not pending" }, { status: 400 });
+
+  // Idempotent — if the request was already handled in the same direction, treat as success
+  if (fr.status !== "pending") {
+    if (
+      (action === "accept" && fr.status === "accepted") ||
+      (action === "reject" && fr.status === "rejected")
+    ) {
+      return NextResponse.json({ ok: true });
+    }
+    return NextResponse.json({ ok: false, error: "Request already handled" }, { status: 400 });
+  }
 
   if (action === "reject") {
     await db.friendRequest.update({ where: { id: requestId }, data: { status: "rejected" } });
