@@ -37,9 +37,7 @@ const _sharedKeys = new Map<string, CryptoKey>();
  * • Warms the private-key cache so the first message send has no cold start.
  */
 export async function ensureKeyPair(): Promise<void> {
-  // Version-gate: if the cache version doesn't match, wipe all stale friend
-  // public keys so we re-fetch fresh ones. Bump CACHE_VERSION after any
-  // key-format change to force everyone to re-sync.
+  // Version-gate: wipe stale friend key cache on version mismatch.
   if (localStorage.getItem(LS_CACHE_VER) !== CACHE_VERSION) {
     _clearFriendKeyCache();
     localStorage.setItem(LS_CACHE_VER, CACHE_VERSION);
@@ -47,26 +45,47 @@ export async function ensureKeyPair(): Promise<void> {
 
   await _migrateOldKey();
 
-  if (localStorage.getItem(LS_PRIVKEY)) {
-    // Already set up — warm the cache so sendMessage has no cold start,
-    // and re-upload our public key in case the server lost it.
-    await loadPrivateKey();
-    _reuploadPublicKey().catch(() => {}); // non-blocking
+  const hasPriv = !!localStorage.getItem(LS_PRIVKEY);
+  const hasPub  = !!localStorage.getItem(LS_PUBKEY);
+
+  if (hasPriv && hasPub) {
+    // Both keys present — warm private-key cache, re-upload public key to server.
+    try {
+      await loadPrivateKey();
+    } catch {
+      // Stored key is corrupt — wipe and regenerate.
+      _wipeOwnKeys();
+      return _generateAndUploadKeyPair();
+    }
+    _reuploadPublicKey().catch(() => {}); // non-blocking, best-effort
     return;
   }
 
-  // Generate fresh P-256 keypair.
+  if (hasPriv && !hasPub) {
+    // Private key exists but public key is missing from localStorage.
+    // The CryptoKey is non-extractable so we can't recover the JWK.
+    // Safest: regenerate so the server gets a fresh public key.
+    _wipeOwnKeys();
+    return _generateAndUploadKeyPair();
+  }
+
+  // No private key — fresh setup.
+  return _generateAndUploadKeyPair();
+}
+
+// ── Internal helpers ───────────────────────────────────────────────────────────
+
+async function _generateAndUploadKeyPair(): Promise<void> {
   const pair = await crypto.subtle.generateKey(ECDH_ALGO, true, ["deriveKey"]);
 
-  // Store private key as pkcs8 (more compact / standard than JWK).
   const pkcs8Buf = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
   localStorage.setItem(LS_PRIVKEY, _toBase64(pkcs8Buf));
-  _privateKey = pair.privateKey; // cache immediately
+  _privateKey = pair.privateKey;
 
-  // Upload public key (JWK) to server — server never sees private key.
   const publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
   const body = JSON.stringify({ publicKey: publicJwk });
-  localStorage.setItem(LS_PUBKEY, body); // store so we can re-upload after refresh
+  localStorage.setItem(LS_PUBKEY, body);
+
   await fetch("/api/keys", {
     method: "POST",
     credentials: "include",
@@ -75,7 +94,13 @@ export async function ensureKeyPair(): Promise<void> {
   });
 }
 
-/** Wipe all cached friend public keys from localStorage. */
+function _wipeOwnKeys() {
+  localStorage.removeItem(LS_PRIVKEY);
+  localStorage.removeItem(LS_PUBKEY);
+  _privateKey = null;
+  _sharedKeys.clear();
+}
+
 function _clearFriendKeyCache() {
   const keys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
@@ -83,10 +108,9 @@ function _clearFriendKeyCache() {
     if (k?.startsWith(LS_PUB_PFX)) keys.push(k);
   }
   keys.forEach(k => localStorage.removeItem(k));
-  _sharedKeys.clear(); // also clear in-memory derived keys
+  _sharedKeys.clear();
 }
 
-/** Re-upload our public key so the server always has the latest version. */
 async function _reuploadPublicKey() {
   const stored = localStorage.getItem(LS_PUBKEY);
   if (!stored) return;
@@ -94,7 +118,7 @@ async function _reuploadPublicKey() {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: stored, // already JSON-stringified { publicKey: JWK }
+    body: stored,
   });
 }
 

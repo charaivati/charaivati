@@ -116,12 +116,15 @@ export default function ChatPanel({ myId }: { myId?: string }) {
 
   // ── 1. Ensure keypair + load lists (both run immediately on mount) ────────
   useEffect(() => {
-    ensureKeyPair()
-      .then(() => setKeyReady(true))
-      .catch(() => setKeyError(true));
-    // Load the friend/conv list immediately — doesn't need keys
+    _initKeys();
     loadAll();
   }, []);
+
+  function _initKeys() {
+    ensureKeyPair()
+      .then(() => { setKeyReady(true); setKeyError(false); })
+      .catch(() => setKeyError(true));
+  }
 
   async function loadAll() {
     setConvsLoading(true);
@@ -330,9 +333,17 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     <div className="flex flex-col overflow-y-auto gap-0.5 h-full">
       {/* Inline key status — shows briefly while keys load, or on error */}
       {keyError && (
-        <div className="flex items-center gap-2 px-2 py-2 mb-1 rounded-lg bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs">
-          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          Encryption error — refresh to fix
+        <div className="flex items-start gap-2 px-2 py-2 mb-1 rounded-lg bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <div>
+            Encryption setup failed.{" "}
+            <button
+              onClick={() => { setKeyError(false); _initKeys(); }}
+              className="underline hover:text-amber-300"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       )}
       {!keyReady && !keyError && (
