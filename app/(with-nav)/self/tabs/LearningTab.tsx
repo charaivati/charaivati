@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BookOpen, ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, Trash2 } from "lucide-react";
 import { useProfile } from "@/lib/ProfileContext";
 import { CollapsibleSection } from "@/components/self/shared";
 import type { SkillEntry } from "@/types/self";
@@ -64,12 +64,6 @@ const LEVEL_COLOR: Record<SkillLevel, string> = {
   Mastered:     "text-amber-400",
 };
 
-const LEVEL_DROP_BG: Record<SkillLevel, string> = {
-  Beginner:     "border-emerald-500/50 bg-emerald-500/5",
-  Intermediate: "border-blue-500/50 bg-blue-500/5",
-  Advanced:     "border-purple-500/50 bg-purple-500/5",
-  Mastered:     "border-amber-500/50 bg-amber-500/5",
-};
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -138,16 +132,29 @@ export default function LearningTab() {
     });
   }
 
-  // ── Drag and drop ─────────────────────────────────────────────────────────
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<SkillLevel | null>(null);
-
-  function moveSkill(skillId: string, newLevel: SkillLevel) {
+  // ── Upgrade / Downgrade selected skills ──────────────────────────────────
+  function shiftSelected(direction: 1 | -1) {
     setLocalSkills(prev => {
-      const next = prev.map(s => s.id === skillId ? { ...s, level: newLevel } : s);
+      const next = prev.map(s => {
+        if (!selectedSkills.has(s.name)) return s;
+        const idx = COLUMNS.indexOf(s.level as SkillLevel);
+        const newIdx = idx + direction;
+        if (newIdx < 0 || newIdx >= COLUMNS.length) return s;
+        return { ...s, level: COLUMNS[newIdx] };
+      });
       localSkillsRef.current = next;
       return next;
     });
+    scheduleSave();
+  }
+
+  function deleteSelected() {
+    setLocalSkills(prev => {
+      const next = prev.filter(s => !selectedSkills.has(s.name));
+      localSkillsRef.current = next;
+      return next;
+    });
+    setSelectedSkills(new Set());
     scheduleSave();
   }
 
@@ -248,14 +255,43 @@ export default function LearningTab() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
-  const clearButton = selectedSkills.size > 0 ? (
-    <button
-      type="button"
-      onClick={(e) => { e.stopPropagation(); setSelectedSkills(new Set()); }}
-      className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-    >
-      Clear {selectedSkills.size}
-    </button>
+  const skillControls = selectedSkills.size > 0 ? (
+    <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+      {/* Downgrade */}
+      <button
+        type="button"
+        onClick={() => shiftSelected(-1)}
+        title="Downgrade"
+        className="flex items-center gap-1.5 rounded-lg border border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700 active:bg-gray-600 transition-colors
+          px-3 py-2 sm:px-2.5 sm:py-1"
+      >
+        <ChevronsDown className="w-4 h-4 sm:w-3 sm:h-3 shrink-0" />
+        <span className="hidden sm:inline text-xs">Downgrade</span>
+      </button>
+
+      {/* Upgrade */}
+      <button
+        type="button"
+        onClick={() => shiftSelected(1)}
+        title="Upgrade"
+        className="flex items-center gap-1.5 rounded-lg border border-indigo-700 bg-indigo-900/50 text-indigo-300 hover:bg-indigo-800/50 active:bg-indigo-700/50 transition-colors
+          px-3 py-2 sm:px-2.5 sm:py-1"
+      >
+        <ChevronsUp className="w-4 h-4 sm:w-3 sm:h-3 shrink-0" />
+        <span className="hidden sm:inline text-xs">Upgrade</span>
+      </button>
+
+      {/* Delete selected */}
+      <button
+        type="button"
+        onClick={deleteSelected}
+        title="Delete selected skills"
+        className="flex items-center justify-center rounded-lg border border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-500/40 active:bg-red-500/10 transition-colors
+          p-2 sm:p-1"
+      >
+        <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
+      </button>
+    </div>
   ) : null;
 
   const refreshButton = (
@@ -274,9 +310,9 @@ export default function LearningTab() {
       {/* ── Skill Levels ── */}
       <CollapsibleSection
         title="Skill Levels"
-        subtitle="Drag skills between levels to track your progress"
+        subtitle="Select skills, then upgrade or downgrade their level"
         defaultOpen={true}
-        headerExtra={clearButton}
+        headerExtra={skillControls}
       >
         {totalSkills === 0 ? (
           <p className="text-xs text-gray-500 py-1">
@@ -289,25 +325,11 @@ export default function LearningTab() {
               const isOpen = expanded[level];
               const visible = isOpen ? skills : skills.slice(0, 3);
               const hiddenCount = skills.length - 3;
-              const isDropTarget = dropTarget === level;
 
               return (
                 <div
                   key={level}
-                  onDragOver={(e) => { e.preventDefault(); setDropTarget(level); }}
-                  onDragLeave={() => setDropTarget(null)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const skillId = e.dataTransfer.getData("skillId");
-                    if (skillId) moveSkill(skillId, level);
-                    setDropTarget(null);
-                    setDraggingId(null);
-                  }}
-                  className={`rounded-xl border p-2 transition-colors min-h-[60px] ${
-                    isDropTarget
-                      ? LEVEL_DROP_BG[level]
-                      : "border-gray-800 bg-gray-900/50"
-                  }`}
+                  className="rounded-xl border border-gray-800 bg-gray-900/50 p-2 min-h-[60px]"
                 >
                   {/* Column header */}
                   <button
@@ -328,47 +350,26 @@ export default function LearningTab() {
                     </div>
                   </button>
 
-                  {/* Drop hint when dragging */}
-                  {isDropTarget && (
-                    <div className={`mb-1.5 rounded-lg border border-dashed py-1.5 text-center text-[10px] ${LEVEL_COLOR[level]} border-current opacity-60`}>
-                      Drop here
-                    </div>
-                  )}
-
                   {/* Skill chips */}
                   <div className="space-y-1">
-                    {visible.length === 0 && !isDropTarget && (
+                    {visible.length === 0 && (
                       <p className="text-[10px] text-gray-700 px-1 text-center py-2">—</p>
                     )}
                     {visible.map(skill => {
                       const active = selectedSkills.has(skill.name);
-                      const dragging = draggingId === skill.id;
                       return (
-                        <div
+                        <button
                           key={skill.id}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData("skillId", skill.id);
-                            setDraggingId(skill.id);
-                          }}
-                          onDragEnd={() => { setDraggingId(null); setDropTarget(null); }}
-                          className={`flex items-center gap-1 w-full text-left text-[11px] px-2 py-1 rounded-lg border transition-colors leading-tight cursor-grab active:cursor-grabbing ${
-                            dragging
-                              ? "opacity-40"
-                              : active
+                          type="button"
+                          onClick={() => toggleSkill(skill.name)}
+                          className={`w-full text-left text-[11px] px-2 py-1 rounded-lg border transition-colors leading-tight truncate ${
+                            active
                               ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
                               : "border-gray-800 text-gray-400 hover:border-gray-600 hover:text-gray-200"
                           }`}
                         >
-                          <GripVertical className="w-2.5 h-2.5 text-gray-700 shrink-0" />
-                          <button
-                            type="button"
-                            onClick={() => toggleSkill(skill.name)}
-                            className="flex-1 text-left truncate"
-                          >
-                            {skill.name}
-                          </button>
-                        </div>
+                          {skill.name}
+                        </button>
                       );
                     })}
                     {!isOpen && hiddenCount > 0 && (
