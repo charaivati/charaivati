@@ -11,10 +11,10 @@ import {
   AlertCircle,
   Upload,
   CheckCircle,
-  Plus,
   Trash2,
   LucideYoutube,
 } from "lucide-react";
+import { CollapsibleSection } from "@/components/self/shared";
 import { useCloudinaryUpload } from "@/hooks/useCloudinaryUpload";
 import SelectTabsModal from "@/components/SelectTabsModal";
 
@@ -84,6 +84,8 @@ export default function EarningTab() {
   const [visibility, setVisibility] = useState<"public" | "friends">("public");
   const [slugTags, setSlugTags] = useState<string[]>([]);
   const [showTagModal, setShowTagModal] = useState(false);
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [videoMenuOpen, setVideoMenuOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -231,31 +233,6 @@ export default function EarningTab() {
     }
   }
 
-  const handleImageButtonClick = () => {
-    if (imageInputRef.current) {
-      imageInputRef.current.removeAttribute("capture");
-      imageInputRef.current.click();
-    }
-  };
-  const handleImageCameraClick = () => {
-    if (imageInputRef.current) {
-      imageInputRef.current.setAttribute("capture", "environment");
-      imageInputRef.current.click();
-    }
-  };
-  const handleVideoButtonClick = () => {
-    if (videoInputRef.current) {
-      videoInputRef.current.removeAttribute("capture");
-      videoInputRef.current.click();
-    }
-  };
-  const handleVideoCameraClick = () => {
-    if (videoInputRef.current) {
-      videoInputRef.current.setAttribute("capture", "environment");
-      videoInputRef.current.click();
-    }
-  };
-
   const handleAddImages = (files: FileList | null) => {
     if (!files) return;
     const incoming = Array.from(files);
@@ -376,280 +353,250 @@ export default function EarningTab() {
   const publishDisabled = postingInProgress || cloudinary.uploading;
   const publishLabel = postingInProgress || cloudinary.uploading ? "Posting..." : "Publish Post";
 
+  const syncIndicator = syncStatus === "syncing" ? (
+    <Cloud className="w-4 h-4 text-blue-400 animate-spin" />
+  ) : syncStatus === "synced" ? (
+    <CheckCircle className="w-4 h-4 text-green-400" />
+  ) : syncStatus === "error" ? (
+    <AlertCircle className="w-4 h-4 text-red-400" />
+  ) : null;
+
   return (
-    <div className="w-full bg-gradient-to-br from-gray-900 via-black to-gray-900 min-h-screen">
-      {/* Header */}
-      <div className="sticky top-0 z-50 backdrop-blur-xl bg-black/40 border-b border-white/5 mb-6">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-3xl font-light text-white tracking-wide">Earning</h1>
-          <div className="flex items-center gap-3">
-            {syncStatus === "syncing" && <Cloud className="w-5 h-5 text-blue-400 animate-spin" />}
-            {syncStatus === "synced" && <CheckCircle className="w-5 h-5 text-green-400" />}
-            {syncStatus === "error" && <AlertCircle className="w-5 h-5 text-red-400" />}
+    <div className="text-white space-y-5">
+
+      {/* Upload progress bar */}
+      {cloudinary.uploading && cloudinary.progress > 0 && (
+        <div className="h-1 bg-gray-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300"
+            style={{ width: `${cloudinary.progress}%` }}
+          />
+        </div>
+      )}
+
+      {/* ── Create Post ── */}
+      <CollapsibleSection
+        title="Create Post"
+        subtitle="Share content with your community"
+        defaultOpen={true}
+        headerExtra={syncIndicator}
+      >
+        {/* Business, Privacy & Tag Selection */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 rounded-xl bg-gray-950/60 border border-gray-800">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Business / Page</label>
+            <select
+              value={selectedBusiness}
+              onChange={(e) => setSelectedBusiness(e.target.value)}
+              className="w-full p-2 rounded-lg bg-gray-900 border border-gray-700 text-white text-sm"
+            >
+              <option value="">— Select a business —</option>
+              {pages?.map((p) => (
+                <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Privacy</label>
+            <select
+              value={visibility}
+              onChange={(e) => setVisibility(e.target.value as "public" | "friends")}
+              className="w-full p-2 rounded-lg bg-gray-900 border border-gray-700 text-white text-sm"
+            >
+              <option value="public">🌍 Public</option>
+              <option value="friends">👥 Friends Only</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Tag Sections</label>
+            <button
+              type="button"
+              onClick={() => setShowTagModal(true)}
+              className="w-full px-3 py-2 rounded-lg bg-gray-900 border border-gray-700 hover:border-gray-500 text-sm text-white transition text-left"
+            >
+              {slugTags.length === 0 ? "Select tabs to tag" : `${slugTags.length} tag(s) selected`}
+            </button>
           </div>
         </div>
 
-        {cloudinary.uploading && cloudinary.progress > 0 && (
-          <div className="h-1 bg-gray-700">
-            <div
-              className="h-full bg-gradient-to-r from-blue-500 to-purple-600 transition-all duration-300"
-              style={{ width: `${cloudinary.progress}%` }}
-            />
+        {/* Composer */}
+        <textarea
+          ref={textareaRef}
+          placeholder="Share something..."
+          value={composerText}
+          onChange={(e) => setComposerText(e.target.value)}
+          className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none resize-none min-h-[100px] mb-4"
+          disabled={postingInProgress}
+        />
+
+        {/* Image previews */}
+        {imagePreviews.length > 0 && (
+          <div className="mb-4 grid grid-cols-3 gap-2">
+            {imagePreviews.map((src, i) => (
+              <div key={i} className="relative rounded-lg overflow-hidden group">
+                <img src={src} alt="" className="w-full h-24 object-cover" />
+                <button
+                  onClick={() => handleRemoveImageAt(i)}
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <X className="w-3 h-3 text-white" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
-      </div>
 
-      <div className="max-w-4xl mx-auto px-4 pb-20">
-        {/* Post Creation Block */}
-        <div className="mb-8">
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-            <Plus className="w-5 h-5" /> Create Post
-          </h2>
-
-          {!showComposer ? (
+        {/* Video preview */}
+        {videoPreview && (
+          <div className="mb-4 relative rounded-lg overflow-hidden">
+            <video src={videoPreview} controls className="w-full max-h-64 bg-black" />
             <button
-              onClick={() => setShowComposer(true)}
-              className="w-full p-6 rounded-3xl bg-gradient-to-br from-blue-500/10 to-purple-600/10 border border-white/10 hover:border-white/20 transition-all text-left"
+              onClick={handleRemoveVideo}
+              className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center"
             >
-              <span className="text-gray-300">What would you like to share?</span>
+              <X className="w-3 h-3 text-white" />
             </button>
-          ) : (
-            <div className="rounded-3xl bg-white/5 border border-white/10 overflow-hidden backdrop-blur-sm">
-              <div className="p-6">
-                {/* Business, Privacy & Tag Selection */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 rounded-lg bg-white/5 border border-white/10">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Select Business/Page</label>
-                    <select
-                      value={selectedBusiness}
-                      onChange={(e) => setSelectedBusiness(e.target.value)}
-                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
-                    >
-                      <option value="">-- Select a business --</option>
-                      {pages?.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.title}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+          </div>
+        )}
 
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Privacy</label>
-                    <select
-                      value={visibility}
-                      onChange={(e) => setVisibility(e.target.value as "public" | "friends")}
-                      className="w-full p-2 rounded bg-white/10 border border-white/20 text-white text-sm"
-                    >
-                      <option value="public">🌍 Public</option>
-                      <option value="friends">👥 Friends Only</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-col">
-                    <label className="block text-xs text-gray-400 mb-2 font-semibold">Tag Sections</label>
-                    <button
-                      type="button"
-                      onClick={() => setShowTagModal(true)}
-                      className="w-full px-3 py-2 rounded bg-white/10 hover:bg-white/20 text-sm text-white transition"
-                    >
-                      {slugTags.length === 0 ? "Select Tabs to Tag" : `${slugTags.length} Tag(s) selected`}
-                    </button>
-                    <div className="text-xs text-gray-400 mt-1">{slugTags.slice(0, 4).join(", ") || "No tags selected"}</div>
-                  </div>
-                </div>
-
-                {/* Composer */}
-                <div className="mb-4">
-                  <textarea
-                    ref={textareaRef}
-                    placeholder="Share something..."
-                    value={composerText}
-                    onChange={(e) => setComposerText(e.target.value)}
-                    className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm outline-none resize-none min-h-[100px]"
-                    autoFocus
-                    disabled={postingInProgress}
-                  />
-                </div>
-
-                {imagePreviews.length > 0 && (
-                  <div className="mb-4 grid grid-cols-3 gap-2">
-                    {imagePreviews.map((src, i) => (
-                      <div key={i} className="relative rounded-lg overflow-hidden group">
-                        <img src={src} alt="" className="w-full h-24 object-cover" />
-                        <button
-                          onClick={() => handleRemoveImageAt(i)}
-                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="w-3 h-3 text-white" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {videoPreview && (
-                  <div className="mb-4 relative rounded-lg overflow-hidden">
-                    <video src={videoPreview} controls className="w-full max-h-64 bg-black" />
-                    <button
-                      onClick={handleRemoveVideo}
-                      className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/60 flex items-center justify-center"
-                    >
-                      <X className="w-3 h-3 text-white" />
-                    </button>
-                  </div>
-                )}
-
-                {images.length > 0 && <p className="text-xs text-gray-400 mb-2">{images.length} photo(s)</p>}
-                {videoFile && <p className="text-xs text-gray-400 mb-2">{videoFile.name}</p>}
-
-                <div className="mb-4">
-                  <label className="block text-xs text-gray-400 mb-2 font-semibold">YouTube Link (optional)</label>
-                  <div className="flex items-center gap-2">
-                    <LucideYoutube className="w-4 h-4 text-red-500" />
-                    <input
-                      type="text"
-                      placeholder="Paste YouTube URL (optional)"
-                      value={youtubeLink}
-                      onChange={(e) => setYoutubeLink(e.target.value)}
-                      disabled={postingInProgress}
-                      className="flex-1 p-2 rounded bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm"
-                    />
-                    {youtubeLink && extractYouTubeId(youtubeLink) && <span className="text-xs text-green-400">✓</span>}
-                    {youtubeLink && !extractYouTubeId(youtubeLink) && <span className="text-xs text-red-400">✗</span>}
-                  </div>
-                </div>
-
-                {/* ACTIONS */}
-                <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleImageButtonClick}
-                      disabled={postingInProgress}
-                      type="button"
-                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
-                      title="Add photos from gallery"
-                    >
-                      <Camera className="w-4 h-4 text-blue-400" />
-                    </button>
-
-                    <button
-                      onClick={handleImageCameraClick}
-                      disabled={postingInProgress}
-                      type="button"
-                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
-                      title="Take photo with camera"
-                    >
-                      <Camera className="w-4 h-4 text-cyan-400" />
-                    </button>
-
-                    <button
-                      onClick={handleVideoButtonClick}
-                      disabled={postingInProgress}
-                      type="button"
-                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
-                      title="Add video from gallery"
-                    >
-                      <Video className="w-4 h-4 text-purple-400" />
-                    </button>
-
-                    <button
-                      onClick={handleVideoCameraClick}
-                      disabled={postingInProgress}
-                      type="button"
-                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center cursor-pointer transition-colors disabled:opacity-50 relative group"
-                      title="Record video with camera"
-                    >
-                      <Video className="w-4 h-4 text-pink-400" />
-                    </button>
-
-                    <input
-                      ref={imageInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(e) => handleAddImages(e.target.files)}
-                      className="hidden"
-                      disabled={postingInProgress}
-                    />
-
-                    <input
-                      ref={videoInputRef}
-                      type="file"
-                      accept="video/*"
-                      onChange={(e) => handlePickVideo(e.target.files)}
-                      className="hidden"
-                      disabled={postingInProgress}
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleClearComposer}
-                      disabled={postingInProgress}
-                      className="px-4 py-2 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 text-sm transition-colors disabled:opacity-50"
-                    >
-                      Clear
-                    </button>
-
-                    <button
-                      onClick={handlePost}
-                      disabled={publishDisabled}
-                      className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium flex items-center gap-2 hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {postingInProgress || cloudinary.uploading ? (
-                        <>
-                          <Upload className="w-4 h-4 animate-pulse" />
-                          Posting...
-                        </>
-                      ) : (
-                        publishLabel
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+        {/* YouTube */}
+        <div className="flex items-center gap-2 mb-4">
+          <LucideYoutube className="w-4 h-4 text-red-500 shrink-0" />
+          <input
+            type="text"
+            placeholder="Paste YouTube URL (optional)"
+            value={youtubeLink}
+            onChange={(e) => setYoutubeLink(e.target.value)}
+            disabled={postingInProgress}
+            className="flex-1 p-2 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none"
+          />
+          {youtubeLink && extractYouTubeId(youtubeLink) && <span className="text-xs text-green-400">✓</span>}
+          {youtubeLink && !extractYouTubeId(youtubeLink) && <span className="text-xs text-red-400">✗</span>}
         </div>
 
-        {/* Businesses Section (list + create) */}
-        <div>
-          <h2 className="text-xl font-semibold text-white mb-4">Your Businesses</h2>
+        {/* Hidden file inputs */}
+        <input ref={imageInputRef} type="file" accept="image/*" multiple onChange={(e) => handleAddImages(e.target.files)} className="hidden" disabled={postingInProgress} />
+        <input ref={videoInputRef} type="file" accept="video/*" onChange={(e) => handlePickVideo(e.target.files)} className="hidden" disabled={postingInProgress} />
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            {loading ? (
-              <div className="col-span-2 p-4 bg-white/5 rounded-lg">Loading...</div>
-            ) : pages && pages.length > 0 ? (
-              pages.map((page) => (
+        {/* Action bar */}
+        <div className="flex items-center justify-between gap-2 pt-3 border-t border-gray-800">
+          {/* Media buttons with Gallery / Camera sub-menu */}
+          <div className="flex gap-2">
+            {/* Photo button */}
+            <div className="relative">
+              <button
+                onClick={() => { setPhotoMenuOpen(v => !v); setVideoMenuOpen(false); }}
+                disabled={postingInProgress}
+                type="button"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-900 hover:border-gray-500 text-sm text-gray-300 transition-colors disabled:opacity-50"
+              >
+                <Camera className="w-4 h-4 text-blue-400" />
+                <span className="hidden sm:inline">Photo</span>
+              </button>
+              {photoMenuOpen && (
+                <div className="absolute bottom-full mb-1 left-0 z-20 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-lg min-w-[130px]">
+                  <button type="button" onClick={() => { setPhotoMenuOpen(false); imageInputRef.current?.removeAttribute("capture"); imageInputRef.current?.click(); }}
+                    className="w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-gray-700 flex items-center gap-2">
+                    Gallery
+                  </button>
+                  <button type="button" onClick={() => { setPhotoMenuOpen(false); imageInputRef.current?.setAttribute("capture", "environment"); imageInputRef.current?.click(); }}
+                    className="w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-gray-700 flex items-center gap-2">
+                    Camera
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* Video button */}
+            <div className="relative">
+              <button
+                onClick={() => { setVideoMenuOpen(v => !v); setPhotoMenuOpen(false); }}
+                disabled={postingInProgress}
+                type="button"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-700 bg-gray-900 hover:border-gray-500 text-sm text-gray-300 transition-colors disabled:opacity-50"
+              >
+                <Video className="w-4 h-4 text-purple-400" />
+                <span className="hidden sm:inline">Video</span>
+              </button>
+              {videoMenuOpen && (
+                <div className="absolute bottom-full mb-1 left-0 z-20 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-lg min-w-[130px]">
+                  <button type="button" onClick={() => { setVideoMenuOpen(false); videoInputRef.current?.removeAttribute("capture"); videoInputRef.current?.click(); }}
+                    className="w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-gray-700 flex items-center gap-2">
+                    Gallery
+                  </button>
+                  <button type="button" onClick={() => { setVideoMenuOpen(false); videoInputRef.current?.setAttribute("capture", "environment"); videoInputRef.current?.click(); }}
+                    className="w-full px-4 py-2 text-sm text-left text-gray-300 hover:bg-gray-700 flex items-center gap-2">
+                    Camera
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              onClick={handleClearComposer}
+              disabled={postingInProgress}
+              className="px-4 py-2 rounded-lg border border-gray-700 bg-gray-900 hover:border-gray-500 text-sm text-gray-300 transition-colors disabled:opacity-50"
+            >
+              Clear
+            </button>
+            <button
+              onClick={handlePost}
+              disabled={publishDisabled}
+              className="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-purple-600 text-white text-sm font-medium flex items-center gap-2 hover:from-blue-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {postingInProgress || cloudinary.uploading ? (
+                <><Upload className="w-4 h-4 animate-pulse" /> Posting...</>
+              ) : (
+                publishLabel
+              )}
+            </button>
+          </div>
+        </div>
+      </CollapsibleSection>
+
+      {/* ── Your Businesses ── */}
+      <CollapsibleSection
+        title="Your Businesses"
+        subtitle="Manage your pages and stores"
+        defaultOpen={true}
+      >
+        <div className="space-y-3">
+          {loading ? (
+            <p className="text-sm text-gray-500 py-2">Loading...</p>
+          ) : pages && pages.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {pages.map((page) => (
                 <div
                   key={page.id}
-                  className="p-4 bg-gradient-to-br from-white/10 to-white/5 rounded-xl border border-white/10 hover:border-white/20 transition-all"
+                  className="p-4 rounded-xl border border-gray-800 bg-gray-950/60 hover:border-gray-600 transition-colors"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-white text-lg">{page.title}</h3>
-                      {page.description && <p className="text-sm text-gray-400 mt-1">{page.description}</p>}
-                      <p className="text-xs text-gray-500 mt-3">Created {new Date(page.createdAt).toLocaleDateString()}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-white truncate">{page.title}</h3>
+                      {page.description && <p className="text-sm text-gray-400 mt-0.5">{page.description}</p>}
+                      <p className="text-xs text-gray-600 mt-2">Created {new Date(page.createdAt).toLocaleDateString()}</p>
                     </div>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1.5 shrink-0">
                       <a
                         href="/business"
-                        className="px-3 py-1 rounded text-xs bg-blue-600/80 hover:bg-blue-600 text-white transition-colors text-center"
+                        className="px-3 py-1 rounded-lg text-xs bg-blue-600/80 hover:bg-blue-600 text-white transition-colors text-center"
                       >
-                        Evaluate and Plan
+                        Evaluate & Plan
                       </a>
                       <button
                         onClick={() => openStore(page.id)}
                         disabled={openingStore === page.id}
-                        className="px-3 py-1 rounded text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center disabled:opacity-50"
+                        className="px-3 py-1 rounded-lg text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center disabled:opacity-50"
                       >
                         {openingStore === page.id ? "Opening…" : "Your Store"}
                       </button>
                       <button
                         onClick={() => deletePage(page.id)}
                         disabled={deleting === page.id}
-                        className="px-3 py-1 rounded text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 transition-colors flex items-center gap-1 disabled:opacity-50"
+                        className="px-3 py-1 rounded-lg text-xs bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-colors flex items-center justify-center gap-1 disabled:opacity-50"
                       >
                         <Trash2 className="w-3 h-3" />
                         {deleting === page.id ? "Deleting..." : "Delete"}
@@ -657,44 +604,38 @@ export default function EarningTab() {
                     </div>
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="col-span-2 p-6 bg-white/5 rounded-lg text-center">
-                <p className="text-gray-400">No businesses yet</p>
-              </div>
-            )}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 py-2">No businesses yet. Create one below.</p>
+          )}
 
-          {/* Add Business Form */}
-          <div className="p-6 bg-gradient-to-br from-white/5 to-transparent rounded-xl border border-white/10">
-            <h3 className="text-lg font-semibold text-white mb-4">Create New Business</h3>
+          {/* Create New Business */}
+          <div className="pt-2 border-t border-gray-800 space-y-3">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Add a Business</p>
             <input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
               placeholder="Business name"
               disabled={adding}
-              className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm mb-3"
+              className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none"
             />
             <textarea
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
               placeholder="Description (optional)"
               disabled={adding}
-              className="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-gray-500 text-sm resize-none min-h-[80px] mb-3"
+              className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 resize-none min-h-[70px] outline-none"
               rows={3}
             />
-            {error && <div className="text-red-400 text-sm mb-3">{error}</div>}
+            {error && <p className="text-red-400 text-sm">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => {
-                  setNewTitle("");
-                  setNewDesc("");
-                  setError(null);
-                }}
-                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 text-sm transition-colors disabled:opacity-50"
+                onClick={() => { setNewTitle(""); setNewDesc(""); setError(null); }}
+                className="px-4 py-2 rounded-lg border border-gray-700 bg-gray-900 hover:border-gray-500 text-sm text-gray-300 transition-colors disabled:opacity-50"
                 disabled={adding}
               >
-                Cancel
+                Clear
               </button>
               <button
                 onClick={addPage}
@@ -706,7 +647,7 @@ export default function EarningTab() {
             </div>
           </div>
         </div>
-      </div>
+      </CollapsibleSection>
 
       {showTagModal && (
         <SelectTabsModal

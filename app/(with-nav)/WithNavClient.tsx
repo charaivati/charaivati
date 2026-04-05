@@ -112,18 +112,41 @@ function WithNavLayoutInner({
     }
   }
 
-  const initialFriendState = React.useMemo(() => ({
-    friends:   Array.isArray(profile?.friends)   ? profile.friends   : [],
-    outgoing:  Array.isArray(profile?.outgoing)  ? profile.outgoing  : [],
-    incoming:  Array.isArray(profile?.incoming)  ? profile.incoming  : [],
-    following: Array.isArray(profile?.following) ? profile.following : [],
-  }), [profile]);
+  const [friendState, setFriendState] = useState<{
+    friends: string[];
+    outgoing: string[];
+    incoming: string[];
+    following: string[];
+  }>({ friends: [], outgoing: [], incoming: [], following: [] });
 
-  const [friendState, setFriendState] = useState(initialFriendState);
-
+  // Load real friend state from the API on mount
   useEffect(() => {
-    setFriendState(initialFriendState);
-  }, [initialFriendState]);
+    (async () => {
+      try {
+        const [frRes, followRes] = await Promise.allSettled([
+          fetch("/api/user/friends", { credentials: "include" }),
+          fetch("/api/user/follows", { credentials: "include" }),
+        ]);
+
+        const frData = frRes.status === "fulfilled" && frRes.value.ok
+          ? await frRes.value.json().catch(() => null)
+          : null;
+
+        const followData = followRes.status === "fulfilled" && followRes.value.ok
+          ? await followRes.value.json().catch(() => null)
+          : null;
+
+        setFriendState({
+          friends:  (frData?.friends        ?? []).map((f: any) => f.id ?? f),
+          outgoing: (frData?.outgoingRequests ?? []).map((r: any) => r.receiverId ?? r.receiver?.id ?? r.id),
+          incoming: (frData?.incomingRequests ?? []).map((r: any) => r.senderId   ?? r.sender?.id   ?? r.id),
+          following:(followData?.follows     ?? []).map((f: any) => f.pageId      ?? f.id),
+        });
+      } catch {
+        // non-fatal — state stays empty
+      }
+    })();
+  }, []);
 
   async function onFollowPage(pageId: string) {
     const res = await fetch("/api/user/follows", {
@@ -143,15 +166,16 @@ function WithNavLayoutInner({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ receiverId: userId }),
     });
-    if (!res.ok) throw new Error("Failed to add friend");
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error ?? "Failed to send friend request");
     setFriendState((s) =>
       s.outgoing.includes(userId) ? s : { ...s, outgoing: [...s.outgoing, userId] }
     );
   }
 
   async function onUnfriend(userId: string) {
-    const res = await fetch("/api/user/friends", {
-      method: "DELETE", credentials: "include",
+    const res = await fetch("/api/friends/remove", {
+      method: "POST", credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ friendId: userId }),
     });
