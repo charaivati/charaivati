@@ -150,13 +150,10 @@ export async function encryptMessage(
   key: CryptoKey,
   plaintext: string
 ): Promise<{ ciphertext: string; iv: string }> {
-  console.time("crypto:encrypt");
   const iv        = crypto.getRandomValues(new Uint8Array(12));
   const encoded   = new TextEncoder().encode(plaintext);
   const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
-  const result    = { ciphertext: _toBase64(encrypted), iv: _toBase64(iv) };
-  console.timeEnd("crypto:encrypt");
-  return result;
+  return { ciphertext: _toBase64(encrypted), iv: _toBase64(iv) };
 }
 
 // ── decryptMessage ─────────────────────────────────────────────────────────────
@@ -165,15 +162,12 @@ export async function decryptMessage(
   ciphertext: string,
   iv: string
 ): Promise<string> {
-  console.time("crypto:decrypt");
   const decrypted = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: _fromBase64(iv) },
     key,
     _fromBase64(ciphertext)
   );
-  const result = new TextDecoder().decode(decrypted);
-  console.timeEnd("crypto:decrypt");
-  return result;
+  return new TextDecoder().decode(decrypted);
 }
 
 // ── Migration: JWK → pkcs8 ────────────────────────────────────────────────────

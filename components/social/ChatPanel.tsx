@@ -108,10 +108,11 @@ export default function ChatPanel({ myId }: { myId?: string }) {
   const [showList, setShowList] = useState(true);
 
   // Refs
-  const activeSharedKeyRef = useRef<CryptoKey | null>(null); // key for current conv
-  const activeConvIdRef    = useRef<string | null>(null);
-  const eventSourceRef     = useRef<EventSource | null>(null);
-  const bottomRef          = useRef<HTMLDivElement>(null);
+  const activeSharedKeyRef    = useRef<CryptoKey | null>(null); // key for current conv
+  const activeConvIdRef       = useRef<string | null>(null);
+  const eventSourceRef        = useRef<EventSource | null>(null);
+  const bottomRef             = useRef<HTMLDivElement>(null);
+  const messagesContainerRef  = useRef<HTMLDivElement>(null);
 
   // ── 1. Ensure keypair (once, cached in module singleton) ──────────────────
   useEffect(() => {
@@ -218,9 +219,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
           if (prev.find(m => m.id === raw.id)) return prev;
           return prev; // placeholder — real append after decryption below
         });
-        console.time("crypto:decrypt");
         const text = await decryptMessage(sk, raw.ciphertext, raw.iv);
-        console.timeEnd("crypto:decrypt");
         setMessages(prev => {
           if (prev.find(m => m.id === raw.id)) return prev;
           return [...prev, { id: raw.id, senderId: raw.senderId, text, createdAt: raw.createdAt }];
@@ -269,14 +268,12 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     try {
       const { ciphertext, iv } = await encryptMessage(sk, text);
 
-      console.time("network:send");
       const res = await fetch(`/api/chat/conversations/${active.id}/messages`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ciphertext, iv }),
       });
-      console.timeEnd("network:send");
 
       const d = await res.json().catch(() => null);
       if (d?.ok && d.message) {
@@ -301,8 +298,12 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(e as any); }
   }
 
-  // Scroll to bottom on new messages
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  // Scroll to bottom on new messages — direct scrollTop to avoid page-level scroll jank
+  useEffect(() => {
+    if (messages.length === 0) return; // don't scroll to "top of empty list" on conv switch
+    const el = messagesContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   // Cleanup SSE on unmount
   useEffect(() => {
@@ -458,7 +459,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
 
       {/* Messages */}
       {!notFriends && (
-        <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-1 min-h-0">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-2 mb-3 pr-1 min-h-0">
           {msgLoading && <p className="text-center text-xs text-gray-500 py-4">Loading messages…</p>}
           {!msgLoading && messages.length === 0 && (
             <p className="text-center text-xs text-gray-500 py-8">No messages yet. Say hello!</p>
@@ -469,12 +470,12 @@ export default function ChatPanel({ myId }: { myId?: string }) {
               <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm leading-snug ${
                   m.failed
-                    ? "bg-red-900/40 text-red-400 border border-red-700/30"
+                    ? "bg-gray-800/40 text-gray-600 border border-gray-700/20 italic"
                     : isMe
                     ? "bg-indigo-600 text-white rounded-br-sm"
                     : "bg-gray-700/80 text-gray-100 rounded-bl-sm"
                 }`}>
-                  <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                  <p className="whitespace-pre-wrap break-words">{m.failed ? "🔒 Encrypted with a previous key" : m.text}</p>
                   <p className={`text-[10px] mt-0.5 ${isMe ? "text-indigo-200" : "text-gray-500"}`}>
                     {timeLabel(m.createdAt)}
                   </p>
