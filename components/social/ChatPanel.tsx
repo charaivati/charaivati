@@ -114,15 +114,14 @@ export default function ChatPanel({ myId }: { myId?: string }) {
   const bottomRef             = useRef<HTMLDivElement>(null);
   const messagesContainerRef  = useRef<HTMLDivElement>(null);
 
-  // ── 1. Ensure keypair (once, cached in module singleton) ──────────────────
+  // ── 1. Ensure keypair + load lists (both run immediately on mount) ────────
   useEffect(() => {
     ensureKeyPair()
       .then(() => setKeyReady(true))
       .catch(() => setKeyError(true));
+    // Load the friend/conv list immediately — doesn't need keys
+    loadAll();
   }, []);
-
-  // ── 2. Load lists when key is ready ───────────────────────────────────────
-  useEffect(() => { if (keyReady) loadAll(); }, [keyReady]);
 
   async function loadAll() {
     setConvsLoading(true);
@@ -321,21 +320,6 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     loadAll();
   }
 
-  // ── Error states ───────────────────────────────────────────────────────────
-  if (keyError) return (
-    <div className="flex items-center gap-3 py-4 text-amber-400 text-sm">
-      <AlertTriangle className="w-5 h-5 shrink-0" />
-      Could not set up encryption. Please refresh and try again.
-    </div>
-  );
-
-  if (!keyReady) return (
-    <div className="flex items-center gap-2 py-4 text-sm text-gray-500">
-      <Lock className="w-4 h-4 animate-pulse" />
-      Setting up encryption…
-    </div>
-  );
-
   // ── Sidebar data ───────────────────────────────────────────────────────────
   const convFriendIds = new Set(convs.map(c => c.friend.id));
   const friendsNoConv = friends.filter(f => !convFriendIds.has(f.id));
@@ -344,6 +328,18 @@ export default function ChatPanel({ myId }: { myId?: string }) {
   // ── Left sidebar ───────────────────────────────────────────────────────────
   const sidebarEl = (
     <div className="flex flex-col overflow-y-auto gap-0.5 h-full">
+      {/* Inline key status — shows briefly while keys load, or on error */}
+      {keyError && (
+        <div className="flex items-center gap-2 px-2 py-2 mb-1 rounded-lg bg-amber-900/20 border border-amber-700/30 text-amber-400 text-xs">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          Encryption error — refresh to fix
+        </div>
+      )}
+      {!keyReady && !keyError && (
+        <div className="flex items-center gap-2 px-2 py-1 text-xs text-gray-600">
+          <Lock className="w-3 h-3 animate-pulse" /> Setting up encryption…
+        </div>
+      )}
       {convsLoading ? (
         <div className="flex items-center gap-2 py-4 text-sm text-gray-500">
           <MessageCircle className="w-4 h-4 animate-pulse" /> Loading…
@@ -359,7 +355,8 @@ export default function ChatPanel({ myId }: { myId?: string }) {
             <button
               key={c.id}
               onClick={() => openConversation(c.friend)}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-colors text-left ${
+              disabled={!keyReady}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-colors text-left disabled:opacity-50 disabled:cursor-wait ${
                 active?.friend.id === c.friend.id
                   ? "bg-indigo-600/20 border-indigo-500/40"
                   : "bg-gray-800/60 border-gray-700/40 hover:bg-gray-700/60"
@@ -382,7 +379,8 @@ export default function ChatPanel({ myId }: { myId?: string }) {
                 <button
                   key={f.id}
                   onClick={() => openConversation(f)}
-                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl bg-gray-800/40 border border-gray-700/30 hover:bg-gray-700/50 transition-colors text-left"
+                  disabled={!keyReady}
+                  className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl bg-gray-800/40 border border-gray-700/30 hover:bg-gray-700/50 transition-colors text-left disabled:opacity-50 disabled:cursor-wait"
                 >
                   <Avatar src={f.avatarUrl} name={f.name} />
                   <div className="flex-1 min-w-0">
@@ -406,7 +404,8 @@ export default function ChatPanel({ myId }: { myId?: string }) {
                   <button
                     key={m.id}
                     onClick={() => openConversation({ id: m.userId, name, avatarUrl: m.user.avatarUrl })}
-                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-colors text-left ${
+                    disabled={!keyReady}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border transition-colors text-left disabled:opacity-50 disabled:cursor-wait ${
                       active?.friend.id === m.userId
                         ? "bg-indigo-600/20 border-indigo-500/40"
                         : "bg-gray-800/30 border-gray-700/20 hover:bg-gray-700/40"
@@ -519,18 +518,32 @@ export default function ChatPanel({ myId }: { myId?: string }) {
   );
 
   // ── Layout ─────────────────────────────────────────────────────────────────
-  return (
-    <div className="flex gap-3 overflow-hidden" style={{ height: "clamp(320px, 60vh, 520px)" }}>
-      {/* Sidebar */}
-      <div className={`${!showList ? "hidden md:flex" : "flex"} flex-col md:w-48 w-full shrink-0 overflow-hidden`}>
-        {sidebarEl}
-      </div>
-      {/* Divider (desktop) */}
-      <div className="hidden md:block w-px bg-gray-700/40 shrink-0" />
-      {/* Chat */}
-      <div className={`${showList ? "hidden md:flex" : "flex"} flex-1 flex-col min-h-0 min-w-0`}>
+  // On mobile, when a chat is active show a full-screen fixed overlay so the
+  // keyboard resize and header are handled cleanly by the OS.
+  const mobileChatOverlay = !showList && active ? (
+    <div className="fixed inset-0 z-50 bg-[#0f1117] flex flex-col md:hidden">
+      <div className="flex flex-col flex-1 min-h-0 px-4 pt-3 pb-3">
         {chatEl}
       </div>
     </div>
+  ) : null;
+
+  return (
+    <>
+      {mobileChatOverlay}
+      {/* Desktop split-pane + mobile list view */}
+      <div className="flex gap-3 overflow-hidden" style={{ height: "clamp(320px, 60vh, 520px)" }}>
+        {/* Sidebar — always visible on desktop; on mobile only when showList */}
+        <div className={`${!showList ? "hidden md:flex" : "flex"} flex-col md:w-48 w-full shrink-0 overflow-hidden`}>
+          {sidebarEl}
+        </div>
+        {/* Divider (desktop only) */}
+        <div className="hidden md:block w-px bg-gray-700/40 shrink-0" />
+        {/* Chat area — desktop only (mobile uses the overlay above) */}
+        <div className="hidden md:flex flex-1 flex-col min-h-0 min-w-0">
+          {chatEl}
+        </div>
+      </div>
+    </>
   );
 }

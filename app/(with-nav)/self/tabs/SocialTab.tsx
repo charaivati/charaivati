@@ -50,6 +50,7 @@ export default function SocialTab({ profile }: { profile?: any }) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
+  const [closeRequestsTrigger, setCloseRequestsTrigger] = useState(0);
 
   async function loadFeed() {
     setLoading(true);
@@ -122,6 +123,7 @@ export default function SocialTab({ profile }: { profile?: any }) {
         subtitle="People who want to connect with you"
         defaultOpen={requestCount > 0}
         headerExtra={requestBadge}
+        triggerClose={closeRequestsTrigger}
       >
         <div className="pt-1">
           <FriendRequestsBox onCountChange={setRequestCount} />
@@ -133,6 +135,8 @@ export default function SocialTab({ profile }: { profile?: any }) {
         title="Messages"
         subtitle="End-to-end encrypted direct messages"
         defaultOpen={false}
+        keepMounted
+        onToggle={(open) => { if (open) setCloseRequestsTrigger(v => v + 1); }}
       >
         <div className="pt-1">
           <ChatPanel myId={myId} />

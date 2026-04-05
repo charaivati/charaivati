@@ -62,6 +62,9 @@ export function CollapsibleSection({
   defaultOpen = true,
   headerExtra,
   triggerOpen,
+  triggerClose,
+  onToggle,
+  keepMounted = false,
 }: {
   title: string;
   subtitle?: string;
@@ -69,19 +72,36 @@ export function CollapsibleSection({
   defaultOpen?: boolean;
   headerExtra?: React.ReactNode;
   triggerOpen?: number;
+  /** Increment to force-close from parent */
+  triggerClose?: number;
+  /** Called whenever open state changes */
+  onToggle?: (open: boolean) => void;
+  /** Keep children mounted (but hidden) when closed — for preloading */
+  keepMounted?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    onToggle?.(next);
+  }
+
   useEffect(() => {
-    if (triggerOpen && triggerOpen > 0) setOpen(true);
+    if (triggerOpen && triggerOpen > 0) { setOpen(true); onToggle?.(true); }
   }, [triggerOpen]);
+
+  useEffect(() => {
+    if (triggerClose && triggerClose > 0) { setOpen(false); onToggle?.(false); }
+  }, [triggerClose]);
+
   return (
     <SectionCard>
       <div
         role="button"
         tabIndex={0}
-        onClick={() => setOpen(v => !v)}
-        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(v => !v); } }}
+        onClick={toggle}
+        onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } }}
         className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer select-none">
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-semibold text-white">{title}</h3>
@@ -94,7 +114,17 @@ export function CollapsibleSection({
             : <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />}
         </div>
       </div>
-      {open && (
+      {keepMounted ? (
+        <div className={open ? "px-5 pb-6" : "hidden"} style={open ? { animation: "sectionOpen 400ms ease both" } : undefined}>
+          <style>{`
+            @keyframes sectionOpen {
+              from { opacity: 0; transform: translateY(-6px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
+          {children}
+        </div>
+      ) : open ? (
         <div className="px-5 pb-6" style={{ animation: "sectionOpen 400ms ease both" }}>
           <style>{`
             @keyframes sectionOpen {
@@ -104,7 +134,7 @@ export function CollapsibleSection({
           `}</style>
           {children}
         </div>
-      )}
+      ) : null}
     </SectionCard>
   );
 }
