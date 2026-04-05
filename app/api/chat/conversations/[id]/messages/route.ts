@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/session";
+import { messageEmitter } from "@/lib/message-emitter";
 
 /**
  * GET /api/chat/conversations/[id]/messages?after=ISO_TIMESTAMP
@@ -83,6 +84,9 @@ export async function POST(
         data: { lastMessageAt: now },
       }),
     ]);
+
+    // Notify any SSE listeners for this conversation (non-blocking).
+    messageEmitter.emit(`msg:${id}`, msg);
 
     return NextResponse.json({ ok: true, message: msg });
   } catch (err: any) {
