@@ -17,9 +17,12 @@
 
 const ECDH_ALGO    = { name: "ECDH", namedCurve: "P-256" } as const;
 const LS_PRIVKEY   = "charaivati_privkey_pkcs8";  // base64-encoded pkcs8
+const LS_PUBKEY    = "charaivati_pubkey_jwk";     // JSON-stringified JWK (for re-upload)
 const LS_OLD_KP    = "charaivati_chat_keypair";   // legacy JWK format (migration)
 const LS_PUB_PFX   = "pubkey_";                  // pubkey_{friendId}
-const TTL_MS       = 24 * 60 * 60 * 1000;        // 24 h friend-key cache
+const TTL_MS       = 30 * 60 * 1000;             // 30 min friend-key cache (was 24 h)
+const LS_CACHE_VER = "charaivati_cache_ver";
+const CACHE_VERSION = "v3";                       // bump this after any key-format change
 
 // ── Module-level singletons ────────────────────────────────────────────────────
 let _privateKey: CryptoKey | null = null;
@@ -34,11 +37,21 @@ const _sharedKeys = new Map<string, CryptoKey>();
  * • Warms the private-key cache so the first message send has no cold start.
  */
 export async function ensureKeyPair(): Promise<void> {
+  // Version-gate: if the cache version doesn't match, wipe all stale friend
+  // public keys so we re-fetch fresh ones. Bump CACHE_VERSION after any
+  // key-format change to force everyone to re-sync.
+  if (localStorage.getItem(LS_CACHE_VER) !== CACHE_VERSION) {
+    _clearFriendKeyCache();
+    localStorage.setItem(LS_CACHE_VER, CACHE_VERSION);
+  }
+
   await _migrateOldKey();
 
   if (localStorage.getItem(LS_PRIVKEY)) {
-    // Already set up — warm the cache so sendMessage has no cold start.
+    // Already set up — warm the cache so sendMessage has no cold start,
+    // and re-upload our public key in case the server lost it.
     await loadPrivateKey();
+    _reuploadPublicKey().catch(() => {}); // non-blocking
     return;
   }
 
@@ -52,11 +65,36 @@ export async function ensureKeyPair(): Promise<void> {
 
   // Upload public key (JWK) to server — server never sees private key.
   const publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const body = JSON.stringify({ publicKey: publicJwk });
+  localStorage.setItem(LS_PUBKEY, body); // store so we can re-upload after refresh
   await fetch("/api/keys", {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ publicKey: publicJwk }),
+    body,
+  });
+}
+
+/** Wipe all cached friend public keys from localStorage. */
+function _clearFriendKeyCache() {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith(LS_PUB_PFX)) keys.push(k);
+  }
+  keys.forEach(k => localStorage.removeItem(k));
+  _sharedKeys.clear(); // also clear in-memory derived keys
+}
+
+/** Re-upload our public key so the server always has the latest version. */
+async function _reuploadPublicKey() {
+  const stored = localStorage.getItem(LS_PUBKEY);
+  if (!stored) return;
+  await fetch("/api/keys", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: stored, // already JSON-stringified { publicKey: JWK }
   });
 }
 
@@ -189,11 +227,13 @@ async function _migrateOldKey(): Promise<void> {
     _privateKey = privKey;
 
     // Re-upload public key to ensure server has it (already idempotent).
+    const body = JSON.stringify({ publicKey: publicJwk });
+    localStorage.setItem(LS_PUBKEY, body); // store for re-upload on future sessions
     await fetch("/api/keys", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ publicKey: publicJwk }),
+      body,
     });
 
     localStorage.removeItem(LS_OLD_KP);
