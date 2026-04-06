@@ -4,35 +4,37 @@ import Link from "next/link";
 
 const STORAGE_KEY = "charaivati_test_ratings";
 
-// Static emotion → archetype mapping
-const EMOTION_MAP: Record<string, { archetype: string; tagline: string; color: string }> = {
+// Static emotion → personality type mapping
+// 4 types: Seeker (inner peace/wisdom), Connector (relationships/service),
+//           Builder (ambition/action), Maker (wealth/enterprise)
+const EMOTION_MAP: Record<string, { type: string; tagline: string; color: string }> = {
   Peace: {
-    archetype: "Brahmin",
+    type: "Seeker",
     tagline: "You seek stillness in a noisy world. Charaivati begins with understanding yourself — your values, your rhythms, your quiet purpose.",
     color: "from-sky-500/20 to-teal-500/10 border-sky-500/40",
   },
   Love: {
-    archetype: "Shudra",
+    type: "Connector",
     tagline: "Connection is your compass. Your journey starts with the people around you — friendships, community, the ones who matter most.",
     color: "from-rose-500/20 to-pink-500/10 border-rose-500/40",
   },
   Growth: {
-    archetype: "Kshatriya",
+    type: "Builder",
     tagline: "You're built to push boundaries. Your path is action, ambition, and becoming more — one layer at a time.",
     color: "from-orange-500/20 to-amber-500/10 border-orange-500/40",
   },
   Money: {
-    archetype: "Vaishya",
+    type: "Maker",
     tagline: "Financial clarity is the foundation of freedom. Charaivati helps you build wealth with purpose, not just numbers.",
     color: "from-yellow-500/20 to-amber-500/10 border-yellow-500/40",
   },
   Purpose: {
-    archetype: "Brahmin",
+    type: "Seeker",
     tagline: "You're asking the right questions. Purpose isn't found — it's built, slowly, through self-knowledge and intentional living.",
     color: "from-violet-500/20 to-indigo-500/10 border-violet-500/40",
   },
   "Just exploring": {
-    archetype: "Explorer",
+    type: "Explorer",
     tagline: "The best journeys start with curiosity. There's no wrong door here — every layer of Charaivati has something for you.",
     color: "from-indigo-500/20 to-blue-500/10 border-indigo-500/40",
   },

@@ -12,7 +12,7 @@ const VARIATIONS = [
     id: "a",
     label: "Variation A — Emotion Picker",
     description:
-      'One warm question: "What are you looking for today?" with emotion pills. No mention of varnas — AI maps the choice in the background.',
+      'One warm question: "What are you looking for today?" with emotion pills. Maps to one of 4 personality types in the background.',
     color: "from-violet-600/20 to-indigo-600/10 border-violet-500/30",
     badge: "bg-violet-500/20 text-violet-300",
   },
@@ -86,10 +86,10 @@ export default function TestDashboard() {
           </div>
           <h1 className="text-3xl font-bold text-white mt-3">Landing Page A/B Test</h1>
           <p className="text-gray-400 mt-2 leading-relaxed max-w-xl">
-            New users struggle to place themselves within Charaivati's varna classification. These
-            four variations test different ways to welcome someone who just wants a{" "}
-            <em>quiet, meaningful life</em> — without requiring them to know what a Brahmin or
-            Kshatriya is.
+            New users often don't know where to start. These four variations test different ways
+            to welcome someone who just wants a{" "}
+            <em>quiet, meaningful life</em> — mapping them to one of 4 personality types without
+            asking abstract questions.
           </p>
           <p className="text-gray-500 text-sm mt-1">
             Open each variation, imagine you're a first-time visitor, then rate it below.
