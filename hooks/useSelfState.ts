@@ -6,6 +6,7 @@ import { safeFetchJson } from "@/hooks/useAIBlock";
 import type {
   DriveType, GoalEntry, HealthProfile, SkillEntry,
   PageItem, SaveState, AIRoadmap,
+  FundsProfile, WeekSchedule, EnvironmentProfile,
 } from "@/types/self";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -58,6 +59,18 @@ export function defaultGoal(driveId: DriveType): GoalEntry {
   };
 }
 
+function defaultFundsProfile(): FundsProfile {
+  return { sources: [], monthlyBurn: 0, targetRunway: 6, fundsPlan: null };
+}
+
+function defaultWeekSchedule(): WeekSchedule {
+  return { slots: [] };
+}
+
+function defaultEnvironmentProfile(): EnvironmentProfile {
+  return { city: '', country: '', timezone: '', workspace: '', livingWith: '', constraints: [], assets: [] };
+}
+
 export function defaultHealth(): HealthProfile {
   return {
     food: "Vegetarian", exercise: "Mixed", sessionsPerWeek: 3,
@@ -82,6 +95,9 @@ export function useSelfState(profile: any) {
   const [saveState,      setSaveState]      = useState<SaveState>("idle");
   const [isGuest,        setIsGuest]        = useState(false);
   const [planLoading,    setPlanLoading]    = useState<Record<string, boolean>>({});
+  const [fundsProfile,       setFundsProfile]       = useState<FundsProfile>(defaultFundsProfile());
+  const [weekSchedule,       setWeekSchedule]       = useState<WeekSchedule>(defaultWeekSchedule());
+  const [environmentProfile, setEnvironmentProfile] = useState<EnvironmentProfile>(defaultEnvironmentProfile());
   const [typedLine1,     setTypedLine1]     = useState("");
   const [typedLine2,     setTypedLine2]     = useState("");
   const [line2Started,   setLine2Started]   = useState(false);
@@ -116,6 +132,9 @@ export function useSelfState(profile: any) {
           if (saved.drives) setDrives(saved.drives);
           if (saved.health) setHealth(h => ({ ...h, ...saved.health }));
           if (Array.isArray(saved.goals) && saved.goals.length) setGoals(saved.goals);
+          if (saved.fundsProfile)       setFundsProfile(saved.fundsProfile);
+          if (saved.weekSchedule)       setWeekSchedule(saved.weekSchedule);
+          if (saved.environmentProfile) setEnvironmentProfile(saved.environmentProfile);
         }
         profileApplied.current = true;
       }
@@ -152,6 +171,10 @@ export function useSelfState(profile: any) {
     if (loadedDrives.length > 0) setDrives(loadedDrives);
 
     if (profile.health) setHealth({ ...defaultHealth(), ...profile.health });
+
+    if (profile.fundsProfile)       setFundsProfile({ ...defaultFundsProfile(), ...profile.fundsProfile });
+    if (profile.weekSchedule)       setWeekSchedule({ slots: profile.weekSchedule.slots ?? [] });
+    if (profile.environmentProfile) setEnvironmentProfile({ ...defaultEnvironmentProfile(), ...profile.environmentProfile });
 
     if (Array.isArray(profile.generalSkills)) {
       const gs = profile.generalSkills as SkillEntry[];
@@ -229,12 +252,12 @@ export function useSelfState(profile: any) {
   }, [profileReady, profile]);
 
   // ── Persist ────────────────────────────────────────────────────
-  function persist(nextDrives: DriveType[], nextGoals: GoalEntry[], nextHealth: HealthProfile) {
+  function persist(nextDrives: DriveType[], nextGoals: GoalEntry[], nextHealth: HealthProfile, nextFunds?: FundsProfile, nextSchedule?: WeekSchedule, nextEnv?: EnvironmentProfile) {
     if (!profileApplied.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
     if (isGuest) {
-      guestSave({ drives: nextDrives, goals: nextGoals, health: nextHealth });
+      guestSave({ drives: nextDrives, goals: nextGoals, health: nextHealth, fundsProfile: nextFunds ?? fundsProfile, weekSchedule: nextSchedule ?? weekSchedule, environmentProfile: nextEnv ?? environmentProfile });
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 1200);
       return;
@@ -245,7 +268,7 @@ export function useSelfState(profile: any) {
       try {
         const resp = await safeFetchJson("/api/user/profile", {
           method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({ drives: nextDrives, goals: nextGoals, health: nextHealth, generalSkills: generalSkillsRef.current }),
+          body: JSON.stringify({ drives: nextDrives, goals: nextGoals, health: nextHealth, generalSkills: generalSkillsRef.current, fundsProfile: nextFunds ?? fundsProfile, weekSchedule: nextSchedule ?? weekSchedule, environmentProfile: nextEnv ?? environmentProfile }),
         });
         setSaveState(resp.ok && resp.json?.ok ? "saved" : "error");
         if (resp.ok && resp.json?.ok) setTimeout(() => setSaveState("idle"), 1500);
@@ -263,14 +286,7 @@ export function useSelfState(profile: any) {
     }
     setDrives(next);
     setDrivePickerOpen(false);
-
-    const newDrives = next.filter(id => !drives.includes(id));
-    let nextGoals = goals;
-    newDrives.forEach(driveId => {
-      if (!goals.some(g => g.driveId === driveId)) nextGoals = [...nextGoals, defaultGoal(driveId)];
-    });
-    if (nextGoals !== goals) setGoals(nextGoals);
-    persist(next, nextGoals, health);
+    persist(next, goals, health);
   }
 
   // ── Goal helpers ───────────────────────────────────────────────
@@ -301,6 +317,22 @@ export function useSelfState(profile: any) {
   function addGoal(driveId: DriveType) {
     setGoals(prev => [...prev, defaultGoal(driveId)]);
   }
+  function addGoalDirect(goal: GoalEntry) {
+    setGoals(prev => [...prev, goal]);
+    persist(drives, [...goals, goal], health);
+  }
+
+  // Atomic: set drives + goals at once (used by onboarding to avoid stale-state bugs)
+  function applyOnboardingResult(newDrives: DriveType[], newGoals: GoalEntry[]) {
+    setDrives(newDrives);
+    setGoals(newGoals);
+    persist(newDrives, newGoals, health);
+  }
+
+  // ── New block handlers ─────────────────────────────────────────
+  function handleFundsChange(f: FundsProfile) { setFundsProfile(f); persist(drives, goals, health, f, weekSchedule, environmentProfile); }
+  function handleWeekScheduleChange(s: WeekSchedule) { setWeekSchedule(s); persist(drives, goals, health, fundsProfile, s, environmentProfile); }
+  function handleEnvironmentChange(e: EnvironmentProfile) { setEnvironmentProfile(e); persist(drives, goals, health, fundsProfile, weekSchedule, e); }
 
   // ── Health + skills handlers ───────────────────────────────────
   function handleHealthChange(h: HealthProfile) { setHealth(h); persist(drives, goals, h); }
@@ -401,11 +433,13 @@ export function useSelfState(profile: any) {
     isGuest, planLoading, typedLine1, typedLine2, line2Started, typingDone,
     drivesVisible, drivePickerOpen, profileReady, visibleGoals,
     allVisibleSaved, filledGoals, totalSkills, monetizable,
+    fundsProfile, weekSchedule, environmentProfile,
     // setters
     setDrivePickerOpen,
     // handlers
     toggleDrive, updateGoal, saveGoal, editGoal, removeGoal, saveGoalPlan,
-    addGoal, handleHealthChange, handleGeneralSkillsChange, handleGoalSkillsChange,
+    addGoal, addGoalDirect, applyOnboardingResult, handleHealthChange, handleGeneralSkillsChange, handleGoalSkillsChange,
     suggestGoalSkills, generateGoalPlan,
+    handleFundsChange, handleWeekScheduleChange, handleEnvironmentChange,
   };
 }

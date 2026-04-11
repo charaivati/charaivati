@@ -102,3 +102,19 @@ export type PageItem = {
 };
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
+
+// ─── Funds ────────────────────────────────────────────────────────────────────
+export type FundType = 'savings' | 'income' | 'investment' | 'grant' | 'loan';
+export type FundSource = { id: string; name: string; type: FundType; amount: number; currency: string; linkedGoalIds: string[]; notes: string; };
+export type FundsProfile = { sources: FundSource[]; monthlyBurn: number; targetRunway: number; fundsPlan: AIFundsPlan | null; };
+export type AIFundsPlan = { savingsPlan: string; pitchGuidance: string; budgetAllocation: { goalId: string; goalName: string; amount: number; rationale: string }[]; fallback?: boolean; };
+
+// ─── Time ─────────────────────────────────────────────────────────────────────
+export type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export type TimeSlot = { id: string; day: DayKey; startHour: number; endHour: number; goalId: string; activity: string; isFlexible: boolean; };
+export type WeekSchedule = { slots: TimeSlot[]; };
+
+// ─── Environment ──────────────────────────────────────────────────────────────
+export type WorkspaceType = 'home' | 'office' | 'coworking' | 'hybrid' | 'remote';
+export type LivingWith = 'alone' | 'family' | 'roommates' | 'partner';
+export type EnvironmentProfile = { city: string; country: string; timezone: string; workspace: WorkspaceType | ''; livingWith: LivingWith | ''; constraints: string[]; assets: string[]; };

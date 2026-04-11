@@ -4,8 +4,8 @@ type AIProvider = "ollama" | "openrouter" | "gemini";
 
 const OLLAMA_MODEL     = process.env.OLLAMA_MODEL ?? "llama3.1:8b";
 const OLLAMA_BASE_URL  = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const OPENROUTER_MODEL = "mistralai/mistral-small-3.1-24b-instruct"; // reliable JSON output
-const GEMINI_MODEL     = "gemini-2.0-flash";
+const OPENROUTER_MODEL = "mistralai/mistral-7b-instruct:free"; // reliable JSON output, confirmed available
+const GEMINI_MODEL     = "gemini-1.5-flash"; // stable GA model
 const TIMEOUT_MS       = 60_000; // local models can be slower
 
 // ─── Public API ───────────────────────────────────────────────────────────────

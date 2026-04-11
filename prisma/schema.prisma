@@ -60,6 +60,7 @@ model User {
   chatConvsA              ChatConversation[]   @relation("ChatConvA")
   chatConvsB              ChatConversation[]   @relation("ChatConvB")
   sentMessages            ChatMessage[]        @relation("ChatSender")
+  msgBackups              ChatMessageBackup[]  @relation("UserMsgBackups")
 
   @@index([email])
   @@index([phone])
@@ -778,6 +779,23 @@ model ChatMessage {
 
   @@index([conversationId, createdAt])
   @@index([senderId])
+}
+
+/// Server-side backup of decrypted message content, encrypted with a
+/// per-user key derived from the server secret.  Used to recover messages
+/// when the client's ECDH keypair has rotated and key-history fallback fails.
+model ChatMessageBackup {
+  id        String   @id @default(cuid())
+  userId    String
+  messageId String   // ChatMessage.id — not a FK so deleting the message doesn't cascade
+  encrypted String   // base64 AES-256-GCM ciphertext (server-side key)
+  iv        String   // base64 IV
+  createdAt DateTime @default(now())
+
+  user User @relation("UserMsgBackups", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId, messageId])
 }
 
 model HelpLink {

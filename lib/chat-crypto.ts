@@ -24,9 +24,16 @@ const TTL_MS       = 30 * 60 * 1000;             // 30 min friend-key cache (was
 const LS_CACHE_VER = "charaivati_cache_ver";
 const CACHE_VERSION = "v3";                       // bump this after any key-format change
 
+// ── Key history — keeps the last N private keys so old messages can still decrypt
+//    after a keypair rotation (e.g. localStorage clear, migration, device change).
+const LS_KEY_HISTORY  = "charaivati_privkey_history"; // JSON array of base64 pkcs8 strings
+const MAX_KEY_HISTORY = 5;
+
 // ── Module-level singletons ────────────────────────────────────────────────────
 let _privateKey: CryptoKey | null = null;
 const _sharedKeys = new Map<string, CryptoKey>();
+// Cached shared keys derived from historical private keys — keyed as `friendId:histN`.
+const _historicalSharedKeys = new Map<string, CryptoKey>();
 
 // ── ensureKeyPair ──────────────────────────────────────────────────────────────
 /**
@@ -94,11 +101,26 @@ async function _generateAndUploadKeyPair(): Promise<void> {
   });
 }
 
+/** Save current private key into the history ring before wiping it. */
+function _archiveCurrentKey() {
+  const current = localStorage.getItem(LS_PRIVKEY);
+  if (!current) return;
+  try {
+    const raw  = localStorage.getItem(LS_KEY_HISTORY);
+    const hist: string[] = raw ? JSON.parse(raw) : [];
+    // Prepend, deduplicate, cap at MAX_KEY_HISTORY.
+    const updated = [current, ...hist.filter(k => k !== current)].slice(0, MAX_KEY_HISTORY);
+    localStorage.setItem(LS_KEY_HISTORY, JSON.stringify(updated));
+  } catch { /* quota exceeded — non-fatal */ }
+}
+
 function _wipeOwnKeys() {
+  _archiveCurrentKey(); // preserve old key before discarding
   localStorage.removeItem(LS_PRIVKEY);
   localStorage.removeItem(LS_PUBKEY);
   _privateKey = null;
   _sharedKeys.clear();
+  _historicalSharedKeys.clear();
 }
 
 function _clearFriendKeyCache() {
@@ -230,6 +252,75 @@ export async function decryptMessage(
     _fromBase64(ciphertext)
   );
   return new TextDecoder().decode(decrypted);
+}
+
+// ── decryptWithFallback ────────────────────────────────────────────────────────
+/**
+ * Tries to decrypt a message with the current shared key first.
+ * If that fails, derives shared keys from historical private keys (localStorage
+ * ring buffer) and retries each one.  Returns the plaintext and a flag
+ * indicating whether a fallback key was used so the caller can optionally
+ * trigger a re-key on the server.
+ *
+ * @param currentKey   - AES-GCM key derived from the current keypair
+ * @param friendId     - used as cache namespace for historical shared keys
+ * @param theirJwk     - friend's current ECDH public key (JWK)
+ * @param ciphertext   - base64 ciphertext
+ * @param iv           - base64 IV
+ */
+export async function decryptWithFallback(
+  currentKey: CryptoKey,
+  friendId: string,
+  theirJwk: JsonWebKey,
+  ciphertext: string,
+  iv: string
+): Promise<{ text: string; failed: boolean; usedFallback: boolean }> {
+  // 1. Current key
+  try {
+    const text = await decryptMessage(currentKey, ciphertext, iv);
+    return { text, failed: false, usedFallback: false };
+  } catch { /* fall through */ }
+
+  // 2. Historical private keys
+  const rawHist = localStorage.getItem(LS_KEY_HISTORY);
+  if (!rawHist) return { text: "[Unable to decrypt]", failed: true, usedFallback: false };
+
+  let history: string[];
+  try { history = JSON.parse(rawHist) as string[]; }
+  catch { return { text: "[Unable to decrypt]", failed: true, usedFallback: false }; }
+
+  // Import friend's public key once (shared across all history attempts)
+  let theirPublic: CryptoKey;
+  try {
+    theirPublic = await crypto.subtle.importKey("jwk", theirJwk, ECDH_ALGO, false, []);
+  } catch { return { text: "[Unable to decrypt]", failed: true, usedFallback: false }; }
+
+  for (let i = 0; i < history.length; i++) {
+    const cacheKey = `${friendId}:hist${i}`;
+    let hsk = _historicalSharedKeys.get(cacheKey);
+
+    if (!hsk) {
+      try {
+        const pkcs8   = _fromBase64(history[i]);
+        const histPriv = await crypto.subtle.importKey("pkcs8", pkcs8, ECDH_ALGO, false, ["deriveKey"]);
+        hsk = await crypto.subtle.deriveKey(
+          { name: "ECDH", public: theirPublic },
+          histPriv,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt", "decrypt"]
+        );
+        _historicalSharedKeys.set(cacheKey, hsk);
+      } catch { continue; }
+    }
+
+    try {
+      const text = await decryptMessage(hsk, ciphertext, iv);
+      return { text, failed: false, usedFallback: true };
+    } catch { /* try next */ }
+  }
+
+  return { text: "[Unable to decrypt]", failed: true, usedFallback: false };
 }
 
 // ── Migration: JWK → pkcs8 ────────────────────────────────────────────────────

@@ -167,7 +167,9 @@ function AuthForm() {
 
       setMessage("✅ Login successful! Redirecting...");
       await new Promise((r) => setTimeout(r, 200));
-      await router.replace(redirectTo);
+      // Send to onboarding if not yet completed
+      const onboardingDone = (() => { try { return !!localStorage.getItem("charaivati_onboarding_v1"); } catch { return false; } })();
+      await router.replace(onboardingDone ? redirectTo : "/onboarding");
       try {
         sessionStorage.removeItem("charaivati.redirect");
       } catch {}
@@ -208,13 +210,9 @@ function AuthForm() {
         return;
       }
 
-      setMessage("✅ Check your email for a verification link. Redirecting you to login...");
-      setPassword("");
-      setName("");
-      await new Promise((r) => setTimeout(r, 2000));
-      setStep("email");
-      setEmail("");
-      setMessage("");
+      setMessage("✅ Account created! Let's get you started...");
+      await new Promise((r) => setTimeout(r, 800));
+      router.replace("/onboarding");
     } finally {
       setIsSubmitting(false);
     }

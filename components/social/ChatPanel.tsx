@@ -7,6 +7,7 @@ import {
   Send,
   MessageCircle,
   AlertTriangle,
+  X,
 } from "lucide-react";
 import {
   ensureKeyPair,
@@ -14,6 +15,7 @@ import {
   getSharedKey,
   encryptMessage,
   decryptMessage,
+  decryptWithFallback,
 } from "@/lib/chat-crypto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -107,15 +109,23 @@ export default function ChatPanel({ myId }: { myId?: string }) {
   // Mobile: true = show list, false = show chat
   const [showList, setShowList] = useState(true);
 
+  // Mobile message popup — tapping a bubble on mobile shows a full-screen sheet
+  const [selectedMsg, setSelectedMsg] = useState<DecryptedMessage | null>(null);
+
   // Refs
   const activeSharedKeyRef    = useRef<CryptoKey | null>(null); // key for current conv
   const activeConvIdRef       = useRef<string | null>(null);
+  const friendJwkRef          = useRef<JsonWebKey | null>(null); // friend's JWK for fallback
+  const activeFriendIdRef     = useRef<string | null>(null);
   const eventSourceRef        = useRef<EventSource | null>(null);
   const bottomRef             = useRef<HTMLDivElement>(null);
   const messagesContainerRef  = useRef<HTMLDivElement>(null);
 
   // ── 1. Ensure keypair + load lists (both run immediately on mount) ────────
   useEffect(() => {
+    // WithNavClient already calls ensureKeyPair() on layout mount.
+    // We check if the key is already ready to avoid the "Setting up…" flash,
+    // and call it here as a safety net (e.g. if ChatPanel mounts before layout).
     _initKeys();
     loadAll();
   }, []);
@@ -154,6 +164,8 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     }
     activeConvIdRef.current   = null;
     activeSharedKeyRef.current = null;
+    friendJwkRef.current       = null;
+    activeFriendIdRef.current  = null;
 
     setMessages([]);
     setDraft("");
@@ -176,14 +188,15 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     }
 
     const convId: string = d.conversationId;
-    activeConvIdRef.current = convId;
+    activeConvIdRef.current   = convId;
+    activeFriendIdRef.current = friend.id;
     setActive({ id: convId, friend });
     setConvs(prev => {
       if (prev.find(c => c.id === convId)) return prev;
       return sortConvs([...prev, { id: convId, friend }]);
     });
 
-    // Get friend's public key — cached in localStorage for 24 h
+    // Get friend's public key — cached in localStorage for 30 min
     let theirJwk: JsonWebKey;
     try {
       theirJwk = await getFriendPublicKey(friend.id);
@@ -191,6 +204,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
       setFriendKeyMissing(true);
       return;
     }
+    friendJwkRef.current = theirJwk;
 
     // Derive shared key — cached in module Map, runs once per friend per session
     let sk: CryptoKey;
@@ -204,7 +218,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
 
     // Initial message load (existing history)
     setMsgLoading(true);
-    await fetchMessages(convId, sk);
+    await fetchMessages(convId, sk, friend.id, theirJwk);
     setMsgLoading(false);
 
     // Open SSE stream — replaces polling
@@ -215,21 +229,30 @@ export default function ChatPanel({ myId }: { myId?: string }) {
 
     es.addEventListener("message", async (event) => {
       try {
-        const raw = JSON.parse(event.data) as RawMessage;
-        // Deduplicate (initial load may already have it)
+        const raw      = JSON.parse(event.data) as RawMessage;
+        const curSk    = activeSharedKeyRef.current;
+        const curJwk   = friendJwkRef.current;
+        const curFriend = activeFriendIdRef.current;
+        if (!curSk || !curJwk || !curFriend) return;
+
+        // Deduplicate — SSE may deliver messages that were added via optimistic UI
+        setMessages(prev => { if (prev.find(m => m.id === raw.id)) return prev; return prev; });
+
+        const { text, failed } = await decryptWithFallback(curSk, curFriend, curJwk, raw.ciphertext, raw.iv);
+
         setMessages(prev => {
           if (prev.find(m => m.id === raw.id)) return prev;
-          return prev; // placeholder — real append after decryption below
-        });
-        const text = await decryptMessage(sk, raw.ciphertext, raw.iv);
-        setMessages(prev => {
-          if (prev.find(m => m.id === raw.id)) return prev;
-          return [...prev, { id: raw.id, senderId: raw.senderId, text, createdAt: raw.createdAt }];
+          return [...prev, { id: raw.id, senderId: raw.senderId, text, createdAt: raw.createdAt, failed }];
         });
         setConvs(prev =>
           sortConvs(prev.map(c => c.id === convId ? { ...c, lastMessageAt: raw.createdAt } : c))
         );
-      } catch { /* decrypt error on SSE — ignore */ }
+
+        // Save successful decryptions to server backup (fire-and-forget)
+        if (!failed) {
+          _saveBackup([{ messageId: raw.id, plaintext: text }]);
+        }
+      } catch { /* SSE parse/decrypt error — ignore */ }
     });
 
     es.addEventListener("error", () => {
@@ -238,24 +261,68 @@ export default function ChatPanel({ myId }: { myId?: string }) {
   }
 
   // ── 4. Initial fetch (history) ─────────────────────────────────────────────
-  const fetchMessages = useCallback(async (convId: string, sk: CryptoKey) => {
+  const fetchMessages = useCallback(async (
+    convId: string,
+    sk: CryptoKey,
+    friendId: string,
+    theirJwk: JsonWebKey,
+  ) => {
     const res = await fetch(`/api/chat/conversations/${convId}/messages`, { credentials: "include" });
     const d   = await res.json().catch(() => null);
     if (!d?.ok || !d.messages?.length) return;
 
+    // Try to decrypt each message; fall back to key-history, then server backup
+    const rawMsgs = d.messages as RawMessage[];
     const decrypted: DecryptedMessage[] = await Promise.all(
-      (d.messages as RawMessage[]).map(async m => {
-        try {
-          const text = await decryptMessage(sk, m.ciphertext, m.iv);
-          return { id: m.id, senderId: m.senderId, text, createdAt: m.createdAt };
-        } catch {
-          return { id: m.id, senderId: m.senderId, text: "[Unable to decrypt]", createdAt: m.createdAt, failed: true };
-        }
+      rawMsgs.map(async m => {
+        const { text, failed } = await decryptWithFallback(sk, friendId, theirJwk, m.ciphertext, m.iv);
+        return { id: m.id, senderId: m.senderId, text, createdAt: m.createdAt, failed };
       })
     );
 
+    // For messages that still failed, try the server-side backup
+    const stillFailed = decrypted.filter(m => m.failed);
+    if (stillFailed.length > 0) {
+      const recovered = await _fetchBackup(stillFailed.map(m => m.id));
+      for (const m of decrypted) {
+        if (m.failed && recovered[m.id]) {
+          m.text   = recovered[m.id];
+          m.failed = false;
+        }
+      }
+    }
+
     setMessages(decrypted);
+
+    // Save successfully decrypted messages to server backup (fire-and-forget)
+    const toBackup = decrypted
+      .filter(m => !m.failed)
+      .map(m => ({ messageId: m.id, plaintext: m.text }));
+    if (toBackup.length > 0) _saveBackup(toBackup);
   }, []);
+
+  // ── Backup helpers (fire-and-forget) ──────────────────────────────────────
+  function _saveBackup(items: Array<{ messageId: string; plaintext: string }>) {
+    fetch("/api/chat/backup", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+    }).catch(() => {});
+  }
+
+  async function _fetchBackup(messageIds: string[]): Promise<Record<string, string>> {
+    try {
+      const ids = messageIds.join(",");
+      const res = await fetch(`/api/chat/backup?ids=${encodeURIComponent(ids)}`, {
+        credentials: "include",
+      });
+      const d = await res.json().catch(() => null);
+      return d?.results ?? {};
+    } catch {
+      return {};
+    }
+  }
 
   // ── 5. Send a message ──────────────────────────────────────────────────────
   async function sendMessage(e: React.FormEvent) {
@@ -288,6 +355,8 @@ export default function ChatPanel({ myId }: { myId?: string }) {
         setConvs(prev =>
           sortConvs(prev.map(c => c.id === active.id ? { ...c, lastMessageAt: d.message.createdAt } : c))
         );
+        // Back up sent message too
+        _saveBackup([{ messageId: d.message.id, plaintext: text }]);
       }
     } catch {
       setDraft(text); // restore on error
@@ -302,7 +371,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
 
   // Scroll to bottom on new messages — direct scrollTop to avoid page-level scroll jank
   useEffect(() => {
-    if (messages.length === 0) return; // don't scroll to "top of empty list" on conv switch
+    if (messages.length === 0) return;
     const el = messagesContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
@@ -317,6 +386,8 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     eventSourceRef.current = null;
     activeConvIdRef.current = null;
     activeSharedKeyRef.current = null;
+    friendJwkRef.current = null;
+    activeFriendIdRef.current = null;
     setShowList(true);
     setActive(null);
     setMessages([]);
@@ -478,14 +549,20 @@ export default function ChatPanel({ myId }: { myId?: string }) {
             const isMe = m.senderId === myId;
             return (
               <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm leading-snug ${
-                  m.failed
-                    ? "bg-gray-800/40 text-gray-600 border border-gray-700/20 italic"
-                    : isMe
-                    ? "bg-indigo-600 text-white rounded-br-sm"
-                    : "bg-gray-700/80 text-gray-100 rounded-bl-sm"
-                }`}>
-                  <p className="whitespace-pre-wrap break-words">{m.failed ? "🔒 Encrypted with a previous key" : m.text}</p>
+                {/* On mobile, tapping a bubble opens the message popup sheet */}
+                <div
+                  className={`max-w-[75%] px-3 py-2 rounded-2xl text-sm leading-snug cursor-pointer md:cursor-default active:opacity-80 transition-opacity ${
+                    m.failed
+                      ? "bg-gray-800/40 text-gray-600 border border-gray-700/20 italic"
+                      : isMe
+                      ? "bg-indigo-600 text-white rounded-br-sm"
+                      : "bg-gray-700/80 text-gray-100 rounded-bl-sm"
+                  }`}
+                  onClick={() => setSelectedMsg(m)}
+                >
+                  <p className="whitespace-pre-wrap break-words">
+                    {m.failed ? "🔒 Encrypted with a previous key" : m.text}
+                  </p>
                   <p className={`text-[10px] mt-0.5 ${isMe ? "text-indigo-200" : "text-gray-500"}`}>
                     {timeLabel(m.createdAt)}
                   </p>
@@ -528,6 +605,89 @@ export default function ChatPanel({ myId }: { myId?: string }) {
     </div>
   );
 
+  // ── Mobile message popup sheet ─────────────────────────────────────────────
+  // Shown on mobile when the user taps a message bubble.
+  // It covers the bottom half of the screen and auto-scrolls to the latest message.
+  const msgPopup = selectedMsg ? (
+    <div
+      className="fixed inset-0 z-[60] md:hidden flex flex-col justify-end"
+      onClick={() => setSelectedMsg(null)}
+    >
+      {/* Dim backdrop */}
+      <div className="absolute inset-0 bg-black/60" />
+
+      {/* Sheet */}
+      <div
+        className="relative bg-[#161b25] border-t border-gray-700/60 rounded-t-2xl px-4 pt-4 pb-8 max-h-[70vh] flex flex-col gap-3"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Drag handle + close */}
+        <div className="flex items-center justify-between mb-1">
+          <div className="w-10 h-1 rounded-full bg-gray-600 mx-auto" />
+          <button
+            onClick={() => setSelectedMsg(null)}
+            className="absolute right-4 top-4 p-1.5 rounded-full bg-gray-700/60 text-gray-400 hover:text-white hover:bg-gray-600 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Message content */}
+        <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed overflow-y-auto ${
+          selectedMsg.failed
+            ? "bg-gray-800/60 text-gray-500 italic border border-gray-700/30"
+            : selectedMsg.senderId === myId
+            ? "bg-indigo-600 text-white"
+            : "bg-gray-700/80 text-gray-100"
+        }`}>
+          <p className="whitespace-pre-wrap break-words">
+            {selectedMsg.failed ? "🔒 Encrypted with a previous key" : selectedMsg.text}
+          </p>
+        </div>
+
+        {/* Timestamp + sender hint */}
+        <div className="flex items-center justify-between text-xs text-gray-500">
+          <span>{selectedMsg.senderId === myId ? "You" : active?.friend.name ?? "Them"}</span>
+          <span>{new Date(selectedMsg.createdAt).toLocaleString()}</span>
+        </div>
+
+        {/* Recent messages list — shows context from this message to the latest */}
+        {messages.length > 1 && (() => {
+          const idx = messages.findIndex(m => m.id === selectedMsg.id);
+          const after = messages.slice(idx + 1);
+          if (after.length === 0) return null;
+          return (
+            <div className="border-t border-gray-700/40 pt-3">
+              <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Later messages</p>
+              <div className="flex flex-col gap-1.5 overflow-y-auto max-h-40">
+                {after.map(m => {
+                  const isMine = m.senderId === myId;
+                  return (
+                    <div key={m.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[85%] px-3 py-1.5 rounded-xl text-xs ${
+                        m.failed
+                          ? "bg-gray-800/40 text-gray-600 italic border border-gray-700/20"
+                          : isMine
+                          ? "bg-indigo-600/80 text-white"
+                          : "bg-gray-700/60 text-gray-200"
+                      }`}>
+                        <p className="whitespace-pre-wrap break-words">
+                          {m.failed ? "🔒 Encrypted with a previous key" : m.text}
+                        </p>
+                        <p className="text-[9px] mt-0.5 opacity-60">{timeLabel(m.createdAt)}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  ) : null;
+
   // ── Layout ─────────────────────────────────────────────────────────────────
   // On mobile, when a chat is active show a full-screen fixed overlay so the
   // keyboard resize and header are handled cleanly by the OS.
@@ -542,6 +702,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
   return (
     <>
       {mobileChatOverlay}
+      {msgPopup}
       {/* Desktop split-pane + mobile list view */}
       <div className="flex gap-3 overflow-hidden" style={{ height: "clamp(320px, 60vh, 520px)" }}>
         {/* Sidebar — always visible on desktop; on mobile only when showList */}

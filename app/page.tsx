@@ -46,8 +46,9 @@ export default function LandingPage() {
         if (res.ok) {
           const data = await res.json().catch(() => null);
           if (data?.ok && data.profile) {
-            // logged in -> profile
-            router.replace("/self");
+            // logged in -> onboarding if not done yet, else profile
+            const onboardingDone = (() => { try { return !!localStorage.getItem("charaivati_onboarding_v1"); } catch { return false; } })();
+            router.replace(onboardingDone ? "/self" : "/onboarding");
             return;
           }
         }

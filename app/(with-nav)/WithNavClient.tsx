@@ -8,6 +8,7 @@ import HeaderTabs from "@/components/HeaderTabs";
 import { LayerProvider } from "@/components/LayerContext";
 import ProfileMenu from "@/components/ProfileMenu";
 import UnifiedSearch from "@/components/UnifiedSearch";
+import { ensureKeyPair } from "@/lib/chat-crypto";
 
 export default function WithNavClient({
   profile: initialProfile,
@@ -36,6 +37,12 @@ function WithNavLayoutInner({
   const pathname = usePathname() ?? "/";
   const [showBottomNav, setShowBottomNav] = useState(true);
   const lastScrollY = useRef(0);
+
+  // Warm up encryption keys as soon as the layout mounts — before the user
+  // navigates to the Messages tab — so the first message send has no cold start.
+  useEffect(() => {
+    ensureKeyPair().catch(() => {});
+  }, []);
 
   const activeId = React.useMemo(() => {
     if (pathname.startsWith("/user") || pathname.startsWith("/self")) return "layer-self";

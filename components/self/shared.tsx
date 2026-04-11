@@ -61,6 +61,7 @@ export function CollapsibleSection({
   children,
   defaultOpen = true,
   headerExtra,
+  collapsedPreview,
   triggerOpen,
   triggerClose,
   onToggle,
@@ -71,6 +72,8 @@ export function CollapsibleSection({
   children: React.ReactNode;
   defaultOpen?: boolean;
   headerExtra?: React.ReactNode;
+  /** Shown below title only when collapsed */
+  collapsedPreview?: React.ReactNode;
   triggerOpen?: number;
   /** Increment to force-close from parent */
   triggerClose?: number;
@@ -106,6 +109,9 @@ export function CollapsibleSection({
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-semibold text-white">{title}</h3>
           {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
+          {!open && collapsedPreview && (
+            <div className="mt-1.5">{collapsedPreview}</div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {headerExtra}
