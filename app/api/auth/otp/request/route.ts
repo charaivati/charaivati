@@ -33,10 +33,7 @@ export async function POST(req: Request) {
       },
     });
 
-    // For dev convenience: return code in non-production
-    const devPayload = process.env.NODE_ENV !== "production" ? { devCode: code } : {};
-
-    return NextResponse.json({ ok: true, id: otp.id, ...devPayload });
+    return NextResponse.json({ ok: true, id: otp.id });
   } catch (err: any) {
     console.error("OTP request error:", err);
     return NextResponse.json({ error: err?.message ?? "internal" }, { status: 500 });

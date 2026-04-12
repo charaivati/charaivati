@@ -2,6 +2,7 @@
 // FILE 2: app/api/social/proxy/route.ts
 // ============================================================================
 import { NextRequest, NextResponse } from "next/server";
+import { timingSafeEqual } from "crypto";
 
 const CACHE_DURATION = 7 * 24 * 60 * 60; // 7 days in seconds
 const MAX_CACHE_SIZE = 500;
@@ -125,7 +126,11 @@ export async function POST(req: NextRequest) {
     }
 
     const expectedAuth = `Bearer ${adminToken}`;
-    if (authHeader !== expectedAuth) {
+    const provided = Buffer.from(authHeader ?? "");
+    const expected = Buffer.from(expectedAuth);
+    const authorized =
+      provided.length === expected.length && timingSafeEqual(provided, expected);
+    if (!authorized) {
       console.warn("[Cache] Unauthorized clear request");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }

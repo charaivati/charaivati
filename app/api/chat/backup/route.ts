@@ -20,13 +20,19 @@ import { getCurrentUser } from "@/lib/session";
 
 // ── Server-side per-user AES-256-GCM key ──────────────────────────────────────
 
-const BACKUP_SECRET =
-  process.env.CHAT_BACKUP_SECRET ?? "charaivati-backup-secret-change-in-prod";
+const BACKUP_SECRET = process.env.CHAT_BACKUP_SECRET;
+if (!BACKUP_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("CHAT_BACKUP_SECRET environment variable must be set in production.");
+  }
+  console.warn("CHAT_BACKUP_SECRET is not set. Using insecure fallback — development only.");
+}
+const _backupSecret = BACKUP_SECRET ?? "dev_insecure_backup_fallback_not_for_prod";
 
 function _deriveKey(userId: string): Buffer {
   // SHA-256(userId + ":" + secret) → 32-byte AES key.
   // Simple and fast; upgrade to HKDF if needed.
-  return createHash("sha256").update(`${userId}:${BACKUP_SECRET}`).digest();
+  return createHash("sha256").update(`${userId}:${_backupSecret}`).digest();
 }
 
 function _encrypt(key: Buffer, plaintext: string): { encrypted: string; iv: string } {

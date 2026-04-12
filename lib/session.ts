@@ -3,8 +3,15 @@ import { NextResponse } from "next/server";
 import { db } from "./db";
 import { SITE_URL } from "./config";
 
-const JWT_SECRET = process.env.JWT_SECRET ?? "dev_secret";
-const key = new TextEncoder().encode(JWT_SECRET);
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET environment variable must be set in production.");
+  }
+  console.warn("JWT_SECRET is not set. Using insecure fallback — development only.");
+}
+const _jwtSecret = JWT_SECRET ?? "dev_insecure_fallback_not_for_prod";
+const key = new TextEncoder().encode(_jwtSecret);
 
 const APP_ORIGIN = SITE_URL ?? process.env.APP_ORIGIN ?? "app";
 

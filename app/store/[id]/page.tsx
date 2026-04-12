@@ -330,13 +330,22 @@ function TopNav({ editMode, onToggleEdit, isOwner }: { editMode: boolean; onTogg
               <span className="font-bold">Cart</span>
             </div>
             {isOwner && (
-              <button
-                onClick={onToggleEdit}
-                className="text-xs font-semibold px-3 py-1.5 rounded-md"
-                style={editMode ? { background: A.accent, color: "#111", border: `1px solid #FCD200` } : { background: "transparent", color: "#fff", border: `1px solid #848688` }}
-              >
-                {editMode ? "Done" : "Edit"}
-              </button>
+              <>
+                <a
+                  href="/self?tab=earn"
+                  className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                  style={{ background: "transparent", color: "#ccc", border: "1px solid #848688" }}
+                >
+                  ← My Businesses
+                </a>
+                <button
+                  onClick={onToggleEdit}
+                  className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                  style={editMode ? { background: A.accent, color: "#111", border: `1px solid #FCD200` } : { background: "transparent", color: "#fff", border: `1px solid #848688` }}
+                >
+                  {editMode ? "Done Editing" : "Edit Store"}
+                </button>
+              </>
             )}
           </div>
         </div>

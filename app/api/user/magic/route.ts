@@ -19,7 +19,8 @@ function validateRedirect(candidate?: string | null): string | null {
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const token = url.searchParams.get("token") || "";
-  const debug = url.searchParams.get("debug") === "1";
+  // debug mode is only available in non-production environments
+  const debug = process.env.NODE_ENV !== "production" && url.searchParams.get("debug") === "1";
   const rawRedirect = url.searchParams.get("redirect") || null;
 
   if (!token) {

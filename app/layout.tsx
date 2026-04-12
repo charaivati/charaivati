@@ -18,7 +18,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   // IMPORTANT: cookies() may be async in this Next version -> await it.
   const ck = await cookies();
-  const serverTheme = ck.get("charaivati.theme")?.value ?? "dark";
+  // Whitelist to prevent XSS via cookie injection into the inline script
+  const rawTheme = ck.get("charaivati.theme")?.value ?? "dark";
+  const serverTheme = rawTheme === "light" ? "light" : "dark";
 
   const bodyClass = `bg-black text-white min-h-screen antialiased${serverTheme === "dark" ? " dark" : ""}`;
 

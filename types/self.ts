@@ -71,6 +71,17 @@ export type AIHealthPlan = {
   fallback?: boolean;
 };
 
+export type FrequencyType = "daily" | "few_per_week" | "weekly" | "rarely";
+
+export type JoySection = { types: string[]; frequency: FrequencyType };
+
+export type JoyProfile = {
+  hobbies: JoySection;
+  sports:  JoySection;
+  social:  JoySection;
+  rest:    JoySection;
+};
+
 export type HealthProfile = {
   food: string;
   exercise: string;
@@ -91,6 +102,7 @@ export type HealthProfile = {
   socialInteraction?: "Low" | "Mid" | "High";
   energyLevel?: "Low" | "Mid" | "High";
   availableFoods?: string[];
+  joy?: JoyProfile;
   healthPlan?: AIHealthPlan | null;
   healthPlanGeneratedAt?: string | null;
 };

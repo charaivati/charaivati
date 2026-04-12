@@ -1,71 +1,52 @@
 "use client";
+// app/(with-nav)/earth/tabs/WorldViewTab.tsx — Planetary Systems dashboard
 
-import React from "react";
+import React, { useState } from "react";
+import SignalCard from "@/components/earth/SignalCard";
+import SignalDetailDrawer from "@/components/earth/SignalDetailDrawer";
+import ImpactLens from "@/components/earth/ImpactLens";
+import { SIGNAL_DETAILS } from "@/components/earth/earthData";
+import type { SignalDetail } from "@/components/earth/earthData";
 
-type EarthTabProps = {
-  selection?: { region?: string; focus?: string } | null;
-  onChange?: (value: { region?: string; focus?: string }) => void;
-};
+export default function WorldViewTab() {
+  const [activeSignal, setActiveSignal] = useState<SignalDetail | null>(null);
 
-type MetricCard = {
-  title: string;
-  description: string;
-  score: string;
-};
-
-const metricCards: MetricCard[] = [
-  {
-    title: "Climate Stability Index",
-    description:
-      "A composite signal of heat balance, emissions trajectory, and adaptation readiness across regions.",
-    score: "68%",
-  },
-  {
-    title: "Global Food Resilience",
-    description:
-      "A systems-level view of crop diversity, supply continuity, and vulnerability to climate disruption.",
-    score: "74%",
-  },
-  {
-    title: "Biodiversity Health",
-    description:
-      "An indicator of ecosystem vitality, species protection, and restoration momentum worldwide.",
-    score: "59%",
-  },
-  {
-    title: "Resource Circularity",
-    description:
-      "Tracks how effectively materials are reused, recovered, and reintegrated into planetary value chains.",
-    score: "63%",
-  },
-];
-
-export default function WorldViewTab(_props: EarthTabProps): React.JSX.Element {
   return (
-    <section className="rounded-xl border border-neutral-800 bg-neutral-900 p-6 text-neutral-200">
-      <header className="mb-6">
-        <h2 className="text-xl font-semibold">Planetary Systems Overview</h2>
-        <p className="mt-2 text-sm text-neutral-400">
-          These signals represent shared planetary conditions and collective system performance.
-        </p>
-      </header>
+    <div className="space-y-6 text-white">
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {metricCards.map((card) => (
-          <article
-            key={card.title}
-            className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 transition hover:bg-neutral-800"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <h3 className="text-base font-medium">{card.title}</h3>
-              <span className="rounded-md border border-neutral-700 px-2 py-1 text-xs font-semibold text-neutral-300">
-                {card.score}
-              </span>
-            </div>
-            <p className="mt-3 text-sm text-neutral-400">{card.description}</p>
-          </article>
-        ))}
-      </div>
-    </section>
+      {/* Planetary Systems Overview */}
+      <section>
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-white">Planetary Systems Overview</h2>
+          <p className="text-xs text-gray-400 mt-0.5">
+            These signals represent shared planetary conditions and collective system performance.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {SIGNAL_DETAILS.map((signal) => (
+            <SignalCard
+              key={signal.id}
+              signal={signal}
+              onClick={() => setActiveSignal(signal)}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* Your Impact Lens */}
+      <ImpactLens region="West Bengal, India" />
+
+      {/* Global selection footer */}
+      <p className="text-xs text-gray-600 text-center pb-2">
+        Region: World · Focus: Climate
+      </p>
+
+      {/* Signal detail drawer — rendered at this level, fixed-positioned */}
+      <SignalDetailDrawer
+        signal={activeSignal}
+        onClose={() => setActiveSignal(null)}
+      />
+    </div>
   );
 }

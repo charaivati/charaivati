@@ -18,7 +18,10 @@ import type { User } from "@prisma/client";
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
-  console.warn("JWT_SECRET is not set. Falling back to development secret.");
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET environment variable must be set in production.");
+  }
+  console.warn("JWT_SECRET is not set. Using insecure fallback — development only.");
 }
 
 const JWT_ALG = "HS256";
@@ -58,7 +61,7 @@ export function createSessionToken(userId: string) {
     payload.iss = SITE_URL;
     payload.aud = SITE_URL;
   }
-  return jwt.sign(payload, JWT_SECRET ?? "dev_missing_secret", {
+  return jwt.sign(payload, JWT_SECRET ?? "dev_insecure_fallback_not_for_prod", {
     algorithm: JWT_ALG,
     expiresIn: "7d",
   });
@@ -74,7 +77,7 @@ export function createMagicToken(userId: string) {
     payload.iss = SITE_URL;
     payload.aud = SITE_URL;
   }
-  return jwt.sign(payload, JWT_SECRET ?? "dev_missing_secret", {
+  return jwt.sign(payload, JWT_SECRET ?? "dev_insecure_fallback_not_for_prod", {
     algorithm: JWT_ALG,
     expiresIn: "15m",
   });
@@ -84,7 +87,7 @@ export function createMagicToken(userId: string) {
 export function verifySessionToken(token: string): NormalizedSession | null {
   if (!token) return null;
   try {
-    const payload = jwt.verify(token, JWT_SECRET ?? "dev_missing_secret", {
+    const payload = jwt.verify(token, JWT_SECRET ?? "dev_insecure_fallback_not_for_prod", {
       algorithms: [JWT_ALG],
     }) as SessionPayload;
 
@@ -110,7 +113,7 @@ export function verifySessionToken(token: string): NormalizedSession | null {
 export function verifyMagicToken(token: string): SessionPayload | null {
   if (!token) return null;
   try {
-    const payload = jwt.verify(token, JWT_SECRET ?? "dev_missing_secret", {
+    const payload = jwt.verify(token, JWT_SECRET ?? "dev_insecure_fallback_not_for_prod", {
       algorithms: [JWT_ALG],
     }) as SessionPayload;
     if (payload?.type !== "magic") return null;

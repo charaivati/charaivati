@@ -5,7 +5,7 @@ import React, { useState } from "react";
 import { Loader2, Sparkles, Trash2 } from "lucide-react";
 import { CollapsibleSection, PillButton, FieldLabel, TextInput, FallbackBanner, uid } from "@/components/self/shared";
 import { safeFetchJson } from "@/hooks/useAIBlock";
-import type { HealthProfile, AIHealthPlan, MealCard } from "@/types/self";
+import type { HealthProfile, AIHealthPlan, MealCard, JoyProfile, JoySection, FrequencyType } from "@/types/self";
 
 export type { HealthProfile, AIHealthPlan };
 
@@ -22,6 +22,20 @@ export const KOLKATA_FOODS = [
   "Chanachur", "Kochuri", "Egg curry", "Chicken curry",
   "Soybean / Tofu", "Oats",
 ];
+
+const HOBBY_OPTIONS  = ["Reading", "Music", "Gaming", "Art", "Cooking", "Gardening", "Photography", "Writing", "Crafts"];
+const SPORT_OPTIONS  = ["Football", "Cricket", "Running", "Swimming", "Gym", "Cycling", "Tennis", "Basketball", "Yoga"];
+const SOCIAL_OPTIONS = ["Family", "Friends", "Partner", "Community", "Colleagues", "Solo time"];
+const REST_OPTIONS   = ["Screen-free time", "Nature walks", "Meditation", "Naps", "Reading", "Music"];
+
+const FREQ_OPTIONS: { value: FrequencyType; label: string }[] = [
+  { value: "daily",        label: "Daily"    },
+  { value: "few_per_week", label: "Few×/wk"  },
+  { value: "weekly",       label: "Weekly"   },
+  { value: "rarely",       label: "Rarely"   },
+];
+
+const EMPTY_JOY_SECTION: JoySection = { types: [], frequency: "weekly" };
 
 const MEAL_COLORS: Record<string, string> = {
   Breakfast: "bg-amber-500/20 text-amber-300 border border-amber-500/40",
@@ -54,6 +68,81 @@ function makeFallbackPlan(): AIHealthPlan {
   };
 }
 
+// ─── JoySubSection ────────────────────────────────────────────────────────────
+
+function JoySubSection({
+  label,
+  options,
+  value,
+  onChange,
+  customAllowed = false,
+}: {
+  label: string;
+  options: string[];
+  value: JoySection;
+  onChange: (v: JoySection) => void;
+  customAllowed?: boolean;
+}) {
+  const [customInput, setCustomInput] = useState("");
+
+  function toggleType(t: string) {
+    const next = value.types.includes(t)
+      ? value.types.filter(x => x !== t)
+      : [...value.types, t];
+    onChange({ ...value, types: next });
+  }
+
+  function addCustom() {
+    const t = customInput.trim();
+    if (!t) return;
+    if (!value.types.includes(t)) onChange({ ...value, types: [...value.types, t] });
+    setCustomInput("");
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map(opt => (
+          <PillButton key={opt} active={value.types.includes(opt)} onClick={() => toggleType(opt)}>
+            {opt}
+          </PillButton>
+        ))}
+        {customAllowed && (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={customInput}
+              onChange={e => setCustomInput(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+              placeholder="+ Custom"
+              className="w-24 rounded-lg border border-dashed border-gray-700 bg-gray-950/40
+                px-2 py-1 text-xs text-white placeholder-gray-500 outline-none focus:border-indigo-500 transition-colors"
+            />
+            {customInput.trim() && (
+              <button type="button" onClick={addCustom}
+                className="px-2 py-1 rounded-lg border border-gray-700 bg-gray-800 text-xs text-gray-400
+                  hover:border-indigo-500/50 hover:text-indigo-300 transition-colors">
+                Add
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {value.types.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {FREQ_OPTIONS.map(f => (
+            <PillButton key={f.value} active={value.frequency === f.value}
+              onClick={() => onChange({ ...value, frequency: f.value })}>
+              {f.label}
+            </PillButton>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Health Section ───────────────────────────────────────────────────────────
 
 export function HealthSection({ health, setHealth }: {
@@ -62,12 +151,22 @@ export function HealthSection({ health, setHealth }: {
 }) {
   const [bodyMetricsOpen, setBodyMetricsOpen] = useState(false);
   const [foodExpanded,    setFoodExpanded]    = useState(false);
+  const [joyOpen,         setJoyOpen]         = useState(false);
   const [planLoading,     setPlanLoading]     = useState(false);
   const [altLoading,      setAltLoading]      = useState<Record<string, boolean>>({});
   const [customFoodInput, setCustomFoodInput] = useState("");
 
   const set = (k: keyof HealthProfile, v: string | number | string[] | AIHealthPlan | null) =>
     setHealth({ ...health, [k]: v });
+
+  const joy = health.joy ?? {
+    hobbies: { ...EMPTY_JOY_SECTION },
+    sports:  { ...EMPTY_JOY_SECTION },
+    social:  { ...EMPTY_JOY_SECTION },
+    rest:    { ...EMPTY_JOY_SECTION },
+  };
+  const setJoy = (section: keyof JoyProfile, val: JoySection) =>
+    setHealth({ ...health, joy: { ...joy, [section]: val } });
 
   const availableFoods  = health.availableFoods ?? [];
   const customFoods     = availableFoods.filter(f => !KOLKATA_FOODS.includes(f));
@@ -336,6 +435,50 @@ export function HealthSection({ health, setHealth }: {
               </PillButton>
             ))}
           </div>
+        </div>
+
+        <div className="h-[2px] rounded-full bg-gradient-to-r from-transparent via-gray-700 to-transparent" />
+
+        {/* ── Joy & Life ── */}
+        <div>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Joy &amp; Life</p>
+            <button type="button" onClick={() => setJoyOpen(v => !v)}
+              className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+              {joyOpen ? "− Collapse" : "＋ Expand"}
+            </button>
+          </div>
+          {joyOpen && (
+            <div className="mt-4 space-y-5">
+              <JoySubSection
+                label="Hobbies"
+                options={HOBBY_OPTIONS}
+                value={joy.hobbies}
+                onChange={val => setJoy("hobbies", val)}
+                customAllowed
+              />
+              <JoySubSection
+                label="Sports"
+                options={SPORT_OPTIONS}
+                value={joy.sports}
+                onChange={val => setJoy("sports", val)}
+                customAllowed
+              />
+              <JoySubSection
+                label="Social"
+                options={SOCIAL_OPTIONS}
+                value={joy.social}
+                onChange={val => setJoy("social", val)}
+              />
+              <JoySubSection
+                label="Rest"
+                options={REST_OPTIONS}
+                value={joy.rest}
+                onChange={val => setJoy("rest", val)}
+                customAllowed
+              />
+            </div>
+          )}
         </div>
 
         <div className="h-[2px] rounded-full bg-gradient-to-r from-transparent via-gray-700 to-transparent" />

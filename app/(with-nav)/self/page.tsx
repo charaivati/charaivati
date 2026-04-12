@@ -70,10 +70,13 @@ function SelfPageContent() {
 
   return (
     <div className="max-w-3xl mx-auto">
-      {active === "personal" && <SelfTab profile={profile} />}
-      {active === "social"   && <SocialTab profile={profile} />}
-      {active === "learn"    && <LearningTab />}
-      {active === "earn"     && <EarningTab />}
+      {/* SelfTab is always mounted so its state survives tab switches */}
+      <div style={{ display: active === "personal" ? undefined : "none" }}>
+        <SelfTab profile={profile} />
+      </div>
+      {active === "social" && <SocialTab profile={profile} />}
+      {active === "learn"  && <LearningTab />}
+      {active === "earn"   && <EarningTab />}
     </div>
   );
 }

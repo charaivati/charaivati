@@ -5,7 +5,7 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import nodemailer from "nodemailer"; // reuse your existing nodemailer config if you have one
 
-const SEND_EMAIL = false; // set true if you want to email the temp password instead of returning it
+const SEND_EMAIL = true; // always send via email; never return password in response
 
 function makeTempPassword(len = 10) {
   // generate a random base64-like safe string (URL-safe)
@@ -59,13 +59,11 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true, message: "sent" });
       } catch (err) {
         console.error("email send failed", err);
-        // fall back to returning the password once (warn)
-        return NextResponse.json({ ok: true, tempPassword: temp, warning: "email failed; returning password in response" });
+        return NextResponse.json({ ok: false, error: "Failed to send email" }, { status: 500 });
       }
     }
 
-    // return temp password once (one-time)
-    return NextResponse.json({ ok: true, tempPassword: temp });
+    return NextResponse.json({ ok: true, message: "created" });
   } catch (err) {
     console.error("register-temp error", err);
     return NextResponse.json({ ok: false, error: "server error" }, { status: 500 });

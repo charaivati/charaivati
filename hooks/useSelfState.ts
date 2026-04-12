@@ -253,15 +253,20 @@ export function useSelfState(profile: any) {
 
   // ── Persist ────────────────────────────────────────────────────
   function persist(nextDrives: DriveType[], nextGoals: GoalEntry[], nextHealth: HealthProfile, nextFunds?: FundsProfile, nextSchedule?: WeekSchedule, nextEnv?: EnvironmentProfile) {
-    if (!profileApplied.current) return;
+    // Still waiting for the profile API — don't know who the user is yet
+    if (profile === undefined) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 
-    if (isGuest) {
+    if (!profile) {
+      // Guest: save to localStorage immediately, no need to wait for profileApplied flag
       guestSave({ drives: nextDrives, goals: nextGoals, health: nextHealth, fundsProfile: nextFunds ?? fundsProfile, weekSchedule: nextSchedule ?? weekSchedule, environmentProfile: nextEnv ?? environmentProfile });
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 1200);
       return;
     }
+
+    // Logged-in user: wait until profile data has been loaded into state
+    if (!profileApplied.current) return;
 
     setSaveState("saving");
     saveTimerRef.current = setTimeout(async () => {

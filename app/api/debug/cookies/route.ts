@@ -19,6 +19,10 @@ function parseCookiesFromReq(req: Request) {
 }
 
 export async function GET(req: Request) {
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+
   try {
     const cookies = parseCookiesFromReq(req);
     const session = cookies["charaivati.session"] ?? cookies["session"] ?? null;

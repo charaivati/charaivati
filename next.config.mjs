@@ -30,6 +30,22 @@ const nextConfig = {
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Permissions-Policy", value: "geolocation=(), microphone=(), camera=()" },
+          { key: "X-Powered-By", value: "" },
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' https://accounts.google.com",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob: https://lh3.googleusercontent.com https://drive.google.com https://*.googleapis.com",
+              "font-src 'self'",
+              "connect-src 'self' https://accounts.google.com https://*.googleapis.com",
+              "frame-src https://accounts.google.com",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+            ].join("; "),
+          },
         ],
       },
       {

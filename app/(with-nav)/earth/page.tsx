@@ -1,7 +1,9 @@
 // app/(with-nav)/earth/page.tsx
 "use client";
-import React, { Suspense, useEffect, useState } from "react";
+
+import React, { Suspense, useMemo } from "react";
 import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
 import { useLayerContext } from "@/components/LayerContext";
 
 const WorldViewTab = dynamic(() => import("./tabs/WorldViewTab"), { ssr: false });
@@ -9,97 +11,34 @@ const HumanStoriesTab = dynamic(() => import("./tabs/HumanStoriesTab"), { ssr: f
 const CollaborateTab = dynamic(() => import("./tabs/CollaborateTab"), { ssr: false });
 const KnowledgeTab = dynamic(() => import("./tabs/KnowledgeTab"), { ssr: false });
 
-type GlobalSelection = { region?: string; focus?: string };
+type EarthTab = "worldview" | "human" | "collab" | "knowledge";
+
+function normalizeTab(raw: string): EarthTab {
+  const s = raw.toLowerCase();
+  if (s.includes("human")) return "human";
+  if (s.includes("collab")) return "collab";
+  if (s.includes("knowledge")) return "knowledge";
+  return "worldview";
+}
 
 function EarthPageContent() {
   const ctx = useLayerContext();
-  const LS_KEY = "charaivati.selectedGlobal";
+  const searchParams = useSearchParams();
+  const tabParamRaw = searchParams?.get("tab") ?? "";
 
-  const [selection, setSelection] = useState<GlobalSelection | null>(null);
-  const [detected, setDetected] = useState<string | null>(null);
+  const active = useMemo<EarthTab>(() => {
+    if (tabParamRaw) return normalizeTab(tabParamRaw);
+    const savedTabId = ctx.activeTabs["layer-earth"] ?? "";
+    return normalizeTab(savedTabId);
+  }, [tabParamRaw, ctx.activeTabs]);
 
-
-  useEffect(() => {
-    try {
-      const raw = typeof window !== "undefined" ? localStorage.getItem(LS_KEY) : null;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setSelection(parsed);
-        setDetected(parsed?.region ?? "World");
-      } else {
-        const prefill: GlobalSelection = { region: "World", focus: "Climate" };
-        setSelection(prefill);
-        setDetected(prefill.region ?? "World");
-      }
-    } catch (e) {
-      console.warn("Could not read global selection", e);
-      setSelection(null);
-      setDetected("World");
-    }
-  }, []);
-
-  function updateSelection(partial: Partial<GlobalSelection>) {
-    const merged = { ...(selection || {}), ...partial };
-    setSelection(merged);
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify(merged));
-    } catch (e) {
-      console.warn(e);
-    }
-  }
-
-  const layerId = "layer-earth";
-  const activeTabId =
-    ctx?.activeTabs?.[layerId] ?? ctx?.layers?.find((l) => l.id === layerId)?.tabs?.[0]?.id;
-  const showWorldView = String(activeTabId || "").toLowerCase().includes("worldview");
-  const showHuman = String(activeTabId || "").toLowerCase().includes("human");
-  const showCollaborate = String(activeTabId || "").toLowerCase().includes("collab");
-  const showKnowledge = String(activeTabId || "").toLowerCase().includes("knowledge");
   return (
-    <>
-      {/* Page Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">Earth</h1>
-        <p className="text-sm text-gray-400">
-          Global perspectives and collective action
-          {detected && <span className="ml-2 text-gray-300">• {detected}</span>}
-        </p>
-      </div>
-
-      {/* Tab Content */}
-      <div className="space-y-6">
-        {/* World View */}
-        {showWorldView && (
-          <WorldViewTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-        )}
-
-        {/* Human Stories */}
-        {showHuman && (
-          <HumanStoriesTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-        )}
-
-        {/* Collaborate */}
-        {showCollaborate && (
-          <CollaborateTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-        )}
-
-        {/* Knowledge */}
-        {showKnowledge && (
-          <KnowledgeTab selection={selection} onChange={(v: any) => updateSelection(v)} />
-        )}
-      </div>
-
-      {/* Debug Section */}
-      {selection && (
-        <div className="mt-8 p-4 bg-white/5 rounded-lg border border-white/10">
-          <div className="text-sm font-medium text-gray-400 mb-2">Global Selection</div>
-          <div className="space-y-1 text-xs text-gray-300">
-            {selection.region && <div>Region: {selection.region}</div>}
-            {selection.focus && <div>Focus: {selection.focus}</div>}
-          </div>
-        </div>
-      )}
-    </>
+    <div className="max-w-3xl mx-auto">
+      {active === "worldview" && <WorldViewTab />}
+      {active === "human"     && <HumanStoriesTab />}
+      {active === "collab"    && <CollaborateTab />}
+      {active === "knowledge" && <KnowledgeTab />}
+    </div>
   );
 }
 
