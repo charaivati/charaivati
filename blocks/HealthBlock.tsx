@@ -287,7 +287,7 @@ export function HealthSection({ health, setHealth }: {
   }
 
   return (
-    <CollapsibleSection title="Health Foundation" subtitle="Fuels every goal — shared across all">
+    <CollapsibleSection title="Health">
       <div className="space-y-5 pt-2">
 
         {/* ── General Status ── */}

@@ -109,8 +109,7 @@ export function EnvironmentSection({
 
   return (
     <CollapsibleSection
-      title="Environment"
-      subtitle="Your context and constraints"
+      title="Your environment"
       defaultOpen={false}
     >
       <div className="space-y-5 pt-1">

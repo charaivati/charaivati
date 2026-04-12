@@ -709,23 +709,15 @@ function ExpandedPanel({
         boxShadow: `inset 0 1px 0 rgba(255,255,255,0.05), 0 4px 24px rgba(0,0,0,0.5)`,
         animation: "panelIn 280ms ease both",
       }}>
-      <div className="flex items-center gap-2 px-5 py-3.5 border-b"
-        style={{ borderColor: `${cfg.border}20` }}>
-        <div className="w-6 h-6 rounded-full flex items-center justify-center text-sm flex-shrink-0"
-          style={{ background: cfg.iconBg }}>
-          {cfg.icon}
-        </div>
-        <span className="text-sm font-semibold flex-1" style={{ color: cfg.iconText }}>
-          {cfg.label === "Environ." ? "Environment" : cfg.label}
-        </span>
-        {id !== "time" && (
+      {id !== "time" && (
+        <div className="flex justify-end px-4 pt-3 pb-0">
           <button type="button" onClick={onClose}
             className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors">
             <X className="w-3.5 h-3.5" />
           </button>
-        )}
-      </div>
-      <div className="p-5">
+        </div>
+      )}
+      <div className={id === "time" ? "" : "p-5"}>
         {id === "health"      && <HealthSection health={health} setHealth={setHealth} />}
         {id === "skills"      && (
           <SkillsSection

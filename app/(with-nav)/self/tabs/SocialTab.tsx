@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, Tag, X } from "lucide-react";
 import Link from "next/link";
 import { CollapsibleSection } from "@/components/self/shared";
 import FriendRequestsBox from "@/components/social/FriendRequestsBox";
 import ChatPanel from "@/components/social/ChatPanel";
+import SelectTabsModal from "@/components/SelectTabsModal";
 
 type FeedPost = {
   id: string;
@@ -51,11 +52,15 @@ export default function SocialTab({ profile }: { profile?: any }) {
   const [loading, setLoading] = useState(false);
   const [requestCount, setRequestCount] = useState(0);
   const [closeRequestsTrigger, setCloseRequestsTrigger] = useState(0);
+  const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [showTagModal, setShowTagModal] = useState(false);
 
-  async function loadFeed() {
+  async function loadFeed(tags: string[] = filterTags) {
     setLoading(true);
     try {
-      const res = await fetch("/api/posts?limit=30");
+      const params = new URLSearchParams({ limit: "30" });
+      if (tags.length > 0) params.set("tags", tags.join(","));
+      const res = await fetch(`/api/posts?${params}`);
       const json = await res.json();
       if (!json.ok) return;
 
@@ -95,17 +100,37 @@ export default function SocialTab({ profile }: { profile?: any }) {
   }
 
   useEffect(() => {
-    loadFeed();
+    loadFeed([]);
   }, []);
 
-  const refreshButton = (
-    <button
-      onClick={(e) => { e.stopPropagation(); loadFeed(); }}
-      disabled={loading}
-      className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40"
-    >
-      {loading ? "Loading…" : "Refresh"}
-    </button>
+  function handleTagSave(selected?: string[]) {
+    const tags = selected ?? [];
+    setFilterTags(tags);
+    setShowTagModal(false);
+    loadFeed(tags);
+  }
+
+  const feedHeaderExtra = (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={(e) => { e.stopPropagation(); setShowTagModal(true); }}
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition-colors ${
+          filterTags.length > 0
+            ? "border-blue-500 bg-blue-500/15 text-blue-300"
+            : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500 hover:text-gray-300"
+        }`}
+      >
+        <Tag className="w-3 h-3" />
+        {filterTags.length > 0 ? `${filterTags.length} tag${filterTags.length > 1 ? "s" : ""}` : "Filter"}
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); loadFeed(filterTags); }}
+        disabled={loading}
+        className="text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40"
+      >
+        {loading ? "Loading…" : "Refresh"}
+      </button>
+    </div>
   );
 
   const requestBadge = requestCount > 0 ? (
@@ -144,8 +169,39 @@ export default function SocialTab({ profile }: { profile?: any }) {
       </CollapsibleSection>
 
       {/* ── Social Feed ───────────────────────────────────────────────── */}
-      <CollapsibleSection title="Feed" headerExtra={refreshButton}>
+      <CollapsibleSection title="Feed" headerExtra={feedHeaderExtra}>
         <div className="space-y-5 pt-1">
+
+          {/* Active tag filters */}
+          {filterTags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500">Filtered by:</span>
+              {filterTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-500/15 border border-blue-500/40 text-blue-300 text-xs"
+                >
+                  {tag}
+                  <button
+                    onClick={() => {
+                      const next = filterTags.filter((t) => t !== tag);
+                      setFilterTags(next);
+                      loadFeed(next);
+                    }}
+                    className="text-blue-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={() => { setFilterTags([]); loadFeed([]); }}
+                className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
           {loading && posts.length === 0 && (
             <div className="flex flex-col items-center py-12 gap-3">
               <MessageSquare className="w-12 h-12 text-gray-700" />
@@ -258,6 +314,13 @@ export default function SocialTab({ profile }: { profile?: any }) {
           })}
         </div>
       </CollapsibleSection>
+
+      {showTagModal && (
+        <SelectTabsModal
+          initialSelected={filterTags}
+          onClose={handleTagSave}
+        />
+      )}
     </div>
   );
 }

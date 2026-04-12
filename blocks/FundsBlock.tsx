@@ -134,8 +134,7 @@ export function FundsSection({
 
   return (
     <CollapsibleSection
-      title="Funds"
-      subtitle="Resources for your projects"
+      title="Income & funds"
       defaultOpen={false}
     >
       <div className="space-y-4 pt-1">

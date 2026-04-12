@@ -60,6 +60,8 @@ export async function GET(req: NextRequest) {
 
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 20, 100);
     const offset = Number(req.nextUrl.searchParams.get("offset")) || 0;
+    const rawTags = req.nextUrl.searchParams.get("tags");
+    const filterTags = rawTags ? rawTags.split(",").map((t) => t.trim()).filter(Boolean) : [];
 
     // -----------------------
     // Guest Feed
@@ -70,6 +72,7 @@ export async function GET(req: NextRequest) {
         where: {
           visibility: "public",
           status: "active",
+          ...(filterTags.length > 0 && { slugTags: { hasSome: filterTags } }),
         },
         orderBy: {
           createdAt: "desc",
@@ -128,6 +131,7 @@ export async function GET(req: NextRequest) {
     const posts = await prisma.post.findMany({
       where: {
         status: "active",
+        ...(filterTags.length > 0 && { slugTags: { hasSome: filterTags } }),
         OR: [
           { userId: user.id },
 

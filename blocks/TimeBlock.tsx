@@ -71,7 +71,7 @@ export function TimeSection({
   }
 
   return (
-    <CollapsibleSection title="Time" subtitle="Daily tasks" defaultOpen={defaultOpen}>
+    <CollapsibleSection title="Daily tasks" defaultOpen={defaultOpen}>
       <div className="space-y-3 pt-1">
 
         {/* ── Task list ── */}
