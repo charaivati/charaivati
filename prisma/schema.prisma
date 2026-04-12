@@ -167,6 +167,12 @@ model Profile {
   generalSkills Json?
   /// Cached AI roadmap — { phases: Phase[], suggestions: Suggestion[] }
   aiPlan        Json?
+  /// WeekSchedule — { slots: TimeSlot[], tasks: Task[] }
+  weekSchedule      Json?
+  /// FundsProfile — income sources, monthly burn, runway target
+  fundsProfile      Json?
+  /// EnvironmentProfile — city, workspace, constraints, etc.
+  environmentProfile Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

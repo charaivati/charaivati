@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, Trash2 } from "lucide-react";
-import { useProfile } from "@/lib/ProfileContext";
+import { useSelfSkills } from "@/lib/SelfSkillsContext";
 import { CollapsibleSection } from "@/components/self/shared";
 import type { SkillEntry } from "@/types/self";
 
@@ -68,7 +68,7 @@ const LEVEL_COLOR: Record<SkillLevel, string> = {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function LearningTab() {
-  const { profile } = useProfile();
+  const { goals, generalSkills } = useSelfSkills();
 
   // ── Local editable skill state ────────────────────────────────────────────
   const [localSkills, setLocalSkills] = useState<SkillWithSource[]>([]);
@@ -88,16 +88,14 @@ export default function LearningTab() {
       }
     }
 
-    if (Array.isArray(profile?.generalSkills)) addBatch(profile.generalSkills, "general");
-    if (Array.isArray(profile?.goals)) {
-      for (const g of profile.goals) {
-        if (Array.isArray(g.skills)) addBatch(g.skills, g.id);
-      }
+    addBatch(generalSkills, "general");
+    for (const g of goals) {
+      if (Array.isArray(g.skills)) addBatch(g.skills, g.id);
     }
 
     setLocalSkills(result);
     localSkillsRef.current = result;
-  }, [profile]);
+  }, [goals, generalSkills]);
 
   // ── Group by level ────────────────────────────────────────────────────────
   const skillsByLevel = useMemo<Record<SkillLevel, SkillWithSource[]>>(() => {
@@ -165,26 +163,24 @@ export default function LearningTab() {
 
   async function doSave() {
     const skills = localSkillsRef.current;
-    const generalSkills = skills
+    const updatedGeneralSkills = skills
       .filter(s => s.source === "general")
       .map(({ source, ...s }) => s);
 
-    const updatedGoals = Array.isArray(profile?.goals)
-      ? profile.goals.map((g: any) => ({
-          ...g,
-          skills: (g.skills || []).map((s: SkillEntry) => {
-            const updated = skills.find(ls => ls.id === s.id);
-            return updated ? { ...s, level: updated.level } : s;
-          }),
-        }))
-      : [];
+    const updatedGoals = goals.map(g => ({
+      ...g,
+      skills: (g.skills || []).map(s => {
+        const updated = skills.find(ls => ls.id === s.id);
+        return updated ? { ...s, level: updated.level } : s;
+      }),
+    }));
 
     try {
       await fetch("/api/user/profile", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ generalSkills, goals: updatedGoals }),
+        body: JSON.stringify({ generalSkills: updatedGeneralSkills, goals: updatedGoals }),
       });
     } catch (err) {
       console.error("Failed to save skill levels:", err);

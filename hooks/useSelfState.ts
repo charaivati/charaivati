@@ -64,7 +64,7 @@ function defaultFundsProfile(): FundsProfile {
 }
 
 function defaultWeekSchedule(): WeekSchedule {
-  return { slots: [] };
+  return { slots: [], tasks: [] };
 }
 
 function defaultEnvironmentProfile(): EnvironmentProfile {
@@ -111,6 +111,7 @@ export function useSelfState(profile: any) {
   const guestLoaded      = useRef(false);
   const animationStarted = useRef(false);
   const generalSkillsRef = useRef<SkillEntry[]>([]);
+  const goalsRef         = useRef<GoalEntry[]>([]);
 
   const visibleGoals = goals.filter(g => drives.includes(g.driveId));
 
@@ -133,13 +134,26 @@ export function useSelfState(profile: any) {
           if (saved.health) setHealth(h => ({ ...h, ...saved.health }));
           if (Array.isArray(saved.goals) && saved.goals.length) setGoals(saved.goals);
           if (saved.fundsProfile)       setFundsProfile(saved.fundsProfile);
-          if (saved.weekSchedule)       setWeekSchedule(saved.weekSchedule);
+          if (saved.weekSchedule)       setWeekSchedule({ slots: saved.weekSchedule.slots ?? [], tasks: saved.weekSchedule.tasks ?? [] });
           if (saved.environmentProfile) setEnvironmentProfile(saved.environmentProfile);
         }
         profileApplied.current = true;
       }
     }
   }, [profile]);
+
+  // ── Keep goalsRef current so non-modifying persist calls never use stale goals ──
+  useEffect(() => { goalsRef.current = goals; }, [goals]);
+
+  // ── Guest auto-save: whenever goals/drives/health change, persist to localStorage ──
+  // This is a safety net independent of the manual persist() call chain.
+  useEffect(() => {
+    if (profile !== null) return;       // only for confirmed guests (null = guest, undefined = loading)
+    if (!guestLoaded.current) return;   // don't overwrite before initial load completes
+    if (drives.length === 0) return;    // never save with empty drives — not a valid committed state
+    guestSave({ drives, goals, health, fundsProfile, weekSchedule, environmentProfile });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, drives, goals, health, fundsProfile, weekSchedule, environmentProfile]);
 
   // ── Load business pages ────────────────────────────────────────
   useEffect(() => {
@@ -173,7 +187,7 @@ export function useSelfState(profile: any) {
     if (profile.health) setHealth({ ...defaultHealth(), ...profile.health });
 
     if (profile.fundsProfile)       setFundsProfile({ ...defaultFundsProfile(), ...profile.fundsProfile });
-    if (profile.weekSchedule)       setWeekSchedule({ slots: profile.weekSchedule.slots ?? [] });
+    if (profile.weekSchedule)       setWeekSchedule({ slots: profile.weekSchedule.slots ?? [], tasks: profile.weekSchedule.tasks ?? [] });
     if (profile.environmentProfile) setEnvironmentProfile({ ...defaultEnvironmentProfile(), ...profile.environmentProfile });
 
     if (Array.isArray(profile.generalSkills)) {
@@ -291,26 +305,36 @@ export function useSelfState(profile: any) {
     }
     setDrives(next);
     setDrivePickerOpen(false);
-    persist(next, goals, health);
+    persist(next, goalsRef.current, health);
   }
 
   // ── Goal helpers ───────────────────────────────────────────────
   function updateGoal(id: string, u: GoalEntry) {
-    setGoals(prev => prev.map(g => g.id === id ? u : g));
+    setGoals(prev => {
+      const next = prev.map(g => g.id === id ? u : g);
+      persist(drives, next, health);
+      return next;
+    });
   }
   function saveGoal(id: string) {
-    const next = goals.map(g => g.id === id ? { ...g, saved: true } : g);
-    setGoals(next); persist(drives, next, health);
+    setGoals(prev => {
+      const next = prev.map(g => g.id === id ? { ...g, saved: true } : g);
+      persist(drives, next, health);
+      return next;
+    });
   }
   function editGoal(id: string) {
     setGoals(prev => prev.map(g => g.id === id ? { ...g, saved: false } : g));
   }
   function removeGoal(id: string) {
-    const filtered = goals.filter(g => g.id !== id);
-    const nextGoals = drives.reduce((acc, driveId) => {
-      return acc.some(g => g.driveId === driveId) ? acc : [...acc, defaultGoal(driveId)];
-    }, filtered);
-    setGoals(nextGoals); persist(drives, nextGoals, health);
+    setGoals(prev => {
+      const filtered = prev.filter(g => g.id !== id);
+      const next = drives.reduce((acc, driveId) => {
+        return acc.some(g => g.driveId === driveId) ? acc : [...acc, defaultGoal(driveId)];
+      }, filtered);
+      persist(drives, next, health);
+      return next;
+    });
   }
   function saveGoalPlan(id: string, plan: AIRoadmap) {
     setGoals(prev => {
@@ -323,8 +347,11 @@ export function useSelfState(profile: any) {
     setGoals(prev => [...prev, defaultGoal(driveId)]);
   }
   function addGoalDirect(goal: GoalEntry) {
-    setGoals(prev => [...prev, goal]);
-    persist(drives, [...goals, goal], health);
+    setGoals(prev => {
+      const next = [...prev, goal];
+      persist(drives, next, health);
+      return next;
+    });
   }
 
   // Atomic: set drives + goals at once (used by onboarding to avoid stale-state bugs)
@@ -335,17 +362,17 @@ export function useSelfState(profile: any) {
   }
 
   // ── New block handlers ─────────────────────────────────────────
-  function handleFundsChange(f: FundsProfile) { setFundsProfile(f); persist(drives, goals, health, f, weekSchedule, environmentProfile); }
-  function handleWeekScheduleChange(s: WeekSchedule) { setWeekSchedule(s); persist(drives, goals, health, fundsProfile, s, environmentProfile); }
-  function handleEnvironmentChange(e: EnvironmentProfile) { setEnvironmentProfile(e); persist(drives, goals, health, fundsProfile, weekSchedule, e); }
+  function handleFundsChange(f: FundsProfile) { setFundsProfile(f); persist(drives, goalsRef.current, health, f, weekSchedule, environmentProfile); }
+  function handleWeekScheduleChange(s: WeekSchedule) { setWeekSchedule(s); persist(drives, goalsRef.current, health, fundsProfile, s, environmentProfile); }
+  function handleEnvironmentChange(e: EnvironmentProfile) { setEnvironmentProfile(e); persist(drives, goalsRef.current, health, fundsProfile, weekSchedule, e); }
 
   // ── Health + skills handlers ───────────────────────────────────
-  function handleHealthChange(h: HealthProfile) { setHealth(h); persist(drives, goals, h); }
+  function handleHealthChange(h: HealthProfile) { setHealth(h); persist(drives, goalsRef.current, h); }
 
   function handleGeneralSkillsChange(skills: SkillEntry[]) {
     setGeneralSkills(skills);
     generalSkillsRef.current = skills;
-    persist(drives, goals, health);
+    persist(drives, goalsRef.current, health);
   }
   function handleGoalSkillsChange(goalId: string, skills: SkillEntry[]) {
     setGoals(prev => {

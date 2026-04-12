@@ -131,6 +131,25 @@ export async function PATCH(req: Request) {
     if ("sleepHours"  in body) patch.sleepHours  = Number(body.sleepHours)  || 0;
     if ("waterLitres" in body) patch.waterLitres = Number(body.waterLitres) || 0;
 
+    // ── WEEK SCHEDULE
+    if ("weekSchedule" in body && body.weekSchedule && typeof body.weekSchedule === "object") {
+      const ws = body.weekSchedule as Record<string, unknown>;
+      patch.weekSchedule = {
+        slots: Array.isArray(ws.slots) ? ws.slots : [],
+        tasks: Array.isArray(ws.tasks) ? ws.tasks : [],
+      };
+    }
+
+    // ── FUNDS PROFILE
+    if ("fundsProfile" in body && body.fundsProfile && typeof body.fundsProfile === "object") {
+      patch.fundsProfile = body.fundsProfile;
+    }
+
+    // ── ENVIRONMENT PROFILE
+    if ("environmentProfile" in body && body.environmentProfile && typeof body.environmentProfile === "object") {
+      patch.environmentProfile = body.environmentProfile;
+    }
+
     // ── HEALTH (global, not per-drive)
     if ("health" in body && body.health && typeof body.health === "object") {
       const h = body.health as HealthInput;

@@ -124,7 +124,8 @@ export type AIFundsPlan = { savingsPlan: string; pitchGuidance: string; budgetAl
 // ─── Time ─────────────────────────────────────────────────────────────────────
 export type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type TimeSlot = { id: string; day: DayKey; startHour: number; endHour: number; goalId: string; activity: string; isFlexible: boolean; };
-export type WeekSchedule = { slots: TimeSlot[]; };
+export type Task = { id: string; title: string; done: boolean; day: DayKey; goalId?: string; };
+export type WeekSchedule = { slots: TimeSlot[]; tasks: Task[]; };
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 export type WorkspaceType = 'home' | 'office' | 'coworking' | 'hybrid' | 'remote';

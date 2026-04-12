@@ -31,7 +31,15 @@ export function SectionCard({ children, className = "" }: {
   children: React.ReactNode; className?: string;
 }) {
   return (
-    <div className={`rounded-2xl border border-gray-800 bg-gray-900/70 ${className}`}>
+    <div
+      className={`rounded-2xl border border-white/[0.07] bg-gray-900 ${className}`}
+      style={{
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,0.06), " +   /* top-edge highlight — light from above */
+          "0 2px 8px rgba(0,0,0,0.8), " +              /* close shadow */
+          "0 8px 40px rgba(0,0,0,0.55)",               /* diffuse lift shadow */
+      }}
+    >
       {children}
     </div>
   );

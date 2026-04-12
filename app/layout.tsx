@@ -49,7 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {...(nonce ? { nonce } : {})}
         ></script>
       </head>
-      <body className={bodyClass}>
+      <body className={bodyClass} suppressHydrationWarning>
         {/* Inline theme init — include nonce attribute in production when present */}
         <script
           {...(isProd && nonce ? { nonce } : {})}

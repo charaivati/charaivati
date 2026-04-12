@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useProfile } from "@/lib/ProfileContext";
 import { useLayerContext } from "@/components/LayerContext";
+import { SelfSkillsProvider } from "@/lib/SelfSkillsContext";
 
 type ProfileProp = { profile?: any };
 type ActiveKind = "personal" | "social" | "learn" | "earn";
@@ -69,15 +70,17 @@ function SelfPageContent() {
   const { profile } = useProfile();
 
   return (
-    <div className="max-w-3xl mx-auto">
-      {/* SelfTab is always mounted so its state survives tab switches */}
-      <div style={{ display: active === "personal" ? undefined : "none" }}>
-        <SelfTab profile={profile} />
+    <SelfSkillsProvider>
+      <div className="max-w-3xl mx-auto">
+        {/* SelfTab is always mounted so its state survives tab switches */}
+        <div style={{ display: active === "personal" ? undefined : "none" }}>
+          <SelfTab profile={profile} />
+        </div>
+        {active === "social" && <SocialTab profile={profile} />}
+        {active === "learn"  && <LearningTab />}
+        {active === "earn"   && <EarningTab />}
       </div>
-      {active === "social" && <SocialTab profile={profile} />}
-      {active === "learn"  && <LearningTab />}
-      {active === "earn"   && <EarningTab />}
-    </div>
+    </SelfSkillsProvider>
   );
 }
 

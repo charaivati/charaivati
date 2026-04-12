@@ -56,8 +56,8 @@ function DriveGrid({
 
 // ─── Onboarding Banner (replaces State A when no drives) ─────────────────────
 
-type OBMode     = "focused" | "zoomed";
-type OBCategory = "learn" | "build" | "execute" | "connect";
+export type OBMode     = "focused" | "zoomed";
+export type OBCategory = "learn" | "build" | "execute" | "connect";
 type OBStep     = "category" | "question";
 
 const OB_CATS: { id: OBCategory; label: string; icon: string; driveId: DriveType; desc: string; zoomedLabel: string; zoomedDesc: string }[] = [
@@ -74,7 +74,7 @@ const OB_COLORS: Record<OBCategory, { ring: string; bg: string }> = {
   connect: { ring: "ring-emerald-500/50", bg: "bg-emerald-500/10" },
 };
 
-const OB_QS_FOCUSED: Record<OBCategory, { prompt: string; qs: { q: string; ph: string }[] }> = {
+export const OB_QS_FOCUSED: Record<OBCategory, { prompt: string; qs: { q: string; ph: string }[] }> = {
   learn: {
     prompt: "What do you want to learn?",
     qs: [
@@ -113,7 +113,7 @@ const OB_QS_FOCUSED: Record<OBCategory, { prompt: string; qs: { q: string; ph: s
   },
 };
 
-const OB_QS_ZOOMED: Record<OBCategory, { prompt: string; qs: { q: string; ph: string }[] }> = {
+export const OB_QS_ZOOMED: Record<OBCategory, { prompt: string; qs: { q: string; ph: string }[] }> = {
   learn: {
     prompt: "What domain are you trying to master?",
     qs: [
@@ -164,7 +164,7 @@ const OB_QS_ZOOMED: Record<OBCategory, { prompt: string; qs: { q: string; ph: st
   },
 };
 
-const DRIVE_TO_CAT: Record<DriveType, OBCategory> = {
+export const DRIVE_TO_CAT: Record<DriveType, OBCategory> = {
   learning: "learn",
   building: "build",
   doing:    "execute",
@@ -347,34 +347,34 @@ export function OnboardingBanner({
           .ob-line2 { animation: ob-heading-in 400ms ease both; animation-delay: 280ms; }
           .ob-philosophy { animation: ob-fade 400ms ease both; animation-delay: 600ms; }
         `}</style>
-        <div className="px-5 pt-5 pb-5">
+        <div className="px-5 pt-3 pb-5">
 
-          {/* Mode toggle + optional cancel below */}
-          <div className="flex flex-col items-end mb-5 gap-1.5">
-            <div className="flex rounded-full border border-gray-800 bg-gray-900 p-0.5 text-xs">
-              {(["focused","zoomed"] as OBMode[]).map(m => (
-                <button key={m} type="button" onClick={() => setMode(m)}
-                  className={`px-3 py-1 rounded-full transition-colors ${mode === m ? "bg-white text-gray-950 font-medium" : "text-gray-400 hover:text-gray-200"}`}>
-                  {m === "focused" ? "Focused" : "Zoomed out"}
-                </button>
-              ))}
+          {/* Heading + controls inline */}
+          <div className="flex items-start justify-between gap-3 mb-5" key={mode}>
+            <div>
+              <p className="text-sm text-gray-500 ob-line1">
+                {mode === "focused" ? "Right now," : "For the long run,"}
+              </p>
+              <p className={`text-2xl sm:text-3xl font-bold text-white ob-line2 relative inline-block after:content-[''] after:block after:h-0.5 after:w-full after:mt-1 after:rounded-full ${mode === "focused" ? "after:bg-gradient-to-r after:from-indigo-500 after:via-sky-400 after:to-transparent" : "after:bg-gradient-to-r after:from-violet-500 after:via-purple-400 after:to-transparent"}`}>
+                {mode === "focused" ? "What do you want to focus on?" : "What do you want your life to stand for?"}
+              </p>
             </div>
-            {onCancel && (
-              <button type="button" onClick={onCancel}
-                className="text-xs text-gray-600 hover:text-gray-300 transition-colors">
-                ✕ Cancel
-              </button>
-            )}
-          </div>
-
-          {/* Animated heading */}
-          <div className="mb-5" key={mode}>
-            <p className="text-sm text-gray-500 ob-line1">
-              {mode === "focused" ? "Right now," : "For the long run,"}
-            </p>
-            <p className={`text-2xl sm:text-3xl font-bold text-white ob-line2 relative inline-block after:content-[''] after:block after:h-0.5 after:w-full after:mt-1 after:rounded-full ${mode === "focused" ? "after:bg-gradient-to-r after:from-indigo-500 after:via-sky-400 after:to-transparent" : "after:bg-gradient-to-r after:from-violet-500 after:via-purple-400 after:to-transparent"}`}>
-              {mode === "focused" ? "What do you want to focus on?" : "What do you want your life to stand for?"}
-            </p>
+            <div className="flex flex-col items-end gap-1.5 flex-shrink-0 pt-1">
+              {onCancel && (
+                <button type="button" onClick={onCancel}
+                  className="text-xs text-gray-600 hover:text-gray-300 transition-colors">
+                  ✕ Cancel
+                </button>
+              )}
+              <div className="flex rounded-full border border-gray-800 bg-gray-900 p-0.5 text-xs">
+                {(["focused","zoomed"] as OBMode[]).map(m => (
+                  <button key={m} type="button" onClick={() => setMode(m)}
+                    className={`px-3 py-1 rounded-full transition-colors ${mode === m ? "bg-white text-gray-950 font-medium" : "text-gray-400 hover:text-gray-200"}`}>
+                    {m === "focused" ? "Focused" : "Zoomed out"}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Subtext */}
@@ -801,17 +801,7 @@ export function DrivePickerStateB({
         </p>
       )}
       <div className="mt-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          {(["focused", "zoomed"] as const).map(m => (
-            <button key={m} type="button" onClick={() => onModeChange(m)}
-              className={`px-2.5 py-0.5 rounded-full text-xs border transition-colors ${
-                mode === m
-                  ? "bg-white text-gray-950 border-white font-medium"
-                  : "border-gray-800 text-gray-500 hover:text-gray-300"}`}>
-              {m === "focused" ? "Focused" : "Zoomed Out"}
-            </button>
-          ))}
-        </div>
+        <div />
         <span className={`text-xs transition-opacity ${
           saveState === "idle"   ? "opacity-0"                  :
           saveState === "saving" ? "opacity-100 text-gray-500"  :

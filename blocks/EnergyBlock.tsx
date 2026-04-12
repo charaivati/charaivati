@@ -3,7 +3,7 @@
 
 import React, { useMemo } from "react";
 import { CollapsibleSection } from "@/components/self/shared";
-import type { HealthProfile } from "@/types/self";
+import type { HealthProfile, FrequencyType, JoyProfile } from "@/types/self";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,7 @@ export type EnergyScore = {
   overall: number;
   physical: number;
   mental: number;
+  joy: number;
   trend: "up" | "down" | "stable";
   factors: {
     sleep: number;
@@ -19,6 +20,26 @@ export type EnergyScore = {
     nutrition: number;
   };
 };
+
+// ─── Joy score ────────────────────────────────────────────────────────────────
+
+const FREQ_SCORE: Record<FrequencyType, number> = {
+  daily:        9,
+  few_per_week: 7,
+  weekly:       5,
+  rarely:       3,
+};
+
+function calculateJoyScore(joy: JoyProfile | undefined): number {
+  if (!joy) return 5;
+  const keys: (keyof JoyProfile)[] = ["hobbies", "sports", "social", "rest"];
+  const scores = keys.map(k => {
+    const sec = joy[k];
+    if (!sec || sec.types.length === 0) return 4; // not tracked → below neutral
+    return FREQ_SCORE[sec.frequency] ?? 5;
+  });
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+}
 
 // ─── computeEnergy ────────────────────────────────────────────────────────────
 
@@ -53,12 +74,16 @@ export function computeEnergy(health: HealthProfile): EnergyScore {
 
   const physical = Math.round((sleep + exercise) / 2);
   const mental   = Math.round((stress + nutrition) / 2);
-  const overall  = Math.round((physical + mental) / 2);
+  const joy      = calculateJoyScore(health.joy);
+
+  // Weighted: Physical 35% · Mental 35% · Joy 30%
+  const overall = Math.min(10, Math.round(physical * 0.35 + mental * 0.35 + joy * 0.30));
 
   return {
     overall,
     physical,
     mental,
+    joy,
     trend: "stable",
     factors: { sleep, exercise, stress, nutrition },
   };
@@ -133,10 +158,11 @@ export function EnergySection({ health }: { health: HealthProfile }) {
           </div>
         </div>
 
-        {/* Physical + Mental bars */}
+        {/* Physical + Mental + Joy bars */}
         <div className="space-y-2">
           <ScoreBar label="Physical" value={energy.physical} />
           <ScoreBar label="Mental"   value={energy.mental}   />
+          <ScoreBar label="Joy & Life" value={energy.joy}   />
         </div>
 
         {/* Factors */}
@@ -147,6 +173,7 @@ export function EnergySection({ health }: { health: HealthProfile }) {
             <FactorChip label="Exercise"  value={energy.factors.exercise}  />
             <FactorChip label="Stress"    value={energy.factors.stress}    />
             <FactorChip label="Nutrition" value={energy.factors.nutrition} />
+            <FactorChip label="Joy"       value={energy.joy}               />
           </div>
         </div>
 
