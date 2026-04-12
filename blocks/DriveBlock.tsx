@@ -4,7 +4,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { SectionCard } from "@/components/self/shared";
 import { DRIVES, DRIVE_IDENTITY } from "@/hooks/useSelfState";
-import { safeFetchJson } from "@/hooks/useAIBlock";
 import type { DriveType } from "@/types/self";
 import { ArrowRight, ChevronLeft } from "lucide-react";
 
@@ -197,10 +196,6 @@ export function OnboardingBanner({
   const [visible, setVisible] = useState(true);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
-  const [aiHelp,        setAiHelp]        = useState<string[] | null>(null);
-  const [aiHelpLoading, setAiHelpLoading] = useState(false);
-  const [aiHelpError,   setAiHelpError]   = useState(false);
-
   // Question flow operates on activeCats, not cats
   const cat = activeCats[currentCatIndex] ?? null;
 
@@ -214,56 +209,7 @@ export function OnboardingBanner({
   function slide(direction: 1 | -1, cb: () => void) {
     setDir(direction);
     setVisible(false);
-    setAiHelp(null);
-    setAiHelpError(false);
     setTimeout(() => { cb(); setVisible(true); }, 200);
-  }
-
-  async function fetchAiHelp() {
-    if (!cat) return;
-    const LIMIT_KEY = "charaivati_ob_ai_count";
-    try {
-      const raw = localStorage.getItem(LIMIT_KEY);
-      const { count = 0, resetAt = 0 } = raw ? JSON.parse(raw) : {};
-      const now = Date.now();
-      const newCount   = now > resetAt ? 1 : count + 1;
-      const newResetAt = now > resetAt ? now + 60 * 60 * 1000 : resetAt;
-      if (newCount > 3 && isGuest) {
-        setAiHelpError(true);
-        return;
-      }
-      localStorage.setItem(LIMIT_KEY, JSON.stringify({ count: newCount, resetAt: newResetAt }));
-    } catch {}
-
-    setAiHelpLoading(true);
-    setAiHelp(null);
-    setAiHelpError(false);
-
-    function sanitize(s: string) {
-      return s.replace(/<[^>]*>/g, "").slice(0, 500).trim();
-    }
-
-    if (!cat) { setAiHelpLoading(false); return; }
-    const qSet = mode === "focused" ? OB_QS_FOCUSED[cat] : OB_QS_ZOOMED[cat];
-    const answersPayload: Record<string, string> = {};
-    qSet.qs.forEach((_: { q: string; ph: string }, i: number) => {
-      if (answers[i]) answersPayload[`q${i + 1}`] = sanitize(answers[i]);
-    });
-    if (current.trim()) answersPayload[`q${qIdx + 1}`] = sanitize(current.trim());
-
-    try {
-      const resp = await safeFetchJson("/api/self/onboarding-help", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category: cat, mode, answers: answersPayload }),
-      });
-      if (!resp.ok || !resp.json?.suggestions) { setAiHelpError(true); return; }
-      setAiHelp(resp.json.suggestions as string[]);
-    } catch {
-      setAiHelpError(true);
-    } finally {
-      setAiHelpLoading(false);
-    }
   }
 
   function toggleCat(id: OBCategory) {
@@ -527,42 +473,6 @@ export function OnboardingBanner({
               placeholder={q.ph}
               className="w-full bg-gray-900 border border-gray-800 focus:border-gray-600 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none resize-none transition-colors text-sm leading-relaxed" />
             <p className="text-xs text-gray-700 mt-1.5">Enter to continue · Shift+Enter for new line</p>
-          </div>
-
-          {/* AI Help */}
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={fetchAiHelp}
-              disabled={aiHelpLoading}
-              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-indigo-400 disabled:opacity-40 transition-colors"
-            >
-              {aiHelpLoading ? (
-                <>
-                  <span className="inline-block w-3 h-3 border border-gray-500 border-t-indigo-400 rounded-full animate-spin" />
-                  Thinking…
-                </>
-              ) : aiHelp ? (
-                <>✦ Refine with AI</>
-              ) : (
-                <>✦ Ask AI</>
-              )}
-            </button>
-            {aiHelpError && isGuest && (
-              <p className="mt-2 text-xs text-yellow-600/80">
-                <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to continue using AI help.
-              </p>
-            )}
-            {aiHelpError && !isGuest && (
-              <p className="mt-2 text-xs text-gray-600">AI unavailable — try again.</p>
-            )}
-            {aiHelp && aiHelp.length > 0 && (
-              <div className="mt-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-4 py-3 space-y-1.5">
-                {aiHelp.map((s, i) => (
-                  <p key={i} className="text-xs text-indigo-300/90 leading-relaxed">{s}</p>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* Buttons */}

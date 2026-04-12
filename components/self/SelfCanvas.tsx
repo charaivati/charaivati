@@ -443,12 +443,6 @@ function GoalsExpanded({
                 text-xs text-gray-400 hover:border-gray-500 hover:text-gray-300 transition-colors">
               + Add goal
             </button>
-            <button type="button"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium
-                bg-violet-900/30 border border-violet-500/30 text-violet-300
-                hover:bg-violet-900/50 transition-colors">
-              <Sparkles className="w-3 h-3" /> AI Suggest
-            </button>
           </div>
         </div>
       </div>
