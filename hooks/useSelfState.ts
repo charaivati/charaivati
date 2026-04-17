@@ -3,6 +3,7 @@
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from "react";
 import { uid } from "@/components/self/shared";
 import { safeFetchJson } from "@/hooks/useAIBlock";
+import { computeEnergy } from "@/blocks/EnergyBlock";
 import type {
   DriveType, GoalEntry, HealthProfile, SkillEntry,
   PageItem, SaveState, AIRoadmap,
@@ -420,9 +421,18 @@ export function useSelfState(profile: any) {
       const existingPlan = goal.plan && !goal.plan.fallback
         ? { phases: goal.plan.phases.map(p => ({ id: p.id, name: p.name, actions: p.actions })) }
         : undefined;
+      const energyScore = computeEnergy(health, environmentProfile, weekSchedule, fundsProfile);
+      const energyPayload = {
+        overall:     energyScore.overall,
+        physical:    energyScore.physical,
+        mental:      energyScore.mental,
+        environment: energyScore.environment,
+        time:        energyScore.time,
+        funds:       energyScore.funds,
+      };
       const timelineResp = await safeFetchJson("/api/ai/generate-timeline", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ drives: [driveLabel], goals: goalPayload, existingPlan }),
+        body: JSON.stringify({ drives: [driveLabel], goals: goalPayload, existingPlan, energy: energyPayload }),
       });
       const isFallback = timelineResp.json?._fallback === true;
       const phases     = timelineResp.json?.phases ?? [];

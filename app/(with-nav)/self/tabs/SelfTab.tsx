@@ -4,6 +4,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { OnboardingBanner, DrivePickerStateB } from "@/blocks/DriveBlock";
 import { SelfCanvas } from "@/components/self/SelfCanvas";
+import { GoalCreationFlow } from "@/app/(with-nav)/self/tabs/goal-creation/GoalCreationFlow";
 import { useSelfState, defaultGoal } from "@/hooks/useSelfState";
 import { useSelfSkills } from "@/lib/SelfSkillsContext";
 import type { DriveType, GoalEntry } from "@/types/self";
@@ -18,7 +19,12 @@ export default function SelfTab({ profile }: { profile?: any }) {
   }, [s.goals, s.generalSkills, setSkillsSnapshot]);
 
   // ── Delayed content reveal after drive picker collapses ──────────────────────
+  const [skipped, setSkipped] = useState(false);
   const [showContent, setShowContent] = useState(s.drives.length > 0);
+  const [highlightGeneral, setHighlightGeneral] = useState(false);
+
+  // ── AI goal creation flow ─────────────────────────────────────────────────────
+  const [aiGoalOpen, setAiGoalOpen] = useState(false);
 
   // ── Onboarding open ───────────────────────────────────────────────────────────
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -45,11 +51,43 @@ export default function SelfTab({ profile }: { profile?: any }) {
     try { localStorage.setItem("charaivati_onboarding_mode", obMode); } catch {}
   }, [obMode]);
 
-  function handleOnboardingComplete(driveId: DriveType, statement: string, description: string) {
+  function handleOnboardingComplete(driveId: DriveType, statement: string, description: string, hobbyFlag?: boolean) {
     pendingGoalsRef.current = [
       ...pendingGoalsRef.current.filter(g => g.driveId !== driveId),
       { ...defaultGoal(driveId), statement, description, saved: !!statement },
     ];
+    if (hobbyFlag && driveId === "doing" && statement) {
+      const existing = s.health.joy?.hobbies?.types ?? [];
+      if (!existing.includes(statement)) {
+        const freq = existing.length > 0
+          ? (s.health.joy?.hobbies?.frequency ?? "weekly")
+          : "weekly";
+        s.handleHealthChange({
+          ...s.health,
+          joy: {
+            ...(s.health.joy ?? { sports: { types: [], frequency: "weekly" as const }, social: { types: [], frequency: "weekly" as const }, rest: { types: [], frequency: "weekly" as const } }),
+            hobbies: { types: [...existing, statement], frequency: freq },
+          },
+        });
+      }
+    }
+  }
+
+  function handleSkip() {
+    pendingGoalsRef.current = [];
+    s.applyOnboardingResult([], []);
+    setSkipped(true);
+    setOnboardingOpen(false);
+    // Scroll to canvas after it mounts (showContent fires at 700ms)
+    setTimeout(() => {
+      const el = canvasRef.current;
+      if (el) {
+        const top = el.getBoundingClientRect().top + window.scrollY - 116;
+        window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+      }
+    }, 1400);
+    setTimeout(() => setHighlightGeneral(true), 1800);
+    setTimeout(() => setHighlightGeneral(false), 1800 + 2900);
   }
 
   function handleAddGoal(driveId: DriveType, statement: string, description: string): string {
@@ -64,13 +102,13 @@ export default function SelfTab({ profile }: { profile?: any }) {
   }
 
   useEffect(() => {
-    if (s.drives.length > 0) {
+    if (s.drives.length > 0 || skipped) {
       const t = setTimeout(() => setShowContent(true), 700);
       return () => clearTimeout(t);
     } else {
       setShowContent(false);
     }
-  }, [s.drives.length]);
+  }, [s.drives.length, skipped]);
 
   return (
     <div className="text-white space-y-5">
@@ -92,6 +130,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
             isGuest={s.isGuest}
             saveState={s.saveState}
             onComplete={handleOnboardingComplete}
+            onSkip={handleSkip}
             onDone={(finalDrives) => {
               const existingWithStatements = s.goals.filter(g => g.statement.trim() !== "");
               const existingEmpty          = s.goals.filter(g => g.statement.trim() === "");
@@ -135,13 +174,23 @@ export default function SelfTab({ profile }: { profile?: any }) {
         )}
       </div>
 
+      {/* ── AI goal creation flow ── */}
+      {aiGoalOpen && (
+        <div style={{ animation: "fadeSlideUp 300ms ease both" }}>
+          <GoalCreationFlow
+            onSaved={() => setAiGoalOpen(false)}
+            onCancel={() => setAiGoalOpen(false)}
+          />
+        </div>
+      )}
+
       {/* ── Content — revealed after drive is picked ── */}
-      {showContent && !onboardingOpen && (
+      {showContent && !onboardingOpen && !aiGoalOpen && (
         <div style={{ animation: "fadeSlideUp 600ms ease both" }}>
           <div className="space-y-5">
 
             {/* ── Visual canvas ── */}
-            {s.filledGoals > 0 && (
+            {(s.filledGoals > 0 || skipped) && (
               <div ref={canvasRef} style={{ animation: "fadeSlideUp 500ms ease both" }}>
                 <SelfCanvas
                   health={s.health}
@@ -153,6 +202,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
                   fundsProfile={s.fundsProfile}
                   environmentProfile={s.environmentProfile}
                   highlightGoalId={highlightGoalId}
+                  highlightGeneral={highlightGeneral}
                   setHealth={s.handleHealthChange}
                   onUpdateGeneralSkills={s.handleGeneralSkillsChange}
                   onUpdateGoalSkills={s.handleGoalSkillsChange}
@@ -164,6 +214,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
                   onUpdateGoal={s.updateGoal}
                   onRemoveGoal={s.removeGoal}
                   onGoalAdded={handleGoalAdded}
+                  onNewAIGoal={() => setAiGoalOpen(true)}
                 />
               </div>
             )}

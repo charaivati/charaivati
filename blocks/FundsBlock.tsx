@@ -230,7 +230,6 @@ export function FundsSection({
         <div className="space-y-1">
           <FieldLabel>Monthly burn (₹)</FieldLabel>
           <TextInput
-            type="number"
             value={String(funds.monthlyBurn)}
             onChange={v => onChange({ ...funds, monthlyBurn: parseFloat(v) || 0 })}
             placeholder="0"
@@ -242,7 +241,7 @@ export function FundsSection({
           loading={loading}
           hasResult={!!funds.fundsPlan}
           onGenerate={handleGenerate}
-          labels={{ idle: "Generate funding plan", hasResult: "Regenerate plan", loading: "Generating…" }}
+          labels={{ generate: "Generate funding plan", regenerate: "Regenerate plan", loading: "Generating…" }}
         />
 
         {/* Funds plan results */}

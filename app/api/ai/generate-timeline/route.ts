@@ -9,19 +9,51 @@ type ExistingPhase = {
   actions: string[];
 };
 
+type EnergyContext = {
+  overall: number;
+  physical: number;
+  mental: number;
+  environment: number;
+  time: number;
+  funds: number;
+};
+
 type Body = {
   drives?: string[];
   goals?: GoalEntry[];
   existingPlan?: { phases: ExistingPhase[] };
+  energy?: EnergyContext;
 };
+
+// ─── Input validation ─────────────────────────────────────────────────────────
+
+/**
+ * Returns true if the text looks like random characters with no real meaning.
+ * Conservative: only rejects clear gibberish (no vowels, mostly symbols, etc.)
+ */
+function isNonsensical(text: string): boolean {
+  const s = text.trim().toLowerCase();
+  if (s.length < 2) return true;
+
+  // Must be at least 40% alphabetic characters
+  const alpha = (s.match(/[a-z]/g) ?? []).length;
+  if (alpha / s.length < 0.4) return true;
+
+  // For words longer than 2 chars, at least one must contain a vowel
+  const words = s.split(/\s+/).filter(w => w.length > 2);
+  if (words.length > 0 && !words.some(w => /[aeiou]/.test(w))) return true;
+
+  return false;
+}
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-  const body        = (await req.json().catch(() => ({}))) as Body;
-  const drives      = Array.isArray(body.drives) ? body.drives.filter(Boolean).slice(0, 2) : [];
-  const goals       = Array.isArray(body.goals)  ? body.goals  : [];
+  const body         = (await req.json().catch(() => ({}))) as Body;
+  const drives       = Array.isArray(body.drives) ? body.drives.filter(Boolean).slice(0, 2) : [];
+  const goals        = Array.isArray(body.goals)  ? body.goals  : [];
   const existingPlan = body.existingPlan ?? null;
+  const energy       = body.energy ?? null;
 
   const goal  = goals[0];
   const title = goal?.title?.trim() ?? "";
@@ -33,6 +65,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ phases: [], _fallback: true });
   }
 
+  if (isNonsensical(title)) {
+    return NextResponse.json({
+      phases: [], _invalid: true,
+      message: "We couldn't understand your goal. Try rephrasing it as a clear sentence.",
+    });
+  }
+
   const systemPrompt = `You are a domain expert. Give SPECIFIC, REAL-WORLD advice — not generic productivity tips. Respond with ONLY valid JSON, no markdown, no preamble.`;
 
   // Build existing plan context for regeneration
@@ -42,7 +81,20 @@ export async function POST(req: Request) {
       ).join("\n")}\nRefine and improve these — keep what works, fix what's weak.`
     : "";
 
-  const prompt = `Create a 3-phase action plan for: "${title}"${desc ? `\nContext: ${desc}` : ""}${skill ? `\nSkills: ${skill}` : ""}${drive ? `\nMotivation: ${drive}` : ""}${existingContext}
+  const energyContext = energy ? `
+Energy context: ${energy.overall}/10 overall
+Physical: ${energy.physical}/10
+Mental: ${energy.mental}/10
+Environment: ${energy.environment}/10
+Time capacity: ${energy.time}/10
+Financial stability: ${energy.funds}/10
+${energy.overall <= 4
+  ? "IMPORTANT: This person has LOW energy. Foundation phase actions must be lighter — max 2 actions, shorter time commitments, recovery-friendly tasks. Do not suggest aggressive goals."
+  : energy.overall >= 8
+  ? "This person has HIGH energy. You can suggest more ambitious actions and tighter timelines."
+  : ""}` : "";
+
+  const prompt = `Create a 3-phase action plan for: "${title}"${desc ? `\nContext: ${desc}` : ""}${skill ? `\nSkills: ${skill}` : ""}${drive ? `\nMotivation: ${drive}` : ""}${energyContext}${existingContext}
 
 Rules:
 - 2-3 actions per phase, each max 12 words

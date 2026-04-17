@@ -3,11 +3,21 @@ import { NextResponse } from "next/server";
 import { callAI, safeJsonParse } from "@/app/api/aiClient";
 import type { GoalEntry, Suggestion, SuggestionType, Priority } from "@/app/api/ai/types.ts";
 
+type EnergyContext = {
+  overall: number;
+  physical: number;
+  mental: number;
+  environment: number;
+  time: number;
+  funds: number;
+};
+
 type Body = {
   currentPhase?: string;
   recentActivity?: string[];
   goals?: GoalEntry[];
   skills?: string[];
+  energy?: EnergyContext;
 };
 
 // ─── Fallback ─────────────────────────────────────────────────────────────────
@@ -43,6 +53,7 @@ function buildFallback(body: Body): Suggestion[] {
 
 export async function POST(req: Request) {
   const body          = (await req.json().catch(() => ({}))) as Body;
+  const energy        = body.energy ?? null;
   const goals         = Array.isArray(body.goals)         ? body.goals         : [];
   const recentActivity = Array.isArray(body.recentActivity) ? body.recentActivity : [];
   const explicitSkills = Array.isArray(body.skills)
@@ -68,6 +79,8 @@ Current phase: ${body.currentPhase ?? "foundation"}
 Their goals:
 ${goalSummaries || "Not specified"}
 Skills they're building: ${allSkills.length ? allSkills.join(", ") : "not specified"}
+Current energy: ${energy?.overall ?? 5}/10
+${(energy?.overall ?? 5) <= 4 ? "Low energy — suggest at most 3 actions, prioritise recovery and momentum-building over output." : ""}
 What they've done recently: ${recentActivity.length ? recentActivity.join(", ") : "nothing logged yet"}
 
 Return this exact JSON structure:

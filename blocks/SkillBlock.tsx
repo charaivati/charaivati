@@ -286,12 +286,13 @@ function GoalSkillBox({
 
 function GeneralSkillBox({
   generalSkills, onUpdateGeneralSkills,
-  schedule, onScheduleChange,
+  schedule, onScheduleChange, highlight,
 }: {
   generalSkills: SkillEntry[];
   onUpdateGeneralSkills: (skills: SkillEntry[]) => void;
   schedule: WeekSchedule;
   onScheduleChange: (s: WeekSchedule) => void;
+  highlight?: boolean;
 }) {
   const [modal, setModal] = useState<{ skill: SkillEntry; isNew: boolean } | null>(null);
   const namedSkills = generalSkills.filter(s => s.name.trim() !== "");
@@ -354,7 +355,7 @@ function GeneralSkillBox({
           onCancel={() => setModal(null)}
         />
       )}
-      <div className="rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3">
+      <div className={`rounded-xl border border-gray-800 bg-gray-950/60 p-4 space-y-3${highlight ? " goal-skill-highlight" : ""}`}>
         <p className="text-sm font-semibold text-white">General</p>
         <div className="space-y-1">
           {namedSkills.map(skill => (
@@ -386,6 +387,7 @@ export function SkillsSection({
   onUpdateGoalSkills,
   onSuggestSkills,
   highlightGoalId,
+  highlightGeneral,
   schedule,
   onScheduleChange,
 }: {
@@ -396,6 +398,7 @@ export function SkillsSection({
   onUpdateGoalSkills: (goalId: string, skills: SkillEntry[]) => void;
   onSuggestSkills: (goalId: string) => void;
   highlightGoalId?: string | null;
+  highlightGeneral?: boolean;
   schedule: WeekSchedule;
   onScheduleChange: (s: WeekSchedule) => void;
 }) {
@@ -446,6 +449,7 @@ export function SkillsSection({
           <GeneralSkillBox
             generalSkills={generalSkills}
             onUpdateGeneralSkills={onUpdateGeneralSkills}
+            highlight={highlightGeneral}
             schedule={schedule}
             onScheduleChange={onScheduleChange}
           />

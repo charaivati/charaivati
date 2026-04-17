@@ -6,6 +6,15 @@ import { SectionCard } from "@/components/self/shared";
 import { DRIVES, DRIVE_IDENTITY } from "@/hooks/useSelfState";
 import type { DriveType } from "@/types/self";
 import { ArrowRight, ChevronLeft } from "lucide-react";
+import { fetchGoalReflect } from "@/lib/ai/goalReflect";
+import type { GoalReflectResult } from "@/lib/ai/goalReflect";
+
+const CAT_TO_ARCHETYPE: Record<OBCategory, string> = {
+  learn: 'LEARN', build: 'BUILD', execute: 'EXECUTE', connect: 'CONNECT',
+};
+const MODE_TO_API: Record<OBMode, string> = {
+  focused: 'FOCUSED', zoomed: 'ZOOMED_OUT',
+};
 
 const DRIVE_PILL: Record<DriveType, string> = {
   learning: "text-sky-400 border-sky-500/40 bg-sky-500/10",
@@ -99,6 +108,7 @@ export const OB_QS_FOCUSED: Record<OBCategory, { prompt: string; qs: { q: string
       { q: "What's been stopping you so far?",                   ph: "e.g. No structure, procrastination, burnout…"      },
       { q: "How often do you need to show up for this?",         ph: "e.g. Daily, 3x a week, every morning…"             },
       { q: "What does 'done well' look like for you?",           ph: "e.g. 30-day streak, a shipped product…"            },
+      { q: "Is this a hobby for you?",                           ph: "Yes / No"                                          },
     ],
   },
   connect: {
@@ -146,6 +156,7 @@ export const OB_QS_ZOOMED: Record<OBCategory, { prompt: string; qs: { q: string;
       { q: "What are the 2–3 things you must execute consistently?",              ph: "Your non-negotiables to keep everything moving…"      },
       { q: "What has historically derailed your consistency?",                    ph: "Your known failure modes, honestly…"                  },
       { q: "What does a good week look like, concretely?",                        ph: "Day by day — what happened?"                          },
+      { q: "Is this a hobby for you?",                                            ph: "Yes / No"                                             },
       { q: "When do you want this stability locked in by?",                       ph: "A date or milestone, not a feeling…"                  },
     ],
   },
@@ -171,13 +182,14 @@ export const DRIVE_TO_CAT: Record<DriveType, OBCategory> = {
 };
 
 export function OnboardingBanner({
-  isGuest, saveState, onComplete, onDone, onCancel, initialDrives, drivesWithGoals,
+  isGuest, saveState, onComplete, onDone, onCancel, onSkip, initialDrives, drivesWithGoals,
 }: {
   isGuest: boolean;
   saveState: string;
-  onComplete: (driveId: DriveType, statement: string, description: string) => void;
+  onComplete: (driveId: DriveType, statement: string, description: string, hobbyFlag?: boolean) => void;
   onDone?: (finalDrives: DriveType[]) => void;
   onCancel?: () => void;
+  onSkip?: () => void;
   initialDrives?: DriveType[];
   drivesWithGoals?: DriveType[];
 }) {
@@ -195,6 +207,34 @@ export function OnboardingBanner({
   const [dir,     setDir]     = useState<1 | -1>(1);
   const [visible, setVisible] = useState(true);
   const textRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── AI assist state ────────────────────────────────────────────────────────
+  const [ai, setAI] = useState<Pick<GoalReflectResult, 'reflection' | 'suggestedPlaceholder' | 'suggestions'>>({
+    reflection: null, suggestedPlaceholder: null, suggestions: [],
+  });
+  function resetAI() { setAI({ reflection: null, suggestedPlaceholder: null, suggestions: [] }); }
+
+  function fireAI(
+    answeredQText: string,
+    answeredValue: string,
+    priorQAs: { questionText: string; answer: string }[],
+    nextQText: string | undefined,
+  ) {
+    if (!cat) return;
+    resetAI();
+    fetchGoalReflect({
+      archetype:        CAT_TO_ARCHETYPE[cat],
+      mode:             MODE_TO_API[mode],
+      questionText:     answeredQText,
+      answer:           answeredValue,
+      priorAnswers:     priorQAs,
+      nextQuestionText: nextQText,
+    }).then(result => setAI({
+      reflection:          result.reflection,
+      suggestedPlaceholder: result.suggestedPlaceholder,
+      suggestions:         result.suggestions,
+    })).catch(() => {});
+  }
 
   // Question flow operates on activeCats, not cats
   const cat = activeCats[currentCatIndex] ?? null;
@@ -242,13 +282,33 @@ export function OnboardingBanner({
     const trimmed = current.trim();
     const nextAnswers = [...answers]; nextAnswers[qIdx] = trimmed;
     if (qIdx + 1 < total) {
+      // Fire AI in background for the upcoming question
+      if (trimmed && qs) {
+        const priorQAs = qs.qs.slice(0, qIdx).map((qi, i) => ({
+          questionText: qi.q,
+          answer: nextAnswers[i] ?? '',
+        })).filter(a => a.answer);
+        fireAI(qs.qs[qIdx].q, trimmed, priorQAs, qs.qs[qIdx + 1]?.q);
+      }
       slide(1, () => { setAnswers(nextAnswers); setQIdx(qIdx + 1); setCurrent(nextAnswers[qIdx + 1] ?? ""); });
     } else {
       // Finish current cat
-      const catDef = OB_CATS.find(c => c.id === cat)!;
-      const stmt   = nextAnswers[0] ?? "";
-      const desc   = nextAnswers.slice(1).filter(Boolean).join(" · ");
-      onComplete(catDef.driveId, stmt, desc);
+      const catDef    = OB_CATS.find(c => c.id === cat)!;
+      const stmt      = nextAnswers[0] ?? "";
+      const qConfig   = qs?.qs ?? [];
+      const hobbyQIdx = qConfig.findIndex(q => q.ph === "Yes / No");
+      const isHobby   = cat === "execute" && hobbyQIdx >= 0 &&
+        (nextAnswers[hobbyQIdx] ?? "").trim().toLowerCase().startsWith("y");
+      const desc = qConfig
+        .slice(1)
+        .map((q, i) => {
+          if (q.ph === "Yes / No") return "";
+          const a = (nextAnswers[i + 1] ?? "").trim();
+          return a ? a : "";
+        })
+        .filter(Boolean)
+        .join(" · ");
+      onComplete(catDef.driveId, stmt, desc, isHobby);
 
       if (activeCats.length === 2 && currentCatIndex === 0) {
         // Advance to second active cat
@@ -267,6 +327,7 @@ export function OnboardingBanner({
   }
 
   function back() {
+    resetAI();
     if (qIdx === 0 && currentCatIndex === 0) {
       slide(-1, () => { setStep("category"); setCurrent(""); });
     } else if (qIdx === 0 && currentCatIndex > 0) {
@@ -379,25 +440,55 @@ export function OnboardingBanner({
           })()}
 
           {/* Philosophy paragraph */}
-          <div className="mt-6 pt-5 border-t border-gray-800/60 ob-philosophy">
-            <p className="text-sm text-gray-300 font-medium leading-relaxed">
-              Love, peace, and freedom come from a life aligned with your inner calling.
-            </p>
-            <p className="text-xs text-gray-600 italic mt-1.5 leading-relaxed">
-              The world finds order when nations do. Nations, when societies do. Societies, when individuals do. That individual — could be you.
+          <div className="mt-8 pt-4 border-t border-gray-800/40 ob-philosophy">
+            {mode === "focused" ? (
+              <>
+                <p className="text-base text-gray-400 font-medium leading-relaxed">
+                  Do the next right thing.
+                </p>
+                <p className="text-sm text-gray-500 font-normal leading-relaxed mt-1">
+                  You don't need the whole path — just the next step.
+                </p>
+                <p className="text-sm text-gray-500 font-normal leading-relaxed mt-2">
+                  → Small actions, done honestly, shape your life.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-base text-gray-400 font-medium leading-relaxed">
+                  Aim beyond the immediate.
+                </p>
+                <p className="text-sm text-gray-500 font-normal leading-relaxed mt-1">
+                  A life without direction drifts. A life with vision builds.
+                </p>
+                <p className="text-sm text-gray-500 font-normal leading-relaxed mt-2">
+                  → What you consistently move toward, you become.
+                </p>
+              </>
+            )}
+            <p className="text-xs text-gray-600 italic mt-3 leading-relaxed">
+              When the self is right, the world aligns.
             </p>
           </div>
 
-          {/* Guest / save state */}
+          {/* Guest / save state + Skip */}
           <div className="mt-3 flex items-center justify-between">
             {isGuest ? (
               <p className="text-xs text-yellow-600/80">
                 Guest mode — <a href="/login" className="underline hover:text-yellow-400">Sign in</a> to sync.
               </p>
             ) : <span />}
-            <span className={`text-xs transition-opacity ${saveState === "idle" ? "opacity-0" : saveState === "saving" ? "text-gray-500" : saveState === "saved" ? "text-green-500" : "text-red-400"}`}>
-              {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Error" : "·"}
-            </span>
+            <div className="flex items-center gap-4">
+              {onSkip && (
+                <button type="button" onClick={onSkip}
+                  className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+                  Skip for now
+                </button>
+              )}
+              <span className={`text-xs transition-opacity ${saveState === "idle" ? "opacity-0" : saveState === "saving" ? "text-gray-500" : saveState === "saved" ? "text-green-500" : "text-red-400"}`}>
+                {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : saveState === "error" ? "Error" : "·"}
+              </span>
+            </div>
           </div>
         </div>
       </SectionCard>
@@ -465,28 +556,73 @@ export function OnboardingBanner({
             {qIdx === 0 && (
               <p className="text-xs text-gray-500 italic mb-2">{qs.prompt}</p>
             )}
+
+            {/* AI reflection from previous answer */}
+            {ai.reflection && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-indigo-500/8 border border-indigo-500/15 mb-3">
+                <span className="text-indigo-400 text-sm flex-shrink-0 mt-0.5">✦</span>
+                <p className="text-sm text-gray-300 leading-relaxed italic">{ai.reflection}</p>
+              </div>
+            )}
+
             <p className="text-base font-semibold text-white mb-4 leading-snug">{q.q}</p>
 
-            <textarea ref={textRef} value={current} rows={3}
-              onChange={e => setCurrent(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); next(); } }}
-              placeholder={q.ph}
-              className="w-full bg-gray-900 border border-gray-800 focus:border-gray-600 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none resize-none transition-colors text-sm leading-relaxed" />
-            <p className="text-xs text-gray-700 mt-1.5">Enter to continue · Shift+Enter for new line</p>
-          </div>
+            {q.ph === "Yes / No" ? (
+              <div className="flex gap-3">
+                {(["Yes", "No"] as const).map(opt => (
+                  <button key={opt} type="button"
+                    onClick={() => { setCurrent(opt); setTimeout(next, 80); }}
+                    className={`flex-1 py-3 rounded-xl text-sm font-semibold border transition-all ${
+                      current === opt
+                        ? opt === "Yes"
+                          ? "bg-amber-500/20 border-amber-500/60 text-amber-300"
+                          : "bg-gray-700/60 border-gray-600 text-gray-200"
+                        : "bg-gray-900 border-gray-800 text-gray-500 hover:border-gray-600 hover:text-gray-300"
+                    }`}>
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                <textarea ref={textRef} value={current} rows={3}
+                  onChange={e => setCurrent(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); next(); } }}
+                  placeholder={ai.suggestedPlaceholder ?? q.ph}
+                  className="w-full bg-gray-900 border border-gray-800 focus:border-gray-600 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none resize-none transition-colors text-sm leading-relaxed" />
 
-          {/* Buttons */}
-          <div className="flex items-center gap-3 mt-4">
-            <button type="button" onClick={next} disabled={!current.trim() && qIdx === 0}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-gray-950 text-sm font-semibold disabled:opacity-30 hover:bg-gray-100 transition-colors">
-              {isLast ? "Done" : "Next"} <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-            {(!current.trim() && qIdx > 0) && (
-              <button type="button" onClick={next} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
-                Skip
-              </button>
+                {/* AI suggestion chips — only show when field is empty */}
+                {ai.suggestions.length > 0 && !current.trim() && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {ai.suggestions.map((s, i) => (
+                      <button key={i} type="button"
+                        onClick={() => { setCurrent(s); textRef.current?.focus(); }}
+                        className="px-3 py-1 rounded-full text-xs border border-indigo-500/30 bg-indigo-500/8 text-indigo-300/80 hover:text-indigo-200 hover:border-indigo-500/60 transition-colors">
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-700 mt-1.5">Enter to continue · Shift+Enter for new line</p>
+              </>
             )}
           </div>
+
+          {/* Buttons — hidden for yes/no questions (auto-advance on click) */}
+          {q.ph !== "Yes / No" && (
+            <div className="flex items-center gap-3 mt-4">
+              <button type="button" onClick={next} disabled={!current.trim() && qIdx === 0}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white text-gray-950 text-sm font-semibold disabled:opacity-30 hover:bg-gray-100 transition-colors">
+                {isLast ? "Done" : "Next"} <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+              {(!current.trim() && qIdx > 0) && (
+                <button type="button" onClick={next} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+                  Skip
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </SectionCard>
     );
@@ -634,7 +770,12 @@ export function DrivePickerStateB({
         <div
           className="flex-1 min-w-0 space-y-0.5 overflow-hidden flex flex-col justify-center"
         >
-          {drives.map((driveId, index) => (
+          {drives.length === 0 ? (
+            <p className="text-gray-500 font-medium leading-tight"
+              style={{ fontSize: "clamp(1rem, 4vw, 1.6rem)" }}>
+              No driving direction
+            </p>
+          ) : drives.map((driveId, index) => (
             <p
               key={driveId}
               className={`font-bold leading-tight truncate ${DRIVE_LINE_COLOR[driveId]} ${index === 0 ? "drive-line-1" : "drive-line-2"}`}

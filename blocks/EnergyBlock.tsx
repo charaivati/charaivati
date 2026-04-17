@@ -3,7 +3,7 @@
 
 import React, { useMemo } from "react";
 import { CollapsibleSection } from "@/components/self/shared";
-import type { HealthProfile, FrequencyType, JoyProfile } from "@/types/self";
+import type { HealthProfile, FrequencyType, JoyProfile, EnvironmentProfile, WeekSchedule, FundsProfile } from "@/types/self";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,6 +12,10 @@ export type EnergyScore = {
   physical: number;
   mental: number;
   joy: number;
+  environment: number;
+  time: number;
+  funds: number;
+  network: number;
   trend: "up" | "down" | "stable";
   factors: {
     sleep: number;
@@ -35,7 +39,7 @@ function calculateJoyScore(joy: JoyProfile | undefined): number {
   const keys: (keyof JoyProfile)[] = ["hobbies", "sports", "social", "rest"];
   const scores = keys.map(k => {
     const sec = joy[k];
-    if (!sec || sec.types.length === 0) return 4; // not tracked → below neutral
+    if (!sec || sec.types.length === 0) return 5; // not configured yet → neutral
     return FREQ_SCORE[sec.frequency] ?? 5;
   });
   return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
@@ -43,7 +47,12 @@ function calculateJoyScore(joy: JoyProfile | undefined): number {
 
 // ─── computeEnergy ────────────────────────────────────────────────────────────
 
-export function computeEnergy(health: HealthProfile): EnergyScore {
+export function computeEnergy(
+  health: HealthProfile,
+  env?: EnvironmentProfile,
+  schedule?: WeekSchedule,
+  funds?: FundsProfile,
+): EnergyScore {
   // Sleep
   const sleep =
     health.sleepQuality === "bad"      ? 2 :
@@ -76,14 +85,81 @@ export function computeEnergy(health: HealthProfile): EnergyScore {
   const mental   = Math.round((stress + nutrition) / 2);
   const joy      = calculateJoyScore(health.joy);
 
-  // Weighted: Physical 35% · Mental 35% · Joy 30%
-  const overall = Math.min(10, Math.round(physical * 0.35 + mental * 0.35 + joy * 0.30));
+  // ── Environment score ────────────────────────────────────────────────────────
+  let environment = 5;
+  if (env) {
+    const ws = env.workspace;
+    environment =
+      (ws === "home" && env.livingWith === "alone") ? 8 :
+      (ws === "office" || ws === "coworking")        ? 7 :
+      (ws === "hybrid" || ws === "remote")           ? 7 :
+      ws === ""                                      ? 5 : 5;
+    environment -= (env.constraints?.length ?? 0) * 0.5;
+    environment += (env.assets?.length ?? 0) * 0.3;
+    environment = Math.round(environment);
+    environment = Math.max(2, Math.min(9, environment));
+  }
+  environment = Math.max(1, Math.min(10, environment));
+
+  // ── Time score ───────────────────────────────────────────────────────────────
+  let time = 5;
+  if (schedule) {
+    const tasks     = schedule.tasks ?? [];
+    const taskCount = tasks.length;
+    time =
+      taskCount === 0    ? 4 :
+      taskCount <= 3     ? 7 :
+      taskCount <= 6     ? 8 :
+      taskCount <= 9     ? 6 : 4;
+    const doneTasks = tasks.filter(t => t.done).length;
+    if (taskCount > 0 && doneTasks / taskCount > 0.6) time = Math.min(10, time + 1);
+  }
+  time = Math.max(1, Math.min(10, time));
+
+  // ── Funds score ──────────────────────────────────────────────────────────────
+  let fundsScore = 5;
+  if (funds) {
+    const sources = funds.sources ?? [];
+    if (sources.length === 0) {
+      fundsScore = 5; // neutral — no data
+    } else {
+      const totalIncome = sources.reduce((sum, s) => sum + (s.amount ?? 0), 0);
+      const burn        = funds.monthlyBurn ?? 0;
+      const runway      = burn > 0 ? totalIncome / burn : Infinity;
+      fundsScore =
+        runway === Infinity ? 6 :
+        runway >= 12        ? 9 :
+        runway >= 6         ? 7 :
+        runway >= 3         ? 5 :
+        runway >= 1         ? 3 : 2;
+    }
+  }
+  fundsScore = Math.max(1, Math.min(10, fundsScore));
+
+  // ── Network score ────────────────────────────────────────────────────────────
+  // TODO: wire CirclesPanel data when available
+  const network = 5;
+
+  // Weighted: Physical 25% · Mental 25% · Joy 20% · Environment 10% · Time 10% · Funds 5% · Network 5%
+  const overall = Math.max(1, Math.min(10, Math.round(
+    physical    * 0.25 +
+    mental      * 0.25 +
+    joy         * 0.20 +
+    environment * 0.10 +
+    time        * 0.10 +
+    fundsScore  * 0.05 +
+    network     * 0.05
+  )));
 
   return {
     overall,
     physical,
     mental,
     joy,
+    environment,
+    time,
+    funds: fundsScore,
+    network,
     trend: "stable",
     factors: { sleep, exercise, stress, nutrition },
   };

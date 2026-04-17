@@ -3,7 +3,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Sparkles, X, Pencil, Trash2 } from "lucide-react";
+import { Sparkles, X, Pencil, Trash2, CalendarPlus } from "lucide-react";
 import { computeEnergy } from "@/blocks/EnergyBlock";
 import { OB_QS_FOCUSED, OB_QS_ZOOMED, DRIVE_TO_CAT } from "@/blocks/DriveBlock";
 import type { OBMode } from "@/blocks/DriveBlock";
@@ -13,6 +13,8 @@ import { FundsSection } from "@/blocks/FundsBlock";
 import { TimeSection } from "@/blocks/TimeBlock";
 import { EnvironmentSection } from "@/blocks/EnvironmentBlock";
 import CirclesPanel from "@/components/CirclesPanel";
+import { CollapsibleSection } from "@/components/self/shared";
+import { TimelineList } from "@/components/timeline/TimelineList";
 import type {
   GoalEntry, HealthProfile, SkillEntry, DriveType,
   WeekSchedule, FundsProfile, EnvironmentProfile,
@@ -56,7 +58,7 @@ const PARTNER_CFG: Record<PartnerId, {
 };
 
 const MIDDLE_PARTNERS: PartnerId[] = ["energy", "environment", "time", "funds", "network"];
-const ALL_PARTNERS:    PartnerId[] = ["health", "skills", "energy", "environment", "time", "funds", "network"];
+const ALL_PARTNERS:    PartnerId[] = ["health", "skills", "energy", "time", "environment", "funds", "network"];
 
 // ─── Today ────────────────────────────────────────────────────────────────────
 
@@ -69,9 +71,9 @@ const TODAY_KEY = DAY_KEYS[TODAY_IDX];
 // ─── Joy section score ────────────────────────────────────────────────────────
 
 function joySectionScore(sec: { types: string[]; frequency: FrequencyType } | undefined): number {
-  if (!sec) return 4;
+  if (!sec || sec.types.length === 0) return 5; // not configured → neutral
   const m: Record<FrequencyType, number> = { daily: 9, few_per_week: 7, weekly: 5, rarely: 3 };
-  return m[sec.frequency] ?? 4;
+  return m[sec.frequency] ?? 5;
 }
 
 // ─── Goal progress helper ─────────────────────────────────────────────────────
@@ -88,19 +90,16 @@ function goalPct(g: GoalEntry): number {
 // ─── Goals compact card (clickable, two drive tabs) ───────────────────────────
 
 function GoalsCompact({
-  goals, drives, onExpand,
+  goals, drives, onExpand, onNewAIGoal,
 }: {
-  goals: GoalEntry[]; drives: DriveType[]; onExpand: () => void;
+  goals: GoalEntry[]; drives: DriveType[]; onExpand: () => void; onNewAIGoal?: () => void;
 }) {
-  const [tab, setTab] = useState<DriveType>(drives[0] ?? "learning");
-  const tabGoals = goals.filter(g => g.driveId === tab && g.statement.trim());
+  const activeCount = goals.filter(g => g.statement.trim()).length;
 
   return (
-    <div role="button" tabIndex={0}
-      onClick={onExpand}
-      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onExpand(); } }}
-      className="rounded-xl border flex flex-col h-full w-full text-left transition-all duration-150
-        hover:border-indigo-500/40 hover:shadow-indigo-500/10 group cursor-pointer select-none"
+    <div
+      className="rounded-xl border flex flex-col items-center justify-center h-full w-full text-center
+        transition-all duration-150 hover:border-indigo-500/40 hover:shadow-indigo-500/10 select-none"
       style={{
         background: "rgba(17,24,39,0.85)",
         borderColor: "rgba(255,255,255,0.14)",
@@ -108,65 +107,27 @@ function GoalsCompact({
         minHeight: "140px",
       }}>
 
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 pt-4 pb-2 flex-shrink-0">
-        <div className="w-7 h-7 rounded-full flex items-center justify-center text-sm flex-shrink-0"
+      {/* Clickable core area */}
+      <button type="button" role="button" tabIndex={0} onClick={onExpand}
+        className="flex flex-col items-center justify-center flex-1 w-full cursor-pointer pt-4 px-3">
+        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm mb-2"
           style={{ background: "#1e1b4b", color: "#a5b4fc" }}>
           🎯
         </div>
-        <span className="text-sm font-semibold text-white flex-1">Goals</span>
-        <span className="text-[9px] text-gray-600 group-hover:text-indigo-400 transition-colors">expand ↓</span>
-      </div>
+        <span className="text-sm font-semibold text-white">Goals</span>
+        <span className="text-xs text-gray-400 mt-1">
+          {activeCount === 0 ? "No goals yet" : `${activeCount} active goal${activeCount !== 1 ? "s" : ""}`}
+        </span>
+      </button>
 
-      {/* Drive tabs */}
-      {drives.length > 1 ? (
-        <div className="flex px-3 gap-1 mb-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
-          {drives.map(d => (
-            <button key={d} type="button"
-              onClick={e => { e.stopPropagation(); setTab(d); }}
-              className="flex-1 py-1 rounded-md text-[10px] font-semibold transition-colors"
-              style={{
-                background: tab === d ? `${DRIVE_DOT[d]}25` : "transparent",
-                color: tab === d ? DRIVE_DOT[d] : "#4b5563",
-              }}>
-              {DRIVE_LABEL[d]}
-            </button>
-          ))}
-        </div>
-      ) : drives.length === 1 ? (
-        <div className="px-4 mb-2">
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
-            style={{ background: `${DRIVE_DOT[drives[0]]}20`, color: DRIVE_DOT[drives[0]] }}>
-            {DRIVE_LABEL[drives[0]]}
-          </span>
-        </div>
-      ) : null}
-
-      {/* Goals list */}
-      <div className="px-4 pb-4 flex-1 min-h-0 space-y-2 overflow-hidden">
-        {tabGoals.length === 0 ? (
-          <p className="text-xs text-gray-600">No goals set yet</p>
-        ) : (
-          tabGoals.slice(0, 3).map(g => (
-            <div key={g.id} className="space-y-1">
-              <div className="flex items-start gap-2">
-                <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0"
-                  style={{ background: DRIVE_DOT[g.driveId] }} />
-                <span className="text-xs text-gray-200 leading-snug line-clamp-2 flex-1">
-                  {g.statement}
-                </span>
-              </div>
-              <div className="ml-3.5 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${goalPct(g)}%`, background: DRIVE_DOT[g.driveId] }} />
-              </div>
-            </div>
-          ))
-        )}
-        {tabGoals.length > 3 && (
-          <p className="text-[10px] text-gray-600">+{tabGoals.length - 3} more</p>
-        )}
-      </div>
+      {/* AI goal button — secondary, non-blocking */}
+      {onNewAIGoal && (
+        <button type="button" onClick={onNewAIGoal}
+          className="mb-3 mt-1 flex items-center gap-1 text-[10px] text-indigo-400/70 hover:text-indigo-300 transition-colors px-2 py-1 rounded-md hover:bg-indigo-500/10">
+          <span>✦</span>
+          <span>Add with AI</span>
+        </button>
+      )}
     </div>
   );
 }
@@ -178,7 +139,7 @@ function GoalEditModal({
 }: {
   goal?: GoalEntry;
   driveId: DriveType;
-  onSave: (statement: string, description: string) => void;
+  onSave: (statement: string, description: string, hobbyFlag: boolean) => void;
   onCancel: () => void;
 }) {
   const isEditing = !!goal;
@@ -209,17 +170,21 @@ function GoalEditModal({
   }
 
   function handleSave() {
-    const statement = (answers[0] ?? "").trim();
+    const statement   = (answers[0] ?? "").trim();
     if (!statement) return;
+    const hobbyQIdx   = qs.findIndex(q => q.ph === "Yes / No");
+    const hobbyFlag   = cat === "execute" && hobbyQIdx >= 0 &&
+      (answers[hobbyQIdx] ?? "").trim() === "Yes";
     const description = qs
       .slice(1)
       .map((q, i) => {
+        if (q.ph === "Yes / No") return "";          // tag only — not prose
         const a = (answers[i + 1] ?? "").trim();
         return a ? `${q.q}\n${a}` : "";
       })
       .filter(Boolean)
       .join("\n\n");
-    onSave(statement, description);
+    onSave(statement, description, hobbyFlag);
   }
 
   const canSave = (answers[0] ?? "").trim().length > 0;
@@ -281,16 +246,34 @@ function GoalEditModal({
               <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
                 {i + 1}. {q.q}
               </label>
-              <textarea
-                ref={i === 0 ? firstRef : undefined}
-                rows={2}
-                value={answers[i] ?? ""}
-                onChange={e => setAnswer(i, e.target.value)}
-                placeholder={q.ph}
-                className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm
-                  text-white placeholder-gray-600 outline-none focus:border-indigo-500
-                  transition-colors resize-none"
-              />
+              {q.ph === "Yes / No" ? (
+                <div className="flex gap-2">
+                  {(["Yes", "No"] as const).map(opt => (
+                    <button key={opt} type="button"
+                      onClick={() => setAnswer(i, opt)}
+                      className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                        answers[i] === opt
+                          ? opt === "Yes"
+                            ? "bg-amber-500/20 border-amber-500/60 text-amber-300"
+                            : "bg-gray-700/60 border-gray-600 text-gray-200"
+                          : "bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300"
+                      }`}>
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <textarea
+                  ref={i === 0 ? firstRef : undefined}
+                  rows={2}
+                  value={answers[i] ?? ""}
+                  onChange={e => setAnswer(i, e.target.value)}
+                  placeholder={q.ph}
+                  className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm
+                    text-white placeholder-gray-600 outline-none focus:border-indigo-500
+                    transition-colors resize-none"
+                />
+              )}
             </div>
           ))}
         </div>
@@ -318,13 +301,15 @@ function GoalEditModal({
 // ─── Goals expanded card (full width) ─────────────────────────────────────────
 
 function GoalsExpanded({
-  goals, drives, onClose, onAddGoal, onUpdateGoal, onRemoveGoal,
+  goals, drives, onClose, onAddGoal, onUpdateGoal, onRemoveGoal, onCreateTimeline, onHobbyTag,
 }: {
   goals: GoalEntry[]; drives: DriveType[];
   onClose: () => void;
   onAddGoal: (driveId: DriveType, statement: string, description: string) => string;
   onUpdateGoal: (id: string, goal: GoalEntry) => void;
   onRemoveGoal: (id: string) => void;
+  onCreateTimeline: (goalId: string, title: string) => void;
+  onHobbyTag: (name: string) => void;
 }) {
   const [tab, setTab] = useState<DriveType>(drives[0] ?? "learning");
   // modal state: null = closed, "new" = adding, GoalEntry = editing
@@ -339,12 +324,13 @@ function GoalsExpanded({
           goal={modal === "new" ? undefined : modal}
           driveId={tab}
           onCancel={() => setModal(null)}
-          onSave={(statement, description) => {
+          onSave={(statement, description, hobbyFlag) => {
             if (modal === "new") {
               onAddGoal(tab, statement, description);
             } else {
               onUpdateGoal(modal.id, { ...modal, statement, description, saved: true });
             }
+            if (hobbyFlag && tab === "doing") onHobbyTag(statement);
             setModal(null);
           }}
         />
@@ -419,6 +405,13 @@ function GoalsExpanded({
                     </span>
                     {/* Actions (visible on hover) */}
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <button type="button"
+                        title="Create project timeline"
+                        onClick={() => onCreateTimeline(g.id, g.statement)}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-teal-400
+                          hover:bg-teal-500/10 transition-colors">
+                        <CalendarPlus className="w-3 h-3" />
+                      </button>
                       <button type="button" onClick={() => setModal(g)}
                         className="p-1.5 rounded-lg text-gray-500 hover:text-indigo-400
                           hover:bg-indigo-500/10 transition-colors">
@@ -620,6 +613,15 @@ function EnergyPanel({ health, energy, setHealth }: {
         </div>
         <p className="text-[10px] text-gray-600 mt-2">Tap to cycle · More in Health → Joy & Life</p>
       </div>
+      <div>
+        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-widest mb-2.5">Context factors</p>
+        <div className="space-y-2.5">
+          <EBar label="Environment" value={energy.environment} color="#9ca3af" />
+          <EBar label="Time load"   value={energy.time}        color="#22d3ee" />
+          <EBar label="Funds"       value={energy.funds}       color="#fbbf24" />
+          <EBar label="Network"     value={energy.network}     color="#a78bfa" />
+        </div>
+      </div>
       <button type="button"
         className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
           bg-orange-900/30 border border-orange-500/30 text-orange-300 hover:bg-orange-900/50 transition-colors">
@@ -675,16 +677,17 @@ function DailyWork({ schedule }: { schedule: WeekSchedule }) {
 function ExpandedPanel({
   id, onClose,
   health, goals, generalSkills, skillsLoading,
-  weekSchedule, fundsProfile, environmentProfile, highlightGoalId,
+  weekSchedule, fundsProfile, environmentProfile, highlightGoalId, highlightGeneral,
   energy,
   setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
   onWeekScheduleChange, onFundsChange, onEnvironmentChange,
+  timelineGoal, onTimelineModalClosed,
 }: {
   id: PartnerId; onClose: () => void;
   health: HealthProfile; goals: GoalEntry[];
   generalSkills: SkillEntry[]; skillsLoading: Record<string, boolean>;
   weekSchedule: WeekSchedule; fundsProfile: FundsProfile;
-  environmentProfile: EnvironmentProfile; highlightGoalId: string | null;
+  environmentProfile: EnvironmentProfile; highlightGoalId: string | null; highlightGeneral?: boolean;
   energy: ReturnType<typeof computeEnergy>;
   setHealth: (h: HealthProfile) => void;
   onUpdateGeneralSkills: (s: SkillEntry[]) => void;
@@ -693,6 +696,8 @@ function ExpandedPanel({
   onWeekScheduleChange: (s: WeekSchedule) => void;
   onFundsChange: (f: FundsProfile) => void;
   onEnvironmentChange: (e: EnvironmentProfile) => void;
+  timelineGoal: { id: string; title: string } | null;
+  onTimelineModalClosed: () => void;
 }) {
   const cfg = PARTNER_CFG[id];
   return (
@@ -721,6 +726,7 @@ function ExpandedPanel({
             onUpdateGoalSkills={onUpdateGoalSkills}
             onSuggestSkills={onSuggestSkills}
             highlightGoalId={highlightGoalId}
+            highlightGeneral={highlightGeneral}
             schedule={weekSchedule}
             onScheduleChange={onWeekScheduleChange}
           />
@@ -732,7 +738,21 @@ function ExpandedPanel({
           <EnergyPanel health={health} energy={energy} setHealth={setHealth} />
         )}
         {id === "time"        && (
-          <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
+          <div className="space-y-2.5">
+            <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
+            <CollapsibleSection
+              title="Project Timelines"
+              subtitle="Goal-driven projects with phases & milestones"
+              defaultOpen={false}
+            >
+              <TimelineList
+                goals={goals}
+                createFromGoalId={timelineGoal?.id}
+                createFromGoalTitle={timelineGoal?.title}
+                onCreateModalClosed={onTimelineModalClosed}
+              />
+            </CollapsibleSection>
+          </div>
         )}
       </div>
     </div>
@@ -751,6 +771,7 @@ export interface SelfCanvasProps {
   fundsProfile: FundsProfile;
   environmentProfile: EnvironmentProfile;
   highlightGoalId: string | null;
+  highlightGeneral?: boolean;
   setHealth: (h: HealthProfile) => void;
   onUpdateGeneralSkills: (skills: SkillEntry[]) => void;
   onUpdateGoalSkills: (goalId: string, skills: SkillEntry[]) => void;
@@ -762,13 +783,14 @@ export interface SelfCanvasProps {
   onUpdateGoal: (id: string, goal: GoalEntry) => void;
   onRemoveGoal: (id: string) => void;
   onGoalAdded?: (goalId: string) => void;
+  onNewAIGoal?: () => void;
 }
 
 export function SelfCanvas(props: SelfCanvasProps) {
   const {
     health, goals, drives, generalSkills, skillsLoading,
-    weekSchedule, fundsProfile, environmentProfile, highlightGoalId,
-    setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
+    weekSchedule, fundsProfile, environmentProfile, highlightGoalId, highlightGeneral,
+    setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills, onNewAIGoal,
     onWeekScheduleChange, onFundsChange, onEnvironmentChange,
     onAddGoal, onUpdateGoal, onRemoveGoal, onGoalAdded,
   } = props;
@@ -776,6 +798,8 @@ export function SelfCanvas(props: SelfCanvasProps) {
   // Time is default — always a panel open
   const [activePartner, setActivePartner] = useState<PartnerId>("time");
   const [goalsExpanded, setGoalsExpanded] = useState(false);
+  // Timeline creation triggered from a goal card
+  const [timelineGoal, setTimelineGoal] = useState<{ id: string; title: string } | null>(null);
 
   // Switch to Skills whenever a new goal is added (count increase)
   const prevGoalCountRef = useRef(goals.length);
@@ -796,7 +820,15 @@ export function SelfCanvas(props: SelfCanvasProps) {
     }
   }, [highlightGoalId]);
 
-  const energy = computeEnergy(health);
+  // Switch to Skills and highlight General when user skips onboarding
+  useEffect(() => {
+    if (highlightGeneral) {
+      setGoalsExpanded(false);
+      setActivePartner("skills");
+    }
+  }, [highlightGeneral]);
+
+  const energy = computeEnergy(health, environmentProfile, weekSchedule, fundsProfile);
 
   function partnerStatus(id: PartnerId): { text: string; type: "good" | "neutral" | "warning" } {
     switch (id) {
@@ -861,12 +893,33 @@ export function SelfCanvas(props: SelfCanvasProps) {
           onAddGoal={handleGoalAdded}
           onUpdateGoal={onUpdateGoal}
           onRemoveGoal={onRemoveGoal}
+          onCreateTimeline={(id, title) => {
+            setGoalsExpanded(false);
+            setTimelineGoal({ id, title });
+          }}
+          onHobbyTag={(name) => {
+            const existing = health.joy?.hobbies?.types ?? [];
+            if (existing.includes(name)) return;
+            // Only preserve frequency if the user already had tracked hobbies;
+            // otherwise a stale "rarely" from prior pill-cycling would give a score of 3.
+            const freq = existing.length > 0
+              ? (health.joy?.hobbies?.frequency ?? "weekly")
+              : "weekly";
+            setHealth({
+              ...health,
+              joy: {
+                ...(health.joy ?? { sports: { types: [], frequency: "weekly" as const }, social: { types: [], frequency: "weekly" as const }, rest: { types: [], frequency: "weekly" as const } }),
+                hobbies: { types: [...existing, name], frequency: freq },
+              },
+            });
+          }}
         />
       ) : (
         <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1.7fr 1fr", minHeight: "140px" }}>
           <TopBlock
             id="health"
-            {...partnerStatus("health")}
+            status={partnerStatus("health").text}
+            statusType={partnerStatus("health").type}
             active={activePartner === "health"}
             onClick={() => setActivePartner("health")}
           />
@@ -874,10 +927,12 @@ export function SelfCanvas(props: SelfCanvasProps) {
             goals={goals}
             drives={drives}
             onExpand={() => setGoalsExpanded(true)}
+            onNewAIGoal={onNewAIGoal}
           />
           <TopBlock
             id="skills"
-            {...partnerStatus("skills")}
+            status={partnerStatus("skills").text}
+            statusType={partnerStatus("skills").type}
             active={activePartner === "skills"}
             onClick={() => setActivePartner("skills")}
           />
@@ -891,13 +946,26 @@ export function SelfCanvas(props: SelfCanvasProps) {
       }`}>
         {(goalsExpanded ? ALL_PARTNERS : MIDDLE_PARTNERS).map(id => {
           const { text, type } = partnerStatus(id);
+          // Mobile (grid-cols-3) explicit placement:
+          //   Row 1: Energy | (gap) | Environ.
+          //   Row 2: Funds  | Time  | Network
+          // Laptop (sm:grid-cols-5) uses normal auto-flow (sm:col-auto sm:row-auto).
+          const MOBILE_PLACEMENT: Partial<Record<PartnerId, string>> = {
+            environment: "col-start-3 row-start-1 sm:col-auto sm:row-auto",
+            funds:       "col-start-1 row-start-2 sm:col-auto sm:row-auto",
+            time:        "col-start-2 row-start-2 sm:col-auto sm:row-auto",
+            network:     "col-start-3 row-start-2 sm:col-auto sm:row-auto",
+          };
+          const cls = !goalsExpanded ? MOBILE_PLACEMENT[id] : undefined;
           return (
-            <PartnerCard
-              key={id} id={id}
-              status={text} statusType={type}
-              active={activePartner === id}
-              onClick={() => setActivePartner(id)}
-            />
+            <div key={id} className={cls}>
+              <PartnerCard
+                id={id}
+                status={text} statusType={type}
+                active={activePartner === id}
+                onClick={() => setActivePartner(id)}
+              />
+            </div>
           );
         })}
       </div>
@@ -910,7 +978,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
         health={health} goals={goals}
         generalSkills={generalSkills} skillsLoading={skillsLoading}
         weekSchedule={weekSchedule} fundsProfile={fundsProfile}
-        environmentProfile={environmentProfile} highlightGoalId={highlightGoalId}
+        environmentProfile={environmentProfile} highlightGoalId={highlightGoalId} highlightGeneral={highlightGeneral}
         energy={energy}
         setHealth={setHealth}
         onUpdateGeneralSkills={onUpdateGeneralSkills}
@@ -919,10 +987,9 @@ export function SelfCanvas(props: SelfCanvasProps) {
         onWeekScheduleChange={onWeekScheduleChange}
         onFundsChange={onFundsChange}
         onEnvironmentChange={onEnvironmentChange}
+        timelineGoal={timelineGoal}
+        onTimelineModalClosed={() => setTimelineGoal(null)}
       />
-
-      {/* ── Daily work (always visible, connected to Time) ── */}
-      <DailyWork schedule={weekSchedule} />
 
     </div>
   );

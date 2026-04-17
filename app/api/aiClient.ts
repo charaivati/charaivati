@@ -1,4 +1,51 @@
 // app/api/aiClient.ts
+// chatComplete: per-model, messages-array call for goal-creation AI routes.
+// Uses OpenRouter. Swap model via env vars — no code change needed.
+type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+
+export async function chatComplete({
+  model,
+  messages,
+  maxTokens = 300,
+  temperature = 0.4,
+  jsonMode = false,
+}: {
+  model: string;
+  messages: ChatMessage[];
+  maxTokens?: number;
+  temperature?: number;
+  jsonMode?: boolean;
+}): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('OPENROUTER_API_KEY is not set');
+
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    max_tokens: maxTokens,
+    temperature,
+    ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+  };
+
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.OPENROUTER_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? '',
+      'X-Title': process.env.OPENROUTER_APP_NAME ?? 'Charaivati',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OpenRouter ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? '';
+}
 
 type AIProvider = "ollama" | "openrouter" | "gemini";
 
