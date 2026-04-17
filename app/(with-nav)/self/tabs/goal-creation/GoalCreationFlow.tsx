@@ -6,9 +6,10 @@ import { useGoalFlow } from './hooks/useGoalFlow';
 import { ArchetypeSelector } from './ArchetypeSelector';
 import { QuestionCard } from './QuestionCard';
 import { GoalSummaryCard } from './GoalSummaryCard';
-import type { GoalSummary, GoalMode } from './flow-config/types';
+import type { GoalSummary, GoalMode, GoalArchetype } from './flow-config/types';
 
 type Props = {
+  initialArchetype?: GoalArchetype;  // pre-select archetype, skip that screen
   onSaved?: (summary: GoalSummary) => void;
   onCancel?: () => void;
 };
@@ -18,8 +19,8 @@ const MODE_LABELS: Record<GoalMode, { label: string; desc: string }> = {
   ZOOMED_OUT: { label: 'Zoomed out', desc: '6–7 questions · long-term vision' },
 };
 
-export function GoalCreationFlow({ onSaved, onCancel }: Props) {
-  const flow = useGoalFlow();
+export function GoalCreationFlow({ initialArchetype, onSaved, onCancel }: Props) {
+  const flow = useGoalFlow(initialArchetype);
   const { state, currentQuestion, total } = flow;
 
   return (
@@ -37,7 +38,7 @@ export function GoalCreationFlow({ onSaved, onCancel }: Props) {
       )}
 
       {/* ── Phase: archetype ── */}
-      {state.phase === 'archetype' && (
+      {state.phase === 'archetype' && !initialArchetype && (
         <ArchetypeSelector onSelect={flow.selectArchetype} />
       )}
 

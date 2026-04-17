@@ -4,7 +4,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { OnboardingBanner, DrivePickerStateB } from "@/blocks/DriveBlock";
 import { SelfCanvas } from "@/components/self/SelfCanvas";
-import { GoalCreationFlow } from "@/app/(with-nav)/self/tabs/goal-creation/GoalCreationFlow";
 import { useSelfState, defaultGoal } from "@/hooks/useSelfState";
 import { useSelfSkills } from "@/lib/SelfSkillsContext";
 import type { DriveType, GoalEntry } from "@/types/self";
@@ -22,9 +21,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
   const [skipped, setSkipped] = useState(false);
   const [showContent, setShowContent] = useState(s.drives.length > 0);
   const [highlightGeneral, setHighlightGeneral] = useState(false);
-
-  // ── AI goal creation flow ─────────────────────────────────────────────────────
-  const [aiGoalOpen, setAiGoalOpen] = useState(false);
 
   // ── Onboarding open ───────────────────────────────────────────────────────────
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -174,18 +170,8 @@ export default function SelfTab({ profile }: { profile?: any }) {
         )}
       </div>
 
-      {/* ── AI goal creation flow ── */}
-      {aiGoalOpen && (
-        <div style={{ animation: "fadeSlideUp 300ms ease both" }}>
-          <GoalCreationFlow
-            onSaved={() => setAiGoalOpen(false)}
-            onCancel={() => setAiGoalOpen(false)}
-          />
-        </div>
-      )}
-
       {/* ── Content — revealed after drive is picked ── */}
-      {showContent && !onboardingOpen && !aiGoalOpen && (
+      {showContent && !onboardingOpen && (
         <div style={{ animation: "fadeSlideUp 600ms ease both" }}>
           <div className="space-y-5">
 
@@ -214,7 +200,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
                   onUpdateGoal={s.updateGoal}
                   onRemoveGoal={s.removeGoal}
                   onGoalAdded={handleGoalAdded}
-                  onNewAIGoal={() => setAiGoalOpen(true)}
                 />
               </div>
             )}

@@ -7,6 +7,8 @@ import { Sparkles, X, Pencil, Trash2, CalendarPlus } from "lucide-react";
 import { computeEnergy } from "@/blocks/EnergyBlock";
 import { OB_QS_FOCUSED, OB_QS_ZOOMED, DRIVE_TO_CAT } from "@/blocks/DriveBlock";
 import type { OBMode } from "@/blocks/DriveBlock";
+import { GoalCreationFlow } from "@/app/(with-nav)/self/tabs/goal-creation/GoalCreationFlow";
+import type { GoalArchetype } from "@/app/(with-nav)/self/tabs/goal-creation/flow-config/types";
 import { SkillsSection } from "@/blocks/SkillBlock";
 import { HealthSection } from "@/blocks/HealthBlock";
 import { FundsSection } from "@/blocks/FundsBlock";
@@ -39,6 +41,13 @@ const DRIVE_LABEL: Record<DriveType, string> = {
   helping:  "Help",
   building: "Build",
   doing:    "Do",
+};
+
+const DRIVE_TO_ARCHETYPE: Record<DriveType, GoalArchetype> = {
+  learning: "LEARN",
+  building: "BUILD",
+  doing:    "EXECUTE",
+  helping:  "CONNECT",
 };
 
 // ─── Partner config ───────────────────────────────────────────────────────────
@@ -90,45 +99,32 @@ function goalPct(g: GoalEntry): number {
 // ─── Goals compact card (clickable, two drive tabs) ───────────────────────────
 
 function GoalsCompact({
-  goals, drives, onExpand, onNewAIGoal,
+  goals, onExpand,
 }: {
-  goals: GoalEntry[]; drives: DriveType[]; onExpand: () => void; onNewAIGoal?: () => void;
+  goals: GoalEntry[]; onExpand: () => void;
 }) {
   const activeCount = goals.filter(g => g.statement.trim()).length;
 
   return (
-    <div
+    <button type="button" onClick={onExpand}
       className="rounded-xl border flex flex-col items-center justify-center h-full w-full text-center
-        transition-all duration-150 hover:border-indigo-500/40 hover:shadow-indigo-500/10 select-none"
+        transition-all duration-150 hover:border-indigo-500/40 hover:shadow-indigo-500/10 select-none
+        cursor-pointer pt-4 pb-4 px-3"
       style={{
         background: "rgba(17,24,39,0.85)",
         borderColor: "rgba(255,255,255,0.14)",
         boxShadow: "0 0 24px rgba(99,102,241,0.10), inset 0 1px 0 rgba(255,255,255,0.07)",
         minHeight: "140px",
       }}>
-
-      {/* Clickable core area */}
-      <button type="button" role="button" tabIndex={0} onClick={onExpand}
-        className="flex flex-col items-center justify-center flex-1 w-full cursor-pointer pt-4 px-3">
-        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm mb-2"
-          style={{ background: "#1e1b4b", color: "#a5b4fc" }}>
-          🎯
-        </div>
-        <span className="text-sm font-semibold text-white">Goals</span>
-        <span className="text-xs text-gray-400 mt-1">
-          {activeCount === 0 ? "No goals yet" : `${activeCount} active goal${activeCount !== 1 ? "s" : ""}`}
-        </span>
-      </button>
-
-      {/* AI goal button — secondary, non-blocking */}
-      {onNewAIGoal && (
-        <button type="button" onClick={onNewAIGoal}
-          className="mb-3 mt-1 flex items-center gap-1 text-[10px] text-indigo-400/70 hover:text-indigo-300 transition-colors px-2 py-1 rounded-md hover:bg-indigo-500/10">
-          <span>✦</span>
-          <span>Add with AI</span>
-        </button>
-      )}
-    </div>
+      <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm mb-2"
+        style={{ background: "#1e1b4b", color: "#a5b4fc" }}>
+        🎯
+      </div>
+      <span className="text-sm font-semibold text-white">Goals</span>
+      <span className="text-xs text-gray-400 mt-1">
+        {activeCount === 0 ? "No goals yet" : `${activeCount} active goal${activeCount !== 1 ? "s" : ""}`}
+      </span>
+    </button>
   );
 }
 
@@ -312,24 +308,41 @@ function GoalsExpanded({
   onHobbyTag: (name: string) => void;
 }) {
   const [tab, setTab] = useState<DriveType>(drives[0] ?? "learning");
-  // modal state: null = closed, "new" = adding, GoalEntry = editing
-  const [modal, setModal] = useState<"new" | GoalEntry | null>(null);
+  // modal: null = closed, true = adding new (AI flow), GoalEntry = editing (flat form)
+  const [modal, setModal] = useState<true | GoalEntry | null>(null);
   const tabGoals = goals.filter(g => g.driveId === tab && g.statement.trim());
 
   return (
     <>
-      {/* Goal edit modal (portal-style fixed overlay) */}
-      {modal !== null && (
+      {/* New goal — AI-assisted GoalCreationFlow as portal overlay */}
+      {modal === true && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onKeyDown={e => { if (e.key === "Escape") setModal(null); }}>
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <GoalCreationFlow
+              initialArchetype={DRIVE_TO_ARCHETYPE[tab]}
+              onSaved={(summary) => {
+                const stmt = summary.title;
+                const desc = [summary.whyNow, summary.commitment, summary.successSignal]
+                  .filter(Boolean).join(" · ");
+                onAddGoal(tab, stmt, desc);
+                setModal(null);
+              }}
+              onCancel={() => setModal(null)}
+            />
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Edit existing goal — flat form */}
+      {modal !== null && modal !== true && (
         <GoalEditModal
-          goal={modal === "new" ? undefined : modal}
+          goal={modal}
           driveId={tab}
           onCancel={() => setModal(null)}
           onSave={(statement, description, hobbyFlag) => {
-            if (modal === "new") {
-              onAddGoal(tab, statement, description);
-            } else {
-              onUpdateGoal(modal.id, { ...modal, statement, description, saved: true });
-            }
+            onUpdateGoal(modal.id, { ...modal, statement, description, saved: true });
             if (hobbyFlag && tab === "doing") onHobbyTag(statement);
             setModal(null);
           }}
@@ -431,10 +444,11 @@ function GoalsExpanded({
 
           {/* Actions */}
           <div className="flex gap-2 pt-1">
-            <button type="button" onClick={() => setModal("new")}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-700
-                text-xs text-gray-400 hover:border-gray-500 hover:text-gray-300 transition-colors">
-              + Add goal
+            <button type="button" onClick={() => setModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-500/40
+                bg-indigo-500/8 text-xs text-indigo-300 hover:border-indigo-500/70 hover:text-indigo-200
+                transition-colors">
+              ✦ Add goal
             </button>
           </div>
         </div>
@@ -783,14 +797,13 @@ export interface SelfCanvasProps {
   onUpdateGoal: (id: string, goal: GoalEntry) => void;
   onRemoveGoal: (id: string) => void;
   onGoalAdded?: (goalId: string) => void;
-  onNewAIGoal?: () => void;
 }
 
 export function SelfCanvas(props: SelfCanvasProps) {
   const {
     health, goals, drives, generalSkills, skillsLoading,
     weekSchedule, fundsProfile, environmentProfile, highlightGoalId, highlightGeneral,
-    setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills, onNewAIGoal,
+    setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
     onWeekScheduleChange, onFundsChange, onEnvironmentChange,
     onAddGoal, onUpdateGoal, onRemoveGoal, onGoalAdded,
   } = props;
@@ -925,9 +938,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
           />
           <GoalsCompact
             goals={goals}
-            drives={drives}
             onExpand={() => setGoalsExpanded(true)}
-            onNewAIGoal={onNewAIGoal}
           />
           <TopBlock
             id="skills"

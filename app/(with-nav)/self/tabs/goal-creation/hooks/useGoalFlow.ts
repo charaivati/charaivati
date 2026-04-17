@@ -1,6 +1,6 @@
 // goal-creation/hooks/useGoalFlow.ts
 'use client';
-import { useCallback, useReducer } from 'react';
+import { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { FlowState, GoalArchetype, GoalMode, GoalSummary, RiskFlag } from '../flow-config/types';
 import { getNextQuestion, totalQuestions, detectMismatch } from '../flow-config/branchingRules';
 import { useAIAssist } from './useAIAssist';
@@ -64,8 +64,18 @@ export type GoalFlowReturn = {
   summaryLoading: boolean;
 };
 
-export function useGoalFlow(): GoalFlowReturn {
+export function useGoalFlow(initialArchetype?: GoalArchetype): GoalFlowReturn {
   const [state, dispatch] = useReducer(reducer, initial);
+
+  // Auto-select archetype when pre-supplied (e.g. launched from Goals box)
+  const didInit = useRef(false);
+  useEffect(() => {
+    if (initialArchetype && !didInit.current) {
+      didInit.current = true;
+      dispatch({ type: 'SET_ARCHETYPE', archetype: initialArchetype });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { processAnswer, generateSummary } = useAIAssist();
 
   // Separate state for summary (not in reducer — it's async and transient)
