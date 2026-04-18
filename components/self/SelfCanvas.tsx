@@ -14,6 +14,7 @@ import { HealthSection } from "@/blocks/HealthBlock";
 import { FundsSection } from "@/blocks/FundsBlock";
 import { TimeSection } from "@/blocks/TimeBlock";
 import { EnvironmentSection } from "@/blocks/EnvironmentBlock";
+import { GoalExecuteSection } from "@/app/(with-nav)/self/tabs/time/components/GoalExecuteSection";
 import CirclesPanel from "@/components/CirclesPanel";
 import { CollapsibleSection } from "@/components/self/shared";
 import { TimelineList } from "@/components/timeline/TimelineList";
@@ -752,20 +753,23 @@ function ExpandedPanel({
           <EnergyPanel health={health} energy={energy} setHealth={setHealth} />
         )}
         {id === "time"        && (
-          <div className="space-y-2.5">
-            <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
-            <CollapsibleSection
-              title="Project Timelines"
-              subtitle="Goal-driven projects with phases & milestones"
-              defaultOpen={false}
-            >
-              <TimelineList
-                goals={goals}
-                createFromGoalId={timelineGoal?.id}
-                createFromGoalTitle={timelineGoal?.title}
-                onCreateModalClosed={onTimelineModalClosed}
-              />
-            </CollapsibleSection>
+          <div>
+            <GoalExecuteSection />
+            <div className="space-y-2.5 p-5 pt-3">
+              <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
+              <CollapsibleSection
+                title="Project Timelines"
+                subtitle="Goal-driven projects with phases & milestones"
+                defaultOpen={false}
+              >
+                <TimelineList
+                  goals={goals}
+                  createFromGoalId={timelineGoal?.id}
+                  createFromGoalTitle={timelineGoal?.title}
+                  onCreateModalClosed={onTimelineModalClosed}
+                />
+              </CollapsibleSection>
+            </div>
           </div>
         )}
       </div>
@@ -814,22 +818,21 @@ export function SelfCanvas(props: SelfCanvasProps) {
   // Timeline creation triggered from a goal card
   const [timelineGoal, setTimelineGoal] = useState<{ id: string; title: string } | null>(null);
 
-  // Switch to Skills whenever a new goal is added (count increase)
+  // Switch to Time whenever a new goal is added
   const prevGoalCountRef = useRef(goals.length);
   useEffect(() => {
     if (goals.length > prevGoalCountRef.current) {
       setGoalsExpanded(false);
-      setActivePartner("skills");
+      setActivePartner("time");
     }
     prevGoalCountRef.current = goals.length;
   }, [goals.length]);
 
-  // Also switch to Skills when highlightGoalId is set from outside
-  // (covers first-goal case where canvas mounts after goals already exist)
+  // After a goal is added, keep the Time panel open (shows execute blocks)
   useEffect(() => {
     if (highlightGoalId) {
       setGoalsExpanded(false);
-      setActivePartner("skills");
+      setActivePartner("time");
     }
   }, [highlightGoalId]);
 

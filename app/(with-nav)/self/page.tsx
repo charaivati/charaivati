@@ -9,7 +9,8 @@ import { useLayerContext } from "@/components/LayerContext";
 import { SelfSkillsProvider } from "@/lib/SelfSkillsContext";
 
 type ProfileProp = { profile?: any };
-type ActiveKind = "personal" | "social" | "learn" | "earn";
+type TimeProp    = { goalId?: string; view?: string; focusId?: string };
+type ActiveKind  = "personal" | "social" | "learn" | "earn" | "time";
 
 const SelfTab = dynamic(
   () => import("./tabs/SelfTab").then((m) => m.default),
@@ -31,11 +32,17 @@ const EarningTab = dynamic(
   { ssr: false }
 ) as React.ComponentType<Record<string, never>>;
 
+const TimeTab = dynamic(
+  () => import("./tabs/TimeTab").then((m) => m.default),
+  { ssr: false }
+) as React.ComponentType<TimeProp>;
+
 function tabIdToKind(tabId: string): ActiveKind {
   const s = tabId.toLowerCase();
   if (s.includes("earn"))   return "earn";
   if (s.includes("learn"))  return "learn";
   if (s.includes("social")) return "social";
+  if (s.includes("time"))   return "time";
   return "personal";
 }
 
@@ -44,6 +51,7 @@ function normalizeTabValue(raw: string): ActiveKind {
   if (s.includes("social")) return "social";
   if (s.includes("learn"))  return "learn";
   if (s.includes("earn"))   return "earn";
+  if (s.includes("time"))   return "time";
   return "personal";
 }
 
@@ -52,6 +60,9 @@ function SelfPageContent() {
   const router       = useRouter();
   const ctx          = useLayerContext();
   const tabParamRaw  = searchParams?.get("tab") ?? "";
+  const goalId       = searchParams?.get("goalId") ?? undefined;
+  const view         = searchParams?.get("view")   ?? undefined;
+  const focusId      = searchParams?.get("focus")  ?? undefined;
 
   // If URL has ?tab= use it; otherwise fall back to what LayerContext persisted
   const active = useMemo<ActiveKind>(() => {
@@ -79,6 +90,7 @@ function SelfPageContent() {
         {active === "social" && <SocialTab profile={profile} />}
         {active === "learn"  && <LearningTab />}
         {active === "earn"   && <EarningTab />}
+        {active === "time"   && <TimeTab goalId={goalId} view={view} focusId={focusId} />}
       </div>
     </SelfSkillsProvider>
   );

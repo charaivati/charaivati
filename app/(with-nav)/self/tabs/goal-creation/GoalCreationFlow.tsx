@@ -2,6 +2,8 @@
 // goal-creation/GoalCreationFlow.tsx — top-level orchestrator
 // Usage: <GoalCreationFlow onSaved={(summary) => ...} onCancel={() => ...} />
 
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useGoalFlow } from './hooks/useGoalFlow';
 import { ArchetypeSelector } from './ArchetypeSelector';
 import { QuestionCard } from './QuestionCard';
@@ -19,7 +21,11 @@ const MODE_LABELS: Record<GoalMode, { label: string; desc: string }> = {
   ZOOMED_OUT: { label: 'Zoomed out', desc: '6–7 questions · long-term vision' },
 };
 
+const PLAN_TIMEOUT_MS = 8_000;
+
 export function GoalCreationFlow({ initialArchetype, onSaved, onCancel }: Props) {
+  const router = useRouter();
+  const [planState, setPlanState] = useState<'idle' | 'planning' | 'timeout'>('idle');
   const flow = useGoalFlow(initialArchetype);
   const { state, currentQuestion, total } = flow;
 
@@ -108,36 +114,90 @@ export function GoalCreationFlow({ initialArchetype, onSaved, onCancel }: Props)
         </div>
       )}
 
+      {/* ── Phase: planning (building execution plan) ── */}
+      {planState !== 'idle' && (
+        <div className="space-y-3 py-4">
+          <div className="w-6 h-6 rounded-full border-2 border-indigo-500/40 border-t-indigo-500 animate-spin mx-auto" />
+          {planState === 'timeout' ? (
+            <p className="text-sm text-gray-500 text-center">
+              Plan still generating — taking you to your Time section now…
+            </p>
+          ) : (
+            <p className="text-sm text-gray-500 text-center">Building your plan…</p>
+          )}
+        </div>
+      )}
+
       {/* ── Phase: summary (ready) ── */}
-      {state.phase === 'summary' && !flow.summaryLoading && flow.summary && (
+      {state.phase === 'summary' && !flow.summaryLoading && flow.summary && planState === 'idle' && (
         <GoalSummaryCard
           summary={flow.summary}
           onSave={async (final) => {
             flow.setSummary(final);
-            // Build answer array enriched with reflections
             const answerArr = Object.entries(state.answers).map(([key, value]) => ({
               questionKey:  key,
-              questionText: '', // stored server-side via questionKey lookup
+              questionText: '',
               answer:       value,
               reflection:   state.reflections[key] ?? null,
             }));
-            await fetch('/api/self/goals', {
+
+            let goalId: string | null = null;
+            try {
+              const res = await fetch('/api/self/goals', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  archetype:     state.archetype,
+                  mode:          state.mode,
+                  title:         final.title,
+                  whyNow:        final.whyNow,
+                  commitment:    final.commitment,
+                  successSignal: final.successSignal,
+                  riskFlags:     final.riskFlags,
+                  answers:       answerArr,
+                }),
+              });
+              const data = await res.json();
+              goalId = data.goal?.id ?? null;
+            } catch (e) {
+              console.error('[GoalCreationFlow] save failed', e);
+            }
+
+            if (!goalId) {
+              // Save failed — fall back to parent handler
+              onSaved?.(final);
+              return;
+            }
+
+            // Show "Building your plan…" BEFORE closing the modal so the user
+            // sees feedback while the AI call is in flight.
+            setPlanState('planning');
+
+            const timeoutId = setTimeout(() => setPlanState('timeout'), PLAN_TIMEOUT_MS);
+
+            void fetch('/api/goal-ai/execution-plan', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
+                goalId,
                 archetype:     state.archetype,
                 mode:          state.mode,
                 title:         final.title,
                 whyNow:        final.whyNow,
                 commitment:    final.commitment,
                 successSignal: final.successSignal,
-                riskFlags:     final.riskFlags,
                 answers:       answerArr,
               }),
-            });
-            // Advance phase then notify parent
-            flow.state.phase; // keep ref alive
-            onSaved?.(final);
+            })
+              .catch(e => console.error('[GoalCreationFlow] plan generation failed', e))
+              .finally(() => {
+                clearTimeout(timeoutId);
+                // Close modal + update legacy goals list, then navigate.
+                // onSaved fires here so the Skills-redirect in SelfCanvas happens
+                // after router.push has already committed to the time tab.
+                onSaved?.(final);
+                router.push(`/self?tab=time&goalId=${goalId}`);
+              });
           }}
           onReset={flow.reset}
         />
