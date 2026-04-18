@@ -21,7 +21,7 @@ const MODE_LABELS: Record<GoalMode, { label: string; desc: string }> = {
   ZOOMED_OUT: { label: 'Zoomed out', desc: '6–7 questions · long-term vision' },
 };
 
-const PLAN_TIMEOUT_MS = 8_000;
+const SKELETON_TIMEOUT_MS = 7_000;
 
 export function GoalCreationFlow({ initialArchetype, onSaved, onCancel }: Props) {
   const router = useRouter();
@@ -169,34 +169,42 @@ export function GoalCreationFlow({ initialArchetype, onSaved, onCancel }: Props)
               return;
             }
 
-            // Show "Building your plan…" BEFORE closing the modal so the user
-            // sees feedback while the AI call is in flight.
+            // Step 1: generate skeleton (fast ~3s). Navigate as soon as it resolves
+            // or times out. Step 2 (tasks) fires in the background afterward.
             setPlanState('planning');
 
-            const timeoutId = setTimeout(() => setPlanState('timeout'), PLAN_TIMEOUT_MS);
+            const timeoutId = setTimeout(() => setPlanState('timeout'), SKELETON_TIMEOUT_MS);
 
-            void fetch('/api/goal-ai/execution-plan', {
+            const planPayload = {
+              goalId,
+              archetype:     state.archetype,
+              mode:          state.mode,
+              title:         final.title,
+              whyNow:        final.whyNow,
+              commitment:    final.commitment,
+              successSignal: final.successSignal,
+              answers:       answerArr,
+            };
+
+            fetch('/api/goal-ai/execution-plan', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                goalId,
-                archetype:     state.archetype,
-                mode:          state.mode,
-                title:         final.title,
-                whyNow:        final.whyNow,
-                commitment:    final.commitment,
-                successSignal: final.successSignal,
-                answers:       answerArr,
-              }),
+              body: JSON.stringify({ ...planPayload, step: 'skeleton' }),
             })
-              .catch(e => console.error('[GoalCreationFlow] plan generation failed', e))
+              .catch(e => console.error('[GoalCreationFlow] skeleton generation failed', e))
               .finally(() => {
                 clearTimeout(timeoutId);
-                // Close modal + update legacy goals list, then navigate.
-                // onSaved fires here so the Skills-redirect in SelfCanvas happens
-                // after router.push has already committed to the time tab.
                 onSaved?.(final);
-                router.push(`/self?tab=time&goalId=${goalId}`);
+                try { localStorage.setItem('charaivati.scrollToGoal', goalId); } catch {}
+                try { window.dispatchEvent(new CustomEvent('charaivati:goalCreated', { detail: { goalId } })); } catch {}
+                router.push('/self');
+                // Step 2: fill in tasks — fire and forget; GoalExecuteSection
+                // polls for _partial plans and updates when tasks arrive.
+                void fetch('/api/goal-ai/execution-plan', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ goalId, step: 'tasks' }),
+                }).catch(e => console.error('[GoalCreationFlow] tasks generation failed', e));
               });
           }}
           onReset={flow.reset}

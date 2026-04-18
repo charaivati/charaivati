@@ -3,12 +3,11 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Sparkles, X, Pencil, Trash2, CalendarPlus } from "lucide-react";
+import { Sparkles, X, Trash2 } from "lucide-react";
 import { computeEnergy } from "@/blocks/EnergyBlock";
-import { OB_QS_FOCUSED, OB_QS_ZOOMED, DRIVE_TO_CAT } from "@/blocks/DriveBlock";
-import type { OBMode } from "@/blocks/DriveBlock";
 import { GoalCreationFlow } from "@/app/(with-nav)/self/tabs/goal-creation/GoalCreationFlow";
 import type { GoalArchetype } from "@/app/(with-nav)/self/tabs/goal-creation/flow-config/types";
+import { ARCHETYPE_ICON } from "@/app/(with-nav)/self/tabs/time/components/GoalExecuteSection";
 import { SkillsSection } from "@/blocks/SkillBlock";
 import { HealthSection } from "@/blocks/HealthBlock";
 import { FundsSection } from "@/blocks/FundsBlock";
@@ -28,28 +27,16 @@ import type {
 
 type PartnerId = "health" | "skills" | "energy" | "environment" | "time" | "funds" | "network";
 
-// ─── Drive colors / labels ────────────────────────────────────────────────────
+type AiGoalItem = { id: string; title: string; archetype: GoalArchetype; status: string; updatedAt: string };
 
-const DRIVE_DOT: Record<DriveType, string> = {
-  learning: "#38bdf8",
-  helping:  "#fb7185",
-  building: "#818cf8",
-  doing:    "#fbbf24",
-};
+// ─── Archetype tabs ───────────────────────────────────────────────────────────
 
-const DRIVE_LABEL: Record<DriveType, string> = {
-  learning: "Learn",
-  helping:  "Help",
-  building: "Build",
-  doing:    "Do",
-};
-
-const DRIVE_TO_ARCHETYPE: Record<DriveType, GoalArchetype> = {
-  learning: "LEARN",
-  building: "BUILD",
-  doing:    "EXECUTE",
-  helping:  "CONNECT",
-};
+const ARCHETYPE_TABS: { id: GoalArchetype; label: string }[] = [
+  { id: "LEARN",   label: "Learn"   },
+  { id: "BUILD",   label: "Build"   },
+  { id: "EXECUTE", label: "Execute" },
+  { id: "CONNECT", label: "Connect" },
+];
 
 // ─── Partner config ───────────────────────────────────────────────────────────
 
@@ -81,30 +68,32 @@ const TODAY_KEY = DAY_KEYS[TODAY_IDX];
 // ─── Joy section score ────────────────────────────────────────────────────────
 
 function joySectionScore(sec: { types: string[]; frequency: FrequencyType } | undefined): number {
-  if (!sec || sec.types.length === 0) return 5; // not configured → neutral
+  if (!sec || sec.types.length === 0) return 5;
   const m: Record<FrequencyType, number> = { daily: 9, few_per_week: 7, weekly: 5, rarely: 3 };
   return m[sec.frequency] ?? 5;
 }
 
-// ─── Goal progress helper ─────────────────────────────────────────────────────
+// ─── Goals compact card ───────────────────────────────────────────────────────
 
-function goalPct(g: GoalEntry): number {
-  let p = 0;
-  if (g.saved) p += 25;
-  const sk = g.skills.filter(s => s.name.trim()).length;
-  if (sk > 0) p += Math.min(35, sk * 12);
-  if (g.plan && !g.plan.fallback) p += 40;
-  return Math.min(100, Math.round(p));
-}
+function GoalsCompact({ onExpand }: { onExpand: () => void }) {
+  const [count, setCount] = useState<number | null>(null);
 
-// ─── Goals compact card (clickable, two drive tabs) ───────────────────────────
+  useEffect(() => {
+    function fetchCount() {
+      fetch("/api/self/goals", { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) setCount((data.goals ?? []).filter((g: any) => g.status === "ACTIVE").length);
+        })
+        .catch(() => {});
+    }
+    fetchCount();
+    const handler = () => fetchCount();
+    window.addEventListener("charaivati:goalCreated", handler);
+    return () => window.removeEventListener("charaivati:goalCreated", handler);
+  }, []);
 
-function GoalsCompact({
-  goals, onExpand,
-}: {
-  goals: GoalEntry[]; onExpand: () => void;
-}) {
-  const activeCount = goals.filter(g => g.statement.trim()).length;
+  const label = count === null ? "…" : count === 0 ? "No goals yet" : `${count} active goal${count !== 1 ? "s" : ""}`;
 
   return (
     <button type="button" onClick={onExpand}
@@ -122,232 +111,73 @@ function GoalsCompact({
         🎯
       </div>
       <span className="text-sm font-semibold text-white">Goals</span>
-      <span className="text-xs text-gray-400 mt-1">
-        {activeCount === 0 ? "No goals yet" : `${activeCount} active goal${activeCount !== 1 ? "s" : ""}`}
-      </span>
+      <span className="text-xs text-gray-400 mt-1">{label}</span>
     </button>
   );
 }
 
-// ─── Goal edit modal ─────────────────────────────────────────────────────────
+// ─── Goals expanded card (AI goals only) ─────────────────────────────────────
 
-function GoalEditModal({
-  goal, driveId, onSave, onCancel,
-}: {
-  goal?: GoalEntry;
-  driveId: DriveType;
-  onSave: (statement: string, description: string, hobbyFlag: boolean) => void;
-  onCancel: () => void;
-}) {
-  const isEditing = !!goal;
-  const cat = DRIVE_TO_CAT[driveId];
+function GoalsExpanded({ onClose }: { onClose: () => void }) {
+  const [goals, setGoals]   = useState<AiGoalItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab]       = useState<GoalArchetype>("LEARN");
+  const [modal, setModal]   = useState<GoalArchetype | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
-  const [mode, setMode] = useState<OBMode>("focused");
-
-  // Pre-fill from existing goal when editing (parse back if possible, else put in first answer)
-  const [answers, setAnswers] = useState<string[]>(() => {
-    if (!goal) return [];
-    // Restore: statement → q[0], description lines → rest
-    const lines = (goal.description ?? "").split("\n").filter(Boolean);
-    return [goal.statement ?? "", ...lines];
-  });
-
-  const firstRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { firstRef.current?.focus(); }, []);
-
-  const qSet = mode === "focused" ? OB_QS_FOCUSED[cat] : OB_QS_ZOOMED[cat];
-  const qs   = qSet.qs;
-
-  function setAnswer(i: number, val: string) {
-    setAnswers(prev => {
-      const next = [...prev];
-      next[i] = val;
-      return next;
-    });
-  }
-
-  function handleSave() {
-    const statement   = (answers[0] ?? "").trim();
-    if (!statement) return;
-    const hobbyQIdx   = qs.findIndex(q => q.ph === "Yes / No");
-    const hobbyFlag   = cat === "execute" && hobbyQIdx >= 0 &&
-      (answers[hobbyQIdx] ?? "").trim() === "Yes";
-    const description = qs
-      .slice(1)
-      .map((q, i) => {
-        if (q.ph === "Yes / No") return "";          // tag only — not prose
-        const a = (answers[i + 1] ?? "").trim();
-        return a ? `${q.q}\n${a}` : "";
+  function loadGoals() {
+    setLoading(true);
+    fetch("/api/self/goals", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) setGoals((data.goals ?? []).filter((g: any) => g.status === "ACTIVE") as AiGoalItem[]);
       })
-      .filter(Boolean)
-      .join("\n\n");
-    onSave(statement, description, hobbyFlag);
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }
 
-  const canSave = (answers[0] ?? "").trim().length > 0;
+  useEffect(() => { loadGoals(); }, []);
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onKeyDown={e => { if (e.key === "Escape") onCancel(); }}>
-      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl
-        flex flex-col max-h-[90vh]"
-        style={{ animation: "panelIn 200ms ease both" }}>
+  // Auto-switch to first archetype that has goals
+  useEffect(() => {
+    if (goals.length === 0) return;
+    const hasTab = goals.some(g => g.archetype === tab);
+    if (!hasTab) {
+      const first = ARCHETYPE_TABS.find(t => goals.some(g => g.archetype === t.id));
+      if (first) setTab(first.id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goals]);
 
-        {/* Header */}
-        <div className="flex items-start justify-between px-6 pt-5 pb-4 flex-shrink-0
-          border-b border-gray-800">
-          <div>
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ background: DRIVE_DOT[driveId] }} />
-              <span className="text-[10px] font-semibold uppercase tracking-wider"
-                style={{ color: DRIVE_DOT[driveId] }}>{DRIVE_LABEL[driveId]}</span>
-            </div>
-            <p className="text-base font-semibold text-white">
-              {isEditing ? "Edit goal" : "Add goal"}
-            </p>
-          </div>
+  async function handleDelete(id: string) {
+    setDeleting(id);
+    try {
+      await fetch(`/api/self/goals/${id}`, { method: "DELETE", credentials: "include" });
+      setGoals(prev => prev.filter(g => g.id !== id));
+    } catch (e) { console.error("[GoalsExpanded] delete failed", e); }
+    setDeleting(null);
+  }
 
-          <div className="flex items-center gap-3 flex-shrink-0">
-            {/* Focused / Zoomed toggle */}
-            {!isEditing && (
-              <div className="flex rounded-full border border-gray-700 bg-gray-800 p-0.5 text-xs">
-                {(["focused", "zoomed"] as OBMode[]).map(m => (
-                  <button key={m} type="button" onClick={() => { setMode(m); setAnswers([]); }}
-                    className={`px-3 py-1 rounded-full transition-colors ${
-                      mode === m
-                        ? "bg-white text-gray-950 font-medium"
-                        : "text-gray-400 hover:text-gray-200"
-                    }`}>
-                    {m === "focused" ? "Focused" : "Zoomed out"}
-                  </button>
-                ))}
-              </div>
-            )}
-            <button type="button" onClick={onCancel}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Prompt */}
-        <p className="px-6 pt-4 pb-2 text-sm font-medium text-gray-400 flex-shrink-0">
-          {qSet.prompt}
-        </p>
-
-        {/* Questions — scrollable */}
-        <div className="px-6 pb-4 space-y-4 overflow-y-auto flex-1 min-h-0">
-          {qs.map((q, i) => (
-            <div key={`${mode}-${i}`}>
-              <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
-                {i + 1}. {q.q}
-              </label>
-              {q.ph === "Yes / No" ? (
-                <div className="flex gap-2">
-                  {(["Yes", "No"] as const).map(opt => (
-                    <button key={opt} type="button"
-                      onClick={() => setAnswer(i, opt)}
-                      className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                        answers[i] === opt
-                          ? opt === "Yes"
-                            ? "bg-amber-500/20 border-amber-500/60 text-amber-300"
-                            : "bg-gray-700/60 border-gray-600 text-gray-200"
-                          : "bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300"
-                      }`}>
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <textarea
-                  ref={i === 0 ? firstRef : undefined}
-                  rows={2}
-                  value={answers[i] ?? ""}
-                  onChange={e => setAnswer(i, e.target.value)}
-                  placeholder={q.ph}
-                  className="w-full rounded-xl border border-gray-700 bg-gray-800 px-3 py-2.5 text-sm
-                    text-white placeholder-gray-600 outline-none focus:border-indigo-500
-                    transition-colors resize-none"
-                />
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-3 px-6 py-4 border-t border-gray-800 flex-shrink-0">
-          <button type="button" onClick={onCancel}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-gray-700 bg-gray-800/50
-              text-sm text-gray-400 hover:bg-gray-700 transition-colors">
-            Cancel
-          </button>
-          <button type="button" onClick={handleSave} disabled={!canSave}
-            className="flex-1 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500
-              text-sm text-white font-medium transition-colors
-              disabled:opacity-40 disabled:cursor-not-allowed">
-            {isEditing ? "Save changes" : "Add goal"}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
-
-// ─── Goals expanded card (full width) ─────────────────────────────────────────
-
-function GoalsExpanded({
-  goals, drives, onClose, onAddGoal, onUpdateGoal, onRemoveGoal, onCreateTimeline, onHobbyTag,
-}: {
-  goals: GoalEntry[]; drives: DriveType[];
-  onClose: () => void;
-  onAddGoal: (driveId: DriveType, statement: string, description: string) => string;
-  onUpdateGoal: (id: string, goal: GoalEntry) => void;
-  onRemoveGoal: (id: string) => void;
-  onCreateTimeline: (goalId: string, title: string) => void;
-  onHobbyTag: (name: string) => void;
-}) {
-  const [tab, setTab] = useState<DriveType>(drives[0] ?? "learning");
-  // modal: null = closed, true = adding new (AI flow), GoalEntry = editing (flat form)
-  const [modal, setModal] = useState<true | GoalEntry | null>(null);
-  const tabGoals = goals.filter(g => g.driveId === tab && g.statement.trim());
+  const tabGoals = goals.filter(g => g.archetype === tab);
 
   return (
     <>
-      {/* New goal — AI-assisted GoalCreationFlow as portal overlay */}
-      {modal === true && createPortal(
+      {modal !== null && createPortal(
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
           onKeyDown={e => { if (e.key === "Escape") setModal(null); }}>
           <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <GoalCreationFlow
-              initialArchetype={DRIVE_TO_ARCHETYPE[tab]}
-              onSaved={(summary) => {
-                const stmt = summary.title;
-                const desc = [summary.whyNow, summary.commitment, summary.successSignal]
-                  .filter(Boolean).join(" · ");
-                onAddGoal(tab, stmt, desc);
+              initialArchetype={modal}
+              onSaved={() => {
                 setModal(null);
+                loadGoals();
+                try { window.dispatchEvent(new CustomEvent("charaivati:goalCreated")); } catch {}
               }}
               onCancel={() => setModal(null)}
             />
           </div>
         </div>,
         document.body
-      )}
-
-      {/* Edit existing goal — flat form */}
-      {modal !== null && modal !== true && (
-        <GoalEditModal
-          goal={modal}
-          driveId={tab}
-          onCancel={() => setModal(null)}
-          onSave={(statement, description, hobbyFlag) => {
-            onUpdateGoal(modal.id, { ...modal, statement, description, saved: true });
-            if (hobbyFlag && tab === "doing") onHobbyTag(statement);
-            setModal(null);
-          }}
-        />
       )}
 
       <div className="rounded-2xl border overflow-hidden"
@@ -372,80 +202,53 @@ function GoalsExpanded({
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Drive tabs */}
-          {drives.length > 1 && (
-            <div className="flex gap-2">
-              {drives.map(d => (
-                <button key={d} type="button"
-                  onClick={() => setTab(d)}
-                  className="px-4 py-1.5 rounded-full text-xs font-semibold border transition-all"
+          {/* Archetype tabs */}
+          <div className="flex gap-2 flex-wrap">
+            {ARCHETYPE_TABS.map(t => {
+              const cnt = goals.filter(g => g.archetype === t.id).length;
+              return (
+                <button key={t.id} type="button" onClick={() => setTab(t.id)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold border transition-all"
                   style={{
-                    background: tab === d ? `${DRIVE_DOT[d]}20` : "transparent",
-                    borderColor: tab === d ? `${DRIVE_DOT[d]}60` : "rgba(255,255,255,0.1)",
-                    color: tab === d ? DRIVE_DOT[d] : "#6b7280",
+                    background: tab === t.id ? "rgba(99,102,241,0.15)" : "transparent",
+                    borderColor: tab === t.id ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.1)",
+                    color: tab === t.id ? "#a5b4fc" : "#6b7280",
                   }}>
-                  {DRIVE_LABEL[d]}
+                  {ARCHETYPE_ICON[t.id]} {t.label}
+                  {cnt > 0 && <span className="ml-1 opacity-60">{cnt}</span>}
                 </button>
+              );
+            })}
+          </div>
+
+          {/* Goals list */}
+          {loading ? (
+            <div className="py-4 flex justify-center">
+              <div className="w-4 h-4 rounded-full border-2 border-indigo-500/40 border-t-indigo-500 animate-spin" />
+            </div>
+          ) : tabGoals.length === 0 ? (
+            <p className="text-sm text-gray-600">No {tab.toLowerCase()} goals yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {tabGoals.map(g => (
+                <div key={g.id}
+                  className="group flex items-center gap-3 px-3 py-2.5 rounded-xl
+                    bg-gray-800/40 border border-gray-700/30 hover:border-gray-600/50 transition-colors">
+                  <span className="text-sm flex-shrink-0">{ARCHETYPE_ICON[g.archetype]}</span>
+                  <p className="text-sm text-gray-200 flex-1 truncate">{g.title}</p>
+                  <button type="button" onClick={() => handleDelete(g.id)} disabled={deleting === g.id}
+                    className="p-1.5 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10
+                      transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-50 flex-shrink-0">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
               ))}
             </div>
           )}
 
-          {/* Goals list */}
-          <div className="space-y-2">
-            {tabGoals.length === 0 ? (
-              <p className="text-sm text-gray-600">No goals for this drive yet.</p>
-            ) : (
-              tabGoals.map(g => {
-                const pct = goalPct(g);
-                return (
-                  <div key={g.id} className="group flex items-center gap-3 px-3 py-2.5
-                    rounded-xl bg-gray-800/40 border border-gray-700/30 hover:border-gray-600/50
-                    transition-colors">
-                    <span className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ background: DRIVE_DOT[g.driveId] }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-200 truncate">{g.statement}</p>
-                      {g.description && (
-                        <p className="text-[10px] text-gray-500 truncate mt-0.5">{g.description}</p>
-                      )}
-                    </div>
-                    {/* Progress */}
-                    <div className="w-16 h-1.5 rounded-full bg-white/10 overflow-hidden flex-shrink-0">
-                      <div className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${pct}%`, background: DRIVE_DOT[g.driveId] }} />
-                    </div>
-                    <span className="text-[10px] text-gray-500 w-7 text-right flex-shrink-0 tabular-nums">
-                      {pct}%
-                    </span>
-                    {/* Actions (visible on hover) */}
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                      <button type="button"
-                        title="Create project timeline"
-                        onClick={() => onCreateTimeline(g.id, g.statement)}
-                        className="p-1.5 rounded-lg text-gray-500 hover:text-teal-400
-                          hover:bg-teal-500/10 transition-colors">
-                        <CalendarPlus className="w-3 h-3" />
-                      </button>
-                      <button type="button" onClick={() => setModal(g)}
-                        className="p-1.5 rounded-lg text-gray-500 hover:text-indigo-400
-                          hover:bg-indigo-500/10 transition-colors">
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                      <button type="button" onClick={() => onRemoveGoal(g.id)}
-                        className="p-1.5 rounded-lg text-gray-500 hover:text-red-400
-                          hover:bg-red-500/10 transition-colors">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-2 pt-1">
-            <button type="button" onClick={() => setModal(true)}
+          {/* Add goal */}
+          <div className="pt-1">
+            <button type="button" onClick={() => setModal(tab)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-500/40
                 bg-indigo-500/8 text-xs text-indigo-300 hover:border-indigo-500/70 hover:text-indigo-200
                 transition-colors">
@@ -753,23 +556,21 @@ function ExpandedPanel({
           <EnergyPanel health={health} energy={energy} setHealth={setHealth} />
         )}
         {id === "time"        && (
-          <div>
+          <div className="space-y-2.5 p-5">
             <GoalExecuteSection />
-            <div className="space-y-2.5 p-5 pt-3">
-              <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
-              <CollapsibleSection
-                title="Project Timelines"
-                subtitle="Goal-driven projects with phases & milestones"
-                defaultOpen={false}
-              >
-                <TimelineList
-                  goals={goals}
-                  createFromGoalId={timelineGoal?.id}
-                  createFromGoalTitle={timelineGoal?.title}
-                  onCreateModalClosed={onTimelineModalClosed}
-                />
-              </CollapsibleSection>
-            </div>
+            <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
+            <CollapsibleSection
+              title="Project Timelines"
+              subtitle="Goal-driven projects with phases & milestones"
+              defaultOpen={false}
+            >
+              <TimelineList
+                goals={goals}
+                createFromGoalId={timelineGoal?.id}
+                createFromGoalTitle={timelineGoal?.title}
+                onCreateModalClosed={onTimelineModalClosed}
+              />
+            </CollapsibleSection>
           </div>
         )}
       </div>
@@ -782,7 +583,6 @@ function ExpandedPanel({
 export interface SelfCanvasProps {
   health: HealthProfile;
   goals: GoalEntry[];
-  drives: DriveType[];
   generalSkills: SkillEntry[];
   skillsLoading: Record<string, boolean>;
   weekSchedule: WeekSchedule;
@@ -797,51 +597,33 @@ export interface SelfCanvasProps {
   onWeekScheduleChange: (s: WeekSchedule) => void;
   onFundsChange: (f: FundsProfile) => void;
   onEnvironmentChange: (e: EnvironmentProfile) => void;
-  onAddGoal: (driveId: DriveType, statement: string, description: string) => string;
-  onUpdateGoal: (id: string, goal: GoalEntry) => void;
-  onRemoveGoal: (id: string) => void;
-  onGoalAdded?: (goalId: string) => void;
 }
 
 export function SelfCanvas(props: SelfCanvasProps) {
   const {
-    health, goals, drives, generalSkills, skillsLoading,
+    health, goals, generalSkills, skillsLoading,
     weekSchedule, fundsProfile, environmentProfile, highlightGoalId, highlightGeneral,
     setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
     onWeekScheduleChange, onFundsChange, onEnvironmentChange,
-    onAddGoal, onUpdateGoal, onRemoveGoal, onGoalAdded,
   } = props;
 
-  // Time is default — always a panel open
   const [activePartner, setActivePartner] = useState<PartnerId>("time");
   const [goalsExpanded, setGoalsExpanded] = useState(false);
-  // Timeline creation triggered from a goal card
-  const [timelineGoal, setTimelineGoal] = useState<{ id: string; title: string } | null>(null);
+  const [timelineGoal, setTimelineGoal]   = useState<{ id: string; title: string } | null>(null);
 
-  // Switch to Time whenever a new goal is added
-  const prevGoalCountRef = useRef(goals.length);
+  // Open Time panel when a new AI goal is created
   useEffect(() => {
-    if (goals.length > prevGoalCountRef.current) {
-      setGoalsExpanded(false);
-      setActivePartner("time");
-    }
-    prevGoalCountRef.current = goals.length;
-  }, [goals.length]);
+    const handler = () => { setGoalsExpanded(false); setActivePartner("time"); };
+    window.addEventListener("charaivati:goalCreated", handler);
+    return () => window.removeEventListener("charaivati:goalCreated", handler);
+  }, []);
 
-  // After a goal is added, keep the Time panel open (shows execute blocks)
   useEffect(() => {
-    if (highlightGoalId) {
-      setGoalsExpanded(false);
-      setActivePartner("time");
-    }
+    if (highlightGoalId) { setGoalsExpanded(false); setActivePartner("time"); }
   }, [highlightGoalId]);
 
-  // Switch to Skills and highlight General when user skips onboarding
   useEffect(() => {
-    if (highlightGeneral) {
-      setGoalsExpanded(false);
-      setActivePartner("skills");
-    }
+    if (highlightGeneral) { setGoalsExpanded(false); setActivePartner("skills"); }
   }, [highlightGeneral]);
 
   const energy = computeEnergy(health, environmentProfile, weekSchedule, fundsProfile);
@@ -884,16 +666,6 @@ export function SelfCanvas(props: SelfCanvasProps) {
     }
   }
 
-  function handleClosePanel() {
-    setActivePartner("time");
-  }
-
-  function handleGoalAdded(driveId: DriveType, statement: string, description: string): string {
-    const goalId = onAddGoal(driveId, statement, description);
-    onGoalAdded?.(goalId);
-    return goalId;
-  }
-
   return (
     <div className="space-y-2.5">
       <style>{`
@@ -902,34 +674,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
 
       {/* ── Row 1: Goals compact OR Goals expanded ── */}
       {goalsExpanded ? (
-        <GoalsExpanded
-          goals={goals}
-          drives={drives}
-          onClose={() => setGoalsExpanded(false)}
-          onAddGoal={handleGoalAdded}
-          onUpdateGoal={onUpdateGoal}
-          onRemoveGoal={onRemoveGoal}
-          onCreateTimeline={(id, title) => {
-            setGoalsExpanded(false);
-            setTimelineGoal({ id, title });
-          }}
-          onHobbyTag={(name) => {
-            const existing = health.joy?.hobbies?.types ?? [];
-            if (existing.includes(name)) return;
-            // Only preserve frequency if the user already had tracked hobbies;
-            // otherwise a stale "rarely" from prior pill-cycling would give a score of 3.
-            const freq = existing.length > 0
-              ? (health.joy?.hobbies?.frequency ?? "weekly")
-              : "weekly";
-            setHealth({
-              ...health,
-              joy: {
-                ...(health.joy ?? { sports: { types: [], frequency: "weekly" as const }, social: { types: [], frequency: "weekly" as const }, rest: { types: [], frequency: "weekly" as const } }),
-                hobbies: { types: [...existing, name], frequency: freq },
-              },
-            });
-          }}
-        />
+        <GoalsExpanded onClose={() => setGoalsExpanded(false)} />
       ) : (
         <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1.7fr 1fr", minHeight: "140px" }}>
           <TopBlock
@@ -939,10 +684,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
             active={activePartner === "health"}
             onClick={() => setActivePartner("health")}
           />
-          <GoalsCompact
-            goals={goals}
-            onExpand={() => setGoalsExpanded(true)}
-          />
+          <GoalsCompact onExpand={() => setGoalsExpanded(true)} />
           <TopBlock
             id="skills"
             status={partnerStatus("skills").text}
@@ -954,16 +696,11 @@ export function SelfCanvas(props: SelfCanvasProps) {
       )}
 
       {/* ── Partners row ── */}
-      {/* Collapsed: 5 middle partners · Expanded: all 7 (Health + Skills join) */}
       <div className={`grid gap-2 ${
         goalsExpanded ? "grid-cols-4 sm:grid-cols-7" : "grid-cols-3 sm:grid-cols-5"
       }`}>
         {(goalsExpanded ? ALL_PARTNERS : MIDDLE_PARTNERS).map(id => {
           const { text, type } = partnerStatus(id);
-          // Mobile (grid-cols-3) explicit placement:
-          //   Row 1: Energy | (gap) | Environ.
-          //   Row 2: Funds  | Time  | Network
-          // Laptop (sm:grid-cols-5) uses normal auto-flow (sm:col-auto sm:row-auto).
           const MOBILE_PLACEMENT: Partial<Record<PartnerId, string>> = {
             environment: "col-start-3 row-start-1 sm:col-auto sm:row-auto",
             funds:       "col-start-1 row-start-2 sm:col-auto sm:row-auto",
@@ -988,7 +725,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
       <ExpandedPanel
         key={activePartner}
         id={activePartner}
-        onClose={handleClosePanel}
+        onClose={() => setActivePartner("time")}
         health={health} goals={goals}
         generalSkills={generalSkills} skillsLoading={skillsLoading}
         weekSchedule={weekSchedule} fundsProfile={fundsProfile}

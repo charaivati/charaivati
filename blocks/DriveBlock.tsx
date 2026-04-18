@@ -307,7 +307,7 @@ export function OnboardingBanner({
           return a ? a : "";
         })
         .filter(Boolean)
-        .join(" · ");
+        .join("\n");
       onComplete(catDef.driveId, stmt, desc, isHobby);
 
       if (activeCats.length === 2 && currentCatIndex === 0) {

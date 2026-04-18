@@ -49,3 +49,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const updated = await prisma.aiGoal.update({ where: { id }, data });
   return NextResponse.json({ goal: updated });
 }
+
+export async function DELETE(req: NextRequest, { params }: Params) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { id } = await params;
+  const goal = await prisma.aiGoal.findUnique({ where: { id } });
+  if (!goal || goal.userId !== user.id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  await prisma.aiGoal.update({ where: { id }, data: { status: 'ARCHIVED' } });
+  return NextResponse.json({ ok: true });
+}

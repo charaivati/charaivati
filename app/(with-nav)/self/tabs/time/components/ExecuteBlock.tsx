@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Pencil, Check, X, ChevronRight } from 'lucide-react';
 import { SECTIONS } from '@/lib/site/capabilityRegistry';
@@ -21,6 +21,7 @@ export type AiGoalWithPlan = {
 type Props = {
   goal: AiGoalWithPlan;
   onPlanUpdate: (plan: ExecutionPlan) => void;
+  enriching?: boolean; // true while tasks are being generated (step 2 in flight)
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -160,12 +161,32 @@ function AdvanceModal({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ExecuteBlock({ goal, onPlanUpdate }: Props) {
+export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
   const [plan, setPlan] = useState<ExecutionPlan>(goal.executionPlan);
   const [phaseIndex, setPhaseIndex] = useState(goal.currentPhaseIndex);
   const [doneTasks, setDoneTasks] = useState<Set<string>>(new Set());
   const [editMode, setEditMode] = useState(false);
   const [editDraft, setEditDraft] = useState<ExecutionPlan>(goal.executionPlan);
+  const [nextActionDone, setNextActionDone] = useState(false);
+
+  // Sync when switching goals
+  useEffect(() => {
+    setPhaseIndex(goal.currentPhaseIndex);
+    setDoneTasks(new Set());
+    setNextActionDone(false);
+    setPlan(goal.executionPlan);
+    setEditDraft(goal.executionPlan);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goal.id]);
+
+  // When tasks arrive (partial → complete), update plan without resetting phase
+  useEffect(() => {
+    if (!goal.executionPlan._partial) {
+      setPlan(goal.executionPlan);
+      if (!editMode) setEditDraft(goal.executionPlan);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [goal.executionPlan._partial]);
   const [showAdvance, setShowAdvance] = useState(false);
   const [advancing, setAdvancing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -197,6 +218,9 @@ export function ExecuteBlock({ goal, onPlanUpdate }: Props) {
     const idx = currentPhase.tasks.findIndex((_, i) => !doneTasks.has(taskKey(phaseIndex, i)));
     return idx >= 0 ? currentPhase.tasks[idx] : plan.nextAction;
   })();
+
+  // True when the displayed nextAction is plan.nextAction (not a phase task)
+  const nextActionIsStandalone = currentPhase?.tasks.length === 0 || nextAction.text === plan.nextAction.text;
 
   async function handleAdvance() {
     if (!nextPhase) return;
@@ -336,13 +360,18 @@ export function ExecuteBlock({ goal, onPlanUpdate }: Props) {
                   <span className="text-xs text-amber-400 font-medium">
                     Phase complete — ready to graduate?
                   </span>
+                ) : nextActionDone && nextActionIsStandalone ? (
+                  <span className="text-xs text-green-500 font-medium">Done ✓</span>
                 ) : (
                   <button
                     type="button"
                     onClick={() => {
-                      // Mark current nextAction task as done
-                      const idx = currentPhase?.tasks.findIndex(t => t.text === nextAction.text) ?? -1;
-                      if (idx >= 0) toggleTask(phaseIndex, idx);
+                      if (nextActionIsStandalone) {
+                        setNextActionDone(true);
+                      } else {
+                        const idx = currentPhase?.tasks.findIndex(t => t.text === nextAction.text) ?? -1;
+                        if (idx >= 0) toggleTask(phaseIndex, idx);
+                      }
                     }}
                     className="text-xs text-gray-500 hover:text-gray-200 border border-gray-700 hover:border-gray-500 px-2 py-0.5 rounded transition-colors"
                   >
@@ -387,6 +416,12 @@ export function ExecuteBlock({ goal, onPlanUpdate }: Props) {
                   onTextChange={text => updateDraftTask(phaseIndex, ti, text)}
                 />
               ))}
+              {enriching && currentPhase.tasks.length === 0 && (
+                <div className="flex items-center gap-2 py-2 text-xs text-gray-500">
+                  <div className="w-3 h-3 rounded-full border border-indigo-500/40 border-t-indigo-500 animate-spin flex-shrink-0" />
+                  Filling in tasks…
+                </div>
+              )}
             </div>
 
             <div className="pt-1 space-y-2">

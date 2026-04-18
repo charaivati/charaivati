@@ -86,17 +86,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
     setTimeout(() => setHighlightGeneral(false), 1800 + 2900);
   }
 
-  function handleAddGoal(driveId: DriveType, statement: string, description: string): string {
-    const goal = { ...defaultGoal(driveId), statement, description, saved: true };
-    s.addGoalDirect(goal);
-    return goal.id;
-  }
-
-  function handleGoalAdded(goalId: string) {
-    setTimeout(() => setHighlightGoalId(goalId), 400);
-    setTimeout(() => setHighlightGoalId(null), 400 + 2900);
-  }
-
   useEffect(() => {
     if (s.drives.length > 0 || skipped) {
       const t = setTimeout(() => setShowContent(true), 700);
@@ -181,7 +170,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
                 <SelfCanvas
                   health={s.health}
                   goals={s.visibleGoals}
-                  drives={s.drives}
                   generalSkills={s.generalSkills}
                   skillsLoading={s.skillsLoading}
                   weekSchedule={s.weekSchedule}
@@ -196,10 +184,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
                   onWeekScheduleChange={s.handleWeekScheduleChange}
                   onFundsChange={s.handleFundsChange}
                   onEnvironmentChange={s.handleEnvironmentChange}
-                  onAddGoal={handleAddGoal}
-                  onUpdateGoal={s.updateGoal}
-                  onRemoveGoal={s.removeGoal}
-                  onGoalAdded={handleGoalAdded}
                 />
               </div>
             )}

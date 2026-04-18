@@ -21,4 +21,5 @@ export type ExecutionPlan = {
   phases: PlanPhase[];
   relevantSections: string[];
   honestLimitations: string[];
+  _partial?: boolean; // true while tasks are still being filled in (step 2 pending)
 };

@@ -45,6 +45,15 @@ export default function TimeTab({ goalId, focusId }: Props) {
   return (
     <div className="space-y-5">
 
+      {/* ── Back to canvas ── */}
+      <button
+        type="button"
+        onClick={() => router.push('/self')}
+        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+      >
+        ← Personal
+      </button>
+
       {/* ── Focus mode banner ── */}
       {focusId && (
         <div className="flex items-center justify-between px-4 py-2.5 rounded-xl
@@ -58,14 +67,11 @@ export default function TimeTab({ goalId, focusId }: Props) {
       )}
 
       {/* ── Execute blocks for all active goals ── */}
-      <div className="rounded-xl border border-gray-800 bg-gray-950/80 overflow-hidden"
-        style={{ boxShadow: '0 0 24px rgba(99,102,241,0.08), inset 0 1px 0 rgba(255,255,255,0.06)' }}>
-        <GoalExecuteSection
-          goalId={goalId}
-          focusId={focusId}
-          onFocusChange={handleFocusChange}
-        />
-      </div>
+      <GoalExecuteSection
+        goalId={goalId}
+        focusId={focusId}
+        onFocusChange={handleFocusChange}
+      />
 
       {/* ── Daily Tasks ── */}
       {!focusId && (
