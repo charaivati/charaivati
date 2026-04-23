@@ -166,6 +166,9 @@ function AuthForm() {
       }
 
       setMessage("✅ Login successful! Redirecting...");
+      if (data.preferredLanguage && data.preferredLanguage !== "en") {
+        try { localStorage.setItem("lang", data.preferredLanguage); } catch {}
+      }
       await new Promise((r) => setTimeout(r, 200));
       await router.replace(redirectTo);
       try {

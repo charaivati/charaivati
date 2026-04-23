@@ -40,44 +40,15 @@ interface HelpLink {
   notes?: string | null;
 }
 
-// Translation strings for UI
-const UI_TRANSLATIONS: Record<string, Record<string, string>> = {
-  en: {
-    videoTutorials: "Video Tutorials",
-    officialLinks: "Official Links",
-    loadingVideos: "Loading videos…",
-    noVideos: "No videos available",
-    loadingLinks: "Loading links…",
-    noLinks: "No official links configured",
-    chooseLanguage: "Choose Language",
-  },
-  hi: {
-    videoTutorials: "वीडियो ट्यूटोरियल",
-    officialLinks: "आधिकारिक लिंक",
-    loadingVideos: "वीडियो लोड हो रहे हैं…",
-    noVideos: "कोई वीडियो उपलब्ध नहीं है",
-    loadingLinks: "लिंक लोड हो रहे हैं…",
-    noLinks: "कोई आधिकारिक लिंक कॉन्फ़िगर नहीं है",
-    chooseLanguage: "भाषा चुनें",
-  },
-  as: {
-    videoTutorials: "ভিডিও টিউটোরিয়াল",
-    officialLinks: "অফিসিয়াল লিংক",
-    loadingVideos: "ভিডিও লোড হচ্ছে…",
-    noVideos: "কোনো ভিডিও পাওয়া যায় না",
-    loadingLinks: "লিংক লোড হচ্ছে…",
-    noLinks: "কোনো অফিসিয়াল লিংক কনফিগার করা নেই",
-    chooseLanguage: "ভাষা নির্বাচন করুন",
-  },
-  ta: {
-    videoTutorials: "வீடியோ பயிற்சி",
-    officialLinks: "அதிகாரப்பூর்வ இணைப்புகள்",
-    loadingVideos: "வீடியோக்கள் ஏற்றப்படுகின்றன…",
-    noVideos: "வீடியோக்கள் இல்லை",
-    loadingLinks: "இணைப்புகள் ஏற்றப்படுகின்றன…",
-    noLinks: "உள்ளமைக்கப்பட்ட அதிகாரப்பூর்வ இணைப்புக்கள் எதுவும் இல்லை",
-    chooseLanguage: "மொழியைத் தேர்ந்தெடுக்கவும்",
-  },
+// English fallbacks — used until DB translations load or if a translation is missing
+const UI_FALLBACKS: Record<string, string> = {
+  "ui-video-tutorials": "Video Tutorials",
+  "ui-official-links": "Official Links",
+  "ui-loading-videos": "Loading videos…",
+  "ui-no-videos": "No videos available",
+  "ui-loading-links": "Loading links…",
+  "ui-no-links": "No official links configured",
+  "ui-choose-language": "Choose Language",
 };
 
 export default function SahayakPage() {
@@ -92,10 +63,13 @@ export default function SahayakPage() {
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  // Helper to get UI text in current language
-  const t = (key: keyof typeof UI_TRANSLATIONS.en): string => {
-    return UI_TRANSLATIONS[selectedLanguage]?.[key] || UI_TRANSLATIONS.en[key] || key;
-  };
+  // Looks up a UI string by slug from the already-fetched tabs array.
+  // Falls back to the English constant if the tab or its translation is missing.
+  function uiT(slug: string): string {
+    const tab = tabs.find((t) => t.slug === slug);
+    if (!tab) return UI_FALLBACKS[slug] ?? slug;
+    return tab.translation?.title || tab.enTitle || UI_FALLBACKS[slug] ?? slug;
+  }
 
   // 1) Load tabs with translations
   useEffect(() => {
@@ -166,7 +140,6 @@ export default function SahayakPage() {
         const q = `/api/help-links`;
         const r = await fetch(q);
         const json = await r.json();
-        console.log("Help links response:", json);
         const links = json?.ok ? (json.data as HelpLink[]) : (json.links as HelpLink[]) || [];
         if (alive) setAllLinks(links);
       } catch (e) {
@@ -181,17 +154,17 @@ export default function SahayakPage() {
     };
   }, [sections]);
 
-  // ✅ Filter videos for a specific section based on tag matching
+  // Filter videos for a specific section based on tag matching
   const getVideosForSection = (sectionSlug: string): PostVideo[] => {
-    return allVideos.filter(video => {
+    return allVideos.filter((video) => {
       const postTags = video.slugTags || [];
       return doesPostMatchSection(postTags, sectionSlug);
     });
   };
 
-  // ✅ Filter links for a specific section based on tag matching
+  // Filter links for a specific section based on tag matching
   const getLinksForSection = (sectionSlug: string): HelpLink[] => {
-    return allLinks.filter(link => {
+    return allLinks.filter((link) => {
       const linkTags = link.slugTags || [];
       return doesPostMatchSection(linkTags, sectionSlug);
     });
@@ -243,9 +216,7 @@ export default function SahayakPage() {
   function renderHelpLinks(sectionSlug: string) {
     const links = getLinksForSection(sectionSlug);
     if (links.length === 0) {
-      return (
-        <div className="text-sm text-gray-500">{t("noLinks")}</div>
-      );
+      return <div className="text-sm text-gray-500">{uiT("ui-no-links")}</div>;
     }
 
     return (
@@ -316,11 +287,11 @@ export default function SahayakPage() {
                 <div className="p-5 bg-white text-black space-y-6">
                   {/* Videos Section */}
                   <div>
-                    <h3 className="font-semibold text-lg mb-3">{t("videoTutorials")}</h3>
+                    <h3 className="font-semibold text-lg mb-3">{uiT("ui-video-tutorials")}</h3>
                     {loadingVideos ? (
-                      <div className="text-gray-500">{t("loadingVideos")}</div>
+                      <div className="text-gray-500">{uiT("ui-loading-videos")}</div>
                     ) : videos.length === 0 ? (
-                      <div className="text-gray-500">{t("noVideos")}</div>
+                      <div className="text-gray-500">{uiT("ui-no-videos")}</div>
                     ) : (
                       <div className="flex gap-3 overflow-x-auto pb-2">
                         {videos.map((p) => renderVideoCard(p))}
@@ -330,9 +301,9 @@ export default function SahayakPage() {
 
                   {/* Help Links Section */}
                   <div className="border-t pt-6">
-                    <h3 className="font-semibold text-lg mb-3">{t("officialLinks")}</h3>
+                    <h3 className="font-semibold text-lg mb-3">{uiT("ui-official-links")}</h3>
                     {loadingLinks ? (
-                      <div className="text-gray-500">{t("loadingLinks")}</div>
+                      <div className="text-gray-500">{uiT("ui-loading-links")}</div>
                     ) : (
                       renderHelpLinks(sec.slug)
                     )}

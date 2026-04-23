@@ -272,7 +272,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     });
 
     // successful response
-    let res = NextResponse.json({ ok: true, redirect: "/self" });
+    let res = NextResponse.json({ ok: true, redirect: "/self", preferredLanguage: user.preferredLanguage ?? "en" });
 
     // helper to set the cookie (should set HttpOnly/secure depending on env)
     res = setSessionCookie(res, token);

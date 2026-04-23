@@ -69,7 +69,7 @@ function defaultWeekSchedule(): WeekSchedule {
 }
 
 function defaultEnvironmentProfile(): EnvironmentProfile {
-  return { city: '', country: '', timezone: '', workspace: '', livingWith: '', constraints: [], assets: [] };
+  return { workspace: '', suggestions: [], pinned: [] };
 }
 
 export function defaultHealth(): HealthProfile {
@@ -136,7 +136,12 @@ export function useSelfState(profile: any) {
           if (Array.isArray(saved.goals) && saved.goals.length) setGoals(saved.goals);
           if (saved.fundsProfile)       setFundsProfile(saved.fundsProfile);
           if (saved.weekSchedule)       setWeekSchedule({ slots: saved.weekSchedule.slots ?? [], tasks: saved.weekSchedule.tasks ?? [] });
-          if (saved.environmentProfile) setEnvironmentProfile(saved.environmentProfile);
+          if (saved.environmentProfile) setEnvironmentProfile({
+            ...defaultEnvironmentProfile(),
+            ...saved.environmentProfile,
+            suggestions: saved.environmentProfile.suggestions ?? [],
+            pinned:      saved.environmentProfile.pinned      ?? [],
+          });
         }
         profileApplied.current = true;
       }
@@ -189,7 +194,15 @@ export function useSelfState(profile: any) {
 
     if (profile.fundsProfile)       setFundsProfile({ ...defaultFundsProfile(), ...profile.fundsProfile });
     if (profile.weekSchedule)       setWeekSchedule({ slots: profile.weekSchedule.slots ?? [], tasks: profile.weekSchedule.tasks ?? [] });
-    if (profile.environmentProfile) setEnvironmentProfile({ ...defaultEnvironmentProfile(), ...profile.environmentProfile });
+    if (profile.environmentProfile) {
+      const ep = profile.environmentProfile;
+      setEnvironmentProfile({
+        ...defaultEnvironmentProfile(),
+        ...ep,
+        suggestions: ep.suggestions ?? [],
+        pinned:      ep.pinned      ?? [],
+      });
+    }
 
     if (Array.isArray(profile.generalSkills)) {
       const gs = profile.generalSkills as SkillEntry[];

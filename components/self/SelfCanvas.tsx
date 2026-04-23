@@ -1,7 +1,7 @@
 "use client";
 // components/self/SelfCanvas.tsx — visual grid layout
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Sparkles, X, Trash2 } from "lucide-react";
 import { computeEnergy } from "@/blocks/EnergyBlock";
@@ -496,7 +496,7 @@ function ExpandedPanel({
   id, onClose,
   health, goals, generalSkills, skillsLoading,
   weekSchedule, fundsProfile, environmentProfile, highlightGoalId, highlightGeneral,
-  energy,
+  energy, activeHealthFlags,
   setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
   onWeekScheduleChange, onFundsChange, onEnvironmentChange,
   timelineGoal, onTimelineModalClosed,
@@ -507,6 +507,7 @@ function ExpandedPanel({
   weekSchedule: WeekSchedule; fundsProfile: FundsProfile;
   environmentProfile: EnvironmentProfile; highlightGoalId: string | null; highlightGeneral?: boolean;
   energy: ReturnType<typeof computeEnergy>;
+  activeHealthFlags: string[];
   setHealth: (h: HealthProfile) => void;
   onUpdateGeneralSkills: (s: SkillEntry[]) => void;
   onUpdateGoalSkills: (goalId: string, s: SkillEntry[]) => void;
@@ -551,7 +552,14 @@ function ExpandedPanel({
         )}
         {id === "network"     && <CirclesPanel />}
         {id === "funds"       && <FundsSection funds={fundsProfile} goals={goals} onChange={onFundsChange} />}
-        {id === "environment" && <EnvironmentSection env={environmentProfile} onChange={onEnvironmentChange} />}
+        {id === "environment" && (
+          <EnvironmentSection
+            env={environmentProfile}
+            onChange={onEnvironmentChange}
+            goals={goals}
+            activeHealthFlags={activeHealthFlags}
+          />
+        )}
         {id === "energy"      && (
           <EnergyPanel health={health} energy={energy} setHealth={setHealth} />
         )}
@@ -628,6 +636,14 @@ export function SelfCanvas(props: SelfCanvasProps) {
 
   const energy = computeEnergy(health, environmentProfile, weekSchedule, fundsProfile);
 
+  const activeHealthFlags = useMemo(() => {
+    const flags: string[] = [];
+    if (health.sleepQuality) flags.push(`sleep:${health.sleepQuality}`);
+    if (health.mood)         flags.push(`mood:${health.mood}`);
+    if (health.stressLevel)  flags.push(`stress:${health.stressLevel}`);
+    return flags;
+  }, [health.sleepQuality, health.mood, health.stressLevel]);
+
   function partnerStatus(id: PartnerId): { text: string; type: "good" | "neutral" | "warning" } {
     switch (id) {
       case "health": {
@@ -645,10 +661,12 @@ export function SelfCanvas(props: SelfCanvasProps) {
         const s = energy.overall;
         return { text: `${s}/10`, type: s >= 7 ? "good" : s >= 4 ? "neutral" : "warning" };
       }
-      case "environment":
-        return environmentProfile.city
-          ? { text: environmentProfile.city, type: "neutral" }
+      case "environment": {
+        const displayCity = environmentProfile.location?.city || environmentProfile.city;
+        return displayCity
+          ? { text: displayCity, type: "neutral" }
           : { text: "Not set up", type: "warning" };
+      }
       case "time": {
         const n = (weekSchedule.tasks ?? []).length;
         return n > 0
@@ -731,6 +749,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
         weekSchedule={weekSchedule} fundsProfile={fundsProfile}
         environmentProfile={environmentProfile} highlightGoalId={highlightGoalId} highlightGeneral={highlightGeneral}
         energy={energy}
+        activeHealthFlags={activeHealthFlags}
         setHealth={setHealth}
         onUpdateGeneralSkills={onUpdateGeneralSkills}
         onUpdateGoalSkills={onUpdateGoalSkills}

@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState } from "react";
 
-type Lang = { code: string; name: string; id?: number };
+type Lang = { code: string; name: string; nativeName?: string | null; id?: number };
 type LanguagePickerProps = {
   onSelect: (code: string, name?: string) => void;
   onClose: () => void;
@@ -54,10 +54,13 @@ export default function LanguagePicker({ onSelect, onClose }: LanguagePickerProp
                 <button
                   key={l.code}
                   onClick={() => onSelect(l.code, l.name)}
-                  className="text-left p-3 bg-gray-100 hover:bg-gray-200 rounded-lg"
+                  className="text-left p-3 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+                  title={l.name}
                 >
-                  <div className="font-medium text-gray-900">{l.name}</div>
-                  <div className="text-xs text-gray-500">{l.code}</div>
+                  <div className="font-semibold text-gray-900 text-base">
+                    {l.nativeName || l.name}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">{l.name}</div>
                 </button>
               ))}
             </div>

@@ -129,5 +129,31 @@ export type WeekSchedule = { slots: TimeSlot[]; tasks: Task[]; };
 
 // ─── Environment ──────────────────────────────────────────────────────────────
 export type WorkspaceType = 'home' | 'office' | 'coworking' | 'hybrid' | 'remote';
-export type LivingWith = 'alone' | 'family' | 'roommates' | 'partner';
-export type EnvironmentProfile = { city: string; country: string; timezone: string; workspace: WorkspaceType | ''; livingWith: LivingWith | ''; constraints: string[]; assets: string[]; };
+export type LivingWith    = 'alone' | 'family' | 'roommates' | 'partner';
+export type CueType       = 'space' | 'people' | 'ritual';
+
+export type EnvironmentCue = {
+  id: string;
+  type: CueType;
+  text: string;
+  linkedContext: string;
+  savedAt?: string;
+};
+
+export type EnvironmentProfile = {
+  location?: { city: string; country: string; timezone: string };
+  workspace:  WorkspaceType | '';
+  livingWith?: LivingWith | '';
+  suggestions: EnvironmentCue[];
+  pinned:      EnvironmentCue[];
+  lastGeneratedFor?: {
+    goalIds:     string[];
+    healthFlags: string[];
+  };
+  // Legacy flat fields kept for EnergyBlock backward compat
+  city?:        string;
+  country?:     string;
+  timezone?:    string;
+  constraints?: string[];
+  assets?:      string[];
+};

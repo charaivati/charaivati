@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useLayerContext } from "@/components/LayerContext";
+import { useLanguage } from "@/components/LanguageProvider";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type Props = {
@@ -10,13 +11,17 @@ type Props = {
 
 export default function HeaderTabs({ onNavigate }: Props) {
   const ctx = useLayerContext();
+  const { locale } = useLanguage();
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const [mounted, setMounted] = useState(false);
+  // slug → translated title (only populated when locale !== "en")
+  const [labelMap, setLabelMap] = useState<Record<string, string>>({});
+
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  
+
   // Touch tracking
   const touchStart = useRef<{ x: number; y: number; time: number } | null>(null);
 
@@ -38,19 +43,36 @@ export default function HeaderTabs({ onNavigate }: Props) {
     setMounted(true);
   }, []);
 
+  // Fetch translated tab labels whenever locale changes
+  useEffect(() => {
+    if (!locale || locale === "en") {
+      setLabelMap({});
+      return;
+    }
+
+    // Collect all layer IDs + tab IDs from all layers as slugs
+    const slugs = ctx.layers.flatMap((l) => [l.id, ...l.tabs.map((t) => t.id)]).join(",");
+
+    fetch(`/api/tab-translations?locale=${encodeURIComponent(locale)}&slugs=${encodeURIComponent(slugs)}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (!json.ok) return;
+        const map: Record<string, string> = {};
+        for (const [slug, t] of Object.entries(json.translations as Record<string, any>)) {
+          if (t?.title) map[slug] = t.title;
+        }
+        setLabelMap(map);
+      })
+      .catch(() => {});
+  }, [locale, ctx.layers]);
+
   // Listen for swipe events from layout header
   useEffect(() => {
     const handleSwipe = (e: Event) => {
       const customEvent = e as CustomEvent;
-      console.log("[HeaderTabs] Swipe received:", customEvent.detail.direction);
-      
-      if (customEvent.detail.direction === "left") {
-        goToNextTab();
-      } else {
-        goToPrevTab();
-      }
+      if (customEvent.detail.direction === "left") goToNextTab();
+      else goToPrevTab();
     };
-
     window.addEventListener("headerSwipe", handleSwipe);
     return () => window.removeEventListener("headerSwipe", handleSwipe);
   }, [currentLayer, activeTabId]);
@@ -59,82 +81,53 @@ export default function HeaderTabs({ onNavigate }: Props) {
   useEffect(() => {
     const el = tabRefs.current[activeTabId];
     if (!el || !scrollerRef.current) return;
-
     const relativeLeft = el.offsetLeft;
     const centerTarget = relativeLeft - scrollerRef.current.clientWidth / 2 + el.offsetWidth / 2;
     const nudge = Math.min(56, Math.floor(el.offsetWidth / 2) + 12);
     let target = Math.max(0, Math.floor(centerTarget - nudge));
     const maxScroll = Math.max(0, scrollerRef.current.scrollWidth - scrollerRef.current.clientWidth);
     if (target > maxScroll) target = maxScroll;
-
     scrollerRef.current.scrollTo({ left: target, behavior: "smooth" });
   }, [activeTabId]);
 
   function handleTabClick(tabId: string) {
     const tab = ctx.getTabById(activeLayerId, tabId);
     if (!tab) return;
-
     ctx.setActiveTab(activeLayerId, tabId);
     const tabLabel = String(tab.label || "").toLowerCase();
     const baseRoute = tab.route || `/self`;
     const separator = baseRoute.includes("?") ? "&" : "?";
-    const urlWithTab = `${baseRoute}${separator}tab=${encodeURIComponent(tabLabel)}`;
-    router.push(urlWithTab);
+    router.push(`${baseRoute}${separator}tab=${encodeURIComponent(tabLabel)}`);
   }
 
   function goToNextTab() {
     const tabs = currentLayer?.tabs ?? [];
     const idx = tabs.findIndex((t) => t.id === activeTabId);
-    if (idx >= 0 && idx < tabs.length - 1) {
-      handleTabClick(tabs[idx + 1].id);
-    }
+    if (idx >= 0 && idx < tabs.length - 1) handleTabClick(tabs[idx + 1].id);
   }
 
   function goToPrevTab() {
     const tabs = currentLayer?.tabs ?? [];
     const idx = tabs.findIndex((t) => t.id === activeTabId);
-    if (idx > 0) {
-      handleTabClick(tabs[idx - 1].id);
-    }
+    if (idx > 0) handleTabClick(tabs[idx - 1].id);
   }
 
   const handleTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length !== 1) return;
-    touchStart.current = {
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
-      time: Date.now(),
-    };
+    touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, time: Date.now() };
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
     if (!touchStart.current || e.changedTouches.length !== 1) return;
-
     const endX = e.changedTouches[0].clientX;
     const endY = e.changedTouches[0].clientY;
     const dx = endX - touchStart.current.x;
     const dy = endY - touchStart.current.y;
     const dt = Date.now() - touchStart.current.time;
-
     touchStart.current = null;
-
-    // Thresholds
-    const MIN_DISTANCE = 20;
-    const MAX_TIME = 1000;
-    const MAX_VERTICAL = 50;
-
-    // Check if it's a valid horizontal swipe
-    if (
-      Math.abs(dx) > MIN_DISTANCE &&
-      Math.abs(dx) > Math.abs(dy) &&
-      Math.abs(dy) < MAX_VERTICAL &&
-      dt < MAX_TIME
-    ) {
-      if (dx > 0) {
-        goToPrevTab();
-      } else {
-        goToNextTab();
-      }
+    if (Math.abs(dx) > 20 && Math.abs(dx) > Math.abs(dy) && Math.abs(dy) < 50 && dt < 1000) {
+      if (dx > 0) goToPrevTab();
+      else goToNextTab();
     }
   };
 
@@ -151,7 +144,7 @@ export default function HeaderTabs({ onNavigate }: Props) {
   }
 
   return (
-    <div 
+    <div
       className="w-full flex justify-center"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
@@ -166,12 +159,11 @@ export default function HeaderTabs({ onNavigate }: Props) {
         <div className="flex items-end justify-center gap-4 px-4 py-0 min-w-max h-12">
           {currentLayer.tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
+            const displayLabel = labelMap[tab.id] || tab.label;
             return (
               <button
                 key={tab.id}
-                ref={(el) => {
-                  tabRefs.current[tab.id] = el;
-                }}
+                ref={(el) => { tabRefs.current[tab.id] = el; }}
                 onClick={() => handleTabClick(tab.id)}
                 aria-selected={isActive}
                 role="tab"
@@ -181,7 +173,7 @@ export default function HeaderTabs({ onNavigate }: Props) {
                 type="button"
                 style={{ lineHeight: "2rem" }}
               >
-                {tab.label}
+                {displayLabel}
               </button>
             );
           })}

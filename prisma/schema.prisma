@@ -590,12 +590,13 @@ model CustomTab {
 
 /// Small model for languages (seed uses this)
 model Language {
-  name      String   @unique
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  id        Int      @id @default(autoincrement())
-  updatedAt DateTime @default(now()) @updatedAt
-  code      String?  @unique
+  name       String   @unique
+  nativeName String?
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  updatedAt  DateTime @default(now()) @updatedAt
+  code       String?  @unique
 
   @@index([enabled])
   @@index([name])

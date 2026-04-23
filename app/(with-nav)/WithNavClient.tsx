@@ -112,7 +112,7 @@ function WithNavLayoutInner({
       console.warn("Logout failed:", err);
     } finally {
       if (typeof window !== "undefined") {
-        const keysToClear = ["app.language", "charaivati.lang", "language", "preferredLanguage"];
+        const keysToClear = ["app.language", "charaivati.lang", "language", "preferredLanguage", "lang"];
         keysToClear.forEach((k) => localStorage.removeItem(k));
         window.location.href = "/";
       }

@@ -13,7 +13,7 @@ import { useLanguage } from "@/components/LanguageProvider";
  *    - if no saved language -> show language picker (so logged-out user picks language)
  */
 
-type Lang = { id: number; name: string; code?: string };
+type Lang = { id: number; name: string; code?: string; nativeName?: string | null };
 
 function getBaseUrl(): string {
   if (typeof window !== "undefined") {
@@ -52,7 +52,8 @@ export default function LandingPage() {
         }
 
         // 2) Not logged in -> see if guest language exists in storage
-        const candidateKeys = ["app.language", "charaivati.lang", "language", "preferredLanguage"];
+        // "lang" is the key LanguageProvider reads/writes — must be first
+        const candidateKeys = ["lang", "app.language", "charaivati.lang", "language", "preferredLanguage"];
         let savedLang: string | null = null;
         try {
           for (const k of candidateKeys) {
@@ -100,7 +101,7 @@ export default function LandingPage() {
         const json = await res.json().catch(() => null);
         if (!alive) return;
         if (json?.ok && Array.isArray(json.data)) {
-          setLangs(json.data.map((r: any) => ({ id: r.id, name: r.name, code: r.code })));
+          setLangs(json.data.map((r: any) => ({ id: r.id, name: r.name, code: r.code, nativeName: r.nativeName ?? null })));
         } else {
           setLangs([]);
         }
@@ -117,11 +118,12 @@ export default function LandingPage() {
   }, []);
 
   async function onChoose(lang: Lang) {
+    const code = lang.code || lang.name;
     try {
       try {
-        localStorage.setItem("app.language", lang.name);
+        localStorage.setItem("app.language", code);
       } catch {}
-      await setLanguage(lang.name);
+      await setLanguage(code);
       router.replace("/login");
     } catch (e) {
       alert(`Failed to set language: ${e}`);
@@ -149,12 +151,13 @@ export default function LandingPage() {
         alert(`Failed to add language: ${msg}`);
         return;
       }
-      const newLang: Lang = { id: json.data.id, name: json.data.name, code: json.data.code };
+      const newLang: Lang = { id: json.data.id, name: json.data.name, code: json.data.code, nativeName: json.data.nativeName ?? null };
       setLangs((prev) => [...prev, newLang]);
+      const newCode = newLang.code || newLang.name;
       try {
-        localStorage.setItem("app.language", newLang.name);
+        localStorage.setItem("app.language", newCode);
       } catch {}
-      await setLanguage(newLang.name);
+      await setLanguage(newCode);
       router.replace("/login");
     } catch (e: any) {
       setAddError(String(e?.message ?? e));
@@ -208,8 +211,8 @@ export default function LandingPage() {
                   onClick={() => onChoose(l)}
                   className="w-44 h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform hover:scale-105 transition-all"
                 >
-                  <div className="text-xl font-semibold">{l.name}</div>
-                  <div className="text-xs text-gray-400">ID: {l.id}{l.code ? ` • ${l.code}` : ""}</div>
+                  <div className="text-xl font-semibold">{l.nativeName || l.name}</div>
+                  <div className="text-xs text-gray-400">{l.name}{l.code ? ` · ${l.code}` : ""}</div>
                 </button>
               ))}
             </div>

@@ -9,10 +9,11 @@ export async function GET() {
     const langs = await prisma.language.findMany({
       where: { enabled: true },
       orderBy: { id: "asc" },
-      select: { 
-        id: true, 
-        code: true, 
-        name: true 
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        nativeName: true,
       },
     });
 
