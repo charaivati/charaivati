@@ -69,6 +69,14 @@ export default function EarningTab() {
   const [newDesc, setNewDesc] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [pageType, setPageType] = useState<"standard" | "health">("standard");
+  const [hbSpecialty, setHbSpecialty] = useState<string>("");
+  const [hbCredentials, setHbCredentials] = useState<string>("");
+  const [hbConsultMode] = useState<string>("manual");
+  const [hbTagsInput, setHbTagsInput] = useState<string>("");
+  const [hbTiers, setHbTiers] = useState<{ name: string; price: string; description: string }[]>([
+    { name: "", price: "", description: "" },
+  ]);
 
   const [composerText, setComposerText] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState<string>("");
@@ -140,6 +148,13 @@ export default function EarningTab() {
     }
   }, [selectedBusiness, visibility, slugTags]);
 
+  function resetHealthForm() {
+    setHbSpecialty("");
+    setHbCredentials("");
+    setHbTagsInput("");
+    setHbTiers([{ name: "", price: "", description: "" }]);
+  }
+
   async function addPage() {
     setError(null);
     const title = newTitle.trim();
@@ -150,6 +165,10 @@ export default function EarningTab() {
     }
     if (pages?.some((p) => p.title.toLowerCase() === title.toLowerCase())) {
       setError("You already have a page with this title");
+      return;
+    }
+    if (pageType === "health" && !hbSpecialty) {
+      setError("Please select a specialty");
       return;
     }
     const temp: PageItem = {
@@ -166,7 +185,7 @@ export default function EarningTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ title, description }),
+        body: JSON.stringify({ title, description, type: pageType }),
       });
       if (!resp.ok) {
         const m = resp.json?.error || resp.rawText || `Status ${resp.status}`;
@@ -175,8 +194,34 @@ export default function EarningTab() {
       if (!resp.json?.ok) throw new Error(resp.json?.error || "Unknown error");
       const created = resp.json.page as PageItem;
       setPages((prev) => (prev ? prev.map((p) => (p.id === temp.id ? created : p)) : [created]));
+
+      if (pageType === "health") {
+        const tagSet = new Set(
+          hbTagsInput.split(",").map((t) => t.trim()).filter(Boolean)
+        );
+        tagSet.add(hbSpecialty);
+        const hbResp = await safeFetchJson("/api/health-business/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            pageId: created.id,
+            specialty: hbSpecialty,
+            credentials: hbCredentials.trim() || null,
+            consultationMode: hbConsultMode,
+            searchTags: Array.from(tagSet),
+            tiers: hbTiers.filter((t) => t.name.trim()),
+          }),
+        });
+        if (!hbResp.ok || !hbResp.json?.ok) {
+          throw new Error(hbResp.json?.error || "Failed to save health business details");
+        }
+      }
+
       setNewTitle("");
       setNewDesc("");
+      setPageType("standard");
+      resetHealthForm();
       setSelectedBusiness(created.id);
       try {
         localStorage.setItem(LS_SELECTED_BUSINESS, created.id);
@@ -613,6 +658,41 @@ export default function EarningTab() {
           {/* Create New Business */}
           <div className="pt-2 border-t border-gray-800 space-y-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Add a Business</p>
+
+            {/* Page type selector */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setPageType("standard")}
+                disabled={adding}
+                className={`p-3 rounded-xl border text-left transition-all disabled:opacity-50 ${
+                  pageType === "standard"
+                    ? "border-blue-500 bg-blue-500/10"
+                    : "border-gray-700 bg-gray-900 hover:border-gray-500"
+                }`}
+              >
+                <p className={`text-sm font-medium ${pageType === "standard" ? "text-blue-300" : "text-white"}`}>
+                  General Business
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">Products, services, bookings, links</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPageType("health")}
+                disabled={adding}
+                className={`p-3 rounded-xl border text-left transition-all disabled:opacity-50 ${
+                  pageType === "health"
+                    ? "border-emerald-500 bg-emerald-500/10"
+                    : "border-gray-700 bg-gray-900 hover:border-gray-500"
+                }`}
+              >
+                <p className={`text-sm font-medium ${pageType === "health" ? "text-emerald-300" : "text-white"}`}>
+                  Health &amp; Wellness
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">Coaching, nutrition, fitness, mental health</p>
+              </button>
+            </div>
+
             <input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
@@ -628,10 +708,161 @@ export default function EarningTab() {
               className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 resize-none min-h-[70px] outline-none"
               rows={3}
             />
+
+            {pageType === "health" && (
+              <div className="space-y-4 p-4 rounded-xl border border-emerald-800/40 bg-emerald-950/20">
+
+                {/* Specialty */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Specialty *</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(["nutrition", "fitness", "sleep", "mental", "holistic"] as const).map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        disabled={adding}
+                        onClick={() => setHbSpecialty(s)}
+                        className={`px-3 py-1.5 rounded-full text-sm border transition-all capitalize disabled:opacity-50 ${
+                          hbSpecialty === s
+                            ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
+                            : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Credentials */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Credentials</p>
+                  <textarea
+                    value={hbCredentials}
+                    onChange={(e) => setHbCredentials(e.target.value)}
+                    placeholder="e.g. MSc Nutrition, 8 years experience..."
+                    disabled={adding}
+                    rows={2}
+                    className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 resize-none outline-none"
+                  />
+                </div>
+
+                {/* Consultation mode */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Consultation Mode</p>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-3 p-3 rounded-lg border border-emerald-600/50 bg-emerald-900/20 cursor-pointer">
+                      <span className="w-4 h-4 rounded-full border-2 border-emerald-500 flex items-center justify-center shrink-0">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      </span>
+                      <div>
+                        <p className="text-sm text-white font-medium">Manual</p>
+                        <p className="text-xs text-gray-500">I&apos;ll respond personally</p>
+                      </div>
+                    </label>
+                    {[
+                      { key: "rules", label: "Rules", sub: "Set automated protocols" },
+                      { key: "agent", label: "Agent", sub: "AI trained on my advice" },
+                    ].map(({ key, label, sub }) => (
+                      <div key={key} className="flex items-center gap-3 p-3 rounded-lg border border-gray-800 bg-gray-900/50 opacity-50 cursor-not-allowed">
+                        <span className="w-4 h-4 rounded-full border-2 border-gray-600 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-500 font-medium">{label}</p>
+                          <p className="text-xs text-gray-600">{sub}</p>
+                        </div>
+                        <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full">Coming soon</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Search tags */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Search Tags</p>
+                  <input
+                    value={hbTagsInput}
+                    onChange={(e) => setHbTagsInput(e.target.value)}
+                    placeholder="e.g. bengali-diet, weight-loss, cortisol"
+                    disabled={adding}
+                    className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none"
+                  />
+                  <p className="text-xs text-gray-600 mt-1">Comma separated. Specialty is auto-included.</p>
+                </div>
+
+                {/* Subscription tiers */}
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Subscription Tiers</p>
+                  <div className="space-y-2">
+                    {hbTiers.map((tier, i) => (
+                      <div key={i} className="p-3 rounded-lg border border-gray-700 bg-gray-900 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={tier.name}
+                            onChange={(e) => {
+                              const next = [...hbTiers];
+                              next[i] = { ...next[i], name: e.target.value };
+                              setHbTiers(next);
+                            }}
+                            placeholder="Tier name (e.g. Basic)"
+                            disabled={adding}
+                            className="flex-1 p-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none"
+                          />
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-gray-500">₹</span>
+                            <input
+                              value={tier.price}
+                              onChange={(e) => {
+                                const next = [...hbTiers];
+                                next[i] = { ...next[i], price: e.target.value };
+                                setHbTiers(next);
+                              }}
+                              placeholder="0/mo"
+                              disabled={adding}
+                              className="w-20 p-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none"
+                            />
+                          </div>
+                          {hbTiers.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setHbTiers((prev) => prev.filter((_, idx) => idx !== i))}
+                              disabled={adding}
+                              className="text-gray-600 hover:text-red-400 transition-colors text-sm"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        <input
+                          value={tier.description}
+                          onChange={(e) => {
+                            const next = [...hbTiers];
+                            next[i] = { ...next[i], description: e.target.value };
+                            setHbTiers(next);
+                          }}
+                          placeholder="What's included in this tier..."
+                          disabled={adding}
+                          className="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {hbTiers.length < 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setHbTiers((prev) => [...prev, { name: "", price: "", description: "" }])}
+                      disabled={adding}
+                      className="mt-2 text-xs text-emerald-400 hover:text-emerald-300 transition-colors disabled:opacity-50"
+                    >
+                      + Add tier
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             {error && <p className="text-red-400 text-sm">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => { setNewTitle(""); setNewDesc(""); setError(null); }}
+                onClick={() => { setNewTitle(""); setNewDesc(""); setError(null); resetHealthForm(); setPageType("standard"); }}
                 className="px-4 py-2 rounded-lg border border-gray-700 bg-gray-900 hover:border-gray-500 text-sm text-gray-300 transition-colors disabled:opacity-50"
                 disabled={adding}
               >

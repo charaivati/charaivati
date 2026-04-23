@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import ConsentModal from "@/components/health/ConsentModal";
 import { useParams } from "next/navigation";
 import {
   DndContext,
@@ -20,7 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 // --- TYPE DEFINITIONS ---
 type MediaType = "image" | "video" | "link" | "none";
-type ActionType = "view" | "buy" | "book" | "contact";
+type ActionType = "view" | "buy" | "book" | "contact" | "subscribe";
 type SectionType = "grid" | "list" | "featured" | "carousel";
 
 type Block = {
@@ -47,6 +48,7 @@ type Store = {
   description?: string | null;
   avatarUrl?: string | null;
   bannerUrl?: string | null;
+  pageId?: string | null;
   isOwner: boolean;
   sections: Section[];
 };
@@ -101,7 +103,37 @@ function MediaThumb({
   );
 }
 
-function ProductCard({ block }: { block: Block }) {
+function ProductCard({ block, onSubscribeClick }: { block: Block; onSubscribeClick?: () => void }) {
+  if (block.actionType === "subscribe") {
+    return (
+      <div className="rounded-md bg-white hover:shadow-md transition-shadow" style={{ border: `1px solid ${A.border}` }}>
+        <div className="p-3">
+          <MediaThumb block={block} className="w-full aspect-[4/3]" editMode={false} />
+        </div>
+        <div className="px-3 pb-4">
+          <p className="text-sm font-semibold leading-snug line-clamp-2" style={{ color: A.text }}>
+            {block.title || "Subscription"}
+          </p>
+          {block.description && (
+            <p className="text-xs mt-1 line-clamp-2" style={{ color: A.textMuted }}>{block.description}</p>
+          )}
+          {block.price != null && (
+            <p className="text-sm font-medium mt-1" style={{ color: A.text }}>
+              ₹{block.price.toLocaleString("en-IN")}<span className="text-xs font-normal" style={{ color: A.textMuted }}>/mo</span>
+            </p>
+          )}
+          <button
+            onClick={onSubscribeClick}
+            className="mt-3 w-full text-xs font-semibold px-3 py-2 rounded-md"
+            style={{ background: "#0d9f6e", color: "#fff", border: "1px solid #0a8a60" }}
+          >
+            Subscribe
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-md bg-white hover:shadow-md transition-shadow" style={{ border: `1px solid ${A.border}` }}>
       <div className="p-3">
@@ -146,7 +178,10 @@ function ProductCard({ block }: { block: Block }) {
   );
 }
 
-function ProductRow({ block }: { block: Block }) {
+function ProductRow({ block, onSubscribeClick }: { block: Block; onSubscribeClick?: () => void }) {
+  if (block.actionType === "subscribe") {
+    return <ProductCard block={block} onSubscribeClick={onSubscribeClick} />;
+  }
   return (
     <div className="flex gap-4 p-4 rounded-md" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
       <div className="w-52 shrink-0">
@@ -199,11 +234,13 @@ function SortableSection({
   editMode,
   onBlocksReorder,
   onAddBlock,
+  onSubscribeBlock,
 }: {
   section: Section;
   editMode: boolean;
   onBlocksReorder: (sectionId: string, newBlocks: Block[]) => void;
   onAddBlock: (sectionId: string) => void;
+  onSubscribeBlock?: (block: Block) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: section.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
@@ -227,7 +264,7 @@ function SortableSection({
             <div className="flex gap-4">
               {section.blocks.map((b) => (
                 <div key={b.id} className="w-64 shrink-0">
-                  <ProductCard block={b} />
+                  <ProductCard block={b} onSubscribeClick={() => onSubscribeBlock?.(b)} />
                 </div>
               ))}
             </div>
@@ -237,18 +274,17 @@ function SortableSection({
         return (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {section.blocks.map((b) => (
-              <ProductRow key={b.id} block={b} />
+              <ProductRow key={b.id} block={b} onSubscribeClick={() => onSubscribeBlock?.(b)} />
             ))}
           </div>
         );
       case "list":
       case "grid":
       default:
-        // Both list and grid now render as a 5-column grid
         return (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-4">
             {section.blocks.map((b) => (
-              <ProductCard key={b.id} block={b} />
+              <ProductCard key={b.id} block={b} onSubscribeClick={() => onSubscribeBlock?.(b)} />
             ))}
           </div>
         );
@@ -558,6 +594,32 @@ export default function StorePage() {
   const [editMode, setEditMode] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
   const [addBlockForSection, setAddBlockForSection] = useState<string | null>(null);
+  const [subscribingBlock, setSubscribingBlock] = useState<Block | null>(null);
+  const [subscribeStatus, setSubscribeStatus] = useState<"idle" | "success" | "error">("idle");
+
+  async function handleSubscribeConfirm(consentFields: string[]) {
+    if (!subscribingBlock || !store?.pageId) return;
+    try {
+      const res = await fetch(`/api/pages/${store.pageId}/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          tier: subscribingBlock.title,
+          consentGranted: true,
+          consentTimestamp: new Date().toISOString(),
+          consentFields,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.subscribed) throw new Error(data.error || "Subscription failed");
+      setSubscribeStatus("success");
+    } catch {
+      setSubscribeStatus("error");
+    } finally {
+      setSubscribingBlock(null);
+    }
+  }
 
   const fetchStore = useCallback(async () => {
     try {
@@ -639,6 +701,17 @@ export default function StorePage() {
           </div>
         )}
 
+        {subscribeStatus === "success" && (
+          <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#0d9f6e22", color: "#0d9f6e", border: "1px solid #0d9f6e55" }}>
+            ✓ Subscribed successfully!
+          </div>
+        )}
+        {subscribeStatus === "error" && (
+          <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#ff444422", color: "#ff4444", border: "1px solid #ff444455" }}>
+            Subscription failed. Please try again.
+          </div>
+        )}
+
         {editMode ? (
           <DndContext sensors={sensorsSections} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
             <SortableContext items={store.sections.map((s) => s.id)} strategy={verticalListSortingStrategy}>
@@ -649,6 +722,7 @@ export default function StorePage() {
                   editMode={editMode}
                   onBlocksReorder={handleBlocksReorder}
                   onAddBlock={(sid) => setAddBlockForSection(sid)}
+                  onSubscribeBlock={(block) => { setSubscribingBlock(block); setSubscribeStatus("idle"); }}
                 />
               ))}
             </SortableContext>
@@ -661,6 +735,7 @@ export default function StorePage() {
               editMode={editMode}
               onBlocksReorder={handleBlocksReorder}
               onAddBlock={(sid) => setAddBlockForSection(sid)}
+              onSubscribeBlock={(block) => { setSubscribingBlock(block); setSubscribeStatus("idle"); }}
             />
           ))
         )}
@@ -683,6 +758,13 @@ export default function StorePage() {
       )}
       {addBlockForSection && (
         <AddBlockModal sectionId={addBlockForSection} onClose={() => setAddBlockForSection(null)} onCreated={(block) => onBlockCreated(addBlockForSection, block)} />
+      )}
+      {subscribingBlock && store && (
+        <ConsentModal
+          expertName={store.name}
+          onConfirm={handleSubscribeConfirm}
+          onCancel={() => setSubscribingBlock(null)}
+        />
       )}
     </div>
   );

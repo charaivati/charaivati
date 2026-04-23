@@ -84,7 +84,7 @@ function SelfPageContent() {
     <SelfSkillsProvider>
       <div className="max-w-3xl mx-auto">
         {/* SelfTab is always mounted so its state survives tab switches */}
-        <div style={{ display: active === "personal" ? undefined : "none" }}>
+        <div suppressHydrationWarning style={{ display: active === "personal" ? undefined : "none" }}>
           <SelfTab profile={profile} />
         </div>
         {active === "social" && <SocialTab profile={profile} />}

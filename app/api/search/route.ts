@@ -34,9 +34,24 @@ export async function GET(request: Request) {
       orderBy: { name: "asc" },
     }),
     prisma.page.findMany({
-      where: { title: { contains: q, mode: "insensitive" } },
-      select: { id: true, title: true, description: true, avatarUrl: true },
-      take: 10,
+      where: {
+        status: "active",
+        OR: [
+          { title: { contains: q, mode: "insensitive" } },
+          { healthBusiness: { specialty: { contains: q, mode: "insensitive" } } },
+          { healthBusiness: { searchTags: { hasSome: [q] } } },
+          { healthBusiness: { credentials: { contains: q, mode: "insensitive" } } },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        type: true,
+        avatarUrl: true,
+        healthBusiness: { select: { specialty: true } },
+        _count: { select: { followers: true } },
+      },
+      take: 5,
       orderBy: { createdAt: "desc" },
     }),
   ]);
@@ -50,11 +65,13 @@ export async function GET(request: Request) {
       avatarUrl: u.avatarUrl ?? null,
     })),
     ...pages.map((p) => ({
+      type: "page" as const,
       id: p.id,
-      type: "page",
-      name: p.title,
-      subtitle: p.description ?? undefined,
+      title: p.title,
+      pageType: p.type,
+      specialty: p.healthBusiness?.specialty ?? null,
       avatarUrl: p.avatarUrl ?? null,
+      followerCount: p._count.followers,
     })),
   ];
 

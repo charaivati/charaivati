@@ -18,8 +18,14 @@ export default function SelfTab({ profile }: { profile?: any }) {
   }, [s.goals, s.generalSkills, setSkillsSnapshot]);
 
   // ── Delayed content reveal after drive picker collapses ──────────────────────
-  const [skipped, setSkipped] = useState(false);
-  const [showContent, setShowContent] = useState(s.drives.length > 0);
+  const OB_SKIP_KEY = "charaivati_ob_skipped";
+  const [skipped, setSkipped] = useState(() => {
+    try { return localStorage.getItem("charaivati_ob_skipped") === "1"; } catch { return false; }
+  });
+  const [showContent, setShowContent] = useState(() => {
+    if (s.drives.length > 0) return true;
+    try { return localStorage.getItem("charaivati_ob_skipped") === "1"; } catch { return false; }
+  });
   const [highlightGeneral, setHighlightGeneral] = useState(false);
 
   // ── Onboarding open ───────────────────────────────────────────────────────────
@@ -28,7 +34,14 @@ export default function SelfTab({ profile }: { profile?: any }) {
   useEffect(() => {
     if (!s.profileReady || onboardingInitialized.current) return;
     onboardingInitialized.current = true;
-    setOnboardingOpen(s.drives.length === 0);
+    if (s.drives.length === 0) {
+      const wasSkipped = (() => { try { return localStorage.getItem(OB_SKIP_KEY) === "1"; } catch { return false; } })();
+      if (wasSkipped) {
+        setSkipped(true); // stay in skipped state, don't open onboarding
+      } else {
+        setOnboardingOpen(true);
+      }
+    }
   }, [s.profileReady, s.drives.length]);
 
   // Buffer completions during the onboarding flow
@@ -72,6 +85,7 @@ export default function SelfTab({ profile }: { profile?: any }) {
   function handleSkip() {
     pendingGoalsRef.current = [];
     s.applyOnboardingResult([], []);
+    try { localStorage.setItem(OB_SKIP_KEY, "1"); } catch {}
     setSkipped(true);
     setOnboardingOpen(false);
     // Scroll to canvas after it mounts (showContent fires at 700ms)
@@ -127,7 +141,9 @@ export default function SelfTab({ profile }: { profile?: any }) {
               );
               const firstNewId = newGoals[0]?.id ?? null;
               pendingGoalsRef.current = [];
+              try { localStorage.removeItem(OB_SKIP_KEY); } catch {}
               s.applyOnboardingResult(finalDrives, [...existingWithStatements, ...filteredEmpty, ...newGoals]);
+              setSkipped(false);
               setOnboardingOpen(false);
               if (firstNewId) {
                 setTimeout(() => {

@@ -55,12 +55,14 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const title = (body.title || "").trim();
     const description = (body.description || "").trim();
+    const rawType = (body.type || "").trim();
+    const type = rawType === "health" ? "health" : "standard";
 
     if (!title) return NextResponse.json({ error: "title_required" }, { status: 400 });
 
     const page = await prisma.page.create({
-      data: { ownerId: user.id, title, description: description || null },
-      select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true },
+      data: { ownerId: user.id, title, description: description || null, type },
+      select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true, type: true },
     });
 
     return NextResponse.json({ ok: true, page }, { status: 201 });
