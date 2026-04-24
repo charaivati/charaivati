@@ -18,6 +18,8 @@ export type EnvironmentCue = {
   text: string;
   linkedContext: string;
   savedAt?: string;
+  done?: boolean;
+  userAdded?: boolean;
 };
 
 export type EnvironmentProfile = {
@@ -57,17 +59,36 @@ const CUE_TABS: { id: CueType; label: string; icon: string }[] = [
 
 const CUE_ICON: Record<CueType, string> = { space: "🏠", people: "👥", ritual: "🔁" };
 
-// ─── Fallback cues ────────────────────────────────────────────────────────────
+// ─── Fallback pool (shuffled so "New" always feels fresh) ────────────────────
+
+const FALLBACK_POOL: Omit<EnvironmentCue, "id">[] = [
+  { type: "space",   text: "Keep your current project materials visible on your desk.", linkedContext: "Focus" },
+  { type: "space",   text: "Try a dedicated workspace with minimal distractions.", linkedContext: "Productivity" },
+  { type: "space",   text: "Put a whiteboard or sticky-note wall in your line of sight.", linkedContext: "Clarity" },
+  { type: "space",   text: "Clear your desk at the end of each day to reset mentally.", linkedContext: "Reset ritual" },
+  { type: "space",   text: "Place a meaningful object that reminds you of your goal nearby.", linkedContext: "Motivation" },
+  { type: "people",  text: "Consider connecting with someone who shares your goals weekly.", linkedContext: "Accountability" },
+  { type: "people",  text: "It helps to have someone you can share progress with regularly.", linkedContext: "Support" },
+  { type: "people",  text: "Try scheduling a bi-weekly check-in with a peer or mentor.", linkedContext: "Growth" },
+  { type: "people",  text: "Identify one person you can teach what you're learning — it deepens retention.", linkedContext: "Learning" },
+  { type: "people",  text: "Consider reducing time with people who consistently drain your focus.", linkedContext: "Energy" },
+  { type: "ritual",  text: "Try a brief daily review of your top priorities each morning.", linkedContext: "Planning" },
+  { type: "ritual",  text: "Consider a wind-down ritual to clearly separate work and rest time.", linkedContext: "Balance" },
+  { type: "ritual",  text: "Start work sessions with a 2-minute intention: what is the one thing that matters today?", linkedContext: "Focus" },
+  { type: "ritual",  text: "Try a short walk before deep-work blocks to prime your focus.", linkedContext: "Mental clarity" },
+  { type: "ritual",  text: "End each week with a 10-minute review of what moved and what didn't.", linkedContext: "Reflection" },
+];
+
+function pickRandom<T>(arr: T[], n: number): T[] {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, n);
+}
 
 function makeFallbackCues(): EnvironmentCue[] {
-  return [
-    { id: uid(), type: "space",   text: "Keep your current project materials visible on your desk.", linkedContext: "Focus" },
-    { id: uid(), type: "space",   text: "Try a dedicated workspace with minimal distractions.", linkedContext: "Productivity" },
-    { id: uid(), type: "people",  text: "Consider connecting with someone who shares your goals weekly.", linkedContext: "Accountability" },
-    { id: uid(), type: "people",  text: "It helps to have someone you can share progress with regularly.", linkedContext: "Support" },
-    { id: uid(), type: "ritual",  text: "Try a brief daily review of your top priorities each morning.", linkedContext: "Planning" },
-    { id: uid(), type: "ritual",  text: "Consider a wind-down ritual to separate work and rest time.", linkedContext: "Balance" },
-  ];
+  const space   = pickRandom(FALLBACK_POOL.filter(c => c.type === "space"),   2);
+  const people  = pickRandom(FALLBACK_POOL.filter(c => c.type === "people"),  2);
+  const ritual  = pickRandom(FALLBACK_POOL.filter(c => c.type === "ritual"),  2);
+  return [...space, ...people, ...ritual].map(c => ({ ...c, id: uid() }));
 }
 
 // ─── Skeleton card ────────────────────────────────────────────────────────────
@@ -97,7 +118,13 @@ export function EnvironmentSection({
 }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [activeTab, setActiveTab]     = useState<CueType>("space");
+  const [addOpen, setAddOpen]         = useState(false);
+  const [addText, setAddText]         = useState("");
+  const [addType, setAddType]         = useState<CueType>("space");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep a ref so async onSuccess callbacks always see the latest env (never stale)
+  const envRef = useRef(env);
+  useEffect(() => { envRef.current = env; });
 
   const { loading: generating, generate } = useAIBlock<{ cues: EnvironmentCue[] }>(
     "/api/self/generate-environment-cues"
@@ -121,35 +148,42 @@ export function EnvironmentSection({
     if (!isStale) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      const goalIds     = goals.map(g => g.id).sort();
-      const healthFlags = [...activeHealthFlags].sort();
-      generate(
-        {
-          goals:      goals.map(g => ({ id: g.id, statement: g.statement, description: g.description })),
-          healthFlags: activeHealthFlags,
-          workspace:   env.workspace,
-          livingWith:  env.livingWith,
-        },
-        (data) => {
-          onChange({
-            ...env,
-            suggestions:      data.cues ?? [],
-            lastGeneratedFor: { goalIds, healthFlags },
-          });
-        },
-        () => ({ cues: makeFallbackCues() })
-      );
+      runGenerate();
     }, 1500);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStale]);
 
-  // ── Derived display values (migrate legacy flat fields) ──────────────────────
+  // ── Shared generate call (used by both auto and manual button) ───────────────
+  function runGenerate() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const goalIds     = goals.map(g => g.id).sort();
+    const healthFlags = [...activeHealthFlags].sort();
+    generate(
+      {
+        goals:       goals.map(g => ({ id: g.id, statement: g.statement, description: g.description })),
+        healthFlags: activeHealthFlags,
+        workspace:   env.workspace,
+        livingWith:  env.livingWith,
+      },
+      (data) => {
+        onChange({
+          ...envRef.current,
+          suggestions:      data.cues ?? [],
+          lastGeneratedFor: { goalIds, healthFlags },
+        });
+      },
+      () => ({ cues: makeFallbackCues() })
+    );
+  }
+
+  // ── Derived display values ───────────────────────────────────────────────────
   const city     = env.location?.city     ?? env.city     ?? "";
   const country  = env.location?.country  ?? env.country  ?? "";
   const timezone = env.location?.timezone ?? env.timezone ?? "";
 
   const filteredSuggestions = env.suggestions.filter(c => c.type === activeTab);
+  const doneCount           = env.pinned.filter(c => c.done).length;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -171,17 +205,41 @@ export function EnvironmentSection({
     });
   }
   function pinCue(cue: EnvironmentCue) {
+    // Ignore if the same text is already saved (prevents duplicates when pressing New)
+    if (env.pinned.some(p => p.text === cue.text)) return;
     onChange({
       ...env,
       suggestions: env.suggestions.filter(c => c.id !== cue.id),
-      pinned:      [...env.pinned, { ...cue, savedAt: new Date().toISOString() }],
+      pinned:      [...env.pinned, { ...cue, savedAt: new Date().toISOString(), done: false }],
     });
   }
   function dismissCue(id: string) {
     onChange({ ...env, suggestions: env.suggestions.filter(c => c.id !== id) });
   }
-  function unpinCue(id: string) {
+  function removePinned(id: string) {
     onChange({ ...env, pinned: env.pinned.filter(c => c.id !== id) });
+  }
+  function toggleDone(id: string) {
+    onChange({
+      ...env,
+      pinned: env.pinned.map(c => c.id === id ? { ...c, done: !c.done } : c),
+    });
+  }
+  function addUserItem() {
+    const text = addText.trim();
+    if (!text) return;
+    const newCue: EnvironmentCue = {
+      id:            uid(),
+      type:          addType,
+      text,
+      linkedContext: "My note",
+      savedAt:       new Date().toISOString(),
+      done:          false,
+      userAdded:     true,
+    };
+    onChange({ ...env, pinned: [...env.pinned, newCue] });
+    setAddText("");
+    setAddOpen(false);
   }
 
   // ── Styles ───────────────────────────────────────────────────────────────────
@@ -289,22 +347,34 @@ export function EnvironmentSection({
       {/* ── Suggestions section ── */}
       <div className="space-y-3">
 
-        {/* Tab pills */}
-        <div className="flex gap-1.5">
-          {CUE_TABS.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
-                activeTab === tab.id
-                  ? "bg-white/10 border-white/20 text-white"
-                  : "bg-transparent border-white/10 text-zinc-500 hover:border-white/15 hover:text-zinc-400"
-              }`}
-            >
-              {tab.icon} {tab.label}
-            </button>
-          ))}
+        {/* Tab pills + New suggestions button */}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5 flex-1">
+            {CUE_TABS.map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  activeTab === tab.id
+                    ? "bg-white/10 border-white/20 text-white"
+                    : "bg-transparent border-white/10 text-zinc-500 hover:border-white/15 hover:text-zinc-400"
+                }`}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={runGenerate}
+            disabled={generating}
+            title="Generate new suggestions"
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-zinc-500 hover:text-zinc-200 border border-white/10 hover:border-white/20 hover:bg-white/5 transition-colors disabled:opacity-40 flex-shrink-0"
+          >
+            <span className={generating ? "animate-spin inline-block" : ""}>↻</span>
+            New
+          </button>
         </div>
 
         {/* Cards */}
@@ -320,20 +390,28 @@ export function EnvironmentSection({
               {env.lastGeneratedFor ? "No suggestions right now" : "Generating your first suggestions…"}
             </p>
           ) : (
-            filteredSuggestions.map(cue => (
+            filteredSuggestions.map(cue => {
+              const alreadySaved = env.pinned.some(p => p.text === cue.text);
+              return (
               <div key={cue.id} className="bg-zinc-800 rounded-lg p-3 space-y-1.5 border border-white/5">
                 <p className="text-sm text-zinc-100 leading-relaxed">{cue.text}</p>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-zinc-500">{cue.linkedContext}</span>
                   <div className="flex gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => pinCue(cue)}
-                      title="Pin this"
-                      className="p-1.5 rounded text-zinc-500 hover:text-white hover:bg-white/8 transition-colors text-sm leading-none"
-                    >
-                      📌
-                    </button>
+                    {alreadySaved ? (
+                      <span className="flex items-center gap-1 px-2 py-1 text-xs text-green-500 leading-none">
+                        ✓ Saved
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => pinCue(cue)}
+                        title="Save to My environment"
+                        className="flex items-center gap-1 px-2 py-1 rounded text-zinc-500 hover:text-white hover:bg-white/8 transition-colors text-xs leading-none"
+                      >
+                        📌 Save
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => dismissCue(cue.id)}
@@ -345,36 +423,70 @@ export function EnvironmentSection({
                   </div>
                 </div>
               </div>
-            ))
+            );})
           )}
         </div>
       </div>
 
-      {/* ── Pinned notes ── */}
-      {env.pinned.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">My environment</p>
+      {/* ── My environment (pinned + user-added) ── */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">My environment</p>
+          {env.pinned.length > 0 && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/8 border border-white/10 text-zinc-400 font-medium">
-              {env.pinned.length}
+              {doneCount}/{env.pinned.length}
             </span>
-          </div>
+          )}
+        </div>
+
+        {env.pinned.length > 0 && (
           <div className="space-y-2">
             {env.pinned.map(cue => (
-              <div key={cue.id} className="bg-zinc-800/60 rounded-lg p-3 border border-white/5 flex items-start gap-2.5">
-                <span className="text-sm flex-shrink-0 mt-0.5">{CUE_ICON[cue.type]}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-zinc-200">{cue.text}</p>
-                  {cue.savedAt && (
-                    <p className="text-[10px] text-zinc-600 mt-0.5">
-                      Pinned {new Date(cue.savedAt).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
+              <div
+                key={cue.id}
+                className={`rounded-lg p-3 border flex items-start gap-2.5 transition-colors ${
+                  cue.done
+                    ? "bg-zinc-800/30 border-green-500/15"
+                    : "bg-zinc-800/60 border-white/5"
+                }`}
+              >
+                {/* Done toggle */}
                 <button
                   type="button"
-                  onClick={() => unpinCue(cue.id)}
-                  title="Unpin"
+                  onClick={() => toggleDone(cue.id)}
+                  title={cue.done ? "Mark undone" : "Mark done"}
+                  className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center mt-0.5 transition-colors ${
+                    cue.done
+                      ? "border-green-500 bg-green-500/20 text-green-400"
+                      : "border-zinc-600 hover:border-zinc-400"
+                  }`}
+                >
+                  {cue.done && (
+                    <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
+                      <path d="M1 3.5L3.5 6L8 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+
+                {/* Type icon */}
+                <span className="text-sm flex-shrink-0 mt-0.5">{CUE_ICON[cue.type]}</span>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm leading-relaxed ${cue.done ? "line-through text-zinc-500" : "text-zinc-200"}`}>
+                    {cue.text}
+                  </p>
+                  <p className="text-[10px] text-zinc-600 mt-0.5">
+                    {cue.userAdded ? "Your note" : "Saved suggestion"}
+                    {cue.savedAt && ` · ${new Date(cue.savedAt).toLocaleDateString()}`}
+                  </p>
+                </div>
+
+                {/* Remove */}
+                <button
+                  type="button"
+                  onClick={() => removePinned(cue.id)}
+                  title="Remove"
                   className="flex-shrink-0 p-1.5 rounded text-zinc-600 hover:text-zinc-400 hover:bg-white/8 transition-colors text-xs leading-none"
                 >
                   ✕
@@ -382,8 +494,70 @@ export function EnvironmentSection({
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Add your own */}
+        {!addOpen ? (
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-200 border border-dashed border-white/10 hover:border-white/20 hover:bg-white/5 transition-colors w-full justify-center mt-1"
+          >
+            + Add your own item
+          </button>
+        ) : (
+          <div className="space-y-2 bg-zinc-800/60 rounded-lg p-3 border border-white/10 mt-1">
+            <input
+              autoFocus
+              value={addText}
+              onChange={e => setAddText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") { e.preventDefault(); addUserItem(); }
+                if (e.key === "Escape") { setAddOpen(false); setAddText(""); }
+              }}
+              placeholder="e.g. Move my desk near the window"
+              className={inputCls}
+            />
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Type picker */}
+              <div className="flex gap-1">
+                {CUE_TABS.map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setAddType(tab.id)}
+                    className={`px-2 py-1 rounded text-xs border transition-colors ${
+                      addType === tab.id
+                        ? "bg-white/10 border-white/20 text-white"
+                        : "border-white/10 text-zinc-500 hover:text-zinc-400 hover:border-white/15"
+                    }`}
+                  >
+                    {tab.icon} {tab.label}
+                  </button>
+                ))}
+              </div>
+              {/* Actions */}
+              <div className="flex gap-1.5 ml-auto">
+                <button
+                  type="button"
+                  onClick={() => { setAddOpen(false); setAddText(""); }}
+                  className="px-2.5 py-1 rounded text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={addUserItem}
+                  disabled={!addText.trim()}
+                  className="px-2.5 py-1 rounded text-xs bg-white/10 text-white hover:bg-white/15 border border-white/15 transition-colors disabled:opacity-40"
+                >
+                  Add
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
     </div>
   );

@@ -1,13 +1,19 @@
+// app/api/self/generate-environment-cues/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getUserFromReq } from "@/lib/auth";
 import { callAI, safeJsonParse } from "@/app/api/aiClient";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type RawCue = { type: "space" | "people" | "ritual"; text: string; linkedContext: string };
 type EnvironmentCue = RawCue & { id: string };
 
+// ─── ID helper ────────────────────────────────────────────────────────────────
+
 function genId() {
   return crypto.randomUUID().replace(/-/g, "").slice(0, 9);
 }
+
+// ─── Hardcoded fallback pool ──────────────────────────────────────────────────
 
 function fallbackCues(): EnvironmentCue[] {
   return [
@@ -20,41 +26,62 @@ function fallbackCues(): EnvironmentCue[] {
   ];
 }
 
-const SYSTEM_PROMPT = `You are an environment design advisor helping people optimize their physical spaces, relationships, and daily rituals to support their goals.
-Produce actionable environment suggestions as JSON only — no markdown, no preamble.
-Respond with exactly this shape: { "cues": [ { "type": "space"|"people"|"ritual", "text": "...", "linkedContext": "..." } ] }
+// ─── Prompts ──────────────────────────────────────────────────────────────────
+
+const SYSTEM_PROMPT = `You are an environment design advisor. Respond ONLY with valid JSON. \
+No prose, no markdown, no backticks.
+Schema: { "cues": [ { "type": "space"|"people"|"ritual", "text": string, "linkedContext": string } ] }
 Rules:
-- Return 6–9 cues total, 2–3 per type (space, people, ritual)
-- Space cues: physical arrangement, objects, visibility of materials
-- People cues: who to connect with, accountability structures, relationship quality
-- Ritual cues: anchors, habits tied to specific places or times
-- Tone: advisory, not prescriptive — "Consider...", "Try keeping...", "It helps to..."
-- Each cue must be concrete and immediately actionable
-- Link each cue to a specific goal or life context via linkedContext`;
+- Return 6 to 9 cues total, 2-3 per type.
+- Cues are suggestions for improving environment and relationships, NOT daily tasks.
+- Space cues: physical arrangement, visible objects, workspace setup.
+- People cues: who to connect with, accountability structures, relationship quality.
+- Ritual cues: habits anchored to specific places, times, or objects.
+- Each cue must be concrete and immediately actionable.
+- Tone: advisory. Use "Consider...", "Try keeping...", "It helps to..."
+- linkedContext should name the goal or health issue that prompted the cue, under 6 words.`;
+
+function buildUserMessage(body: {
+  goals?: { statement?: string; description?: string; driveId?: string }[];
+  healthFlags?: string[];
+  workspace?: string;
+  livingWith?: string;
+}): string {
+  const goalLines = (body.goals ?? [])
+    .map(g => {
+      const title = (g.statement || g.description || "").trim();
+      return g.driveId ? `${title} (${g.driveId})` : title;
+    })
+    .filter(Boolean)
+    .join(", ");
+
+  return [
+    `Goals: ${goalLines || "none"}`,
+    `Health concerns: ${(body.healthFlags ?? []).join(", ") || "none"}`,
+    `Workspace: ${body.workspace || "not specified"}`,
+    `Living situation: ${body.livingWith || "not specified"}`,
+    `Suggest environment and relationship improvements.`,
+  ].join("\n");
+}
+
+// ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const user = await getUserFromReq(req);
-  if (!user) return NextResponse.json({ cues: fallbackCues() });
-
   const body = await req.json().catch(() => null);
   if (!body) return NextResponse.json({ cues: fallbackCues() });
 
-  const goalTexts = (body.goals ?? [])
-    .map((g: { statement?: string; description?: string }) => g.statement || g.description || "")
-    .filter(Boolean)
-    .join("; ");
-
-  const prompt = `Goals: ${goalTexts || "none specified"}
-Health flags: ${(body.healthFlags ?? []).join(", ") || "none"}
-Workspace: ${body.workspace || "not specified"}
-Living with: ${body.livingWith || "not specified"}`;
-
   try {
-    const raw    = await callAI({ prompt, systemPrompt: SYSTEM_PROMPT, maxTokens: 700 });
+    const raw = await callAI({
+      prompt:       buildUserMessage(body),
+      systemPrompt: SYSTEM_PROMPT,
+      provider:     "openrouter",
+      maxTokens:    700,
+    });
+
     const parsed = safeJsonParse<{ cues: RawCue[] }>(raw);
     if (!parsed?.cues?.length) return NextResponse.json({ cues: fallbackCues() });
 
-    const cues = parsed.cues.slice(0, 9).map(c => ({
+    const cues: EnvironmentCue[] = parsed.cues.slice(0, 9).map(c => ({
       id:            genId(),
       type:          c.type,
       text:          c.text,

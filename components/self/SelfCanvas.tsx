@@ -20,7 +20,7 @@ import { TimelineList } from "@/components/timeline/TimelineList";
 import type {
   GoalEntry, HealthProfile, SkillEntry, DriveType,
   WeekSchedule, FundsProfile, EnvironmentProfile,
-  FrequencyType, JoyProfile, DayKey,
+  FrequencyType, JoyProfile, DayKey, PageItem,
 } from "@/types/self";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -497,6 +497,7 @@ function ExpandedPanel({
   health, goals, generalSkills, skillsLoading,
   weekSchedule, fundsProfile, environmentProfile, highlightGoalId, highlightGeneral,
   energy, activeHealthFlags,
+  drives, pages,
   setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
   onWeekScheduleChange, onFundsChange, onEnvironmentChange,
   timelineGoal, onTimelineModalClosed,
@@ -508,6 +509,8 @@ function ExpandedPanel({
   environmentProfile: EnvironmentProfile; highlightGoalId: string | null; highlightGeneral?: boolean;
   energy: ReturnType<typeof computeEnergy>;
   activeHealthFlags: string[];
+  drives: DriveType[];
+  pages: PageItem[];
   setHealth: (h: HealthProfile) => void;
   onUpdateGeneralSkills: (s: SkillEntry[]) => void;
   onUpdateGoalSkills: (goalId: string, s: SkillEntry[]) => void;
@@ -551,7 +554,7 @@ function ExpandedPanel({
           />
         )}
         {id === "network"     && <CirclesPanel />}
-        {id === "funds"       && <FundsSection funds={fundsProfile} goals={goals} onChange={onFundsChange} />}
+        {id === "funds"       && <FundsSection funds={fundsProfile} goals={goals} generalSkills={generalSkills} pages={pages} drives={drives} onChange={onFundsChange} />}
         {id === "environment" && (
           <EnvironmentSection
             env={environmentProfile}
@@ -598,6 +601,8 @@ export interface SelfCanvasProps {
   environmentProfile: EnvironmentProfile;
   highlightGoalId: string | null;
   highlightGeneral?: boolean;
+  drives: DriveType[];
+  pages: PageItem[];
   setHealth: (h: HealthProfile) => void;
   onUpdateGeneralSkills: (skills: SkillEntry[]) => void;
   onUpdateGoalSkills: (goalId: string, skills: SkillEntry[]) => void;
@@ -611,6 +616,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
   const {
     health, goals, generalSkills, skillsLoading,
     weekSchedule, fundsProfile, environmentProfile, highlightGoalId, highlightGeneral,
+    drives, pages,
     setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
     onWeekScheduleChange, onFundsChange, onEnvironmentChange,
   } = props;
@@ -750,6 +756,8 @@ export function SelfCanvas(props: SelfCanvasProps) {
         environmentProfile={environmentProfile} highlightGoalId={highlightGoalId} highlightGeneral={highlightGeneral}
         energy={energy}
         activeHealthFlags={activeHealthFlags}
+        drives={drives}
+        pages={pages}
         setHealth={setHealth}
         onUpdateGeneralSkills={onUpdateGeneralSkills}
         onUpdateGoalSkills={onUpdateGoalSkills}

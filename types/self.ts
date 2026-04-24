@@ -118,8 +118,30 @@ export type SaveState = "idle" | "saving" | "saved" | "error";
 // ─── Funds ────────────────────────────────────────────────────────────────────
 export type FundType = 'savings' | 'income' | 'investment' | 'grant' | 'loan';
 export type FundSource = { id: string; name: string; type: FundType; amount: number; currency: string; linkedGoalIds: string[]; notes: string; };
-export type FundsProfile = { sources: FundSource[]; monthlyBurn: number; targetRunway: number; fundsPlan: AIFundsPlan | null; };
 export type AIFundsPlan = { savingsPlan: string; pitchGuidance: string; budgetAllocation: { goalId: string; goalName: string; amount: number; rationale: string }[]; fallback?: boolean; };
+
+// ─── Funds v2 — Balance sheet ─────────────────────────────────────────────────
+export type FundItemTag = 'goal' | 'biz' | 'gov' | 'skill';
+export type FundItem = { id: string; label: string; value: number; tag?: FundItemTag; sourceId?: string; };
+export type FundGroup = { group: string; items: FundItem[]; custom?: boolean; };
+export type FutureCost = { id: string; label: string; when: string; amount: number; sourceId?: string; };
+export type IncomeOpportunity = { title: string; rationale: string; effort: 'easy' | 'medium' | 'hard'; linkedSkill?: string; linkedGoal?: string; };
+export type AIFundsPlanV2 = { suggestions: string[]; incomeOpportunities: IncomeOpportunity[]; savingsPlan?: string; fallback?: boolean; };
+
+export type FundsProfile = {
+  // Legacy — kept for EnergyBlock backward compat
+  sources: FundSource[];
+  monthlyBurn: number;
+  targetRunway: number;
+  fundsPlan: AIFundsPlan | null;
+  // Balance sheet v2 (optional, populated by FundsBlock)
+  incomeGroups?:  FundGroup[];
+  expenseGroups?: FundGroup[];
+  assetGroups?:   FundGroup[];
+  liabGroups?:    FundGroup[];
+  futureCosts?:   FutureCost[];
+  fundsPlanV2?:   AIFundsPlanV2 | null;
+};
 
 // ─── Time ─────────────────────────────────────────────────────────────────────
 export type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
@@ -138,6 +160,8 @@ export type EnvironmentCue = {
   text: string;
   linkedContext: string;
   savedAt?: string;
+  done?: boolean;
+  userAdded?: boolean;
 };
 
 export type EnvironmentProfile = {
