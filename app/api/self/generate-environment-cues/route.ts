@@ -1,6 +1,8 @@
 // app/api/self/generate-environment-cues/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
+
+const MODEL = process.env.ENVIRONMENT_AI_MODEL ?? "openai/gpt-4o-mini";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,11 +73,14 @@ export async function POST(req: NextRequest) {
   if (!body) return NextResponse.json({ cues: fallbackCues() });
 
   try {
-    const raw = await callAI({
-      prompt:       buildUserMessage(body),
-      systemPrompt: SYSTEM_PROMPT,
-      provider:     "openrouter",
-      maxTokens:    700,
+    const raw = await chatComplete({
+      model:       MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user",   content: buildUserMessage(body) },
+      ],
+      maxTokens:   700,
+      temperature: 0.7,
     });
 
     const parsed = safeJsonParse<{ cues: RawCue[] }>(raw);
