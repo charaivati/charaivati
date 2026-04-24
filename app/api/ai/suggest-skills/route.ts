@@ -1,6 +1,8 @@
 // app/api/ai/suggest-skills/route.ts
 import { NextResponse } from "next/server";
-import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
+
+const MODEL = process.env.SKILLS_AI_MODEL ?? "openai/gpt-4o-mini";
 
 const VALID_LEVELS = new Set(["Beginner", "Intermediate", "Advanced"]);
 
@@ -31,7 +33,14 @@ Rules:
 - No apostrophes or special characters in skill names`;
 
   try {
-    const raw    = await callAI({ prompt, systemPrompt });
+    const raw    = await chatComplete({
+      model: MODEL,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: prompt },
+      ],
+      maxTokens: 300,
+    });
     const parsed = safeJsonParse<{ needsSkills: boolean; skills: Array<{ name: string; level: string; monetize: boolean }> }>(raw);
 
     const needsSkills = Boolean(parsed?.needsSkills);
