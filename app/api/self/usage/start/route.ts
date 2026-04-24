@@ -1,10 +1,10 @@
 // app/api/self/usage/start/route.ts
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/session";
+import { getCurrentUser } from "@/lib/session";
 import { createUsageLog } from "@/lib/analytics";
 
 export async function POST(req: Request) {
-  const user = await getUserFromRequest(req);
+  const user = await getCurrentUser(req);
   const body = await req.json().catch(()=>({}));
   const section = String(body.section ?? "unknown").slice(0, 64);
 

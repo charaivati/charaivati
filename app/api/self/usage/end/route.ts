@@ -1,10 +1,10 @@
 // app/api/self/usage/end/route.ts
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "@/lib/session";
+import { getCurrentUser } from "@/lib/session";
 import { endUsageLog } from "@/lib/analytics";
 
 export async function POST(req: Request) {
-  const user = await getUserFromRequest(req); // optional
+  const user = await getCurrentUser(req); // optional
   const body = await req.json().catch(()=>({}));
   if (!body.usageId) return NextResponse.json({ ok: false, error: "usageId required" }, { status: 400 });
 
