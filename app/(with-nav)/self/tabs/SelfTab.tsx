@@ -186,6 +186,8 @@ export default function SelfTab({ profile }: { profile?: any }) {
                 <SelfCanvas
                   health={s.health}
                   goals={s.visibleGoals}
+                  drives={s.drives}
+                  pages={s.pages}
                   generalSkills={s.generalSkills}
                   skillsLoading={s.skillsLoading}
                   weekSchedule={s.weekSchedule}
@@ -193,8 +195,6 @@ export default function SelfTab({ profile }: { profile?: any }) {
                   environmentProfile={s.environmentProfile}
                   highlightGoalId={highlightGoalId}
                   highlightGeneral={highlightGeneral}
-                  drives={s.drives}
-                  pages={s.pages}
                   setHealth={s.handleHealthChange}
                   onUpdateGeneralSkills={s.handleGeneralSkillsChange}
                   onUpdateGoalSkills={s.handleGoalSkillsChange}

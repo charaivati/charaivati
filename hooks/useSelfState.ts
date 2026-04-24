@@ -368,11 +368,31 @@ export function useSelfState(profile: any) {
     });
   }
 
-  // Atomic: set drives + goals at once (used by onboarding to avoid stale-state bugs)
+  // Atomic: set drives + goals at once — immediate (no debounce) for both guest and logged-in
   function applyOnboardingResult(newDrives: DriveType[], newGoals: GoalEntry[]) {
     setDrives(newDrives);
     setGoals(newGoals);
-    persist(newDrives, newGoals, health);
+
+    if (profile === undefined) return; // still loading — shouldn't happen during onboarding
+
+    if (!profile) {
+      // Guest: write to localStorage immediately
+      guestSave({ drives: newDrives, goals: newGoals, health, fundsProfile, weekSchedule, environmentProfile });
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 1200);
+      return;
+    }
+
+    // Logged-in: fire PATCH immediately — no debounce so a fast refresh can't drop the data
+    if (!profileApplied.current) return;
+    setSaveState("saving");
+    safeFetchJson("/api/user/profile", {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+      body: JSON.stringify({ drives: newDrives, goals: newGoals, health, generalSkills: generalSkillsRef.current, fundsProfile, weekSchedule, environmentProfile }),
+    }).then(resp => {
+      setSaveState(resp.ok && resp.json?.ok ? "saved" : "error");
+      if (resp.ok && resp.json?.ok) setTimeout(() => setSaveState("idle"), 1500);
+    }).catch(() => setSaveState("error"));
   }
 
   // ── New block handlers ─────────────────────────────────────────
