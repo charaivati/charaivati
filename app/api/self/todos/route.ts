@@ -1,10 +1,10 @@
 // app/api/self/todos/route.ts
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getUserFromRequest } from "@/lib/session";
+import { getCurrentUser } from "@/lib/session";
 
 export async function GET(req: Request) {
-  const user = await getUserFromRequest(req);
+  const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const url = new URL(req.url);
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const user = await getUserFromRequest(req);
+  const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));

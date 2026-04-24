@@ -1,10 +1,10 @@
 // app/api/self/todos/[id]/route.ts
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getUserFromRequest } from "@/lib/session";
+import { getCurrentUser } from "@/lib/session";
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
-  const user = await getUserFromRequest(req);
+  const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const id = params.id;
@@ -28,7 +28,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
-  const user = await getUserFromRequest(req);
+  const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const id = params.id;

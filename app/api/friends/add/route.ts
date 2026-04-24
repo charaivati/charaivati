@@ -1,10 +1,10 @@
 // app/api/friends/add/route.ts
 import { NextResponse } from "next/server";
 import {prisma} from "@/lib/prisma";
-import { getUserFromRequest } from "@/lib/session";
+import { getCurrentUser } from "@/lib/session";
 
 export async function POST(req: Request) {
-  const user = await getUserFromRequest(req);
+  const user = await getCurrentUser(req);
   if (!user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   const body = await req.json();
   const { targetId, message } = body;
