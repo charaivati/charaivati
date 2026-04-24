@@ -68,7 +68,7 @@ export default function SahayakPage() {
   function uiT(slug: string): string {
     const tab = tabs.find((t) => t.slug === slug);
     if (!tab) return UI_FALLBACKS[slug] ?? slug;
-    return tab.translation?.title || tab.enTitle || UI_FALLBACKS[slug] ?? slug;
+    return tab.translation?.title || tab.enTitle || (UI_FALLBACKS[slug] ?? slug);
   }
 
   // 1) Load tabs with translations
