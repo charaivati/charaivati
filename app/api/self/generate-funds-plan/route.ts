@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getUserFromReq } from "@/lib/auth";
+import { NextResponse } from "next/server";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
 
 const FUNDS_MODEL = process.env.FUNDS_AI_MODEL ?? "openai/gpt-4o-mini";
@@ -56,10 +55,7 @@ function makeFallback() {
   });
 }
 
-export async function POST(req: NextRequest) {
-  const user = await getUserFromReq(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
+export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   if (!body) return makeFallback();
 

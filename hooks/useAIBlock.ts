@@ -30,9 +30,10 @@ export function useAIBlock<T>(route: string) {
     setError(null);
     try {
       const resp = await safeFetchJson(route, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
+        method:      "POST",
+        credentials: "include",
+        headers:     { "Content-Type": "application/json" },
+        body:        JSON.stringify(body),
       });
       if (!resp.ok || resp.json?._fallback) {
         setAiStatus("fallback");

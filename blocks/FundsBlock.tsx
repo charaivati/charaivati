@@ -88,16 +88,16 @@ function getDriveFallbackOpportunities(drive: DriveType, skills: SkillEntry[]): 
     case "building": return [
       { title: `Freelance on ${s}`, rationale: "Your builder drive means you ship fast — clients pay for speed and reliability.", effort: "easy", linkedSkill: s },
       { title: "Launch a digital product", rationale: "One-time build, recurring revenue — the builder's best leverage.", effort: "medium" },
-      { title: "Pitch for seed / angel funding", rationale: "Vaishya energy: put a number on your idea and put it in front of investors.", effort: "hard" },
+      { title: "Pitch for seed / angel funding", rationale: "Your builder drive runs on leverage — put a number on your idea and get it in front of investors.", effort: "hard" },
     ];
     case "learning": return [
-      { title: `Teach or tutor ${s}`, rationale: "Brahmin energy turns expertise into income — students pay for clarity.", effort: "easy", linkedSkill: s },
+      { title: `Teach or tutor ${s}`, rationale: "Your learning drive turns expertise into income — students pay for clear, focused teaching.", effort: "easy", linkedSkill: s },
       { title: "Write and publish (blog / ebook)", rationale: "Your learning creates knowledge assets that compound over time.", effort: "medium" },
-      { title: "Apply for a research grant or scholarship", rationale: "Institutional backing matches the Brahmin path — pursue it.", effort: "hard" },
+      { title: "Apply for a research grant or scholarship", rationale: "Institutional backing fits the learning path — pursue it.", effort: "hard" },
     ];
     case "doing": return [
       { title: `Contract work on ${s}`, rationale: "Execution-focused work builds your track record and income fast.", effort: "easy", linkedSkill: s },
-      { title: "Apply for a government scheme", rationale: "Kshatriya energy aligns with structured systems — use state schemes strategically.", effort: "medium" },
+      { title: "Apply for a government scheme", rationale: "Your action-focused drive aligns with structured systems — use state schemes strategically.", effort: "medium" },
       { title: "Lead a community project", rationale: "Leadership through a project compounds reputation into recurring income.", effort: "medium" },
     ];
     case "helping": return [
