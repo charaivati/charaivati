@@ -1,6 +1,7 @@
 // app/api/aiClient.ts
-// Two provider paths: OpenRouter (OPENROUTER_API_KEY) and Vercel AI Gateway (Charaivati_Health).
-// Fallback chain for all functions: OpenRouter → Vercel.
+// Provider paths: OpenRouter → Groq → Vercel AI Gateway.
+// chatComplete: OpenRouter → Groq → Vercel.
+// callAI:       Ollama → OpenRouter → Groq → Vercel.
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
 export async function chatComplete({
@@ -16,6 +17,7 @@ export async function chatComplete({
   temperature?: number;
   jsonMode?: boolean;
 }): Promise<string> {
+  // 1 — OpenRouter
   const orKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
   if (orKey) {
     try {
@@ -45,19 +47,30 @@ export async function chatComplete({
       if (content) return content;
       throw new Error('OpenRouter returned empty content');
     } catch (err) {
-      console.warn('[chatComplete] OpenRouter failed, falling back to Vercel:', err);
+      console.warn('[chatComplete] OpenRouter failed, trying Groq:', err);
     }
   }
 
-  // Vercel AI Gateway fallback — uses same model string (both accept OpenAI-compatible names)
+  // 2 — Groq (uses its own model names, falls back to GROQ_MODEL)
+  const groqKey = process.env.Charaivati_groq?.trim() || undefined;
+  if (groqKey) {
+    try {
+      return await callGroqMessages(groqKey, GROQ_MODEL, messages, maxTokens, temperature);
+    } catch (err) {
+      console.warn('[chatComplete] Groq failed, trying Vercel:', err);
+    }
+  }
+
+  // 3 — Vercel AI Gateway
   return callVercelMessages(model, messages, maxTokens, temperature);
 }
 
-export type AIProvider = "ollama" | "openrouter" | "vercel";
+export type AIProvider = "ollama" | "openrouter" | "groq" | "vercel";
 
 const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    ?? "llama3.1:8b";
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
+const GROQ_MODEL      = process.env.GROQ_MODEL      ?? "llama-3.1-8b-instant";
 const VERCEL_MODEL    = process.env.VERCEL_MODEL    ?? "openai/gpt-4o-mini";
 const VERCEL_GATEWAY  = (process.env.VERCEL_AI_GATEWAY_URL ?? "https://ai-gateway.vercel.sh").replace(/\/$/, "");
 const TIMEOUT_MS      = 60_000;
@@ -78,19 +91,34 @@ export async function callAI({
   try {
     if (provider === "ollama")     return await withTimeout(callOllama(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     if (provider === "openrouter") return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+    if (provider === "groq")       return await withTimeout(callGroq(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
   } catch (err) {
     if (provider === "ollama") {
-      console.warn("[aiClient] Ollama failed, falling back to OpenRouter:", err);
+      console.warn("[aiClient] Ollama failed, trying OpenRouter:", err);
       try {
         return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
       } catch (err2) {
-        console.warn("[aiClient] OpenRouter failed, falling back to Vercel:", err2);
-        return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+        console.warn("[aiClient] OpenRouter failed, trying Groq:", err2);
+        try {
+          return await withTimeout(callGroq(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+        } catch (err3) {
+          console.warn("[aiClient] Groq failed, trying Vercel:", err3);
+          return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+        }
       }
     }
     if (provider === "openrouter") {
-      console.warn("[aiClient] OpenRouter failed, falling back to Vercel:", err);
+      console.warn("[aiClient] OpenRouter failed, trying Groq:", err);
+      try {
+        return await withTimeout(callGroq(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+      } catch (err2) {
+        console.warn("[aiClient] Groq failed, trying Vercel:", err2);
+        return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+      }
+    }
+    if (provider === "groq") {
+      console.warn("[aiClient] Groq failed, trying Vercel:", err);
       return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     }
     throw err;
@@ -161,6 +189,40 @@ async function callOpenRouter(prompt: string, systemPrompt?: string, maxTokens =
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter returned empty content");
+  return content as string;
+}
+
+// callGroq: prompt-string entry point (used by callAI)
+async function callGroq(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
+  const key = process.env.Charaivati_groq?.trim();
+  if (!key) throw new Error("Charaivati_groq (Groq key) not set");
+  const messages: ChatMessage[] = [
+    ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+    { role: "user", content: prompt },
+  ];
+  return callGroqMessages(key, GROQ_MODEL, messages, maxTokens);
+}
+
+// callGroqMessages: messages entry point (used by chatComplete fallback)
+async function callGroqMessages(
+  key: string,
+  model: string,
+  messages: ChatMessage[],
+  maxTokens = 800,
+  temperature = 0.7
+): Promise<string> {
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`Groq ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("Groq returned empty content");
   return content as string;
 }
 
