@@ -1,6 +1,8 @@
 // app/api/ai/regenerate-meal/route.ts
 import { NextResponse } from "next/server";
-import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
+
+const MEAL_MODEL = process.env.HEALTH_AI_MODEL ?? "openai/gpt-4o-mini";
 
 type Body = {
   meal?: string;
@@ -34,12 +36,15 @@ export async function POST(req: Request) {
   const conditions = String(body.medical_conditions ?? "").trim() || "none";
   const calories   = Number(body.calories_target ?? 400);
 
-  const systemPrompt = `You are a nutritionist. Respond ONLY with valid JSON for a single meal. Schema: { "id": string, "meal": string, "name": string, "ingredients": string[], "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "prep_minutes": number }`;
-
-  const prompt = `Suggest a new ${meal} using these ingredients: ${foods}. Food preference: ${foodPref}. Medical conditions: ${conditions}. Target calories: ${calories}. Return one meal JSON only.`;
-
   try {
-    const raw    = await callAI({ prompt, systemPrompt });
+    const raw    = await chatComplete({
+      model:    MEAL_MODEL,
+      messages: [
+        { role: "system", content: `You are a nutritionist. Respond ONLY with valid JSON for a single meal. Schema: { "id": string, "meal": string, "name": string, "ingredients": string[], "calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "prep_minutes": number }` },
+        { role: "user",   content: `Suggest a new ${meal} using these ingredients: ${foods}. Food preference: ${foodPref}. Medical conditions: ${conditions}. Target calories: ${calories}. Return one meal JSON only.` },
+      ],
+      maxTokens: 300,
+    });
     const parsed = safeJsonParse<MealCard>(raw);
 
     const isValid =

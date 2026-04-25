@@ -1,7 +1,9 @@
 // app/api/ai/generate-timeline/route.ts
 import { NextResponse } from "next/server";
-import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
 import type { GoalEntry, Phase } from "@/app/api/ai/types.ts";
+
+const TIMELINE_MODEL = process.env.TIMELINE_AI_MODEL ?? "openai/gpt-4o-mini";
 
 type ExistingPhase = {
   id: string;
@@ -27,22 +29,13 @@ type Body = {
 
 // ─── Input validation ─────────────────────────────────────────────────────────
 
-/**
- * Returns true if the text looks like random characters with no real meaning.
- * Conservative: only rejects clear gibberish (no vowels, mostly symbols, etc.)
- */
 function isNonsensical(text: string): boolean {
   const s = text.trim().toLowerCase();
   if (s.length < 2) return true;
-
-  // Must be at least 40% alphabetic characters
   const alpha = (s.match(/[a-z]/g) ?? []).length;
   if (alpha / s.length < 0.4) return true;
-
-  // For words longer than 2 chars, at least one must contain a vowel
   const words = s.split(/\s+/).filter(w => w.length > 2);
   if (words.length > 0 && !words.some(w => /[aeiou]/.test(w))) return true;
-
   return false;
 }
 
@@ -61,9 +54,7 @@ export async function POST(req: Request) {
   const skill = goal?.skill?.trim() ?? "";
   const drive = goal?.drive?.trim() ?? drives[0] ?? "";
 
-  if (!title) {
-    return NextResponse.json({ phases: [], _fallback: true });
-  }
+  if (!title) return NextResponse.json({ phases: [], _fallback: true });
 
   if (isNonsensical(title)) {
     return NextResponse.json({
@@ -72,9 +63,6 @@ export async function POST(req: Request) {
     });
   }
 
-  const systemPrompt = `You are a domain expert. Give SPECIFIC, REAL-WORLD advice — not generic productivity tips. Respond with ONLY valid JSON, no markdown, no preamble.`;
-
-  // Build existing plan context for regeneration
   const existingContext = existingPlan?.phases?.length
     ? `\nExisting plan to improve upon:\n${existingPlan.phases.map(p =>
         `${p.name}: ${p.actions.slice(0, 2).join("; ")}`
@@ -83,18 +71,15 @@ export async function POST(req: Request) {
 
   const energyContext = energy ? `
 Energy context: ${energy.overall}/10 overall
-Physical: ${energy.physical}/10
-Mental: ${energy.mental}/10
-Environment: ${energy.environment}/10
-Time capacity: ${energy.time}/10
-Financial stability: ${energy.funds}/10
+Physical: ${energy.physical}/10, Mental: ${energy.mental}/10
+Environment: ${energy.environment}/10, Time: ${energy.time}/10, Funds: ${energy.funds}/10
 ${energy.overall <= 4
-  ? "IMPORTANT: This person has LOW energy. Foundation phase actions must be lighter — max 2 actions, shorter time commitments, recovery-friendly tasks. Do not suggest aggressive goals."
+  ? "IMPORTANT: LOW energy — Foundation phase must be lighter, max 2 actions, recovery-friendly."
   : energy.overall >= 8
-  ? "This person has HIGH energy. You can suggest more ambitious actions and tighter timelines."
+  ? "HIGH energy — suggest more ambitious actions and tighter timelines."
   : ""}` : "";
 
-  const prompt = `Create a 3-phase action plan for: "${title}"${desc ? `\nContext: ${desc}` : ""}${skill ? `\nSkills: ${skill}` : ""}${drive ? `\nMotivation: ${drive}` : ""}${energyContext}${existingContext}
+  const userPrompt = `Create a 3-phase action plan for: "${title}"${desc ? `\nContext: ${desc}` : ""}${skill ? `\nSkills: ${skill}` : ""}${drive ? `\nMotivation: ${drive}` : ""}${energyContext}${existingContext}
 
 Rules:
 - 2-3 actions per phase, each max 12 words
@@ -106,7 +91,14 @@ Return ONLY this JSON:
 {"phases":[{"id":"foundation","name":"Foundation","duration":"2-4 weeks","actions":["action","action"]},{"id":"growth","name":"Growth","duration":"4-8 weeks","actions":["action","action"]},{"id":"mastery","name":"Mastery","duration":"8+ weeks","actions":["action","action"]}]}`;
 
   try {
-    const raw    = await callAI({ prompt, systemPrompt });
+    const raw    = await chatComplete({
+      model:    TIMELINE_MODEL,
+      messages: [
+        { role: "system", content: "You are a domain expert. Give SPECIFIC, REAL-WORLD advice — not generic productivity tips. Respond with ONLY valid JSON, no markdown, no preamble." },
+        { role: "user",   content: userPrompt },
+      ],
+      maxTokens: 800,
+    });
     const parsed = safeJsonParse<{ phases: Phase[] }>(raw);
 
     const phases  = parsed?.phases;

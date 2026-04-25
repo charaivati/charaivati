@@ -1,7 +1,9 @@
 // app/api/ai/generate-week-plan/route.ts
 import { NextResponse } from "next/server";
-import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
 import type { Phase, DayPlan } from "@/app/api/ai/types.ts";
+
+const WEEK_PLAN_MODEL = process.env.WEEK_PLAN_AI_MODEL ?? "openai/gpt-4o-mini";
 
 const ALL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
@@ -10,8 +12,6 @@ type Body = {
   currentPhase?: string;
   availableDays?: number;
 };
-
-// ─── Fallback ─────────────────────────────────────────────────────────────────
 
 function buildFallback(actions: string[], availableDays: number): DayPlan[] {
   return ALL_DAYS.slice(0, availableDays).map((day, i) => ({
@@ -22,8 +22,6 @@ function buildFallback(actions: string[], availableDays: number): DayPlan[] {
     ],
   }));
 }
-
-// ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
   const body          = (await req.json().catch(() => ({}))) as Body;
@@ -37,10 +35,7 @@ export async function POST(req: Request) {
   const actions     = chosenPhase?.actions?.length ? chosenPhase.actions : ["Deep work session", "Skill rehearsal", "Recovery + review"];
   const days        = ALL_DAYS.slice(0, availableDays);
 
-  const systemPrompt = `You are a productivity coach who builds practical weekly schedules. 
-Always respond with ONLY valid JSON — no explanation, no markdown, no preamble.`;
-
-  const prompt = `Build a realistic weekly plan for someone in the ${chosenPhase?.name ?? "Foundation"} phase of their growth.
+  const userPrompt = `Build a realistic weekly plan for someone in the ${chosenPhase?.name ?? "Foundation"} phase of their growth.
 
 Phase actions they need to make progress on:
 ${actions.map((a, i) => `${i + 1}. ${a}`).join("\n")}
@@ -58,7 +53,14 @@ Rules:
 - Tasks should be specific and actionable, referencing the phase actions above`;
 
   try {
-    const raw    = await callAI({ prompt, systemPrompt });
+    const raw    = await chatComplete({
+      model:    WEEK_PLAN_MODEL,
+      messages: [
+        { role: "system", content: "You are a productivity coach who builds practical weekly schedules. Always respond with ONLY valid JSON — no explanation, no markdown, no preamble." },
+        { role: "user",   content: userPrompt },
+      ],
+      maxTokens: 800,
+    });
     const parsed = safeJsonParse<{ week: DayPlan[] }>(raw);
 
     const week = parsed?.week;

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getUserFromReq } from "@/lib/auth";
-import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
+
+const FUNDS_MODEL = process.env.FUNDS_AI_MODEL ?? "openai/gpt-4o-mini";
 
 const SYSTEM_PROMPT = `You are a financial independence advisor for an Indian user building their life around a personal drive.
 Your suggestions must be grounded in the user's actual drive, goals, skills, and businesses — never generic.
@@ -62,7 +64,14 @@ export async function POST(req: NextRequest) {
   if (!body) return makeFallback();
 
   try {
-    const raw    = await callAI({ prompt: buildPrompt(body), systemPrompt: SYSTEM_PROMPT, maxTokens: 700 });
+    const raw    = await chatComplete({
+      model:    FUNDS_MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user",   content: buildPrompt(body) },
+      ],
+      maxTokens: 700,
+    });
     const parsed = safeJsonParse<{ suggestions: string[]; incomeOpportunities: unknown[]; savingsPlan: string }>(raw);
 
     if (!parsed?.incomeOpportunities || !Array.isArray(parsed.incomeOpportunities)) {
