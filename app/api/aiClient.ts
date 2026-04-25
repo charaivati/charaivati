@@ -15,8 +15,8 @@ export async function chatComplete({
   temperature?: number;
   jsonMode?: boolean;
 }): Promise<string> {
-  // Try OpenRouter first
-  const orKey = process.env.OPENROUTER_API_KEY;
+  // Try OpenRouter first — Charaivati_Health is a per-feature alias for the OpenRouter key
+  const orKey = (process.env.Charaivati_Health ?? process.env.OPENROUTER_API_KEY)?.trim() || undefined;
   if (orKey) {
     try {
       const body: Record<string, unknown> = {
@@ -167,7 +167,7 @@ async function callOllama(prompt: string, systemPrompt?: string, maxTokens = 800
 }
 
 async function callOpenRouter(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
 
   const messages = [

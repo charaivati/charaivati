@@ -1,6 +1,8 @@
 // app/api/ai/generate-health-plan/route.ts
 import { NextResponse } from "next/server";
-import { callAI, safeJsonParse } from "@/app/api/aiClient";
+import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
+
+const HEALTH_MODEL = process.env.HEALTH_AI_MODEL ?? "openai/gpt-4o-mini";
 
 type Body = {
   height_cm?: string;
@@ -94,8 +96,14 @@ async function fetchMeal(
   caloriesTarget: number,
 ): Promise<MealCard> {
   try {
-    const prompt = `${mealType} meal. Foods available: ${foods}. Preference: ${foodPref}. Conditions: ${conditions}. Target: ${caloriesTarget} kcal. Set id="${mealId}" and meal="${mealType}". Keep ingredients to 2-3 items.`;
-    const raw    = await callAI({ prompt, systemPrompt: MEAL_SYSTEM, maxTokens: 300 });
+    const raw    = await chatComplete({
+      model:    HEALTH_MODEL,
+      messages: [
+        { role: "system", content: MEAL_SYSTEM },
+        { role: "user",   content: `${mealType} meal. Foods available: ${foods}. Preference: ${foodPref}. Conditions: ${conditions}. Target: ${caloriesTarget} kcal. Set id="${mealId}" and meal="${mealType}". Keep ingredients to 2-3 items.` },
+      ],
+      maxTokens: 300,
+    });
     const parsed = safeJsonParse<MealCard>(raw);
     if (typeof parsed?.name !== "string" || typeof parsed?.calories !== "number") throw new Error("invalid");
     return { ...parsed, id: mealId, meal: mealType };
@@ -112,9 +120,14 @@ async function fetchInsight(
   foodPref: string,
 ): Promise<string> {
   try {
-    const prompt = `Write 2 short sentences (max 40 words total) explaining: current BMI ${currentBmi ?? "unknown"} vs target BMI ${targetBmi}, why ${dailyCalories} kcal was chosen${conditions !== "none" ? `, and how ${conditions} affects the plan` : ""}. Food preference: ${foodPref}.`;
-    const systemPrompt = `You are a nutritionist. Output ONLY plain text, no JSON, no markdown. Two sentences max.`;
-    const raw = await callAI({ prompt, systemPrompt, maxTokens: 120 });
+    const raw = await chatComplete({
+      model:    HEALTH_MODEL,
+      messages: [
+        { role: "system", content: "You are a nutritionist. Output ONLY plain text, no JSON, no markdown. Two sentences max." },
+        { role: "user",   content: `Write 2 short sentences (max 40 words total) explaining: current BMI ${currentBmi ?? "unknown"} vs target BMI ${targetBmi}, why ${dailyCalories} kcal was chosen${conditions !== "none" ? `, and how ${conditions} affects the plan` : ""}. Food preference: ${foodPref}.` },
+      ],
+      maxTokens: 120,
+    });
     return raw.trim().slice(0, 300);
   } catch {
     return `Target BMI of ${targetBmi} requires ${dailyCalories} kcal/day. Plan is tailored for ${foodPref} preference${conditions !== "none" ? ` with ${conditions} taken into account` : ""}.`;
