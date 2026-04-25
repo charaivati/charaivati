@@ -1,5 +1,6 @@
 // app/api/aiClient.ts
-// chatComplete: OpenRouter first, Gemini fallback.
+// Two provider paths: OpenRouter (OPENROUTER_API_KEY) and Vercel AI Gateway (Charaivati_Health).
+// Fallback chain for all functions: OpenRouter → Vercel.
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
 export async function chatComplete({
@@ -15,8 +16,7 @@ export async function chatComplete({
   temperature?: number;
   jsonMode?: boolean;
 }): Promise<string> {
-  // Try OpenRouter first — Charaivati_Health is a per-feature alias for the OpenRouter key
-  const orKey = (process.env.Charaivati_Health ?? process.env.OPENROUTER_API_KEY)?.trim() || undefined;
+  const orKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
   if (orKey) {
     try {
       const body: Record<string, unknown> = {
@@ -31,7 +31,7 @@ export async function chatComplete({
         headers: {
           Authorization: `Bearer ${orKey}`,
           'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.OPENROUTER_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL ?? '',
+          'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL ?? '',
           'X-Title': process.env.OPENROUTER_APP_NAME ?? 'Charaivati',
         },
         body: JSON.stringify(body),
@@ -45,33 +45,25 @@ export async function chatComplete({
       if (content) return content;
       throw new Error('OpenRouter returned empty content');
     } catch (err) {
-      console.warn('[chatComplete] OpenRouter failed, falling back to Gemini:', err);
+      console.warn('[chatComplete] OpenRouter failed, falling back to Vercel:', err);
     }
   }
 
-  // Gemini fallback
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) throw new Error('No AI provider available: set OPENROUTER_API_KEY or GEMINI_API_KEY');
-  const systemMsg = messages.find(m => m.role === 'system')?.content ?? '';
-  const userMsg   = messages.filter(m => m.role !== 'system').map(m => m.content).join('\n');
-  const fullPrompt = systemMsg ? `${systemMsg}\n\n${userMsg}` : userMsg;
-  return callGemini(fullPrompt, undefined, maxTokens);
+  // Vercel AI Gateway fallback — uses same model string (both accept OpenAI-compatible names)
+  return callVercelMessages(model, messages, maxTokens, temperature);
 }
 
-type AIProvider = "ollama" | "openrouter" | "gemini";
+export type AIProvider = "ollama" | "openrouter" | "vercel";
 
-const OLLAMA_MODEL     = process.env.OLLAMA_MODEL ?? "llama3.1:8b";
-const OLLAMA_BASE_URL  = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    ?? "llama3.1:8b";
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
-const GEMINI_MODEL     = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
-const TIMEOUT_MS       = 60_000; // local models can be slower
+const VERCEL_MODEL    = process.env.VERCEL_MODEL    ?? "openai/gpt-4o-mini";
+const VERCEL_GATEWAY  = (process.env.VERCEL_AI_GATEWAY_URL ?? "https://ai-gateway.vercel.sh").replace(/\/$/, "");
+const TIMEOUT_MS      = 60_000;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/**
- * Call an AI model with a prompt. Returns the raw text response.
- * Fallback chain: Ollama → OpenRouter → Gemini
- */
 export async function callAI({
   prompt,
   provider = "ollama",
@@ -84,53 +76,42 @@ export async function callAI({
   maxTokens?: number;
 }): Promise<string> {
   try {
-    if (provider === "ollama")      return await withTimeout(callOllama(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
-    if (provider === "openrouter")  return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
-    return await withTimeout(callGemini(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+    if (provider === "ollama")     return await withTimeout(callOllama(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+    if (provider === "openrouter") return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+    return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
   } catch (err) {
     if (provider === "ollama") {
       console.warn("[aiClient] Ollama failed, falling back to OpenRouter:", err);
       try {
         return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
       } catch (err2) {
-        console.warn("[aiClient] OpenRouter failed, falling back to Gemini:", err2);
-        return await withTimeout(callGemini(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+        console.warn("[aiClient] OpenRouter failed, falling back to Vercel:", err2);
+        return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
       }
     }
     if (provider === "openrouter") {
-      console.warn("[aiClient] OpenRouter failed, falling back to Gemini:", err);
-      return await withTimeout(callGemini(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+      console.warn("[aiClient] OpenRouter failed, falling back to Vercel:", err);
+      return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     }
     throw err;
   }
 }
 
-/**
- * Parse JSON from an AI response. Handles markdown code fences and
- * extracts the first {...} or [...] block if the model adds preamble.
- */
 export function safeJsonParse<T = unknown>(text: string): T {
-  // Strip markdown fences
   const stripped = text
     .replace(/```json\s*/gi, "")
     .replace(/```\s*/g, "")
     .trim();
 
-  // Try direct parse first
   try {
     return JSON.parse(stripped) as T;
   } catch {
-    // Extract first JSON object or array
     const objMatch = stripped.match(/\{[\s\S]*\}/);
     const arrMatch = stripped.match(/\[[\s\S]*\]/);
-
-    // Pick whichever comes first in the string
     const objIdx = objMatch ? stripped.indexOf(objMatch[0]) : Infinity;
     const arrIdx = arrMatch ? stripped.indexOf(arrMatch[0]) : Infinity;
-
     const best = objIdx <= arrIdx ? objMatch?.[0] : arrMatch?.[0];
     if (best) return JSON.parse(best) as T;
-
     throw new Error(`AI returned unparseable content: ${stripped.slice(0, 200)}`);
   }
 }
@@ -142,24 +123,15 @@ async function callOllama(prompt: string, systemPrompt?: string, maxTokens = 800
     ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
     { role: "user", content: prompt },
   ];
-
   const res = await fetch(`${OLLAMA_BASE_URL}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      messages,
-      temperature: 0.7,
-      stream: false,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify({ model: OLLAMA_MODEL, messages, temperature: 0.7, stream: false, max_tokens: maxTokens }),
   });
-
   if (!res.ok) {
     const err = await res.text().catch(() => res.statusText);
     throw new Error(`Ollama ${res.status}: ${err}`);
   }
-
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("Ollama returned empty content");
@@ -169,12 +141,10 @@ async function callOllama(prompt: string, systemPrompt?: string, maxTokens = 800
 async function callOpenRouter(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
-
   const messages = [
     ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
     { role: "user", content: prompt },
   ];
-
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -182,52 +152,48 @@ async function callOpenRouter(prompt: string, systemPrompt?: string, maxTokens =
       "Content-Type": "application/json",
       "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL ?? "https://charaivati.com",
     },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      messages,
-      temperature: 0.7,
-      max_tokens: maxTokens,
-    }),
+    body: JSON.stringify({ model: OPENROUTER_MODEL, messages, temperature: 0.7, max_tokens: maxTokens }),
   });
-
   if (!res.ok) {
     const err = await res.text().catch(() => res.statusText);
     throw new Error(`OpenRouter ${res.status}: ${err}`);
   }
-
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter returned empty content");
   return content as string;
 }
 
-async function callGemini(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || undefined;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
+// callVercel: prompt-string entry point (used by callAI)
+async function callVercel(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
+  const messages: ChatMessage[] = [
+    ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+    { role: "user", content: prompt },
+  ];
+  return callVercelMessages(VERCEL_MODEL, messages, maxTokens);
+}
 
-  // Gemini doesn't have a system role — prepend it to the user turn
-  const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: fullPrompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
-      }),
-    }
-  );
-
+// callVercelMessages: messages entry point (used by chatComplete fallback)
+async function callVercelMessages(
+  model: string,
+  messages: ChatMessage[],
+  maxTokens = 800,
+  temperature = 0.7
+): Promise<string> {
+  const token = process.env.Charaivati_Health?.trim();
+  if (!token) throw new Error("Charaivati_Health (Vercel token) not set");
+  const res = await fetch(`${VERCEL_GATEWAY}/v1/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages, temperature, max_tokens: maxTokens }),
+  });
   if (!res.ok) {
     const err = await res.text().catch(() => res.statusText);
-    throw new Error(`Gemini ${res.status}: ${err}`);
+    throw new Error(`Vercel Gateway ${res.status}: ${err}`);
   }
-
   const data = await res.json();
-  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!content) throw new Error("Gemini returned empty content");
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("Vercel Gateway returned empty content");
   return content as string;
 }
 

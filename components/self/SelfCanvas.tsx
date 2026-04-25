@@ -75,7 +75,10 @@ function joySectionScore(sec: { types: string[]; frequency: FrequencyType } | un
 
 // ─── Goals compact card ───────────────────────────────────────────────────────
 
-function GoalsCompact({ onExpand }: { onExpand: () => void }) {
+function GoalsCompact({ onExpand, profileGoals }: {
+  onExpand: () => void;
+  profileGoals: GoalEntry[];
+}) {
   const [count, setCount] = useState<number | null>(null);
 
   useEffect(() => {
@@ -93,7 +96,17 @@ function GoalsCompact({ onExpand }: { onExpand: () => void }) {
     return () => window.removeEventListener("charaivati:goalCreated", handler);
   }, []);
 
-  const label = count === null ? "…" : count === 0 ? "No goals yet" : `${count} active goal${count !== 1 ? "s" : ""}`;
+  // Fall back to profile goals (from onboarding / localStorage) when DB returns 0
+  const filledProfileGoals = profileGoals.filter(g => g.statement.trim());
+  const effectiveCount = (count === null || count === 0) && filledProfileGoals.length > 0
+    ? filledProfileGoals.length
+    : count;
+
+  const label = effectiveCount === null
+    ? "…"
+    : effectiveCount === 0
+    ? "No goals yet"
+    : `${effectiveCount} goal${effectiveCount !== 1 ? "s" : ""}`;
 
   return (
     <button type="button" onClick={onExpand}
@@ -112,6 +125,9 @@ function GoalsCompact({ onExpand }: { onExpand: () => void }) {
       </div>
       <span className="text-sm font-semibold text-white">Goals</span>
       <span className="text-xs text-gray-400 mt-1">{label}</span>
+      {effectiveCount !== null && effectiveCount > 0 && count === 0 && (
+        <span className="text-[9px] text-gray-600 mt-0.5">from profile</span>
+      )}
     </button>
   );
 }
@@ -708,7 +724,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
             active={activePartner === "health"}
             onClick={() => setActivePartner("health")}
           />
-          <GoalsCompact onExpand={() => setGoalsExpanded(true)} />
+          <GoalsCompact onExpand={() => setGoalsExpanded(true)} profileGoals={goals} />
           <TopBlock
             id="skills"
             status={partnerStatus("skills").text}
