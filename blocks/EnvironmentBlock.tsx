@@ -145,7 +145,10 @@ export function EnvironmentSection({
 
   // ── Auto-generate when stale (debounced 1500ms) ──────────────────────────────
   useEffect(() => {
-    if (!isStale) return;
+    if (!isStale || generating) return;
+    // Don't auto-trigger if user already has pinned items and suggestions — they may
+    // have intentionally cleared the suggestions; wait for manual "New" press.
+    if (env.pinned.length > 0 && env.suggestions.length === 0) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       runGenerate();
@@ -167,11 +170,18 @@ export function EnvironmentSection({
         livingWith:  env.livingWith,
       },
       (data) => {
-        onChange({
+        const next = {
           ...envRef.current,
           suggestions:      data.cues ?? [],
           lastGeneratedFor: { goalIds, healthFlags },
-        });
+        };
+        onChange(next);
+        // Persist lastGeneratedFor immediately so panel remounts don't re-trigger
+        fetch("/api/user/profile", {
+          method: "PATCH", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ environmentProfile: next }),
+        }).catch(() => {});
       },
       () => ({ cues: makeFallbackCues() })
     );
@@ -182,7 +192,10 @@ export function EnvironmentSection({
   const country  = env.location?.country  ?? env.country  ?? "";
   const timezone = env.location?.timezone ?? env.timezone ?? "";
 
-  const filteredSuggestions = env.suggestions.filter(c => c.type === activeTab);
+  const pinnedTexts = new Set(env.pinned.map(p => p.text));
+  const filteredSuggestions = env.suggestions.filter(
+    c => c.type === activeTab && !pinnedTexts.has(c.text)
+  );
   const doneCount           = env.pinned.filter(c => c.done).length;
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
