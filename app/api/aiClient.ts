@@ -63,7 +63,7 @@ type AIProvider = "ollama" | "openrouter" | "gemini";
 const OLLAMA_MODEL     = process.env.OLLAMA_MODEL ?? "llama3.1:8b";
 const OLLAMA_BASE_URL  = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
-const GEMINI_MODEL     = "gemini-1.5-flash"; // stable GA model
+const GEMINI_MODEL     = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
 const TIMEOUT_MS       = 60_000; // local models can be slower
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -202,7 +202,7 @@ async function callOpenRouter(prompt: string, systemPrompt?: string, maxTokens =
 }
 
 async function callGemini(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY?.trim() || undefined;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
   // Gemini doesn't have a system role — prepend it to the user turn

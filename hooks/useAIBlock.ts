@@ -17,8 +17,9 @@ export async function safeFetchJson(input: RequestInfo, init?: RequestInit) {
  *   • Otherwise → calls onSuccess(resp.json)
  */
 export function useAIBlock<T>(route: string) {
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState<string | null>(null);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<"ai" | "fallback" | null>(null);
 
   async function generate(
     body: object,
@@ -34,17 +35,20 @@ export function useAIBlock<T>(route: string) {
         body:    JSON.stringify(body),
       });
       if (!resp.ok || resp.json?._fallback) {
+        setAiStatus("fallback");
         onSuccess(fallback());
       } else {
+        setAiStatus("ai");
         onSuccess(resp.json as T);
       }
     } catch {
       setError("Request failed");
+      setAiStatus("fallback");
       onSuccess(fallback());
     } finally {
       setLoading(false);
     }
   }
 
-  return { loading, error, generate };
+  return { loading, error, aiStatus, generate };
 }

@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Sparkles, Loader2, X } from "lucide-react";
-import { CollapsibleSection, uid } from "@/components/self/shared";
+import { CollapsibleSection, uid, AiStatusBadge } from "@/components/self/shared";
 import type { SkillEntry, GoalEntry, DayKey, WeekSchedule, Task } from "@/types/self";
 
 export type { SkillEntry };
@@ -171,6 +171,8 @@ function GoalSkillBox({
   onScheduleChange: (s: WeekSchedule) => void;
 }) {
   const [modal, setModal] = useState<{ skill: SkillEntry; isNew: boolean } | null>(null);
+  const [suggestStatus, setSuggestStatus] = useState<"ai" | "fallback" | null>(null);
+  const wasLoadingRef = useRef(false);
   const namedSkills = goal.skills.filter(s => s.name.trim() !== "");
 
   const boxRef = useRef<HTMLDivElement>(null);
@@ -179,6 +181,19 @@ function GoalSkillBox({
       boxRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [highlight]);
+
+  // Detect when a suggest call completes and infer AI vs fallback from skill IDs
+  useEffect(() => {
+    const isLoading = !!skillsLoading[goal.id];
+    if (isLoading && !wasLoadingRef.current) {
+      wasLoadingRef.current = true;
+      setSuggestStatus(null);
+    } else if (!isLoading && wasLoadingRef.current) {
+      wasLoadingRef.current = false;
+      const hasAiSkills = goal.skills.some(s => s.id.startsWith("ai-"));
+      setSuggestStatus(hasAiSkills ? "ai" : "fallback");
+    }
+  }, [skillsLoading, goal.id, goal.skills]);
 
   function existingDays(skillName: string): DayKey[] {
     const seen = new Set<DayKey>();
@@ -248,17 +263,20 @@ function GoalSkillBox({
       }`}>
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold text-white line-clamp-2 flex-1">{goal.statement}</p>
-          <button type="button"
-            onClick={() => onSuggestSkills(goal.id)}
-            disabled={!!skillsLoading[goal.id]}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-700
-              text-xs text-gray-400 hover:border-indigo-500/40 hover:text-indigo-300
-              hover:bg-indigo-500/10 transition-colors
-              disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap flex-shrink-0">
-            {skillsLoading[goal.id]
-              ? <><Loader2 className="w-3 h-3 animate-spin" />Suggesting…</>
-              : <><Sparkles className="w-3 h-3" />Suggest</>}
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {!skillsLoading[goal.id] && <AiStatusBadge status={suggestStatus} />}
+            <button type="button"
+              onClick={() => onSuggestSkills(goal.id)}
+              disabled={!!skillsLoading[goal.id]}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-700
+                text-xs text-gray-400 hover:border-indigo-500/40 hover:text-indigo-300
+                hover:bg-indigo-500/10 transition-colors
+                disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap">
+              {skillsLoading[goal.id]
+                ? <><Loader2 className="w-3 h-3 animate-spin" />Suggesting…</>
+                : <><Sparkles className="w-3 h-3" />Suggest</>}
+            </button>
+          </div>
         </div>
 
         <div className="space-y-1">

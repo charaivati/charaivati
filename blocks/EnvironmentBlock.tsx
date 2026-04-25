@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { useAIBlock } from "@/hooks/useAIBlock";
-import { uid } from "@/components/self/shared";
+import { uid, AiStatusBadge } from "@/components/self/shared";
 import type { GoalEntry } from "@/types/self";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -126,7 +126,7 @@ export function EnvironmentSection({
   const envRef = useRef(env);
   useEffect(() => { envRef.current = env; });
 
-  const { loading: generating, generate } = useAIBlock<{ cues: EnvironmentCue[] }>(
+  const { loading: generating, aiStatus: envAiStatus, generate } = useAIBlock<{ cues: EnvironmentCue[] }>(
     "/api/self/generate-environment-cues"
   );
 
@@ -365,16 +365,19 @@ export function EnvironmentSection({
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            onClick={runGenerate}
-            disabled={generating}
-            title="Generate new suggestions"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-zinc-500 hover:text-zinc-200 border border-white/10 hover:border-white/20 hover:bg-white/5 transition-colors disabled:opacity-40 flex-shrink-0"
-          >
-            <span className={generating ? "animate-spin inline-block" : ""}>↻</span>
-            New
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {!generating && <AiStatusBadge status={envAiStatus} />}
+            <button
+              type="button"
+              onClick={runGenerate}
+              disabled={generating}
+              title="Generate new suggestions"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-zinc-500 hover:text-zinc-200 border border-white/10 hover:border-white/20 hover:bg-white/5 transition-colors disabled:opacity-40"
+            >
+              <span className={generating ? "animate-spin inline-block" : ""}>↻</span>
+              New
+            </button>
+          </div>
         </div>
 
         {/* Cards */}
