@@ -122,6 +122,7 @@ function buildInitialIncomeGroups(goals: GoalEntry[], skills: SkillEntry[], page
     {
       group: "Business",
       items: [
+        { id: "biz-general",  label: "Business income",        value: 0 },
         ...pages.map(p => ({ id: uid(), label: `${p.title} income`, value: 0, tag: "biz" as const, sourceId: `biz-income-${p.id}` })),
         { id: "biz-freelance", label: "Freelance / consulting", value: 0 },
         { id: "biz-agency",    label: "Agency / services",      value: 0 },
@@ -366,6 +367,39 @@ function MetricPill({ label, value, highlight = false }: { label: string; value:
   );
 }
 
+function MetricCard({ label, value, sub, accent = false }: { label: string; value: string; sub?: string; accent?: boolean }) {
+  return (
+    <div className="rounded-xl border border-gray-700/40 bg-gray-800/40 px-3 py-2.5 flex flex-col gap-0.5">
+      <span className="text-[9px] text-gray-500 uppercase tracking-widest">{label}</span>
+      <span className={`text-sm font-bold tabular-nums leading-tight ${accent ? "text-amber-300" : "text-white"}`}>{value}</span>
+      {sub && <span className="text-[9px] text-gray-600">{sub}</span>}
+    </div>
+  );
+}
+
+function CoreRow({
+  label,
+  value,
+  onUpdate,
+}: {
+  label: string;
+  value: number;
+  onUpdate: (v: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <span className="flex-1 text-xs text-gray-300 truncate leading-tight">{label}</span>
+      <input
+        type="number"
+        value={value || ""}
+        onChange={e => onUpdate(parseFloat(e.target.value) || 0)}
+        placeholder="0"
+        className="w-20 text-right bg-gray-900/80 border border-gray-700/40 rounded px-2 py-0.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500/60"
+      />
+    </div>
+  );
+}
+
 function AddItemRow({ onAdd }: { onAdd: (label: string) => void }) {
   const [val, setVal] = useState("");
   function commit() {
@@ -574,6 +608,7 @@ export function FundsSection({
   const [futureCosts,   setFutureCosts]   = useState<FutureCost[]>(() =>
     funds.futureCosts?.length   ? funds.futureCosts   : buildInitialFutureCosts());
   const [fundsPlanV2,   setFundsPlanV2]   = useState<AIFundsPlan | null>(funds.fundsPlanV2 ?? null);
+  const [isExpanded,    setIsExpanded]    = useState(false);
 
   // ── Merge newly added goals/skills/pages into existing saved state ────────────
   useEffect(() => {
@@ -650,7 +685,15 @@ export function FundsSection({
       setter(next);
       saveAll({ [patchKey]: next });
     }
-    return { onChange, onAdd, onRemove };
+    function onChangeById(itemId: string, value: number) {
+      const next = groups.map(g => ({
+        ...g,
+        items: g.items.map(item => item.id === itemId ? { ...item, value } : item),
+      }));
+      setter(next);
+      saveAll({ [patchKey]: next });
+    }
+    return { onChange, onAdd, onRemove, onChangeById };
   }
 
   const incomeH  = makeHandlers(incomeGroups,  setIncomeGroups,  "ig");
@@ -705,7 +748,7 @@ export function FundsSection({
     );
   }
 
-  // ── Collapsed preview (summary bar) ───────────────────────────────────────────
+  // ── Collapsed preview (summary pills shown when section is toggled shut) ────────
   const collapsedPreview = (
     <div className="flex flex-wrap gap-3 mt-1.5">
       <MetricPill label="Net worth" value={formatINR(netWorth)} />
@@ -716,151 +759,315 @@ export function FundsSection({
     </div>
   );
 
+  // ── Core item lookup (stable IDs) ─────────────────────────────────────────────
+  function getById(groups: FundGroup[], id: string): FundItem | undefined {
+    for (const g of groups) {
+      const found = g.items.find(i => i.id === id);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
+  const CORE_INCOME: { id: string; label: string }[] = [
+    { id: "emp-salary",   label: "Salary / wages" },
+    { id: "biz-general",  label: "Business income" },
+    { id: "biz-freelance",label: "Freelance / consulting" },
+    { id: "supp-fam",     label: "Family support" },
+  ];
+  const CORE_EXPENSE: { id: string; label: string }[] = [
+    { id: "liv-food",  label: "Food & groceries" },
+    { id: "hous-rent", label: "Rent / housing" },
+    { id: "tr-commute",label: "Transport" },
+    { id: "hlth-ins",  label: "Health insurance / medical" },
+    { id: "fin-save",  label: "Savings transfer" },
+  ];
+  const CORE_ASSET: { id: string; label: string }[] = [
+    { id: "cash-bank", label: "Savings account" },
+    { id: "cash-hand", label: "Cash in hand" },
+  ];
+  const CORE_LIAB: { id: string; label: string }[] = [
+    { id: "loan-stu", label: "Student loan" },
+    { id: "st-cc",    label: "Credit card balance" },
+  ];
+
   return (
     <CollapsibleSection
       title="Funds & Independence"
       subtitle="Balance sheet · Cash flow · Independence score"
-      defaultOpen={false}
+      defaultOpen={true}
       collapsedPreview={collapsedPreview}
     >
-      <div className="space-y-6 pt-1">
+      <div className="space-y-5 pt-1">
 
-        {/* ── Section 1: Monthly cash flow ── */}
-        <section>
-          <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Monthly cash flow</h4>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <GroupColumn
-              headerLabel="Income ↑"
-              headerCls="text-green-400"
-              groups={sortedIncomeGroups}
-              total={totalIncome}
-              onItemChange={incomeH.onChange}
-              onItemAdd={incomeH.onAdd}
-              onItemRemove={incomeH.onRemove}
-            />
-            <GroupColumn
-              headerLabel="Expenses ↓"
-              headerCls="text-red-400"
-              groups={expenseGroups}
-              total={totalExpenses}
-              onItemChange={expenseH.onChange}
-              onItemAdd={expenseH.onAdd}
-              onItemRemove={expenseH.onRemove}
-            />
-          </div>
+        {/* ── Summary cards — always visible ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+          <MetricCard label="Net worth"    value={formatINR(netWorth)}         sub={worthPositive ? "positive" : "negative"} />
+          <MetricCard label="Monthly income" value={formatINR(totalIncome)}    sub={`burn ${formatINR(totalExpenses)}`} />
+          <MetricCard label="Runway · Score" value={runwayLabel}               sub={`independence ${independenceScore}/100`} accent />
+        </div>
 
-          {/* Net monthly */}
-          <div className="mt-3 flex items-center justify-between border-t border-gray-800/70 pt-2">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Net monthly</span>
-            <span className={`text-sm font-bold tabular-nums ${cashPositive ? "text-green-400" : "text-red-400"}`}>
-              {cashPositive ? "+" : "−"}{formatINR(Math.abs(netMonthlyCash))}
-            </span>
-          </div>
-
-          {/* Proportional bar */}
-          {(totalIncome + totalExpenses) > 0 && (
-            <div className="h-1 rounded-full overflow-hidden mt-1.5" style={{ background: "rgba(239,68,68,0.2)" }}>
+        {/* ── Proportional bar ── */}
+        {(totalIncome + totalExpenses) > 0 && (
+          <div className="space-y-1">
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(239,68,68,0.18)" }}>
               <div
-                className="h-full rounded-full"
+                className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${(totalIncome / (totalIncome + totalExpenses)) * 100}%`,
-                  background: "rgba(34,197,94,0.5)",
+                  background: "rgba(34,197,94,0.55)",
                 }}
               />
             </div>
-          )}
-        </section>
-
-        {/* ── Section 2: Balance sheet ── */}
-        <section>
-          <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Balance sheet</h4>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <GroupColumn
-              headerLabel="Assets ↑"
-              headerCls="text-blue-400"
-              groups={assetGroups}
-              total={totalAssets}
-              onItemChange={assetH.onChange}
-              onItemAdd={assetH.onAdd}
-              onItemRemove={assetH.onRemove}
-            />
-            <GroupColumn
-              headerLabel="Liabilities ↓"
-              headerCls="text-orange-400"
-              groups={liabGroups}
-              total={totalLiabilities}
-              onItemChange={liabH.onChange}
-              onItemAdd={liabH.onAdd}
-              onItemRemove={liabH.onRemove}
-            />
+            <div className="flex justify-between text-[9px] text-gray-600">
+              <span>Income {formatINR(totalIncome)}</span>
+              <span className={cashPositive ? "text-green-500" : "text-red-500"}>
+                Net {cashPositive ? "+" : "−"}{formatINR(Math.abs(netMonthlyCash))}/mo
+              </span>
+              <span>Burn {formatINR(totalExpenses)}</span>
+            </div>
           </div>
+        )}
 
-          {/* Net worth */}
-          <div className="mt-3 flex items-center justify-between border-t border-gray-800/70 pt-2">
-            <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Net worth</span>
-            <span className={`text-sm font-bold tabular-nums ${worthPositive ? "text-blue-400" : "text-red-400"}`}>
-              {worthPositive ? "" : "−"}{formatINR(Math.abs(netWorth))}
-            </span>
+        {/* ══ SIMPLE VIEW (default) ══════════════════════════════════════════════ */}
+        {!isExpanded && (
+          <div className="space-y-4">
+
+            {/* Income + Expenses */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              {/* Income column */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-green-400 uppercase tracking-widest mb-1.5">Income ↑</div>
+                {CORE_INCOME.map(({ id, label }) => {
+                  const item = getById(incomeGroups, id);
+                  if (!item) return null;
+                  return (
+                    <CoreRow
+                      key={id}
+                      label={label}
+                      value={item.value}
+                      onUpdate={v => incomeH.onChangeById(id, v)}
+                    />
+                  );
+                })}
+                <div className="border-t border-gray-800/60 pt-1 flex justify-between mt-1">
+                  <span className="text-[9px] text-gray-600 uppercase tracking-wider">Total</span>
+                  <span className="text-[11px] font-bold text-white tabular-nums">{formatINR(totalIncome)}</span>
+                </div>
+              </div>
+
+              {/* Expenses column */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1.5">Expenses ↓</div>
+                {CORE_EXPENSE.map(({ id, label }) => {
+                  const item = getById(expenseGroups, id);
+                  if (!item) return null;
+                  return (
+                    <CoreRow
+                      key={id}
+                      label={label}
+                      value={item.value}
+                      onUpdate={v => expenseH.onChangeById(id, v)}
+                    />
+                  );
+                })}
+                <div className="border-t border-gray-800/60 pt-1 flex justify-between mt-1">
+                  <span className="text-[9px] text-gray-600 uppercase tracking-wider">Total</span>
+                  <span className="text-[11px] font-bold text-white tabular-nums">{formatINR(totalExpenses)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Assets + Liabilities */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              {/* Assets column */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1.5">Assets ↑</div>
+                {CORE_ASSET.map(({ id, label }) => {
+                  const item = getById(assetGroups, id);
+                  if (!item) return null;
+                  return (
+                    <CoreRow
+                      key={id}
+                      label={label}
+                      value={item.value}
+                      onUpdate={v => assetH.onChangeById(id, v)}
+                    />
+                  );
+                })}
+                <div className="border-t border-gray-800/60 pt-1 flex justify-between mt-1">
+                  <span className="text-[9px] text-gray-600 uppercase tracking-wider">Total</span>
+                  <span className="text-[11px] font-bold text-white tabular-nums">{formatINR(totalAssets)}</span>
+                </div>
+              </div>
+
+              {/* Liabilities column */}
+              <div className="space-y-1">
+                <div className="text-[10px] font-bold text-orange-400 uppercase tracking-widest mb-1.5">Liabilities ↓</div>
+                {CORE_LIAB.map(({ id, label }) => {
+                  const item = getById(liabGroups, id);
+                  if (!item) return null;
+                  return (
+                    <CoreRow
+                      key={id}
+                      label={label}
+                      value={item.value}
+                      onUpdate={v => liabH.onChangeById(id, v)}
+                    />
+                  );
+                })}
+                <div className="border-t border-gray-800/60 pt-1 flex justify-between mt-1">
+                  <span className="text-[9px] text-gray-600 uppercase tracking-wider">Total</span>
+                  <span className="text-[11px] font-bold text-white tabular-nums">{formatINR(totalLiabilities)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Expand button */}
+            <button
+              type="button"
+              onClick={() => setIsExpanded(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-700/50 bg-gray-800/30 text-xs text-gray-400 hover:text-gray-200 hover:border-gray-600/60 hover:bg-gray-800/60 transition-colors"
+            >
+              <span>Full balance sheet</span>
+              <span className="opacity-50">↓</span>
+            </button>
           </div>
-        </section>
+        )}
 
-        {/* ── Section 3: Upcoming costs ── */}
-        <section>
-          <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Upcoming costs</h4>
-          <FutureCostsTable
-            costs={futureCosts}
-            onSet={next => { setFutureCosts(next); saveAll({ fc: next }); }}
-          />
-        </section>
+        {/* ══ FULL VIEW (expanded) ═══════════════════════════════════════════════ */}
+        {isExpanded && (
+          <div className="space-y-6">
 
-        {/* ── Section 4: Income opportunities ── */}
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Income opportunities</h4>
-            <AIGenerateButton
-              loading={loading}
-              hasResult={!!fundsPlanV2 && !fundsPlanV2.fallback}
-              onGenerate={handleGenerate}
-              labels={{ generate: "Generate", regenerate: "↺ Refresh", loading: "Generating…" }}
-            />
-          </div>
-          {fundsPlanV2?.fallback && <FallbackBanner />}
-          {(fundsPlanV2?.incomeOpportunities?.length ?? 0) > 0 ? (
-            <div className="space-y-2">
-              {fundsPlanV2!.incomeOpportunities.map((opp, i) => (
-                <OpportunityCard key={i} opp={opp} />
-              ))}
-              {fundsPlanV2!.savingsPlan && (
-                <div className="mt-2 p-3 rounded-xl bg-gray-800/40 border border-gray-700/40">
-                  <p className="text-[9px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Savings plan</p>
-                  <p className="text-xs text-gray-300 leading-relaxed">{fundsPlanV2!.savingsPlan}</p>
+            {/* Section 1: Monthly cash flow */}
+            <section>
+              <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Monthly cash flow</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <GroupColumn
+                  headerLabel="Income ↑"
+                  headerCls="text-green-400"
+                  groups={sortedIncomeGroups}
+                  total={totalIncome}
+                  onItemChange={incomeH.onChange}
+                  onItemAdd={incomeH.onAdd}
+                  onItemRemove={incomeH.onRemove}
+                />
+                <GroupColumn
+                  headerLabel="Expenses ↓"
+                  headerCls="text-red-400"
+                  groups={expenseGroups}
+                  total={totalExpenses}
+                  onItemChange={expenseH.onChange}
+                  onItemAdd={expenseH.onAdd}
+                  onItemRemove={expenseH.onRemove}
+                />
+              </div>
+              <div className="mt-3 flex items-center justify-between border-t border-gray-800/70 pt-2">
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Net monthly</span>
+                <span className={`text-sm font-bold tabular-nums ${cashPositive ? "text-green-400" : "text-red-400"}`}>
+                  {cashPositive ? "+" : "−"}{formatINR(Math.abs(netMonthlyCash))}
+                </span>
+              </div>
+            </section>
+
+            {/* Section 2: Balance sheet */}
+            <section>
+              <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Balance sheet</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+                <GroupColumn
+                  headerLabel="Assets ↑"
+                  headerCls="text-blue-400"
+                  groups={assetGroups}
+                  total={totalAssets}
+                  onItemChange={assetH.onChange}
+                  onItemAdd={assetH.onAdd}
+                  onItemRemove={assetH.onRemove}
+                />
+                <GroupColumn
+                  headerLabel="Liabilities ↓"
+                  headerCls="text-orange-400"
+                  groups={liabGroups}
+                  total={totalLiabilities}
+                  onItemChange={liabH.onChange}
+                  onItemAdd={liabH.onAdd}
+                  onItemRemove={liabH.onRemove}
+                />
+              </div>
+              <div className="mt-3 flex items-center justify-between border-t border-gray-800/70 pt-2">
+                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Net worth</span>
+                <span className={`text-sm font-bold tabular-nums ${worthPositive ? "text-blue-400" : "text-red-400"}`}>
+                  {worthPositive ? "" : "−"}{formatINR(Math.abs(netWorth))}
+                </span>
+              </div>
+            </section>
+
+            {/* Section 3: Upcoming costs */}
+            <section>
+              <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">Upcoming costs</h4>
+              <FutureCostsTable
+                costs={futureCosts}
+                onSet={next => { setFutureCosts(next); saveAll({ fc: next }); }}
+              />
+            </section>
+
+            {/* Section 4: Income opportunities */}
+            <section>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Income opportunities</h4>
+                <AIGenerateButton
+                  loading={loading}
+                  hasResult={!!fundsPlanV2 && !fundsPlanV2.fallback}
+                  onGenerate={handleGenerate}
+                  labels={{ generate: "Generate", regenerate: "↺ Refresh", loading: "Generating…" }}
+                />
+              </div>
+              {fundsPlanV2?.fallback && <FallbackBanner />}
+              {(fundsPlanV2?.incomeOpportunities?.length ?? 0) > 0 ? (
+                <div className="space-y-2">
+                  {fundsPlanV2!.incomeOpportunities.map((opp, i) => (
+                    <OpportunityCard key={i} opp={opp} />
+                  ))}
+                  {fundsPlanV2!.savingsPlan && (
+                    <div className="mt-2 p-3 rounded-xl bg-gray-800/40 border border-gray-700/40">
+                      <p className="text-[9px] font-semibold text-gray-500 uppercase tracking-wider mb-1">Savings plan</p>
+                      <p className="text-xs text-gray-300 leading-relaxed">{fundsPlanV2!.savingsPlan}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {getDriveFallbackOpportunities(drive, generalSkills).map((opp, i) => (
+                    <OpportunityCard key={i} opp={opp} />
+                  ))}
                 </div>
               )}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {getDriveFallbackOpportunities(drive, generalSkills).map((opp, i) => (
-                <OpportunityCard key={i} opp={opp} />
-              ))}
-            </div>
-          )}
-        </section>
+            </section>
 
-        {/* ── Section 5: Summary stats ── */}
-        <section className="border-t border-gray-800/70 pt-4">
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-            {[
-              { label: "Savings rate",   value: `${Math.round(Math.max(0, savingsRate))}%` },
-              { label: "Runway",         value: runwayLabel },
-              { label: "Independence",   value: `${independenceScore}/100` },
-            ].map(({ label, value }) => (
-              <div key={label} className="rounded-lg bg-gray-800/40 border border-gray-700/30 px-2.5 py-2 text-center">
-                <div className="text-[9px] text-gray-500 uppercase tracking-wider">{label}</div>
-                <div className="text-sm font-bold text-white tabular-nums mt-0.5">{value}</div>
+            {/* Section 5: Stats + collapse */}
+            <section className="border-t border-gray-800/70 pt-4 space-y-3">
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+                {[
+                  { label: "Savings rate", value: `${Math.round(Math.max(0, savingsRate))}%` },
+                  { label: "Runway",       value: runwayLabel },
+                  { label: "Independence", value: `${independenceScore}/100` },
+                ].map(({ label, value }) => (
+                  <div key={label} className="rounded-lg bg-gray-800/40 border border-gray-700/30 px-2.5 py-2 text-center">
+                    <div className="text-[9px] text-gray-500 uppercase tracking-wider">{label}</div>
+                    <div className="text-sm font-bold text-white tabular-nums mt-0.5">{value}</div>
+                  </div>
+                ))}
               </div>
-            ))}
+              <button
+                type="button"
+                onClick={() => setIsExpanded(false)}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-gray-700/40 bg-gray-800/20 text-xs text-gray-500 hover:text-gray-300 hover:border-gray-600/50 transition-colors"
+              >
+                <span>Collapse</span>
+                <span className="opacity-50">↑</span>
+              </button>
+            </section>
+
           </div>
-        </section>
+        )}
 
       </div>
     </CollapsibleSection>
