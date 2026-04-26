@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronUp, ChevronDown, Trash2, RefreshCw } from 'lucide-react';
 import { SectionCard } from '@/components/self/shared';
+import { useProfile } from '@/lib/ProfileContext';
 import { ExecuteBlock } from './ExecuteBlock';
 import type { AiGoalWithPlan } from './ExecuteBlock';
 import type { ExecutionPlan } from '@/lib/site/executionPlanTypes';
@@ -43,10 +44,23 @@ const LS_SELECTED      = 'charaivati.time.expandedGoalId';
 const POLL_INTERVAL_MS = 5_000;
 const POLL_MAX         = 12;
 
+const DRIVE_TO_ARCHETYPE: Record<string, string> = {
+  learning: 'LEARN', building: 'BUILD', doing: 'EXECUTE', helping: 'CONNECT',
+};
+
 export type GoalExecuteSectionProps = { goalId?: string; focusId?: string; onFocusChange?: (id: string | null) => void; };
 
 export function GoalExecuteSection({ goalId }: GoalExecuteSectionProps) {
   const { goals, setGoals, pendingGoals, setPending, loading, fetchError, retry } = useActiveGoals();
+  const { profile } = useProfile();
+
+  // Resolve selected drives from profile — handles both `drives` (array) and legacy `drive` (string)
+  const activeDrives: string[] = useMemo(() => {
+    if (!profile) return [];
+    if (Array.isArray(profile.drives) && profile.drives.length > 0) return profile.drives;
+    if (typeof profile.drive === 'string' && profile.drive) return [profile.drive];
+    return [];
+  }, [profile]);
 
   const sectionRef = useRef<HTMLDivElement>(null);
   const retryRef   = useRef(retry);
@@ -81,10 +95,16 @@ export function GoalExecuteSection({ goalId }: GoalExecuteSectionProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // All goals unified for the dropdown
-  const allGoals = [...goals.map(g => ({ ...g, hasPlan: true as const })),
-                    ...pendingGoals.map(g => ({ ...g, hasPlan: false as const }))]
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  // All goals unified, filtered to selected drives only
+  const allGoals = useMemo(() => {
+    const activeArchetypes = activeDrives && activeDrives.length > 0
+      ? new Set(activeDrives.map(d => DRIVE_TO_ARCHETYPE[d]).filter(Boolean))
+      : null;
+    return [...goals.map(g => ({ ...g, hasPlan: true as const })),
+            ...pendingGoals.map(g => ({ ...g, hasPlan: false as const }))]
+      .filter(g => !activeArchetypes || activeArchetypes.has(g.archetype))
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }, [goals, pendingGoals, activeDrives]);
 
   // Polling
   const pollCountRef = useRef(0);

@@ -38,6 +38,13 @@ const ARCHETYPE_TABS: { id: GoalArchetype; label: string }[] = [
   { id: "CONNECT", label: "Connect" },
 ];
 
+const DRIVE_TO_ARCHETYPE: Record<string, GoalArchetype> = {
+  learning: "LEARN",
+  building: "BUILD",
+  doing:    "EXECUTE",
+  helping:  "CONNECT",
+};
+
 // ─── Partner config ───────────────────────────────────────────────────────────
 
 const PARTNER_CFG: Record<PartnerId, {
@@ -134,12 +141,20 @@ function GoalsCompact({ onExpand, profileGoals }: {
 
 // ─── Goals expanded card (AI goals only) ─────────────────────────────────────
 
-function GoalsExpanded({ onClose }: { onClose: () => void }) {
+function GoalsExpanded({ onClose, activeDrives }: {
+  onClose: () => void;
+  activeDrives: string[];
+}) {
   const [goals, setGoals]   = useState<AiGoalItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab]       = useState<GoalArchetype>("LEARN");
   const [modal, setModal]   = useState<GoalArchetype | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Only show tabs for the drives the user has selected
+  const visibleTabs = ARCHETYPE_TABS.filter(t =>
+    activeDrives.length === 0 || activeDrives.some(d => DRIVE_TO_ARCHETYPE[d] === t.id)
+  );
+  const [tab, setTab] = useState<GoalArchetype>(visibleTabs[0]?.id ?? "LEARN");
 
   function loadGoals() {
     setLoading(true);
@@ -154,12 +169,12 @@ function GoalsExpanded({ onClose }: { onClose: () => void }) {
 
   useEffect(() => { loadGoals(); }, []);
 
-  // Auto-switch to first archetype that has goals
+  // Auto-switch to first visible tab that has goals
   useEffect(() => {
     if (goals.length === 0) return;
     const hasTab = goals.some(g => g.archetype === tab);
     if (!hasTab) {
-      const first = ARCHETYPE_TABS.find(t => goals.some(g => g.archetype === t.id));
+      const first = visibleTabs.find(t => goals.some(g => g.archetype === t.id));
       if (first) setTab(first.id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -218,9 +233,9 @@ function GoalsExpanded({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Archetype tabs */}
+          {/* Archetype tabs — only show user's selected drives */}
           <div className="flex gap-2 flex-wrap">
-            {ARCHETYPE_TABS.map(t => {
+            {visibleTabs.map(t => {
               const cnt = goals.filter(g => g.archetype === t.id).length;
               return (
                 <button key={t.id} type="button" onClick={() => setTab(t.id)}
@@ -714,7 +729,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
 
       {/* ── Row 1: Goals compact OR Goals expanded ── */}
       {goalsExpanded ? (
-        <GoalsExpanded onClose={() => setGoalsExpanded(false)} />
+        <GoalsExpanded onClose={() => setGoalsExpanded(false)} activeDrives={drives} />
       ) : (
         <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1.7fr 1fr", minHeight: "140px" }}>
           <TopBlock
