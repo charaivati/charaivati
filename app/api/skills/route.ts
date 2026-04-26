@@ -3,9 +3,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-type SkillEntry = { name?: string };
-type GoalEntry  = { skills?: SkillEntry[]; saved?: boolean };
-
 export async function GET() {
   try {
     const profiles = await prisma.profile.findMany({
@@ -16,18 +13,32 @@ export async function GET() {
     const skills: { id: string; name: string }[] = [];
 
     for (const profile of profiles) {
-      // General skills
-      for (const s of (profile.generalSkills as SkillEntry[] | null) ?? []) {
-        const name = (s.name ?? "").trim();
+      // General skills — profile.generalSkills is Prisma.JsonValue, must guard
+      const generalSkills = Array.isArray(profile.generalSkills)
+        ? profile.generalSkills
+        : [];
+
+      for (const entry of generalSkills) {
+        if (!entry || typeof entry !== "object") continue;
+        const name = String((entry as any).name ?? "").trim();
         if (name && !seen.has(name.toLowerCase())) {
           seen.add(name.toLowerCase());
           skills.push({ id: `skill-${name}`, name });
         }
       }
+
       // Goal-specific skills
-      for (const g of (profile.goals as GoalEntry[] | null) ?? []) {
-        for (const s of g.skills ?? []) {
-          const name = (s.name ?? "").trim();
+      const goals = Array.isArray(profile.goals) ? profile.goals : [];
+
+      for (const goal of goals) {
+        if (!goal || typeof goal !== "object") continue;
+        const goalSkills = Array.isArray((goal as any).skills)
+          ? (goal as any).skills
+          : [];
+
+        for (const entry of goalSkills) {
+          if (!entry || typeof entry !== "object") continue;
+          const name = String((entry as any).name ?? "").trim();
           if (name && !seen.has(name.toLowerCase())) {
             seen.add(name.toLowerCase());
             skills.push({ id: `skill-${name}`, name });
