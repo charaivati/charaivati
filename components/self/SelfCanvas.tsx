@@ -599,7 +599,7 @@ function ExpandedPanel({
         )}
         {id === "time"        && (
           <div className="space-y-2.5 p-5">
-            <GoalExecuteSection />
+            <GoalExecuteSection activeDrives={drives} profileGoals={goals} />
             <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
             <CollapsibleSection
               title="Project Timelines"

@@ -48,19 +48,28 @@ const DRIVE_TO_ARCHETYPE: Record<string, string> = {
   learning: 'LEARN', building: 'BUILD', doing: 'EXECUTE', helping: 'CONNECT',
 };
 
-export type GoalExecuteSectionProps = { goalId?: string; focusId?: string; onFocusChange?: (id: string | null) => void; };
+export type GoalExecuteSectionProps = {
+  goalId?: string;
+  focusId?: string;
+  onFocusChange?: (id: string | null) => void;
+  /** Reactive drives from useSelfState — takes precedence over the static profile snapshot */
+  activeDrives?: string[];
+  /** Profile goals from useSelfState — shown for guests who have no AI goals yet */
+  profileGoals?: { id: string; statement: string; driveId: string }[];
+};
 
-export function GoalExecuteSection({ goalId }: GoalExecuteSectionProps) {
+export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGoals }: GoalExecuteSectionProps) {
   const { goals, setGoals, pendingGoals, setPending, loading, fetchError, retry } = useActiveGoals();
   const { profile } = useProfile();
 
-  // Resolve selected drives from profile — handles both `drives` (array) and legacy `drive` (string)
+  // Prefer reactive drivesProp (from useSelfState); fall back to server profile for standalone use (TimeTab)
   const activeDrives: string[] = useMemo(() => {
+    if (drivesProp && drivesProp.length > 0) return drivesProp;
     if (!profile) return [];
     if (Array.isArray(profile.drives) && profile.drives.length > 0) return profile.drives;
     if (typeof profile.drive === 'string' && profile.drive) return [profile.drive];
     return [];
-  }, [profile]);
+  }, [drivesProp, profile]);
 
   const sectionRef = useRef<HTMLDivElement>(null);
   const retryRef   = useRef(retry);
@@ -289,8 +298,20 @@ export function GoalExecuteSection({ goalId }: GoalExecuteSectionProps) {
           )}
 
           {!loading && !fetchError && allGoals.length === 0 && (
-            <div className="border-t border-white/[0.05] px-5 py-5 text-center">
-              <p className="text-sm text-gray-500">No active goals yet — create one to see your execution plan here.</p>
+            <div className="border-t border-white/[0.05] px-5 py-5 text-center space-y-2">
+              {profileGoals && profileGoals.length > 0 ? (
+                <>
+                  <p className="text-sm text-gray-400 font-medium">
+                    You have {profileGoals.length} goal{profileGoals.length !== 1 ? 's' : ''} saved.
+                  </p>
+                  <p className="text-xs text-gray-600">
+                    <a href="/login" className="underline hover:text-indigo-400 transition-colors">Sign in</a>
+                    {' '}to generate an AI execution plan for your goals.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500">No active goals yet — create one to see your execution plan here.</p>
+              )}
             </div>
           )}
         </div>
