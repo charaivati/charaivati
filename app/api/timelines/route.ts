@@ -46,8 +46,27 @@ export async function POST(req: NextRequest) {
   // Resolve template and build phase data
   const template = templateId ? getTemplate(templateId) : undefined
 
-  const timeline = await prisma.$transaction(async (tx) => {
-    const created = await tx.projectTimeline.create({
+  // Pre-compute phase date ranges in JS (no DB needed)
+  type PhaseRow = { title: string; description: string | null; phaseKey: string; order: number; startDate: Date | null; targetDate: Date | null; milestones: string[] }
+  const phaseRows: PhaseRow[] = []
+  if (template) {
+    let cursor = startDate ? new Date(startDate) : null
+    for (let i = 0; i < template.phases.length; i++) {
+      const tp = template.phases[i]
+      const phaseStart = cursor ? new Date(cursor) : null
+      let phaseTarget: Date | null = null
+      if (cursor && tp.defaultDurationDays) {
+        phaseTarget = new Date(cursor)
+        phaseTarget.setDate(phaseTarget.getDate() + tp.defaultDurationDays)
+        cursor = new Date(phaseTarget)
+      }
+      phaseRows.push({ title: tp.title, description: tp.description, phaseKey: tp.key, order: i, startDate: phaseStart, targetDate: phaseTarget, milestones: tp.milestones })
+    }
+  }
+
+  // Single transaction: create timeline → phases in parallel → milestones in parallel
+  const created = await prisma.$transaction(async (tx) => {
+    const tl = await tx.projectTimeline.create({
       data: {
         userId:      user.id,
         goalId:      goalId ?? null,
@@ -62,55 +81,37 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    if (template) {
-      let cursor = startDate ? new Date(startDate) : null
+    if (phaseRows.length > 0) {
+      // Create all phases in parallel
+      const phases = await Promise.all(
+        phaseRows.map(p => tx.timelinePhase.create({
+          data: { timelineId: tl.id, title: p.title, description: p.description, phaseKey: p.phaseKey, order: p.order, status: "pending", startDate: p.startDate, targetDate: p.targetDate },
+        }))
+      )
 
-      for (let i = 0; i < template.phases.length; i++) {
-        const tp = template.phases[i]
+      // Create all milestones in one createMany per phase (parallel)
+      const milestoneBatches = phases
+        .map((phase, i) => phaseRows[i].milestones.length > 0
+          ? tx.phaseMilestone.createMany({ data: phaseRows[i].milestones.map(m => ({ phaseId: phase.id, title: m, isCompleted: false })) })
+          : null
+        )
+        .filter(Boolean)
 
-        const phaseStart = cursor ? new Date(cursor) : null
-        let phaseTarget: Date | null = null
-
-        if (cursor && tp.defaultDurationDays) {
-          phaseTarget = new Date(cursor)
-          phaseTarget.setDate(phaseTarget.getDate() + tp.defaultDurationDays)
-          cursor = new Date(phaseTarget)
-        }
-
-        const phase = await tx.timelinePhase.create({
-          data: {
-            timelineId:  created.id,
-            title:       tp.title,
-            description: tp.description,
-            phaseKey:    tp.key,
-            order:       i,
-            status:      "pending",
-            startDate:   phaseStart,
-            targetDate:  phaseTarget,
-          },
-        })
-
-        if (tp.milestones.length > 0) {
-          await tx.phaseMilestone.createMany({
-            data: tp.milestones.map((m) => ({
-              phaseId:     phase.id,
-              title:       m,
-              isCompleted: false,
-            })),
-          })
-        }
-      }
+      if (milestoneBatches.length > 0) await Promise.all(milestoneBatches)
     }
 
-    return tx.projectTimeline.findUniqueOrThrow({
-      where: { id: created.id },
-      include: {
-        phases: {
-          orderBy: { order: "asc" },
-          include: { milestones: { orderBy: { createdAt: "asc" } } },
-        },
+    return tl.id
+  }, { timeout: 15000 })
+
+  // Fetch final shape outside transaction (no timeout pressure)
+  const timeline = await prisma.projectTimeline.findUniqueOrThrow({
+    where: { id: created },
+    include: {
+      phases: {
+        orderBy: { order: "asc" },
+        include: { milestones: { orderBy: { createdAt: "asc" } } },
       },
-    })
+    },
   })
 
   return NextResponse.json(timeline, { status: 201 })
