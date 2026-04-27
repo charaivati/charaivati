@@ -91,7 +91,7 @@ export function HealthSection({ health, setHealth }: {
               className="flex-1 min-w-[120px] py-2 rounded-lg border border-gray-700 bg-gray-900
                 text-sm font-medium text-gray-300 hover:bg-gray-800 transition-colors text-center"
             >
-              View My Plan
+              Consult an Expert
             </button>
           </div>
         </div>

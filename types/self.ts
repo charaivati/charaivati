@@ -98,6 +98,7 @@ export type HealthProfile = {
   bicepCm?: string;
   chestCm?: string;
   medicalConditions?: string;
+  healthIssues?: string[];
   focusClarity?: "Low" | "Mid" | "High";
   socialInteraction?: "Low" | "Mid" | "High";
   energyLevel?: "Low" | "Mid" | "High";

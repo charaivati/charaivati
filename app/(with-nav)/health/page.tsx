@@ -418,6 +418,72 @@ function HealthPageContent() {
   const selectedSubscribed = subscribedExperts.find(e => e.pageId === selectedId);
   const selectedSuggested  = suggestedExperts.find(e => e.pageId === selectedId);
 
+  // ── Consultation state ────────────────────────────────────────────────────
+  const [query,           setQuery]           = useState("");
+  const [consentGiven,    setConsentGiven]    = useState(false);
+  const [consultLoading,  setConsultLoading]  = useState(false);
+  const [consultResponse, setConsultResponse] = useState<string | null>(null);
+  const [consultSent,     setConsultSent]     = useState(false);
+
+  const selectedExpertName =
+    selectedId === "charaivati"  ? "Charaivati AI"
+    : selectedSubscribed         ? selectedSubscribed.title
+    : selectedSuggested          ? selectedSuggested.title
+    : "the expert";
+
+  async function handleConsult() {
+    if (!query.trim() || !consentGiven) return;
+    setConsultLoading(true);
+    setConsultResponse(null);
+    setConsultSent(false);
+
+    if (selectedId === "charaivati") {
+      try {
+        const hcm2 = parseFloat(String(health.heightCm ?? ""));
+        const wkg2  = parseFloat(String(health.weightKg ?? ""));
+        const bmi2  = hcm2 > 0 && wkg2 > 0 ? (wkg2 / Math.pow(hcm2 / 100, 2)).toFixed(1) : null;
+        const res = await fetch("/api/ai/health-consult", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            bmi: bmi2,
+            sleepQuality:      health.sleepQuality,
+            mood:              health.mood,
+            stressLevel:       health.stressLevel,
+            medicalConditions: health.medicalConditions,
+            healthIssues:      health.healthIssues ?? [],
+            exercise:          health.exercise,
+            sessionsPerWeek:   health.sessionsPerWeek,
+          }),
+        }).then(r => r.json());
+        setConsultResponse(res.response ?? "Unable to get a response. Please try again.");
+      } catch {
+        setConsultResponse("Unable to get a response. Please try again.");
+      }
+    } else if (selectedSubscribed) {
+      // For human experts: record the query via the advice API (user-to-expert direction)
+      try {
+        await fetch("/api/health-business/advice", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            healthBusinessId: selectedSubscribed.healthBusinessId,
+            adviceType: "general",
+            advice: query,
+          }),
+        });
+      } catch { /* ignore */ }
+      setConsultSent(true);
+    } else {
+      setConsultSent(true);
+    }
+
+    setConsultLoading(false);
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -500,6 +566,106 @@ function HealthPageContent() {
               <span className="text-xs text-gray-600">Loading…</span>
             </div>
           )}
+        </div>
+
+        {/* ── Consult Block ───────────────────────────────────────────────── */}
+        <div className="mt-4 rounded-xl border border-gray-800 bg-gray-900/60 p-4 space-y-4">
+
+          {/* Saved health issues */}
+          {((health.healthIssues?.length ?? 0) > 0 || health.medicalConditions) && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                Your Current Health Issues
+              </p>
+              <ul className="space-y-1.5">
+                {health.medicalConditions && (
+                  <li className="flex items-start gap-2 text-sm text-gray-300">
+                    <span className="text-gray-600 mt-0.5 shrink-0">•</span>
+                    {health.medicalConditions}
+                  </li>
+                )}
+                {(health.healthIssues ?? []).map((issue, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-gray-300">
+                    <span className="text-gray-600 mt-0.5 shrink-0">•</span>
+                    {issue}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Query input */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              What&apos;s on your mind?
+            </p>
+            <textarea
+              value={query}
+              onChange={e => { setQuery(e.target.value); setConsultResponse(null); setConsultSent(false); }}
+              placeholder={
+                selectedId === "charaivati"
+                  ? "e.g. I feel bloated after eating rice, I've been anxious at night…"
+                  : `e.g. Ask ${selectedExpertName} something specific…`
+              }
+              rows={3}
+              className="w-full rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-indigo-500 resize-none transition-colors"
+            />
+          </div>
+
+          {/* Consent checkbox */}
+          <button
+            type="button"
+            onClick={() => setConsentGiven(v => !v)}
+            className="flex items-start gap-3 w-full text-left"
+          >
+            <span className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${
+              consentGiven ? "bg-indigo-600 border-indigo-600" : "border-gray-600 bg-gray-900 hover:border-gray-400"
+            }`}>
+              {consentGiven && (
+                <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                  <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              )}
+            </span>
+            <span className="text-xs text-gray-400 leading-relaxed">
+              I consent to share my health profile (BMI, sleep, mood, stress, issues) with{" "}
+              <span className="text-white font-medium">{selectedExpertName}</span> to get personalised guidance.
+            </span>
+          </button>
+
+          {/* Submit */}
+          <button
+            type="button"
+            onClick={handleConsult}
+            disabled={!query.trim() || !consentGiven || consultLoading}
+            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {consultLoading
+              ? <><Loader2 className="w-4 h-4 animate-spin" />Getting response…</>
+              : selectedId === "charaivati"
+                ? <><Sparkles className="w-4 h-4" />Ask Charaivati AI</>
+                : <>Send to {selectedExpertName}</>}
+          </button>
+
+          {/* AI response */}
+          {consultResponse && (
+            <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 px-4 py-3 space-y-1">
+              <p className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider">Charaivati AI</p>
+              <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{consultResponse}</p>
+            </div>
+          )}
+
+          {/* Expert query sent confirmation */}
+          {consultSent && (
+            <div className="rounded-lg border border-emerald-700/30 bg-emerald-900/20 px-4 py-3">
+              <p className="text-sm text-emerald-300">
+                {selectedSubscribed
+                  ? `Your query has been sent to ${selectedExpertName}. They'll review your health data and respond.`
+                  : `Subscribe to ${selectedExpertName} to get a personalised response.`}
+              </p>
+            </div>
+          )}
+
         </div>
 
         {/* ── Content Panel ───────────────────────────────────────────────── */}
