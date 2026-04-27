@@ -143,9 +143,9 @@ export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGo
     setRegenerating(p => ({ ...p, [id]: false }));
   }
 
-  // Auto-select: goalId prop → persisted → newest
+  // Auto-select: clear when drive filter empties the list, otherwise pick goalId → persisted → newest
   useEffect(() => {
-    if (allGoals.length === 0) return;
+    if (allGoals.length === 0) { setSelectedId(null); return; } // clear stale selection on drive change
     if (goalId && allGoals.some(g => g.id === goalId))         { setSelectedId(goalId); return; }
     if (selectedId && allGoals.some(g => g.id === selectedId)) return;
     setSelectedId(allGoals[0].id);
@@ -154,10 +154,12 @@ export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGo
 
   useEffect(() => { try { if (selectedId) localStorage.setItem(LS_SELECTED, selectedId); } catch {} }, [selectedId]);
 
-  const selectedGoal    = goals.find(g => g.id === selectedId) ?? null;
-  const selectedPending = !selectedGoal ? (pendingGoals.find(g => g.id === selectedId) ?? null) : null;
-  // fallback to newest with plan if nothing selected
-  const displayGoal     = selectedGoal ?? (!selectedPending ? goals[0] ?? null : null);
+  // All lookups are constrained to the filtered allGoals — prevents stale goals from showing
+  // when a drive is unselected (avoids the goal rendering via unfiltered `goals` array)
+  const filteredIds     = new Set(allGoals.map(g => g.id));
+  const selectedGoal    = (selectedId && filteredIds.has(selectedId)) ? (goals.find(g => g.id === selectedId) ?? null) : null;
+  const selectedPending = (!selectedGoal && selectedId && filteredIds.has(selectedId)) ? (pendingGoals.find(g => g.id === selectedId) ?? null) : null;
+  const displayGoal     = selectedGoal ?? (!selectedPending ? (goals.find(g => filteredIds.has(g.id)) ?? null) : null);
 
   function handlePlanUpdate(plan: ExecutionPlan) {
     const id = (displayGoal ?? selectedGoal)?.id; if (!id) return;
@@ -298,18 +300,23 @@ export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGo
           )}
 
           {!loading && !fetchError && allGoals.length === 0 && (
-            <div className="border-t border-white/[0.05] px-5 py-5 text-center space-y-2">
-              {profileGoals && profileGoals.length > 0 ? (
+            <div className="border-t border-white/[0.05] px-5 py-5 text-center space-y-1.5">
+              {!profile && profileGoals && profileGoals.length > 0 ? (
+                // Guest with saved profile goals
                 <>
                   <p className="text-sm text-gray-400 font-medium">
                     You have {profileGoals.length} goal{profileGoals.length !== 1 ? 's' : ''} saved.
                   </p>
                   <p className="text-xs text-gray-600">
                     <a href="/login" className="underline hover:text-indigo-400 transition-colors">Sign in</a>
-                    {' '}to generate an AI execution plan for your goals.
+                    {' '}to generate an AI execution plan.
                   </p>
                 </>
+              ) : activeDrives.length > 0 ? (
+                // Logged-in: has drives but no goals for them yet
+                <p className="text-sm text-gray-500">No goals for your current drives yet — add one above.</p>
               ) : (
+                // No drives or no goals at all
                 <p className="text-sm text-gray-500">No active goals yet — create one to see your execution plan here.</p>
               )}
             </div>
