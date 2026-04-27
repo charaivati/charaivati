@@ -8,7 +8,7 @@ import HeaderTabs from "@/components/HeaderTabs";
 import { LayerProvider } from "@/components/LayerContext";
 import ProfileMenu from "@/components/ProfileMenu";
 import UnifiedSearch from "@/components/UnifiedSearch";
-import { ensureKeyPair } from "@/lib/chat-crypto";
+import { ensureKeyPair, prewarmFriends } from "@/lib/chat-crypto";
 
 export default function WithNavClient({
   profile: initialProfile,
@@ -38,8 +38,9 @@ function WithNavLayoutInner({
   const [showBottomNav, setShowBottomNav] = useState(true);
   const lastScrollY = useRef(0);
 
-  // Warm up encryption keys as soon as the layout mounts — before the user
-  // navigates to the Messages tab — so the first message send has no cold start.
+  // Warm up encryption keys as soon as the layout mounts.
+  // ensureKeyPair() is idempotent: generates keys on first load, then just
+  // re-imports from localStorage on subsequent visits (fast, no network on cache hit).
   useEffect(() => {
     ensureKeyPair().catch(() => {});
   }, []);
@@ -143,12 +144,16 @@ function WithNavLayoutInner({
           ? await followRes.value.json().catch(() => null)
           : null;
 
+        const friendIds = (frData?.friends ?? []).map((f: any) => f.id ?? f);
         setFriendState({
-          friends:  (frData?.friends        ?? []).map((f: any) => f.id ?? f),
+          friends:  friendIds,
           outgoing: (frData?.outgoingRequests ?? []).map((r: any) => r.receiverId ?? r.receiver?.id ?? r.id),
           incoming: (frData?.incomingRequests ?? []).map((r: any) => r.senderId   ?? r.sender?.id   ?? r.id),
           following:(followData?.follows     ?? []).map((f: any) => f.pageId      ?? f.id),
         });
+        // Pre-derive shared encryption keys for all friends in the background.
+        // By the time the user opens a chat, the shared key is already in the cache.
+        prewarmFriends(friendIds).catch(() => {});
       } catch {
         // non-fatal — state stays empty
       }

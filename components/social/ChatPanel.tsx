@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   ensureKeyPair,
+  isKeyReady,
   getFriendPublicKey,
   getSharedKey,
   encryptMessage,
@@ -87,8 +88,10 @@ function Avatar({ src, name, size = 8 }: { src?: string | null; name: string; si
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ChatPanel({ myId }: { myId?: string }) {
-  // Crypto setup
-  const [keyReady, setKeyReady] = useState(false);
+  // Crypto setup — initialise synchronously from the in-memory singleton so
+  // there is no "Setting up encryption…" flash when WithNavClient already ran
+  // ensureKeyPair() before this component mounted.
+  const [keyReady, setKeyReady] = useState<boolean>(() => isKeyReady());
   const [keyError, setKeyError] = useState(false);
 
   // Lists
@@ -235,11 +238,9 @@ export default function ChatPanel({ myId }: { myId?: string }) {
         const curFriend = activeFriendIdRef.current;
         if (!curSk || !curJwk || !curFriend) return;
 
-        // Deduplicate — SSE may deliver messages that were added via optimistic UI
-        setMessages(prev => { if (prev.find(m => m.id === raw.id)) return prev; return prev; });
-
         const { text, failed } = await decryptWithFallback(curSk, curFriend, curJwk, raw.ciphertext, raw.iv);
 
+        // Deduplicate — optimistic-UI already added messages sent by this client
         setMessages(prev => {
           if (prev.find(m => m.id === raw.id)) return prev;
           return [...prev, { id: raw.id, senderId: raw.senderId, text, createdAt: raw.createdAt, failed }];

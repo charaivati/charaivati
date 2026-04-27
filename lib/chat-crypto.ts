@@ -32,8 +32,10 @@ const MAX_KEY_HISTORY = 5;
 // ── Module-level singletons ────────────────────────────────────────────────────
 let _privateKey: CryptoKey | null = null;
 const _sharedKeys = new Map<string, CryptoKey>();
-// Cached shared keys derived from historical private keys — keyed as `friendId:histN`.
 const _historicalSharedKeys = new Map<string, CryptoKey>();
+
+/** Synchronous — true once ensureKeyPair() has loaded the private key into memory. */
+export function isKeyReady(): boolean { return _privateKey !== null; }
 
 // ── ensureKeyPair ──────────────────────────────────────────────────────────────
 /**
@@ -207,7 +209,6 @@ export async function getSharedKey(
   const cached = _sharedKeys.get(friendId);
   if (cached) return cached;
 
-  console.time("crypto:derive");
   const myPrivate   = await loadPrivateKey();
   const theirPublic = await crypto.subtle.importKey(
     "jwk",
@@ -223,10 +224,31 @@ export async function getSharedKey(
     false,
     ["encrypt", "decrypt"]
   );
-  console.timeEnd("crypto:derive");
 
   _sharedKeys.set(friendId, sk);
   return sk;
+}
+
+// ── prewarmFriends ─────────────────────────────────────────────────────────────
+/**
+ * Pre-fetches each friend's public key and pre-derives the shared AES-GCM key
+ * so that opening a conversation has zero crypto cold-start delay.
+ * All work is fire-and-forget — any individual failure is silently swallowed.
+ * Call this from WithNavClient after the friends list is loaded.
+ */
+export async function prewarmFriends(friendIds: string[]): Promise<void> {
+  if (!_privateKey) return; // private key not ready yet — skip; ChatPanel will warm on open
+  await Promise.allSettled(
+    friendIds.map(async (id) => {
+      if (_sharedKeys.has(id)) return; // already warmed
+      try {
+        const jwk = await getFriendPublicKey(id);
+        await getSharedKey(id, jwk);
+      } catch {
+        // friend hasn't uploaded a key yet — normal, not an error
+      }
+    })
+  );
 }
 
 // ── encryptMessage ─────────────────────────────────────────────────────────────
