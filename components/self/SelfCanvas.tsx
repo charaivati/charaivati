@@ -1,7 +1,8 @@
 "use client";
 // components/self/SelfCanvas.tsx — visual grid layout
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useLanguage } from "@/components/LanguageProvider";
 import { createPortal } from "react-dom";
 import { Sparkles, X, Trash2 } from "lucide-react";
 import { computeEnergy } from "@/blocks/EnergyBlock";
@@ -82,9 +83,11 @@ function joySectionScore(sec: { types: string[]; frequency: FrequencyType } | un
 
 // ─── Goals compact card ───────────────────────────────────────────────────────
 
-function GoalsCompact({ onExpand, profileGoals }: {
+function GoalsCompact({ onExpand, profileGoals, goalsLabel, noGoalsText }: {
   onExpand: () => void;
   profileGoals: GoalEntry[];
+  goalsLabel?: string;
+  noGoalsText?: string;
 }) {
   const [count, setCount] = useState<number | null>(null);
 
@@ -112,7 +115,7 @@ function GoalsCompact({ onExpand, profileGoals }: {
   const label = effectiveCount === null
     ? "…"
     : effectiveCount === 0
-    ? "No goals yet"
+    ? (noGoalsText || "No goals yet")
     : `${effectiveCount} goal${effectiveCount !== 1 ? "s" : ""}`;
 
   return (
@@ -130,7 +133,7 @@ function GoalsCompact({ onExpand, profileGoals }: {
         style={{ background: "#1e1b4b", color: "#a5b4fc" }}>
         🎯
       </div>
-      <span className="text-sm font-semibold text-white">Goals</span>
+      <span className="text-sm font-semibold text-white">{goalsLabel || "Goals"}</span>
       <span className="text-xs text-gray-400 mt-1">{label}</span>
       {effectiveCount !== null && effectiveCount > 0 && count === 0 && (
         <span className="text-[9px] text-gray-600 mt-0.5">from profile</span>
@@ -295,10 +298,10 @@ function GoalsExpanded({ onClose, activeDrives }: {
 // ─── Top block (Health / Skills in row 1) ────────────────────────────────────
 
 function TopBlock({
-  id, status, statusType, active, onClick,
+  id, status, statusType, active, onClick, label: labelOverride,
 }: {
   id: PartnerId; status: string; statusType: "good" | "neutral" | "warning";
-  active: boolean; onClick: () => void;
+  active: boolean; onClick: () => void; label?: string;
 }) {
   const cfg = PARTNER_CFG[id];
   const statusColor = statusType === "good" ? "#22c55e" : statusType === "warning" ? "#f59e0b" : "#9ca3af";
@@ -316,7 +319,7 @@ function TopBlock({
         style={{ background: cfg.iconBg, color: cfg.iconText }}>
         {cfg.icon}
       </div>
-      <span className="text-[11px] font-semibold text-white leading-none">{cfg.label}</span>
+      <span className="text-[11px] font-semibold text-white leading-none">{labelOverride || cfg.label}</span>
       <span className="text-[9px] leading-none" style={{ color: statusColor }}>{status}</span>
     </button>
   );
@@ -325,10 +328,10 @@ function TopBlock({
 // ─── Partner card (middle row) ────────────────────────────────────────────────
 
 function PartnerCard({
-  id, status, statusType, active, onClick,
+  id, status, statusType, active, onClick, label: labelOverride,
 }: {
   id: PartnerId; status: string; statusType: "good" | "neutral" | "warning";
-  active: boolean; onClick: () => void;
+  active: boolean; onClick: () => void; label?: string;
 }) {
   const cfg = PARTNER_CFG[id];
   const statusColor = statusType === "good" ? "#22c55e" : statusType === "warning" ? "#f59e0b" : "#9ca3af";
@@ -346,7 +349,7 @@ function PartnerCard({
         style={{ background: cfg.iconBg, color: cfg.iconText }}>
         {cfg.icon}
       </div>
-      <span className="text-[11px] font-medium text-white leading-none">{cfg.label}</span>
+      <span className="text-[11px] font-medium text-white leading-none">{labelOverride || cfg.label}</span>
       <span className="text-[9px] leading-none" style={{ color: statusColor }}>{status}</span>
     </button>
   );
@@ -532,6 +535,7 @@ function ExpandedPanel({
   setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
   onWeekScheduleChange, onFundsChange, onEnvironmentChange,
   timelineGoal, onTimelineModalClosed,
+  tMap,
 }: {
   id: PartnerId; onClose: () => void;
   health: HealthProfile; goals: GoalEntry[];
@@ -551,8 +555,10 @@ function ExpandedPanel({
   onEnvironmentChange: (e: EnvironmentProfile) => void;
   timelineGoal: { id: string; title: string } | null;
   onTimelineModalClosed: () => void;
+  tMap?: Record<string, string>;
 }) {
   const cfg = PARTNER_CFG[id];
+  const tc = (slug: string, fallback: string) => tMap?.[slug] || fallback;
   return (
     <div className="rounded-2xl border overflow-hidden"
       style={{
@@ -599,10 +605,10 @@ function ExpandedPanel({
         )}
         {id === "time"        && (
           <div className="space-y-2.5 p-5">
-            <GoalExecuteSection activeDrives={drives} profileGoals={goals} />
-            <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} />
+            <GoalExecuteSection activeDrives={drives} profileGoals={goals} tMap={tMap} />
+            <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} title={tc("section-daily-tasks", "Daily tasks")} />
             <CollapsibleSection
-              title="Project Timelines"
+              title={tc("section-project-timelines", "Project Timelines")}
               subtitle="Goal-driven projects with phases & milestones"
               defaultOpen={false}
             >
@@ -643,6 +649,14 @@ export interface SelfCanvasProps {
   onEnvironmentChange: (e: EnvironmentProfile) => void;
 }
 
+// All canvas slugs we translate; must match the DB Tab slugs seeded in seed-canvas-strings.ts
+const CANVAS_SLUGS = [
+  "canvas-health","canvas-goals","canvas-skills","canvas-energy",
+  "canvas-environment","canvas-time","canvas-funds","canvas-network",
+  "section-execution-plan","section-daily-tasks","section-project-timelines",
+  "status-no-goals","status-not-set-up","status-none-yet","status-no-tasks","status-tap-to-view",
+].join(",");
+
 export function SelfCanvas(props: SelfCanvasProps) {
   const {
     health, goals, generalSkills, skillsLoading,
@@ -651,6 +665,28 @@ export function SelfCanvas(props: SelfCanvasProps) {
     setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
     onWeekScheduleChange, onFundsChange, onEnvironmentChange,
   } = props;
+
+  const { locale } = useLanguage();
+  const [tMap, setTMap] = useState<Record<string, string>>({});
+
+  // Fetch canvas translations whenever locale changes
+  useEffect(() => {
+    if (!locale || locale === "en") { setTMap({}); return; }
+    fetch(`/api/tab-translations?locale=${encodeURIComponent(locale)}&slugs=${encodeURIComponent(CANVAS_SLUGS)}`)
+      .then(r => r.json())
+      .then(json => {
+        if (!json.ok) return;
+        const map: Record<string, string> = {};
+        for (const [slug, t] of Object.entries(json.translations as Record<string, any>)) {
+          if (t?.title) map[slug] = t.title;
+        }
+        setTMap(map);
+      })
+      .catch(() => {});
+  }, [locale]);
+
+  // tc: translate by slug, fall back to English default
+  const tc = useCallback((slug: string, fallback: string) => tMap[slug] || fallback, [tMap]);
 
   const [activePartner, setActivePartner] = useState<PartnerId>("time");
   const [goalsExpanded, setGoalsExpanded] = useState(false);
@@ -687,12 +723,12 @@ export function SelfCanvas(props: SelfCanvasProps) {
         const s = energy.overall;
         return s > 0 || health.heightCm
           ? { text: `${s}/10`, type: s >= 7 ? "good" : s >= 4 ? "neutral" : "warning" }
-          : { text: "Not set up", type: "warning" };
+          : { text: tc("status-not-set-up", "Not set up"), type: "warning" };
       }
       case "skills": {
         const n = goals.reduce((a, g) => a + g.skills.filter(s => s.name.trim()).length, 0)
           + generalSkills.filter(s => s.name.trim()).length;
-        return n > 0 ? { text: `${n} tracked`, type: "neutral" } : { text: "None yet", type: "warning" };
+        return n > 0 ? { text: `${n} tracked`, type: "neutral" } : { text: tc("status-none-yet", "None yet"), type: "warning" };
       }
       case "energy": {
         const s = energy.overall;
@@ -702,22 +738,22 @@ export function SelfCanvas(props: SelfCanvasProps) {
         const displayCity = environmentProfile.location?.city || environmentProfile.city;
         return displayCity
           ? { text: displayCity, type: "neutral" }
-          : { text: "Not set up", type: "warning" };
+          : { text: tc("status-not-set-up", "Not set up"), type: "warning" };
       }
       case "time": {
         const n = (weekSchedule.tasks ?? []).length;
         return n > 0
           ? { text: `${n} task${n !== 1 ? "s" : ""}`, type: "neutral" }
-          : { text: "No tasks yet", type: "warning" };
+          : { text: tc("status-no-tasks", "No tasks yet"), type: "warning" };
       }
       case "funds": {
         const n = fundsProfile.sources.length;
         return n > 0
           ? { text: `${n} source${n !== 1 ? "s" : ""}`, type: "neutral" }
-          : { text: "Not set up", type: "warning" };
+          : { text: tc("status-not-set-up", "Not set up"), type: "warning" };
       }
       case "network":
-        return { text: "Tap to view", type: "neutral" };
+        return { text: tc("status-tap-to-view", "Tap to view"), type: "neutral" };
     }
   }
 
@@ -734,14 +770,21 @@ export function SelfCanvas(props: SelfCanvasProps) {
         <div className="grid gap-2" style={{ gridTemplateColumns: "1fr 1.7fr 1fr", minHeight: "140px" }}>
           <TopBlock
             id="health"
+            label={tc("canvas-health", "Health")}
             status={partnerStatus("health").text}
             statusType={partnerStatus("health").type}
             active={activePartner === "health"}
             onClick={() => setActivePartner("health")}
           />
-          <GoalsCompact onExpand={() => setGoalsExpanded(true)} profileGoals={goals} />
+          <GoalsCompact
+            onExpand={() => setGoalsExpanded(true)}
+            profileGoals={goals}
+            goalsLabel={tc("canvas-goals", "Goals")}
+            noGoalsText={tc("status-no-goals", "No goals yet")}
+          />
           <TopBlock
             id="skills"
+            label={tc("canvas-skills", "Skills")}
             status={partnerStatus("skills").text}
             statusType={partnerStatus("skills").type}
             active={activePartner === "skills"}
@@ -767,6 +810,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
             <div key={id} className={cls}>
               <PartnerCard
                 id={id}
+                label={tc(`canvas-${id === "environment" ? "environment" : id}`, PARTNER_CFG[id].label)}
                 status={text} statusType={type}
                 active={activePartner === id}
                 onClick={() => setActivePartner(id)}
@@ -798,6 +842,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
         onEnvironmentChange={onEnvironmentChange}
         timelineGoal={timelineGoal}
         onTimelineModalClosed={() => setTimelineGoal(null)}
+        tMap={tMap}
       />
 
     </div>

@@ -229,6 +229,21 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Not authorized to delete this post" }, { status: 403 });
     }
 
+    // Flag any lesson block that was linked to this post
+    try {
+      await prisma.storeBlock.updateMany({
+        where: { linkedPostId: postId },
+        data: {
+          linkedPostId: null,
+          mediaUrl: null,
+          mediaType: "none",
+          blockStatus: "media_deleted",
+        },
+      });
+    } catch (blockErr) {
+      console.warn("[DELETE post] block cascade failed (non-fatal):", blockErr);
+    }
+
     // Delete post
     await prisma.post.delete({
       where: { id: postId },

@@ -19,6 +19,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     description: page.description ?? null,
     avatar: page.avatarUrl ?? null,
     status: page.status,
+    pageType: page.pageType,
     owner: page.owner ? { id: page.owner.id, name: page.owner.name ?? null, avatar: page.owner.avatarUrl ?? null } : null,
     createdAt: page.createdAt?.toISOString?.() ?? null,
     updatedAt: page.updatedAt?.toISOString?.() ?? null,

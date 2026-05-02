@@ -57,12 +57,14 @@ export async function POST(req: Request) {
     const description = (body.description || "").trim();
     const rawType = (body.type || "").trim();
     const type = rawType === "health" ? "health" : "standard";
+    const rawPageType = (body.pageType || "").trim();
+    const pageType = ["store", "learning", "service"].includes(rawPageType) ? rawPageType : "store";
 
     if (!title) return NextResponse.json({ error: "title_required" }, { status: 400 });
 
     const page = await prisma.page.create({
-      data: { ownerId: user.id, title, description: description || null, type },
-      select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true, type: true },
+      data: { ownerId: user.id, title, description: description || null, type, pageType },
+      select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true, type: true, pageType: true },
     });
 
     return NextResponse.json({ ok: true, page }, { status: 201 });

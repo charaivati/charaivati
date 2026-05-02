@@ -18,7 +18,7 @@ export async function PATCH(req: NextRequest) {
 
   await prisma.$transaction(
     orderedIds.map((id: string, index: number) =>
-      prisma.section.update({ where: { id }, data: { order: index } })
+      prisma.storeSection.update({ where: { id }, data: { order: index } })
     )
   );
 

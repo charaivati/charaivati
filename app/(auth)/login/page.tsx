@@ -1,10 +1,11 @@
 //app/(auth)/login/page.tsx
 "use client";
 
-import { useState, useEffect, useRef, Suspense } from "react";
+import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Mail, Lock, User } from "lucide-react";
+import { useLanguage } from "@/components/LanguageProvider";
 
 type StatusResp = {
   exists?: boolean;
@@ -14,9 +15,42 @@ type StatusResp = {
   name?: string | null;
 };
 
+const AUTH_SLUGS = [
+  "auth-welcome-title","auth-welcome-subtitle","auth-welcome-back","auth-create-title",
+  "auth-email-label","auth-email-placeholder","auth-email-hint","auth-continue-btn","auth-checking",
+  "auth-password-label","auth-password-placeholder","auth-login-btn","auth-logging-in","auth-diff-email",
+  "auth-name-label","auth-name-placeholder","auth-email-label-2","auth-password-hint",
+  "auth-create-btn","auth-creating","auth-guest-btn","auth-guest-hint",
+  "auth-terms-prefix","auth-terms-link","auth-too-many-attempts",
+  "auth-msg-logging-in","auth-msg-login-ok","auth-msg-login-fail","auth-msg-network-error",
+  "auth-msg-creating-account","auth-msg-account-ok","auth-msg-reg-fail",
+  "auth-msg-creating-guest","auth-msg-guest-ok","auth-msg-guest-fail",
+  "auth-msg-email-required","auth-msg-email-error",
+].join(",");
+
 function AuthForm() {
   const router = useRouter();
   const sp = useSearchParams();
+  const { locale } = useLanguage();
+
+  const [tMap, setTMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!locale || locale === "en") { setTMap({}); return; }
+    fetch(`/api/tab-translations?locale=${encodeURIComponent(locale)}&slugs=${encodeURIComponent(AUTH_SLUGS)}`)
+      .then(r => r.json())
+      .then(json => {
+        if (!json.ok) return;
+        const map: Record<string, string> = {};
+        for (const [slug, v] of Object.entries(json.translations as Record<string, any>)) {
+          if (v?.title) map[slug] = v.title;
+        }
+        setTMap(map);
+      })
+      .catch(() => {});
+  }, [locale]);
+
+  const t = useCallback((slug: string, fallback: string) => tMap[slug] || fallback, [tMap]);
 
   const prefillEmail = sp?.get("email") || "";
 
@@ -133,7 +167,7 @@ function AuthForm() {
         setMessage("");
       }
     } catch (err) {
-      setMessage("Error checking email. Please try again.");
+      setMessage(t("auth-msg-email-error", "Error checking email. Please try again."));
       console.error(err);
     } finally {
       setIsSubmitting(false);
@@ -144,7 +178,7 @@ function AuthForm() {
     if (cooldown > 0)
       return setMessage(`⏳ Wait ${cooldown}s before retrying.`);
 
-    setMessage("Logging in...");
+    setMessage(t("auth-msg-logging-in", "Logging in..."));
     setIsSubmitting(true);
 
     try {
@@ -161,11 +195,11 @@ function AuthForm() {
       if (!res.ok || !data?.ok) {
         setAttempts((n) => n + 1);
         if (attempts + 1 >= 3) setCooldown(60);
-        setMessage("❌ " + (data?.error || "Login failed"));
+        setMessage("❌ " + (data?.error || t("auth-msg-login-fail", "Login failed")));
         return;
       }
 
-      setMessage("✅ Login successful! Redirecting...");
+      setMessage("✅ " + t("auth-msg-login-ok", "Login successful! Redirecting..."));
       if (data.preferredLanguage && data.preferredLanguage !== "en") {
         try { localStorage.setItem("lang", data.preferredLanguage); } catch {}
       }
@@ -177,7 +211,7 @@ function AuthForm() {
       router.refresh();
     } catch (err) {
       console.error("login error", err);
-      setMessage("Network error. Please retry.");
+      setMessage(t("auth-msg-network-error", "Network error. Please retry."));
     } finally {
       setIsSubmitting(false);
     }
@@ -187,7 +221,7 @@ function AuthForm() {
     if (cooldown > 0)
       return setMessage(`⏳ Wait ${cooldown}s before retrying.`);
 
-    setMessage("Creating your account...");
+    setMessage(t("auth-msg-creating-account", "Creating your account..."));
     setIsSubmitting(true);
 
     try {
@@ -207,11 +241,11 @@ function AuthForm() {
       if (!res.ok) {
         setAttempts((n) => n + 1);
         if (attempts + 1 >= 3) setCooldown(60);
-        setMessage("❌ " + (data.error || "Registration failed"));
+        setMessage("❌ " + (data.error || t("auth-msg-reg-fail", "Registration failed")));
         return;
       }
 
-      setMessage("✅ Account created! Let's get you started...");
+      setMessage("✅ " + t("auth-msg-account-ok", "Account created! Let's get you started..."));
       await new Promise((r) => setTimeout(r, 800));
       router.replace(redirectTo);
     } finally {
@@ -220,7 +254,7 @@ function AuthForm() {
   }
 
   async function handleGuestLogin() {
-    setMessage("Creating a guest session...");
+    setMessage(t("auth-msg-creating-guest", "Creating a guest session..."));
     setIsSubmitting(true);
 
     try {
@@ -230,10 +264,10 @@ function AuthForm() {
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.ok) {
-        setMessage("❌ Unable to start guest session. Please try again.");
+        setMessage("❌ " + t("auth-msg-guest-fail", "Unable to start guest session. Please try again."));
         return;
       }
-      setMessage("✅ Guest session ready! Redirecting...");
+      setMessage("✅ " + t("auth-msg-guest-ok", "Guest session ready! Redirecting..."));
       await new Promise((r) => setTimeout(r, 200));
       await router.replace(redirectTo);
       try {
@@ -242,7 +276,7 @@ function AuthForm() {
       router.refresh();
     } catch (err) {
       console.error("guest login error", err);
-      setMessage("Network error. Please retry.");
+      setMessage(t("auth-msg-network-error", "Network error. Please retry."));
     } finally {
       setIsSubmitting(false);
     }
@@ -262,8 +296,8 @@ function AuthForm() {
       <div className="w-full max-w-md">
         {/* Logo/Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold mb-2">Welcome</h1>
-          <p className="text-gray-400">Sign in or create an account to continue</p>
+          <h1 className="text-3xl font-bold mb-2">{t("auth-welcome-title", "Welcome")}</h1>
+          <p className="text-gray-400">{t("auth-welcome-subtitle", "Sign in or create an account to continue")}</p>
         </div>
 
         {/* Email Step */}
@@ -271,7 +305,7 @@ function AuthForm() {
           <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Email Address
+                {t("auth-email-label", "Email Address")}
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
@@ -280,13 +314,13 @@ function AuthForm() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleEmailSubmit()}
-                  placeholder="you@example.com"
+                  placeholder={t("auth-email-placeholder", "you@example.com")}
                   className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
                   required
                 />
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                We'll check if you have an account or help you create one
+                {t("auth-email-hint", "We'll check if you have an account or help you create one")}
               </p>
             </div>
 
@@ -304,11 +338,11 @@ function AuthForm() {
               {isSubmitting || checkingStatus ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Checking...
+                  {t("auth-checking", "Checking...")}
                 </>
               ) : (
                 <>
-                  Continue
+                  {t("auth-continue-btn", "Continue")}
                   <ChevronRight className="w-4 h-4" />
                 </>
               )}
@@ -320,11 +354,11 @@ function AuthForm() {
         {/* Login Step */}
         {step === "login" && (
           <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
-            <h2 className="text-xl font-semibold text-center mb-6">Welcome Back!</h2>
+            <h2 className="text-xl font-semibold text-center mb-6">{t("auth-welcome-back", "Welcome Back!")}</h2>
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Email
+                {t("auth-email-label-2", "Email")}
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
@@ -340,7 +374,7 @@ function AuthForm() {
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Password
+                {t("auth-password-label", "Password")}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
@@ -349,7 +383,7 @@ function AuthForm() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-                  placeholder="Enter your password"
+                  placeholder={t("auth-password-placeholder", "Enter your password")}
                   className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
                   required
                 />
@@ -368,7 +402,7 @@ function AuthForm() {
 
             {cooldown > 0 && (
               <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm text-yellow-200">
-                Too many attempts. Please wait {cooldown} seconds.
+                {t("auth-too-many-attempts", "Too many attempts. Please wait")} {cooldown}s.
               </div>
             )}
 
@@ -377,14 +411,14 @@ function AuthForm() {
               disabled={isSubmitting || cooldown > 0}
               className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold transition"
             >
-              {isSubmitting ? "Logging in..." : "Login"}
+              {isSubmitting ? t("auth-logging-in", "Logging in...") : t("auth-login-btn", "Login")}
             </button>
 
             <button
               onClick={handleBackToEmail}
               className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
             >
-              Use different email
+              {t("auth-diff-email", "Use different email")}
             </button>
           </div>
         )}
@@ -392,14 +426,14 @@ function AuthForm() {
         {/* Register Step */}
         {step === "register" && (
           <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
-            <h2 className="text-xl font-semibold text-center mb-2">Create Your Account</h2>
+            <h2 className="text-xl font-semibold text-center mb-2">{t("auth-create-title", "Create Your Account")}</h2>
             {message && (
               <p className="text-center text-sm text-gray-300 mb-4">{message}</p>
             )}
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Full Name
+                {t("auth-name-label", "Full Name")}
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
@@ -407,7 +441,7 @@ function AuthForm() {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
+                  placeholder={t("auth-name-placeholder", "John Doe")}
                   className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-emerald-500 focus:outline-none transition"
                   required
                 />
@@ -416,7 +450,7 @@ function AuthForm() {
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Email
+                {t("auth-email-label-2", "Email")}
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
@@ -432,7 +466,7 @@ function AuthForm() {
 
             <div className="space-y-2">
               <label className="block text-sm font-medium text-gray-300">
-                Password
+                {t("auth-password-label", "Password")}
               </label>
               <div className="relative">
                 <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
@@ -441,13 +475,13 @@ function AuthForm() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleRegister()}
-                  placeholder="At least 8 characters"
+                  placeholder={t("auth-password-hint", "At least 8 characters")}
                   className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-emerald-500 focus:outline-none transition"
                   minLength={8}
                   required
                 />
               </div>
-              <p className="text-xs text-gray-500">Must be at least 8 characters</p>
+              <p className="text-xs text-gray-500">{t("auth-password-hint", "Must be at least 8 characters")}</p>
             </div>
 
             {message && message.includes("❌") && (
@@ -458,7 +492,7 @@ function AuthForm() {
 
             {cooldown > 0 && (
               <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20 text-sm text-yellow-200">
-                Too many attempts. Please wait {cooldown} seconds.
+                {t("auth-too-many-attempts", "Too many attempts. Please wait")} {cooldown}s.
               </div>
             )}
 
@@ -467,14 +501,14 @@ function AuthForm() {
               disabled={isSubmitting || cooldown > 0}
               className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold transition"
             >
-              {isSubmitting ? "Creating account..." : "Create Account"}
+              {isSubmitting ? t("auth-creating", "Creating account...") : t("auth-create-btn", "Create Account")}
             </button>
 
             <button
               onClick={handleBackToEmail}
               className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
             >
-              Use different email
+              {t("auth-diff-email", "Use different email")}
             </button>
           </div>
         )}
@@ -485,18 +519,18 @@ function AuthForm() {
             disabled={isSubmitting || checkingStatus}
             className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
           >
-            Skip for now (Continue as guest)
+            {t("auth-guest-btn", "Skip for now (Continue as guest)")}
           </button>
           <p className="text-center text-xs text-gray-500 mt-2">
-            Guest mode is read-only until you log in or register.
+            {t("auth-guest-hint", "Guest mode is read-only until you log in or register.")}
           </p>
         </div>
 
         {/* Footer */}
         <p className="text-center text-xs text-gray-500 mt-6">
-          By continuing, you agree to our {" "}
+          {t("auth-terms-prefix", "By continuing, you agree to our")}{" "}
           <Link href="/terms-of-service" className="underline hover:text-gray-300">
-            terms of service
+            {t("auth-terms-link", "terms of service")}
           </Link>
         </p>
       </div>

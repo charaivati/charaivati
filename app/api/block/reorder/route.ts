@@ -12,7 +12,7 @@ export async function PATCH(req: NextRequest) {
   if (!sectionId || !Array.isArray(orderedIds))
     return NextResponse.json({ error: "sectionId and orderedIds required" }, { status: 400 });
 
-  const section = await prisma.section.findUnique({
+  const section = await prisma.storeSection.findUnique({
     where: { id: sectionId },
     include: { store: true },
   });
@@ -21,7 +21,7 @@ export async function PATCH(req: NextRequest) {
 
   await prisma.$transaction(
     orderedIds.map((id: string, index: number) =>
-      prisma.block.update({ where: { id }, data: { order: index } })
+      prisma.storeBlock.update({ where: { id }, data: { order: index } })
     )
   );
 

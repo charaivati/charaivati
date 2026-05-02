@@ -31,11 +31,13 @@ export function TimeSection({
   goals,
   onChange,
   defaultOpen = false,
+  title = "Daily tasks",
 }: {
   schedule: WeekSchedule;
   goals: GoalEntry[];
   onChange: (s: WeekSchedule) => void;
   defaultOpen?: boolean;
+  title?: string;
 }) {
   const tasks: Task[] = schedule.tasks ?? [];
 
@@ -71,7 +73,7 @@ export function TimeSection({
   }
 
   return (
-    <CollapsibleSection title="Daily tasks" defaultOpen={defaultOpen}>
+    <CollapsibleSection title={title} defaultOpen={defaultOpen}>
       <div className="space-y-3 pt-1">
 
         {/* ── Task list ── */}

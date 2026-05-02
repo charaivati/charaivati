@@ -2,7 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import ConsentModal from "@/components/health/ConsentModal";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import LearningPageView, { type LearningSection } from "./LearningPageView";
+
+type CourseApiData = {
+  courseType: string;
+  dominantAspect: string;
+  aspectWeights: { physical: number; mental: number; emotional: number };
+  aspectBenefits: Record<string, string | string[]>;
+  page: { id: string; title: string; description?: string | null };
+};
 import {
   DndContext,
   DragEndEvent,
@@ -49,6 +58,7 @@ type Store = {
   avatarUrl?: string | null;
   bannerUrl?: string | null;
   pageId?: string | null;
+  pageType?: string;
   isOwner: boolean;
   sections: Section[];
 };
@@ -332,7 +342,54 @@ function SortableSection({
   );
 }
 
-function TopNav({ editMode, onToggleEdit, isOwner }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean }) {
+function LearningTopNav({
+  pageName,
+  isOwner,
+  onEditClick,
+}: {
+  pageName: string;
+  isOwner: boolean;
+  onEditClick: () => void;
+}) {
+  return (
+    <header style={{
+      width: "100%", background: "#FFFFFF", borderBottom: "1px solid #E8E4DE",
+      padding: "14px 28px", display: "flex", alignItems: "center", gap: 16,
+      position: "sticky", top: 0, zIndex: 50, boxSizing: "border-box",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+        <span style={{ fontSize: 13, color: "#888", fontFamily: "monospace", letterSpacing: "0.1em", flexShrink: 0 }}>
+          charaivati
+        </span>
+        <div style={{ width: 1, height: 16, background: "#E8E4DE", flexShrink: 0 }} />
+        <span style={{ fontSize: 15, fontWeight: 600, color: "#1A1714", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {pageName}
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+        {isOwner && (
+          <a href="/self?tab=earn"
+            style={{ padding: "7px 14px", borderRadius: 7, background: "transparent", color: "#888", fontSize: 12, fontWeight: 500, border: "1px solid #E8E4DE", cursor: "pointer", textDecoration: "none", fontFamily: "system-ui, sans-serif" }}>
+            ← Businesses
+          </a>
+        )}
+        {isOwner ? (
+          <button onClick={onEditClick}
+            style={{ padding: "7px 16px", borderRadius: 7, background: "#1A1714", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer" }}>
+            Edit Course
+          </button>
+        ) : (
+          <button
+            style={{ padding: "7px 16px", borderRadius: 7, background: "#4A7FB5", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer" }}>
+            Enroll
+          </button>
+        )}
+      </div>
+    </header>
+  );
+}
+
+function TopNav({ editMode, onToggleEdit, isOwner, editLabel }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string }) {
   const [q, setQ] = useState("");
   return (
     <header className="w-full sticky top-0 z-50">
@@ -379,7 +436,7 @@ function TopNav({ editMode, onToggleEdit, isOwner }: { editMode: boolean; onTogg
                   className="text-xs font-semibold px-3 py-1.5 rounded-md"
                   style={editMode ? { background: A.accent, color: "#111", border: `1px solid #FCD200` } : { background: "transparent", color: "#fff", border: `1px solid #848688` }}
                 >
-                  {editMode ? "Done Editing" : "Edit Store"}
+                  {editLabel ?? (editMode ? "Done Editing" : "Edit Store")}
                 </button>
               </>
             )}
@@ -588,6 +645,7 @@ function LoadingSkeleton() {
 export default function StorePage() {
   const params = useParams();
   const id = params?.id as string;
+  const router = useRouter();
 
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
@@ -596,6 +654,9 @@ export default function StorePage() {
   const [addBlockForSection, setAddBlockForSection] = useState<string | null>(null);
   const [subscribingBlock, setSubscribingBlock] = useState<Block | null>(null);
   const [subscribeStatus, setSubscribeStatus] = useState<"idle" | "success" | "error">("idle");
+  const [learningCourse, setLearningCourse] = useState<CourseApiData | null>(null);
+  const [learningSections, setLearningSections] = useState<LearningSection[]>([]);
+  const [learningProgress, setLearningProgress] = useState<Record<string, { status: string; mastery: number }>>({});
 
   async function handleSubscribeConfirm(consentFields: string[]) {
     if (!subscribingBlock || !store?.pageId) return;
@@ -637,6 +698,24 @@ export default function StorePage() {
   useEffect(() => {
     fetchStore();
   }, [fetchStore]);
+
+  useEffect(() => {
+    if (!store || store.pageType !== "learning" || !store.pageId) return;
+    const pageId = store.pageId;
+    fetch(`/api/course/${pageId}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) return;
+        setLearningCourse(d);
+        setLearningSections((d.store?.sections ?? []).map((s: any) => ({ ...s, blocks: s.blocks ?? [] })));
+        const progressMap: UserProgress = {};
+        (d.progress ?? []).forEach((p: { blockId: string; status: string; mastery: number }) => {
+          progressMap[p.blockId] = { status: p.status, mastery: p.mastery };
+        });
+        setLearningProgress(progressMap);
+      })
+      .catch(() => {});
+  }, [store?.pageId, store?.pageType]);
 
   const totalBlocks = store?.sections.reduce((a, s) => a + s.blocks.length, 0) ?? 0;
   const sensorsSections = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -684,11 +763,52 @@ export default function StorePage() {
     );
   }
 
-  return (
-    <div className="min-h-screen" style={{ background: A.bg }}>
-      <TopNav editMode={editMode} onToggleEdit={() => setEditMode((e) => !e)} isOwner={store.isOwner} />
-      <StoreHero store={store} totalBlocks={totalBlocks} />
+  const isLearning = store.pageType === "learning";
 
+  return (
+    <div className="min-h-screen" style={{ background: isLearning ? "#FAF8F5" : A.bg }}>
+      {isLearning ? (
+        <LearningTopNav
+          pageName={learningCourse?.page.title ?? store.name}
+          isOwner={store.isOwner}
+          onEditClick={() => router.push(`/business/store/${store.pageId ?? id}`)}
+        />
+      ) : (
+        <>
+          <TopNav
+            editMode={editMode}
+            onToggleEdit={() => setEditMode((e) => !e)}
+            isOwner={store.isOwner}
+          />
+          <StoreHero store={store} totalBlocks={totalBlocks} />
+        </>
+      )}
+
+      {store.pageType === "learning" ? (
+        learningCourse ? (
+          <LearningPageView
+            page={{
+              id: store.pageId ?? "",
+              title: learningCourse.page.title,
+              description: learningCourse.page.description,
+              avatarUrl: store.avatarUrl,
+            }}
+            course={{
+              courseType: learningCourse.courseType,
+              dominantAspect: learningCourse.dominantAspect,
+              aspectWeights: learningCourse.aspectWeights,
+              aspectBenefits: learningCourse.aspectBenefits,
+            }}
+            sections={learningSections}
+            isOwner={store.isOwner}
+            studentProgress={learningProgress}
+          />
+        ) : (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-6 h-6 rounded-full animate-spin" style={{ border: "3px solid #DDDDDD", borderTopColor: "#232F3E" }} />
+          </div>
+        )
+      ) : (
       <main className="max-w-7xl mx-auto px-3 py-4">
         {store.sections.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-2" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
@@ -752,6 +872,7 @@ export default function StorePage() {
           </div>
         )}
       </main>
+      )}
 
       {showAddSection && store && (
         <AddSectionModal storeId={store.id} onClose={() => setShowAddSection(false)} onCreated={onSectionCreated} />

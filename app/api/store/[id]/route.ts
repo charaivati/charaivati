@@ -34,5 +34,14 @@ export async function GET(
 
   if (!store) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json({ ...store, isOwner: user?.id === store.ownerId });
+  let pageType = "store";
+  if (store.pageId) {
+    const page = await prisma.page.findUnique({
+      where: { id: store.pageId },
+      select: { pageType: true },
+    });
+    pageType = page?.pageType ?? "store";
+  }
+
+  return NextResponse.json({ ...store, pageType, isOwner: user?.id === store.ownerId });
 }

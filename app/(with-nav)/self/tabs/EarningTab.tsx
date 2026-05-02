@@ -77,6 +77,8 @@ export default function EarningTab() {
   const [hbTiers, setHbTiers] = useState<{ name: string; price: string; description: string }[]>([
     { name: "", price: "", description: "" },
   ]);
+  const [earningType, setEarningType] = useState<"store" | "learning" | "service">("store");
+  const [courseType, setCourseType] = useState<"skill" | "academic" | "art" | "growth">("skill");
 
   const [composerText, setComposerText] = useState("");
   const [selectedBusiness, setSelectedBusiness] = useState<string>("");
@@ -185,7 +187,7 @@ export default function EarningTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ title, description, type: pageType }),
+        body: JSON.stringify({ title, description, type: pageType, pageType: earningType }),
       });
       if (!resp.ok) {
         const m = resp.json?.error || resp.rawText || `Status ${resp.status}`;
@@ -194,6 +196,15 @@ export default function EarningTab() {
       if (!resp.json?.ok) throw new Error(resp.json?.error || "Unknown error");
       const created = resp.json.page as PageItem;
       setPages((prev) => (prev ? prev.map((p) => (p.id === temp.id ? created : p)) : [created]));
+
+      if (earningType === "learning") {
+        await safeFetchJson("/api/course", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ pageId: created.id, courseType }),
+        });
+      }
 
       if (pageType === "health") {
         const tagSet = new Set(
@@ -221,6 +232,8 @@ export default function EarningTab() {
       setNewTitle("");
       setNewDesc("");
       setPageType("standard");
+      setEarningType("store");
+      setCourseType("skill");
       resetHealthForm();
       setSelectedBusiness(created.id);
       try {
@@ -693,6 +706,58 @@ export default function EarningTab() {
               </button>
             </div>
 
+            {/* Page type selector */}
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { value: "store", label: "Store", sub: "Sell products" },
+                { value: "learning", label: "Learning", sub: "Teach a skill or subject" },
+                { value: "service", label: "Service", sub: "Consulting or sessions" },
+              ] as const).map(({ value, label, sub }) => (
+                <button
+                  key={value}
+                  type="button"
+                  disabled={adding}
+                  onClick={() => setEarningType(value)}
+                  className={`p-3 rounded-xl border text-left transition-all disabled:opacity-50 ${
+                    earningType === value
+                      ? "border-violet-500 bg-violet-500/10"
+                      : "border-gray-700 bg-gray-900 hover:border-gray-500"
+                  }`}
+                >
+                  <p className={`text-sm font-medium ${earningType === value ? "text-violet-300" : "text-white"}`}>{label}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{sub}</p>
+                </button>
+              ))}
+            </div>
+
+            {earningType === "learning" && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Course Type</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { value: "skill", label: "Skill / Sport" },
+                    { value: "academic", label: "Academic" },
+                    { value: "art", label: "Art" },
+                    { value: "growth", label: "Personal Growth" },
+                  ] as const).map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      disabled={adding}
+                      onClick={() => setCourseType(value)}
+                      className={`px-3 py-1.5 rounded-full text-sm border transition-all disabled:opacity-50 ${
+                        courseType === value
+                          ? "border-violet-500 bg-violet-500/20 text-violet-300"
+                          : "border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-500"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
@@ -862,7 +927,7 @@ export default function EarningTab() {
             {error && <p className="text-red-400 text-sm">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => { setNewTitle(""); setNewDesc(""); setError(null); resetHealthForm(); setPageType("standard"); }}
+                onClick={() => { setNewTitle(""); setNewDesc(""); setError(null); resetHealthForm(); setPageType("standard"); setEarningType("store"); setCourseType("skill"); }}
                 className="px-4 py-2 rounded-lg border border-gray-700 bg-gray-900 hover:border-gray-500 text-sm text-gray-300 transition-colors disabled:opacity-50"
                 disabled={adding}
               >

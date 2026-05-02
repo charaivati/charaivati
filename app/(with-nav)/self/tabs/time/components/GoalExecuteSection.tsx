@@ -56,9 +56,11 @@ export type GoalExecuteSectionProps = {
   activeDrives?: string[];
   /** Profile goals from useSelfState — shown for guests who have no AI goals yet */
   profileGoals?: { id: string; statement: string; driveId: string }[];
+  /** Translation map passed from SelfCanvas — keys are canvas slugs */
+  tMap?: Record<string, string>;
 };
 
-export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGoals }: GoalExecuteSectionProps) {
+export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGoals, tMap }: GoalExecuteSectionProps) {
   const { goals, setGoals, pendingGoals, setPending, loading, fetchError, retry } = useActiveGoals();
   const { profile } = useProfile();
 
@@ -192,7 +194,7 @@ export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGo
         className="w-full flex items-center justify-between px-5 py-4 text-left cursor-pointer select-none"
       >
         <div className="flex-1 min-w-0 flex items-center gap-3 flex-wrap">
-          <h3 className="text-base font-semibold text-white shrink-0">Execution plan</h3>
+          <h3 className="text-base font-semibold text-white shrink-0">{tMap?.["section-execution-plan"] || "Execution plan"}</h3>
 
           {/* Dropdown — all goals including pending */}
           {!loading && !fetchError && allGoals.length > 0 && (

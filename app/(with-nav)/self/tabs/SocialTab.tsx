@@ -101,6 +101,9 @@ export default function SocialTab({ profile }: { profile?: any }) {
 
   useEffect(() => {
     loadFeed([]);
+    const onFocus = () => loadFeed(filterTags);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   function handleTagSave(selected?: string[]) {

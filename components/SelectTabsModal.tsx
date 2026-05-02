@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { X, Check, Search } from "lucide-react";
+import { X, Check, Search, Trash2 } from "lucide-react";
 
 type TabItem = {
   id: string;
@@ -19,6 +19,12 @@ type SkillItem = {
   name: string;
 };
 
+type SavedTagSet = {
+  id: string;
+  name: string;
+  tags: string[];
+};
+
 export default function SelectTabsModal({
   initialSelected = [],
   onClose,
@@ -30,11 +36,16 @@ export default function SelectTabsModal({
 }) {
   const [tabs, setTabs]           = useState<TabItem[]>([]);
   const [skills, setSkills]       = useState<SkillItem[]>([]);
+  const [tagSets, setTagSets]     = useState<SavedTagSet[]>([]);
   const [loadingTabs, setLoadingTabs]     = useState(true);
   const [loadingSkills, setLoadingSkills] = useState(true);
+  const [loadingTagSets, setLoadingTagSets] = useState(true);
   const [selected, setSelected]   = useState<string[]>(initialSelected || []);
   const [tabSearch, setTabSearch]     = useState("");
   const [skillSearch, setSkillSearch] = useState("");
+  const [savingName, setSavingName]   = useState("");
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [saving, setSaving]           = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -51,6 +62,12 @@ export default function SelectTabsModal({
       .catch(() => alive && setSkills([]))
       .finally(() => alive && setLoadingSkills(false));
 
+    fetch("/api/saved-tags", { credentials: "include" })
+      .then((r) => r.json())
+      .then((j) => { if (alive) setTagSets(j?.ok && Array.isArray(j.tagSets) ? j.tagSets : []); })
+      .catch(() => alive && setTagSets([]))
+      .finally(() => alive && setLoadingTagSets(false));
+
     return () => { alive = false; };
   }, []);
 
@@ -58,6 +75,37 @@ export default function SelectTabsModal({
     setSelected((prev) =>
       prev.includes(value) ? prev.filter((s) => s !== value) : [...prev, value]
     );
+
+  function useAll(tags: string[]) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      tags.forEach((t) => next.add(t));
+      return Array.from(next);
+    });
+  }
+
+  async function saveTagSet() {
+    if (!savingName.trim() || selected.length === 0) return;
+    setSaving(true);
+    const res = await fetch("/api/saved-tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ name: savingName.trim(), tags: selected }),
+    });
+    if (res.ok) {
+      const { tagSet } = await res.json();
+      setTagSets((prev) => [tagSet, ...prev]);
+      setSavingName("");
+      setShowSaveInput(false);
+    }
+    setSaving(false);
+  }
+
+  async function deleteTagSet(id: string) {
+    const res = await fetch(`/api/saved-tags/${id}`, { method: "DELETE", credentials: "include" });
+    if (res.ok) setTagSets((prev) => prev.filter((t) => t.id !== id));
+  }
 
   // ── Tabs: filter + group ──────────────────────────────────────────────────
   const groupedTabs = useMemo(() => {
@@ -93,7 +141,7 @@ export default function SelectTabsModal({
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70 p-4">
-      <div className="w-full max-w-3xl bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col" style={{ height: "min(80vh, 640px)" }}>
+      <div className="w-full max-w-4xl bg-gray-900 rounded-xl border border-gray-700 shadow-2xl flex flex-col" style={{ height: "min(80vh, 640px)" }}>
 
         {/* ── Modal header ── */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-700 shrink-0">
@@ -122,12 +170,11 @@ export default function SelectTabsModal({
           </div>
         </div>
 
-        {/* ── Two columns ── */}
-        <div className="grid grid-cols-2 divide-x divide-gray-700 flex-1 min-h-0">
+        {/* ── Three columns ── */}
+        <div className="grid grid-cols-3 divide-x divide-gray-700 flex-1 min-h-0">
 
           {/* ── Left: Website Tabs ── */}
           <div className="flex flex-col min-h-0">
-            {/* Column header + search */}
             <div className="px-3 py-2.5 border-b border-gray-700 shrink-0 space-y-2">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Website Tabs</p>
               <div className="relative">
@@ -140,14 +187,12 @@ export default function SelectTabsModal({
                 />
               </div>
             </div>
-            {/* Scrollable list */}
             <div className="overflow-y-auto flex-1 p-3 space-y-4">
               {loadingTabs && <p className="text-gray-600 text-xs py-2">Loading…</p>}
               {!loadingTabs && tabs.length === 0 && <p className="text-gray-600 text-xs py-2">No tabs found</p>}
               {!loadingTabs && Object.keys(groupedTabs).length === 0 && tabs.length > 0 && (
                 <p className="text-gray-600 text-xs py-2">No results</p>
               )}
-
               {Object.entries(groupedTabs).map(([category, items]) => (
                 <div key={category}>
                   <p className="text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">{category}</p>
@@ -175,9 +220,8 @@ export default function SelectTabsModal({
             </div>
           </div>
 
-          {/* ── Right: Skills ── */}
+          {/* ── Middle: Skills ── */}
           <div className="flex flex-col min-h-0">
-            {/* Column header + search */}
             <div className="px-3 py-2.5 border-b border-gray-700 shrink-0 space-y-2">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Skills</p>
               <div className="relative">
@@ -190,7 +234,6 @@ export default function SelectTabsModal({
                 />
               </div>
             </div>
-            {/* Scrollable list */}
             <div className="overflow-y-auto flex-1 p-3 space-y-1">
               {loadingSkills && <p className="text-gray-600 text-xs py-2">Loading…</p>}
               {!loadingSkills && skills.length === 0 && (
@@ -199,7 +242,6 @@ export default function SelectTabsModal({
               {!loadingSkills && filteredSkills.length === 0 && skills.length > 0 && (
                 <p className="text-gray-600 text-xs py-2">No results</p>
               )}
-
               {filteredSkills.map((skill) => {
                 const checked = selected.includes(skill.name);
                 return (
@@ -217,6 +259,76 @@ export default function SelectTabsModal({
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          {/* ── Right: My Tags ── */}
+          <div className="flex flex-col min-h-0">
+            <div className="px-3 py-2.5 border-b border-gray-700 shrink-0">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">My Tags</p>
+            </div>
+            <div className="overflow-y-auto flex-1 p-3 space-y-1.5">
+              {loadingTagSets && <p className="text-gray-600 text-xs py-2">Loading…</p>}
+              {!loadingTagSets && tagSets.length === 0 && (
+                <p className="text-gray-600 text-xs py-2">No saved tag sets yet.</p>
+              )}
+              {tagSets.map((ts) => (
+                <div key={ts.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-800 border border-gray-700">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white truncate">{ts.name}</p>
+                    <p className="text-[10px] text-gray-500">{ts.tags.length} tag{ts.tags.length !== 1 ? "s" : ""}</p>
+                  </div>
+                  <button
+                    onClick={() => useAll(ts.tags)}
+                    className="text-[10px] px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white transition-colors shrink-0"
+                  >
+                    Use all
+                  </button>
+                  <button
+                    onClick={() => deleteTagSet(ts.id)}
+                    className="p-1 text-gray-600 hover:text-red-400 transition-colors shrink-0"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Save current selection */}
+            <div className="px-3 py-2.5 border-t border-gray-700 shrink-0">
+              {selected.length > 0 && !showSaveInput && (
+                <button
+                  onClick={() => setShowSaveInput(true)}
+                  className="w-full text-left text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  + Save current selection as tag set
+                </button>
+              )}
+              {showSaveInput && (
+                <div className="flex gap-1.5">
+                  <input
+                    autoFocus
+                    value={savingName}
+                    onChange={(e) => setSavingName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && saveTagSet()}
+                    placeholder="Tag set name…"
+                    className="flex-1 px-2 py-1.5 text-xs bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-600 outline-none focus:border-gray-500"
+                  />
+                  <button
+                    onClick={saveTagSet}
+                    disabled={saving || !savingName.trim()}
+                    className="px-2 py-1.5 text-xs bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-40 transition-colors"
+                  >
+                    {saving ? "…" : "Save"}
+                  </button>
+                  <button
+                    onClick={() => { setShowSaveInput(false); setSavingName(""); }}
+                    className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-300"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

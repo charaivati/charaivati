@@ -8,6 +8,37 @@ import { useSelfState, defaultGoal } from "@/hooks/useSelfState";
 import { useSelfSkills } from "@/lib/SelfSkillsContext";
 import type { DriveType, GoalEntry } from "@/types/self";
 
+const DRIVE_TO_ARCHETYPE: Record<DriveType, string> = {
+  learning: "LEARN", building: "BUILD", doing: "EXECUTE", helping: "CONNECT",
+};
+
+async function saveGoalsToAiTable(
+  goals: GoalEntry[],
+  mode: "focused" | "zoomed"
+) {
+  const apiMode = mode === "zoomed" ? "ZOOMED_OUT" : "FOCUSED";
+  await Promise.allSettled(
+    goals
+      .filter(g => g.statement.trim())
+      .map(g =>
+        fetch("/api/self/goals", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            archetype: DRIVE_TO_ARCHETYPE[g.driveId] ?? "LEARN",
+            mode: apiMode,
+            title: g.statement.trim(),
+            whyNow: g.description?.trim() || null,
+            riskFlags: [],
+          }),
+        }).catch(() => {})
+      )
+  );
+  // Let SelfCanvas know to refresh goal count
+  try { window.dispatchEvent(new CustomEvent("charaivati:goalCreated")); } catch {}
+}
+
 export default function SelfTab({ profile }: { profile?: any }) {
   const s = useSelfState(profile);
   const { setSkillsSnapshot } = useSelfSkills();
@@ -142,9 +173,15 @@ export default function SelfTab({ profile }: { profile?: any }) {
               const firstNewId = newGoals[0]?.id ?? null;
               pendingGoalsRef.current = [];
               try { localStorage.removeItem(OB_SKIP_KEY); } catch {}
-              s.applyOnboardingResult(finalDrives, [...existingWithStatements, ...filteredEmpty, ...newGoals]);
+              const mergedGoals = [...existingWithStatements, ...filteredEmpty, ...newGoals];
+              s.applyOnboardingResult(finalDrives, mergedGoals);
               setSkipped(false);
               setOnboardingOpen(false);
+              // Mirror new goals into the aiGoal table so SelfCanvas can display them
+              // and execution plan generation works immediately
+              if (!s.isGuest && newGoals.length > 0) {
+                saveGoalsToAiTable(newGoals, obMode).catch(() => {});
+              }
               if (firstNewId) {
                 setTimeout(() => {
                   const el = canvasRef.current;
