@@ -118,9 +118,10 @@ export default function TransportMap({
   }, [selfPosition]);
 
   return (
-    <>
-      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <div ref={containerRef} className="w-full h-full rounded-xl overflow-hidden" style={{ minHeight: 280 }} />
-    </>
+    <div
+      ref={containerRef}
+      className="w-full h-full rounded-xl overflow-hidden"
+      style={{ minHeight: 280 }}
+    />
   );
 }

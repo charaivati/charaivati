@@ -1,6 +1,4 @@
-// ============================================================================
-// FILE 1: app/layout.tsx
-// ============================================================================
+// app/layout.tsx
 import "./globals.css";
 import React from "react";
 import { headers, cookies } from "next/headers";
@@ -16,9 +14,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const h = isProd ? await headers() : null;
   const nonce = isProd ? h?.get("x-nonce") ?? undefined : undefined;
 
-  // IMPORTANT: cookies() may be async in this Next version -> await it.
   const ck = await cookies();
-  // Whitelist to prevent XSS via cookie injection into the inline script
   const rawTheme = ck.get("charaivati.theme")?.value ?? "dark";
   const serverTheme = rawTheme === "light" ? "light" : "dark";
 
@@ -41,7 +37,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang="en" data-theme={serverTheme} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" />
-        {/* Allow Google Identity Services Script */}
+
+        {/* Leaflet CSS — required for map tiles and markers to render */}
+        <link
+          rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+          crossOrigin=""
+        />
+
+        {/* Google Identity Services */}
         <script
           src="https://accounts.google.com/gsi/client"
           async
@@ -50,7 +55,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         ></script>
       </head>
       <body className={bodyClass} suppressHydrationWarning>
-        {/* Inline theme init — include nonce attribute in production when present */}
         <script
           {...(isProd && nonce ? { nonce } : {})}
           dangerouslySetInnerHTML={{ __html: inlineScript }}
