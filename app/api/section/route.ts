@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { storeId, title, type, sectionType, prereqIds } = await req.json();
+  const { storeId, title, type, sectionType, prereqIds, columns, rows, rowIndex } = await req.json();
   if (!storeId || !title?.trim())
     return NextResponse.json({ error: "storeId and title required" }, { status: 400 });
 
@@ -26,6 +26,9 @@ export async function POST(req: NextRequest) {
       type: type ?? "list",
       sectionType: sectionType ?? "module",
       prereqIds: Array.isArray(prereqIds) ? prereqIds : [],
+      columns: typeof columns === "number" ? columns : 5,
+      rows: typeof rows === "number" ? rows : 2,
+      rowIndex: typeof rowIndex === "number" ? rowIndex : 0,
       order: (maxOrder._max.order ?? -1) + 1,
     },
   });

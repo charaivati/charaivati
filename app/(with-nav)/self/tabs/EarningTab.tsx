@@ -24,6 +24,8 @@ type PageItem = {
   description?: string | null;
   avatarUrl?: string | null;
   createdAt: string;
+  type?: string;
+  pageType?: string;
 };
 
 const LS_SELECTED_BUSINESS = "earn_selected_business_v1";
@@ -69,7 +71,6 @@ export default function EarningTab() {
   const [newDesc, setNewDesc] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [pageType, setPageType] = useState<"standard" | "health">("standard");
   const [hbSpecialty, setHbSpecialty] = useState<string>("");
   const [hbCredentials, setHbCredentials] = useState<string>("");
   const [hbConsultMode] = useState<string>("manual");
@@ -77,7 +78,7 @@ export default function EarningTab() {
   const [hbTiers, setHbTiers] = useState<{ name: string; price: string; description: string }[]>([
     { name: "", price: "", description: "" },
   ]);
-  const [earningType, setEarningType] = useState<"store" | "learning" | "service">("store");
+  const [selectedType, setSelectedType] = useState<"health" | "store" | "learning" | "service" | "helping">("store");
   const [courseType, setCourseType] = useState<"skill" | "academic" | "art" | "growth">("skill");
 
   const [composerText, setComposerText] = useState("");
@@ -169,7 +170,7 @@ export default function EarningTab() {
       setError("You already have a page with this title");
       return;
     }
-    if (pageType === "health" && !hbSpecialty) {
+    if (selectedType === "health" && !hbSpecialty) {
       setError("Please select a specialty");
       return;
     }
@@ -187,7 +188,7 @@ export default function EarningTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ title, description, type: pageType, pageType: earningType }),
+        body: JSON.stringify({ title, description, type: selectedType === "health" ? "health" : "standard", pageType: selectedType === "health" ? "store" : selectedType === "helping" ? "helping" : selectedType }),
       });
       if (!resp.ok) {
         const m = resp.json?.error || resp.rawText || `Status ${resp.status}`;
@@ -197,7 +198,7 @@ export default function EarningTab() {
       const created = resp.json.page as PageItem;
       setPages((prev) => (prev ? prev.map((p) => (p.id === temp.id ? created : p)) : [created]));
 
-      if (earningType === "learning") {
+      if (selectedType === "learning") {
         await safeFetchJson("/api/course", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -206,7 +207,7 @@ export default function EarningTab() {
         });
       }
 
-      if (pageType === "health") {
+      if (selectedType === "health") {
         const tagSet = new Set(
           hbTagsInput.split(",").map((t) => t.trim()).filter(Boolean)
         );
@@ -229,10 +230,18 @@ export default function EarningTab() {
         }
       }
 
+      if (selectedType === "helping") {
+        await safeFetchJson("/api/helping-initiative", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ pageId: created.id }),
+        });
+      }
+
       setNewTitle("");
       setNewDesc("");
-      setPageType("standard");
-      setEarningType("store");
+      setSelectedType("store");
       setCourseType("skill");
       resetHealthForm();
       setSelectedBusiness(created.id);
@@ -264,7 +273,7 @@ export default function EarningTab() {
   }, [router]);
 
   async function deletePage(id: string) {
-    if (!confirm("Are you sure you want to delete this business?")) return;
+    if (!confirm("Are you sure you want to delete this initiative?")) return;
     setDeleting(id);
     try {
       const resp = await safeFetchJson("/api/user/pages", {
@@ -442,13 +451,13 @@ export default function EarningTab() {
         {/* Business, Privacy & Tag Selection */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 p-3 rounded-xl bg-gray-950/60 border border-gray-800">
           <div>
-            <label className="block text-xs text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Business / Page</label>
+            <label className="block text-xs text-gray-500 mb-1.5 font-semibold uppercase tracking-wider">Initiative / Page</label>
             <select
               value={selectedBusiness}
               onChange={(e) => setSelectedBusiness(e.target.value)}
               className="w-full p-2 rounded-lg bg-gray-900 border border-gray-700 text-white text-sm"
             >
-              <option value="">— Select a business —</option>
+              <option value="">— Select an initiative —</option>
               {pages?.map((p) => (
                 <option key={p.id} value={p.id}>{p.title}</option>
               ))}
@@ -617,8 +626,8 @@ export default function EarningTab() {
 
       {/* ── Your Businesses ── */}
       <CollapsibleSection
-        title="Your Businesses"
-        subtitle="Manage your pages and stores"
+        title="Your Initiatives"
+        subtitle="Manage your pages and initiatives"
         defaultOpen={true}
       >
         <div className="space-y-3">
@@ -638,19 +647,40 @@ export default function EarningTab() {
                       <p className="text-xs text-gray-600 mt-2">Created {new Date(page.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
-                      <a
-                        href="/business"
-                        className="px-3 py-1 rounded-lg text-xs bg-blue-600/80 hover:bg-blue-600 text-white transition-colors text-center"
-                      >
-                        Evaluate & Plan
-                      </a>
-                      <button
-                        onClick={() => openStore(page.id)}
-                        disabled={openingStore === page.id}
-                        className="px-3 py-1 rounded-lg text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center disabled:opacity-50"
-                      >
-                        {openingStore === page.id ? "Opening…" : "Your Store"}
-                      </button>
+                      {page.pageType === "helping" ? (
+                        <>
+                          <a
+                            href={`/business/helping/${page.id}`}
+                            className="px-3 py-1 rounded-lg text-xs bg-teal-700/80 hover:bg-teal-600 text-white transition-colors text-center"
+                          >
+                            Manage Initiative
+                          </a>
+                          <a
+                            href={`/helping/${page.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1 rounded-lg text-xs bg-gray-700/80 hover:bg-gray-600 text-white transition-colors text-center"
+                          >
+                            View Public ↗
+                          </a>
+                        </>
+                      ) : (
+                        <>
+                          <a
+                            href="/business"
+                            className="px-3 py-1 rounded-lg text-xs bg-blue-600/80 hover:bg-blue-600 text-white transition-colors text-center"
+                          >
+                            Evaluate & Plan
+                          </a>
+                          <button
+                            onClick={() => openStore(page.id)}
+                            disabled={openingStore === page.id}
+                            className="px-3 py-1 rounded-lg text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center disabled:opacity-50"
+                          >
+                            {openingStore === page.id ? "Opening…" : "Your Store"}
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={() => deletePage(page.id)}
                         disabled={deleting === page.id}
@@ -665,72 +695,54 @@ export default function EarningTab() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500 py-2">No businesses yet. Create one below.</p>
+            <p className="text-sm text-gray-500 py-2">No initiatives yet. Create one below.</p>
           )}
 
-          {/* Create New Business */}
+          {/* Create New Initiative */}
           <div className="pt-2 border-t border-gray-800 space-y-3">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Add a Business</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Add an Initiative</p>
 
-            {/* Page type selector */}
+            {/* Type selector — single select */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                onClick={() => setPageType("standard")}
+                onClick={() => setSelectedType("health")}
                 disabled={adding}
                 className={`p-3 rounded-xl border text-left transition-all disabled:opacity-50 ${
-                  pageType === "standard"
-                    ? "border-blue-500 bg-blue-500/10"
-                    : "border-gray-700 bg-gray-900 hover:border-gray-500"
-                }`}
-              >
-                <p className={`text-sm font-medium ${pageType === "standard" ? "text-blue-300" : "text-white"}`}>
-                  General Business
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">Products, services, bookings, links</p>
-              </button>
-              <button
-                type="button"
-                onClick={() => setPageType("health")}
-                disabled={adding}
-                className={`p-3 rounded-xl border text-left transition-all disabled:opacity-50 ${
-                  pageType === "health"
+                  selectedType === "health"
                     ? "border-emerald-500 bg-emerald-500/10"
                     : "border-gray-700 bg-gray-900 hover:border-gray-500"
                 }`}
               >
-                <p className={`text-sm font-medium ${pageType === "health" ? "text-emerald-300" : "text-white"}`}>
+                <p className={`text-sm font-medium ${selectedType === "health" ? "text-emerald-300" : "text-white"}`}>
                   Health &amp; Wellness
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">Coaching, nutrition, fitness, mental health</p>
               </button>
-            </div>
-
-            {/* Page type selector */}
-            <div className="grid grid-cols-3 gap-2">
               {([
-                { value: "store", label: "Store", sub: "Sell products" },
-                { value: "learning", label: "Learning", sub: "Teach a skill or subject" },
-                { value: "service", label: "Service", sub: "Consulting or sessions" },
-              ] as const).map(({ value, label, sub }) => (
+                { value: "store" as const, label: "Store", sub: "Sell products" },
+                { value: "learning" as const, label: "Learning", sub: "Teach a skill or subject" },
+                { value: "service" as const, label: "Service", sub: "Consulting or sessions" },
+                { value: "helping" as const, label: "Helping Initiative", sub: "Community cause, volunteering, civic engagement" },
+              ]).map(({ value, label, sub }) => (
                 <button
                   key={value}
                   type="button"
                   disabled={adding}
-                  onClick={() => setEarningType(value)}
+                  onClick={() => setSelectedType(value)}
                   className={`p-3 rounded-xl border text-left transition-all disabled:opacity-50 ${
-                    earningType === value
+                    selectedType === value
                       ? "border-violet-500 bg-violet-500/10"
                       : "border-gray-700 bg-gray-900 hover:border-gray-500"
                   }`}
                 >
-                  <p className={`text-sm font-medium ${earningType === value ? "text-violet-300" : "text-white"}`}>{label}</p>
+                  <p className={`text-sm font-medium ${selectedType === value ? "text-violet-300" : "text-white"}`}>{label}</p>
                   <p className="text-xs text-gray-500 mt-0.5">{sub}</p>
                 </button>
               ))}
             </div>
 
-            {earningType === "learning" && (
+            {selectedType === "learning" && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Course Type</p>
                 <div className="flex flex-wrap gap-2">
@@ -761,7 +773,7 @@ export default function EarningTab() {
             <input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Business name"
+              placeholder="Initiative name"
               disabled={adding}
               className="w-full p-3 rounded-lg bg-gray-900 border border-gray-700 text-sm text-white placeholder-gray-500 outline-none"
             />
@@ -774,7 +786,7 @@ export default function EarningTab() {
               rows={3}
             />
 
-            {pageType === "health" && (
+            {selectedType === "health" && (
               <div className="space-y-4 p-4 rounded-xl border border-emerald-800/40 bg-emerald-950/20">
 
                 {/* Specialty */}
@@ -927,7 +939,7 @@ export default function EarningTab() {
             {error && <p className="text-red-400 text-sm">{error}</p>}
             <div className="flex justify-end gap-2">
               <button
-                onClick={() => { setNewTitle(""); setNewDesc(""); setError(null); resetHealthForm(); setPageType("standard"); setEarningType("store"); setCourseType("skill"); }}
+                onClick={() => { setNewTitle(""); setNewDesc(""); setError(null); resetHealthForm(); setSelectedType("store"); setCourseType("skill"); setError(null); }}
                 className="px-4 py-2 rounded-lg border border-gray-700 bg-gray-900 hover:border-gray-500 text-sm text-gray-300 transition-colors disabled:opacity-50"
                 disabled={adding}
               >
@@ -938,7 +950,7 @@ export default function EarningTab() {
                 className="px-4 py-2 rounded-lg bg-gradient-to-r from-green-500 to-emerald-600 text-white text-sm font-medium hover:from-green-600 hover:to-emerald-700 transition-all disabled:opacity-50"
                 disabled={adding}
               >
-                {adding ? "Creating..." : "Create Business"}
+                {adding ? "Creating..." : "Create Initiative"}
               </button>
             </div>
           </div>

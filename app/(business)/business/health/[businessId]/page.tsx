@@ -422,7 +422,7 @@ export default function HealthDashboardPage() {
             onClick={() => router.back()}
             className="text-gray-400 hover:text-white transition-colors text-sm"
           >
-            ← Businesses
+            ← Initiatives
           </button>
           <span className="text-gray-700">/</span>
           <span className="text-sm text-gray-300 font-medium">Subscriber Dashboard</span>

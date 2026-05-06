@@ -35,7 +35,7 @@ export async function GET(req: Request) {
     const pages = await prisma.page.findMany({
       where: { ownerId: user.id },
       orderBy: { createdAt: "desc" },
-      select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true },
+      select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true, type: true, pageType: true },
     });
 
     return NextResponse.json({ ok: true, pages });
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     const rawType = (body.type || "").trim();
     const type = rawType === "health" ? "health" : "standard";
     const rawPageType = (body.pageType || "").trim();
-    const pageType = ["store", "learning", "service"].includes(rawPageType) ? rawPageType : "store";
+    const pageType = ["store", "learning", "service", "helping"].includes(rawPageType) ? rawPageType : "store";
 
     if (!title) return NextResponse.json({ error: "title_required" }, { status: 400 });
 

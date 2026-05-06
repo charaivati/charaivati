@@ -17,16 +17,18 @@ export async function GET(
           include: {
             subsections: {
               orderBy: { order: "asc" },
-              include: {
-                blocks: { orderBy: { order: "asc" } },
-              },
+              include: { blocks: { orderBy: { order: "asc" } } },
             },
-            blocks: {
-              where: { subsectionId: null },
-              orderBy: { order: "asc" },
-            },
+            blocks: { where: { subsectionId: null }, orderBy: { order: "asc" } },
+            filterLinks: { select: { filterId: true } },
+            tiles: { orderBy: { order: "asc" } },
           },
         },
+        filters: {
+          orderBy: { order: "asc" },
+          include: { banner: true, sections: { select: { sectionId: true } } },
+        },
+        banners: { where: { isGlobal: true }, take: 1 },
       },
     }),
     getServerUser(req),
@@ -43,5 +45,14 @@ export async function GET(
     pageType = page?.pageType ?? "store";
   }
 
-  return NextResponse.json({ ...store, pageType, isOwner: user?.id === store.ownerId });
+  const filters = (store.filters ?? []).map((f) => ({
+    ...f,
+    sectionIds: f.sections.map((s) => s.sectionId),
+  }));
+  const globalBanner = store.banners?.[0] ?? null;
+  const sections = (store.sections ?? []).map((s) => ({
+    ...s,
+    filterIds: s.filterLinks.map((fl) => fl.filterId),
+  }));
+  return NextResponse.json({ ...store, sections, filters, globalBanner, pageType, isOwner: user?.id === store.ownerId });
 }

@@ -4,6 +4,10 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useCloudinaryUpload } from "@/hooks/useCloudinaryUpload";
 import SelectTabsModal from "@/components/SelectTabsModal";
+import InitiativePostsBlock from "@/components/initiative/InitiativePostsBlock";
+import FilterBar, { type StoreFilterItem } from "@/components/store/FilterBar";
+import BannerZone, { type StoreBannerData } from "@/components/store/BannerZone";
+import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1359,7 +1363,8 @@ function AddSectionForm({
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<SectionType>("grid");
+  const [columns, setColumns] = useState(5);
+  const [rows, setRows] = useState(2);
   const [loading, setLoading] = useState(false);
 
   async function submit(e: React.FormEvent) {
@@ -1369,7 +1374,7 @@ function AddSectionForm({
     const res = await fetch("/api/section", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ storeId, title, type }),
+      body: JSON.stringify({ storeId, title, columns, rows }),
     });
     if (res.ok) {
       const section = await res.json();
@@ -1384,10 +1389,18 @@ function AddSectionForm({
       <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Section name"
         className="w-full px-3 py-2 rounded-lg bg-black border border-[#1E1E1E] text-[#EAEAEA] text-sm placeholder-[#3A3A3A] focus:outline-none focus:border-[#818CF8] transition-colors" />
       <div className="flex gap-1.5 flex-wrap">
-        {(["grid", "list", "featured", "carousel"] as SectionType[]).map((t) => (
-          <button type="button" key={t} onClick={() => setType(t)}
-            className={`text-xs px-3 py-1 rounded-lg border capitalize transition-colors ${type === t ? "bg-[#818CF8]/20 border-[#818CF8]/50 text-[#818CF8]" : "border-[#1E1E1E] text-[#6B7280] hover:border-[#2E2E2E]"}`}>
-            {t}
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button type="button" key={n} onClick={() => setColumns(n)}
+            className={`text-xs px-3 py-1 rounded-lg border transition-colors ${columns === n ? "bg-[#818CF8]/20 border-[#818CF8]/50 text-[#818CF8]" : "border-[#1E1E1E] text-[#6B7280] hover:border-[#2E2E2E]"}`}>
+            {n} col
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5 flex-wrap">
+        {[1, 2, 3, 4].map((n) => (
+          <button type="button" key={n} onClick={() => setRows(n)}
+            className={`text-xs px-3 py-1 rounded-lg border transition-colors ${rows === n ? "bg-[#818CF8]/20 border-[#818CF8]/50 text-[#818CF8]" : "border-[#1E1E1E] text-[#6B7280] hover:border-[#2E2E2E]"}`}>
+            {n} {n === 1 ? "row" : "rows"}
           </button>
         ))}
       </div>
@@ -1418,6 +1431,12 @@ export default function StoreSetupPage() {
   const [addingSection, setAddingSection] = useState(false);
   const [pageType, setPageType]     = useState<string>("store");
   const [course, setCourse]         = useState<CourseData | null>(null);
+  const [storeId, setStoreId]       = useState<string | null>(null);
+  const [storeFilters, setStoreFilters] = useState<StoreFilterItem[]>([]);
+  const [globalBanner, setGlobalBanner] = useState<StoreBannerData | null>(null);
+  const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
+  const [editMode, setEditMode]     = useState(false);
+  const [showManageFilters, setShowManageFilters] = useState(false);
 
   const isLearning = pageType === "learning";
 
@@ -1432,8 +1451,11 @@ export default function StoreSetupPage() {
       const data = await storeRes.json();
 
       setStore({ id: data.id, name: data.name, description: data.description });
+      setStoreId(data.id);
       setBusinessName(data.name);
       setSections((data.sections ?? []).map((s: any) => ({ ...s, blocks: s.blocks ?? [] })));
+      setStoreFilters(data.filters ?? []);
+      setGlobalBanner(data.globalBanner ?? null);
       setPhase("ready");
     } catch {
       setPhase("error");
@@ -1506,8 +1528,16 @@ export default function StoreSetupPage() {
               </>
             )}
             <a href="/self?tab=earn" className="text-xs px-3 py-1.5 rounded-lg border border-[#1E1E1E] text-[#6B7280] hover:text-white hover:border-[#2E2E2E] transition-colors">
-              ← Businesses
+              ← Initiatives
             </a>
+            {!isLearning && (
+              <button
+                onClick={() => setEditMode((e) => !e)}
+                className={`text-xs px-3 py-1.5 rounded-lg transition-colors ${editMode ? "bg-indigo-600 text-white" : "border border-[#1E1E1E] text-[#6B7280] hover:text-white hover:border-[#2E2E2E]"}`}
+              >
+                {editMode ? "Done" : "Edit Store"}
+              </button>
+            )}
             {store && (
               isLearning ? (
                 <a href={`/store/${store.id}`}
@@ -1524,6 +1554,25 @@ export default function StoreSetupPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Filter bar + Banner (non-learning) ──────────────────────────── */}
+      {!isLearning && (
+        <>
+          <FilterBar
+            filters={storeFilters}
+            activeFilterId={activeFilterId}
+            onFilterChange={setActiveFilterId}
+            editMode={editMode}
+            onEditFilters={() => setShowManageFilters(true)}
+          />
+          <BannerZone
+            banner={(storeFilters.find((f) => f.id === activeFilterId)?.banner as StoreBannerData | null) ?? null}
+            globalBanner={globalBanner}
+            editMode={editMode}
+            onEdit={() => setShowManageFilters(true)}
+          />
+        </>
+      )}
 
       {/* ── Hero header ──────────────────────────────────────────────────── */}
       <div className="border-b border-[#111111] px-4 sm:px-8 py-8">
@@ -1586,6 +1635,16 @@ export default function StoreSetupPage() {
               <div className="w-6 h-6 rounded-full border-2 border-[#818CF8] border-t-transparent animate-spin" />
             </div>
           )}
+          {phase === "ready" && store && (
+            <div className="max-w-5xl mx-auto px-4 sm:px-8 py-8">
+              <InitiativePostsBlock
+                pageId={businessId}
+                isCreator={true}
+                accentColor="#818CF8"
+                theme="dark"
+              />
+            </div>
+          )}
         </>
       ) : (
         <main className="max-w-5xl mx-auto px-4 sm:px-8 py-8">
@@ -1636,6 +1695,20 @@ export default function StoreSetupPage() {
             </>
           )}
         </main>
+      )}
+
+      {showManageFilters && storeId && (
+        <ManageFiltersPanel
+          storeId={storeId}
+          filters={storeFilters}
+          sections={sections.map((s) => ({ id: s.id, title: s.title }))}
+          globalBanner={globalBanner}
+          onClose={(updatedFilters, updatedGlobalBanner) => {
+            setStoreFilters(updatedFilters);
+            setGlobalBanner(updatedGlobalBanner);
+            setShowManageFilters(false);
+          }}
+        />
       )}
     </div>
   );

@@ -214,10 +214,11 @@ model Page {
   viewCount        Int             @default(0)
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
-  owner            User?           @relation("UserPages", fields: [ownerId], references: [id])
-  followers        PageFollow[]
-  healthBusiness   HealthBusiness?
-  course           Course?
+  owner             User?              @relation("UserPages", fields: [ownerId], references: [id])
+  followers         PageFollow[]
+  healthBusiness    HealthBusiness?
+  course            Course?
+  helpingInitiative HelpingInitiative?
 
   @@index([ownerId])
 }
@@ -245,26 +246,86 @@ model Store {
   createdAt   DateTime       @default(now())
   owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   sections    StoreSection[]
+  filters     StoreFilter[]
+  banners     StoreBanner[]
 
   @@index([ownerId])
 }
 
 model StoreSection {
-  id          String            @id @default(cuid())
+  id          String               @id @default(cuid())
   storeId     String
   title       String
-  order       Int               @default(0)
-  type        String            @default("grid")
-  sectionType String            @default("product")
-  prereqIds   String[]          @default([])
-  createdAt   DateTime          @default(now())
-  store       Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order       Int                  @default(0)
+  type        String               @default("grid")
+  sectionType String               @default("product")
+  columns     Int                  @default(5)
+  rows        Int                  @default(2)
+  rowIndex    Int                  @default(0)
+  prereqIds   String[]             @default([])
+  createdAt   DateTime             @default(now())
+  store       Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
   blocks      StoreBlock[]
   subsections StoreSubsection[]
+  filterLinks StoreSectionFilter[]
+  tiles       SectionTile[]
 
   @@index([storeId])
   @@index([order])
   @@map("Section")
+}
+
+model SectionTile {
+  id        String       @id @default(cuid())
+  sectionId String
+  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  imageUrl  String?
+  imageKey  String?
+  label     String
+  order     Int          @default(0)
+  createdAt DateTime     @default(now())
+
+  @@index([sectionId, order])
+}
+
+model StoreFilter {
+  id        String               @id @default(cuid())
+  storeId   String
+  name      String
+  order     Int                  @default(0)
+  bannerId  String?
+  createdAt DateTime             @default(now())
+  store     Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  banner    StoreBanner?         @relation(fields: [bannerId], references: [id])
+  sections  StoreSectionFilter[]
+
+  @@index([storeId, order])
+}
+
+model StoreBanner {
+  id         String        @id @default(cuid())
+  storeId    String
+  isGlobal   Boolean       @default(false)
+  imageUrl   String?
+  imageKey   String?
+  heading    String?
+  subheading String?
+  body       String?
+  createdAt  DateTime      @default(now())
+  store      Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  filters    StoreFilter[]
+
+  @@index([storeId])
+}
+
+model StoreSectionFilter {
+  sectionId String
+  filterId  String
+  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  filter    StoreFilter  @relation(fields: [filterId], references: [id], onDelete: Cascade)
+
+  @@id([sectionId, filterId])
+  @@index([filterId])
 }
 
 model StoreSubsection {
@@ -1037,6 +1098,60 @@ model ExpertSubscription {
   @@index([healthBusinessId])
 }
 
+// ─── Helping Initiative ───────────────────────────────────────────────────────
+
+model HelpingInitiative {
+  id              String             @id @default(cuid())
+  pageId          String             @unique
+  cause           String?
+  targetGroup     String?
+  location        String?
+  awarenessText   String?
+  acceptDonations Boolean            @default(false)
+  donationMessage String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  page            Page               @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  objectives      HelpingObjective[]
+  metrics         HelpingMetric[]
+}
+
+model HelpingObjective {
+  id           String            @id @default(cuid())
+  initiativeId String
+  title        String
+  order        Int               @default(0)
+  createdAt    DateTime          @default(now())
+  initiative   HelpingInitiative @relation(fields: [initiativeId], references: [id], onDelete: Cascade)
+  actions      HelpingAction[]
+
+  @@index([initiativeId, order])
+}
+
+model HelpingAction {
+  id          String           @id @default(cuid())
+  objectiveId String
+  title       String
+  order       Int              @default(0)
+  createdAt   DateTime         @default(now())
+  objective   HelpingObjective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+
+  @@index([objectiveId, order])
+}
+
+model HelpingMetric {
+  id            String            @id @default(cuid())
+  initiativeId  String
+  label         String
+  targetNumber  Float             @default(0)
+  currentNumber Float             @default(0)
+  unit          String?
+  createdAt     DateTime          @default(now())
+  initiative    HelpingInitiative @relation(fields: [initiativeId], references: [id], onDelete: Cascade)
+
+  @@index([initiativeId])
+}
+
 model ExpertAdviceLog {
   id                  String          @id @default(cuid())
   healthBusinessId    String
@@ -1053,4 +1168,17 @@ model ExpertAdviceLog {
   @@index([healthBusinessId])
   @@index([userId])
   @@index([createdAt])
+}
+
+model Vehicle {
+  id          String   @id
+  busNumber   String   @map("bus_number")
+  route       String?
+  vehicleType String   @default("Bus") @map("vehicle_type")
+  lat         Float
+  lng         Float
+  accuracy    Int?
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("vehicles")
 }
