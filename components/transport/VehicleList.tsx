@@ -41,7 +41,7 @@ export default function VehicleList({
         <div className="flex flex-col gap-1">
           <label className="text-xs text-gray-500 font-medium">Filter by vehicle no.</label>
           <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
             placeholder="e.g. AC-47"
             value={busFilter}
             onChange={(e) => onBusFilterChange(e.target.value)}
@@ -50,7 +50,7 @@ export default function VehicleList({
         <div className="flex flex-col gap-1">
           <label className="text-xs text-gray-500 font-medium">Filter by route</label>
           <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900 placeholder-gray-400"
             placeholder="e.g. Salt Lake"
             value={routeFilter}
             onChange={(e) => onRouteFilterChange(e.target.value)}

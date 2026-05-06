@@ -94,7 +94,7 @@ export default function Broadcaster({ onPositionUpdate }: BroadcasterProps) {
         <div className="flex flex-col gap-1">
           <label className="text-xs text-gray-500 font-medium">Vehicle number *</label>
           <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-50"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-gray-900 placeholder-gray-400 disabled:bg-gray-100"
             placeholder="e.g. AC-47, S-11"
             value={busNumber}
             onChange={(e) => setBusNumber(e.target.value)}
@@ -104,7 +104,7 @@ export default function Broadcaster({ onPositionUpdate }: BroadcasterProps) {
         <div className="flex flex-col gap-1">
           <label className="text-xs text-gray-500 font-medium">Route</label>
           <input
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-50"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-gray-900 placeholder-gray-400 disabled:bg-gray-100"
             placeholder="e.g. Esplanade → Salt Lake"
             value={route}
             onChange={(e) => setRoute(e.target.value)}
