@@ -132,17 +132,16 @@ const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
   "3-3":     { label: "3 + 3",      sections: [{ cols: 3, colSpan: 3 }, { cols: 3, colSpan: 3 }] },
 };
 
-// --- SORTABLE SECTION ---
+// --- SECTION CARD (no delete button — deletion is at row level) ---
 function SortableSection({
   section, storeId, editMode, tileW, tileH, cardW,
-  onBlocksReorder, onAddTile, onTileDeleted, onSectionRemoved,
+  onBlocksReorder, onAddTile, onTileDeleted,
 }: {
   section: Section; storeId: string; editMode: boolean;
   tileW: number; tileH: number; cardW: number;
   onBlocksReorder: (sectionId: string, newBlocks: Block[]) => void;
   onAddTile: (sectionId: string) => void;
   onTileDeleted: (sectionId: string, tileId: string) => void;
-  onSectionRemoved: (sectionId: string) => void;
 }) {
   const deletingTiles = useRef<Set<string>>(new Set());
   const sensorsBlocks = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -246,21 +245,14 @@ function SortableSection({
 
   return (
     <div style={{ background: "#fff", border: `1px solid ${A.border}`, borderRadius: 12, padding: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", width: cardW, minWidth: cardW, maxWidth: cardW, flexShrink: 0 }}>
+      {/* Section header — title + Add tile only, no delete (delete is at row level) */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, color: A.text, margin: 0 }}>{section.title}</h2>
         {editMode && (
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => onAddTile(section.id)} style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "#fff", color: A.text, border: `1px solid ${A.border}`, cursor: "pointer" }}>+ Add tile</button>
-            <button
-              onClick={async () => {
-                if (!confirm(`Delete '${section.title}' and all its tiles and products?`)) return;
-                const res = await fetch("/api/section", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ sectionId: section.id }) });
-                if (res.ok) onSectionRemoved(section.id);
-              }}
-              style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, color: "#EF4444", border: "1px solid #FCA5A5", background: "#fff", cursor: "pointer" }}>
-              Delete
-            </button>
-          </div>
+          <button onClick={() => onAddTile(section.id)}
+            style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "#fff", color: A.text, border: `1px solid ${A.border}`, cursor: "pointer" }}>
+            + Add tile
+          </button>
         )}
       </div>
 
@@ -420,7 +412,8 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
         )}
         {step === 2 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div><h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 2px" }}>Confirm</h3>
+            <div>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 2px" }}>Confirm</h3>
               <p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>Creating {selectedId ? LAYOUT_CONFIGS[selectedId].sections.length : 0} section{selectedId && LAYOUT_CONFIGS[selectedId].sections.length !== 1 ? "s" : ""} in a new row.</p>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
@@ -634,6 +627,22 @@ export default function StorePage() {
     finally { setSubscribingBlock(null); }
   }
 
+  // Delete all sections in a row
+  async function handleDeleteRow(rowSections: Section[]) {
+    const sectionTitles = rowSections.map((s) => s.title).join(", ");
+    if (!confirm(`Delete entire row (${sectionTitles}) and all their tiles and products? This cannot be undone.`)) return;
+    for (const section of rowSections) {
+      await fetch("/api/section", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ sectionId: section.id }),
+      });
+    }
+    const deletedIds = new Set(rowSections.map((s) => s.id));
+    setStore((prev) => prev ? { ...prev, sections: prev.sections.filter((s) => !deletedIds.has(s.id)) } : prev);
+  }
+
   if (loading) return <LoadingSkeleton />;
   if (!store) return <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}><p className="text-sm" style={{ color: A.textMuted }}>Store not found.</p></div>;
 
@@ -641,8 +650,6 @@ export default function StorePage() {
   const activeFilter = storeFilters.find((f) => f.id === activeFilterId) ?? null;
   const activeBanner: StoreBannerData | null = (activeFilter?.banner as StoreBannerData | null) ?? null;
   const visibleSections = activeFilterId ? store.sections.filter((s) => (activeFilter?.sectionIds ?? []).includes(s.id)) : store.sections;
-
-  // Available width minus page padding
   const availableW = Math.min(screenW - 16, 1334);
 
   // Group by rowIndex
@@ -701,22 +708,36 @@ export default function StorePage() {
             {sortedRows.map((rowSections, rowIdx) => {
               const tileW = calcTileW(rowSections, availableW);
               return (
-                <div key={rowIdx} style={{ display: "flex", gap: GAP, alignItems: "flex-start", justifyContent: "center" }}>
-                  {rowSections.map((section) => (
-                    <SortableSection
-                      key={section.id}
-                      section={section}
-                      storeId={store.id}
-                      editMode={editMode}
-                      tileW={tileW}
-                      tileH={TILE_H}
-                      cardW={calcCardW(section, tileW)}
-                      onBlocksReorder={handleBlocksReorder}
-                      onAddTile={(sid) => setAddingTile(sid)}
-                      onTileDeleted={(sid, tid) => setStore((prev) => prev ? { ...prev, sections: prev.sections.map((s) => s.id === sid ? { ...s, tiles: (s.tiles ?? []).filter((t) => t.id !== tid) } : s) } : prev)}
-                      onSectionRemoved={(sid) => setStore((prev) => prev ? { ...prev, sections: prev.sections.filter((s) => s.id !== sid) } : prev)}
-                    />
-                  ))}
+                <div key={rowIdx}>
+                  {/* Row header — only in edit mode */}
+                  {editMode && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6, gap: 8 }}>
+                      <span style={{ fontSize: 11, color: A.textMuted }}>Row {rowIdx + 1} · {rowSections.length} section{rowSections.length !== 1 ? "s" : ""}</span>
+                      <button
+                        onClick={() => handleDeleteRow(rowSections)}
+                        style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, color: "#EF4444", border: "1px solid #FCA5A5", background: "#fff", cursor: "pointer" }}
+                      >
+                        Delete row
+                      </button>
+                    </div>
+                  )}
+                  {/* Sections in row */}
+                  <div style={{ display: "flex", gap: GAP, alignItems: "flex-start", justifyContent: "center" }}>
+                    {rowSections.map((section) => (
+                      <SortableSection
+                        key={section.id}
+                        section={section}
+                        storeId={store.id}
+                        editMode={editMode}
+                        tileW={tileW}
+                        tileH={TILE_H}
+                        cardW={calcCardW(section, tileW)}
+                        onBlocksReorder={handleBlocksReorder}
+                        onAddTile={(sid) => setAddingTile(sid)}
+                        onTileDeleted={(sid, tid) => setStore((prev) => prev ? { ...prev, sections: prev.sections.map((s) => s.id === sid ? { ...s, tiles: (s.tiles ?? []).filter((t) => t.id !== tid) } : s) } : prev)}
+                      />
+                    ))}
+                  </div>
                 </div>
               );
             })}
