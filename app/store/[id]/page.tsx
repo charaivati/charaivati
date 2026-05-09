@@ -77,10 +77,11 @@ type Store = {
   sections: Section[];
 };
 
-// --- THEME ---
+// --- THEME & STYLES ---
 const A = {
   bg: "#E3E6E6",
   nav: "#131921",
+  nav2: "#232F3E",
   surface: "#FFFFFF",
   border: "#DDDDDD",
   text: "#0F1111",
@@ -95,79 +96,77 @@ const inputCls = "w-full text-sm px-3 py-2 rounded-md outline-none placeholder:t
 const inputStyle = { background: "#fff", color: A.text, border: `1px solid ${A.border}` };
 
 // --- LAYOUT CONSTANTS ---
+const SCREEN = 1334;
 const GAP = 8;
-const CARD_PAD = 24;
-const TILE_GAP = 6;
 const TILE_H = 180;
-const MAX_TILE_W = 220;
-const MIN_TILE_W = 80;
 
-function calcTileW(rowSections: Section[], availableW: number): number {
-  const totalCols = rowSections.reduce((s, sec) => s + (sec.columns ?? 1), 0);
-  const totalSectionGaps = (rowSections.length - 1) * GAP;
-  const totalCardPads = rowSections.length * CARD_PAD;
-  const totalIntraGaps = rowSections.reduce((s, sec) => s + Math.max(0, (sec.columns ?? 1) - 1) * TILE_GAP, 0);
-  const raw = Math.floor((availableW - totalSectionGaps - totalCardPads - totalIntraGaps) / totalCols);
-  return Math.max(MIN_TILE_W, Math.min(MAX_TILE_W, raw));
-}
-
-function calcCardW(section: Section, tileW: number): number {
-  const cols = section.columns ?? 1;
-  return cols * tileW + (cols - 1) * TILE_GAP + CARD_PAD;
-}
-
-// --- LAYOUT PICKER CONFIG ---
 type LayoutSec = { cols: number; colSpan: number };
-type LayoutConfig = { label: string; sections: LayoutSec[] };
+type LayoutConfig = { label: string; sections: LayoutSec[]; tileW: number };
 
 const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
-  "1":       { label: "1 section",  sections: [{ cols: 1, colSpan: 1 }] },
-  "1-1":     { label: "2 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }] },
-  "1-1-1":   { label: "3 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }] },
-  "1-1-1-1": { label: "4 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }] },
-  "1x5":     { label: "5 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }] },
-  "1-1-1-2": { label: "3 + wide",   sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 2, colSpan: 2 }] },
-  "1-2-2":   { label: "1 + 2 + 2",  sections: [{ cols: 1, colSpan: 1 }, { cols: 2, colSpan: 2 }, { cols: 2, colSpan: 2 }] },
-  "2-3":     { label: "2 + 3",      sections: [{ cols: 2, colSpan: 2 }, { cols: 3, colSpan: 3 }] },
-  "3-3":     { label: "3 + 3",      sections: [{ cols: 3, colSpan: 3 }, { cols: 3, colSpan: 3 }] },
+  "1":       { label: "1 section",  sections: [{ cols: 1, colSpan: 1 }], tileW: 220 },
+  "1-1":     { label: "2 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }], tileW: 220 },
+  "1-1-1":   { label: "3 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }], tileW: 220 },
+  "1-1-1-1": { label: "4 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }], tileW: 220 },
+  "1x5":     { label: "5 sections", sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }], tileW: 220 },
+  "1-1-1-2": { label: "3+wide",     sections: [{ cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 1, colSpan: 1 }, { cols: 2, colSpan: 2 }], tileW: 220 },
+  "1-2-2":   { label: "1+2+2",      sections: [{ cols: 1, colSpan: 1 }, { cols: 2, colSpan: 2 }, { cols: 2, colSpan: 2 }], tileW: 220 },
+  "2-3":     { label: "2+3",        sections: [{ cols: 2, colSpan: 2 }, { cols: 3, colSpan: 3 }], tileW: 220 },
+  "3-3":     { label: "3+3",        sections: [{ cols: 3, colSpan: 3 }, { cols: 3, colSpan: 3 }], tileW: 220 },
 };
 
-// --- SECTION CARD (no delete button — deletion is at row level) ---
+// --- SECTION CARD ---
+// No delete button here — deletion is at row level
 function SortableSection({
-  section, storeId, editMode, tileW, tileH, cardW,
-  onBlocksReorder, onAddTile, onTileDeleted,
+  section,
+  storeId,
+  editMode,
+  tileW,
+  tileH,
+  cardW,
+  onBlocksReorder,
+  onAddTile,
+  onTileDeleted,
 }: {
-  section: Section; storeId: string; editMode: boolean;
-  tileW: number; tileH: number; cardW: number;
+  section: Section;
+  storeId: string;
+  editMode: boolean;
+  tileW: number;
+  tileH: number;
+  cardW: number;
   onBlocksReorder: (sectionId: string, newBlocks: Block[]) => void;
   onAddTile: (sectionId: string) => void;
   onTileDeleted: (sectionId: string, tileId: string) => void;
 }) {
+  const setNodeRef = (_el: HTMLElement | null) => {};
+  const style: React.CSSProperties = {};
+  const attributes: React.HTMLAttributes<HTMLElement> = {};
+  const listeners: React.HTMLAttributes<HTMLElement> = {};
   const deletingTiles = useRef<Set<string>>(new Set());
   const sensorsBlocks = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   function handleBlockDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-    const oi = section.blocks.findIndex((b) => b.id === active.id);
-    const ni = section.blocks.findIndex((b) => b.id === over.id);
-    onBlocksReorder(section.id, arrayMove(section.blocks, oi, ni));
+    const oldIndex = section.blocks.findIndex((b) => b.id === active.id);
+    const newIndex = section.blocks.findIndex((b) => b.id === over.id);
+    onBlocksReorder(section.id, arrayMove(section.blocks, oldIndex, newIndex));
   }
 
-  const cols = section.columns ?? 1;
-  const rowCount = section.rows ?? 1;
-  const maxVisible = cols * rowCount;
-  const IMG_H = Math.round(tileH * 0.72);
-  const LBL_H = tileH - IMG_H;
-  const tiles = section.tiles ?? [];
-  const visibleTiles = tiles.slice(0, maxVisible);
-  const emptySlots = Math.max(0, maxVisible - visibleTiles.length);
+  const renderBlocks = () => {
+    const cols = section.columns ?? 3;
+    const rowCount = section.rows ?? 1;
+    const IMG_H = Math.round(tileH * 0.72);
+    const LBL_H = Math.round(tileH * 0.28);
+    const maxVisible = cols * rowCount;
+    const tiles = section.tiles ?? [];
+    const visibleTiles = tiles.slice(0, maxVisible);
+    const emptySlots = Math.max(0, maxVisible - visibleTiles.length);
 
-  const renderGrid = () => {
-    // Edit mode, completely empty
+    // Edit mode, completely empty: dashed "+" placeholders
     if (tiles.length === 0 && editMode) {
       return (
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${tileW}px)`, gap: TILE_GAP }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${tileW}px)`, gap: 6 }}>
           {Array.from({ length: maxVisible }).map((_, i) => (
             <button key={i} type="button" onClick={() => onAddTile(section.id)}
               style={{ width: tileW, height: tileH, border: "2px dashed #D1D5DB", borderRadius: 8, background: "#F9FAFB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", gap: 4 }}>
@@ -179,96 +178,120 @@ function SortableSection({
       );
     }
 
-    // Customer view, no tiles but has products
+    // Customer view, no tiles: show placeholder
     if (tiles.length === 0 && !editMode) {
       if (section.blocks.length === 0) return null;
+      // Has products but no tiles — show a placeholder tile
       return (
-        <a href={`/store/${storeId}/section/${section.id}`}
-          style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: tileW, height: tileH, background: "linear-gradient(135deg, #F0F0F0, #E8E8E8)", borderRadius: 8, textDecoration: "none", border: `1px solid ${A.border}` }}>
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: "#C0C0C0", marginBottom: 6 }}>
-            <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-            <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-            <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-            <rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
-          </svg>
-          <span style={{ fontSize: 11, color: "#6366f1", fontWeight: 500 }}>View all →</span>
-        </a>
+        <>
+          <a href={`/store/${storeId}/section/${section.id}`}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: tileW, height: tileH, background: "linear-gradient(135deg, #F3F4F6, #E5E7EB)", borderRadius: 8, textDecoration: "none", border: `1px solid ${A.border}` }}>
+            {/* Grid icon */}
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: "#C0C0C0", marginBottom: 6 }}>
+              <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+              <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+              <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+              <rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
+            <span style={{ fontSize: 12, color: A.textMuted, fontWeight: 500, marginBottom: 4 }}>{section.title}</span>
+            <span style={{ fontSize: 11, color: "#6366f1" }}>View all →</span>
+          </a>
+          <a href={`/store/${storeId}/section/${section.id}`} className="mt-2 block text-xs hover:underline" style={{ color: "#6366f1" }}>
+            See all {section.blocks.length} products →
+          </a>
+        </>
       );
     }
 
     // Has tiles
     return (
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${tileW}px)`, gap: TILE_GAP }}>
-        {visibleTiles.map((t) => (
-          <div key={t.id} style={{ width: tileW, height: tileH, position: "relative", flexShrink: 0 }}>
-            <a href={`/store/${storeId}/section/${section.id}`}
-              style={{ display: "block", width: "100%", height: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${A.border}`, textDecoration: "none", background: "#fff" }}>
-              <div style={{ height: IMG_H, overflow: "hidden", background: "#F5F5F5" }}>
-                {t.imageUrl
-                  ? <img src={t.imageUrl} alt={t.label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: A.textMuted }}>No image</div>
-                }
-              </div>
-              <div style={{ height: LBL_H, display: "flex", alignItems: "center", padding: "0 8px" }}>
-                <p style={{ fontSize: 11, color: A.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%", margin: 0 }}>{t.label}</p>
-              </div>
+      <>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${tileW}px)`, gap: 6 }}>
+          {visibleTiles.map((t) => (
+            <div key={t.id} style={{ width: tileW, height: tileH, position: "relative", flexShrink: 0 }}>
+              <a href={`/store/${storeId}/section/${section.id}`}
+                style={{ display: "block", width: "100%", height: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${A.border}`, textDecoration: "none", background: "#fff" }}>
+                <div style={{ height: IMG_H, overflow: "hidden", background: "#F5F5F5" }}>
+                  {t.imageUrl
+                    ? <img src={t.imageUrl} alt={t.label} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: A.textMuted }}>No image</div>
+                  }
+                </div>
+                <div style={{ height: LBL_H, display: "flex", alignItems: "center", padding: "0 8px" }}>
+                  <p style={{ fontSize: 11, color: A.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", width: "100%", margin: 0 }}>{t.label}</p>
+                </div>
+              </a>
+              {editMode && (
+                <button type="button"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (deletingTiles.current.has(t.id)) return;
+                    deletingTiles.current.add(t.id);
+                    const res = await fetch(`/api/store/${storeId}/sections/${section.id}/tiles/${t.id}`, { method: "DELETE", credentials: "include" });
+                    deletingTiles.current.delete(t.id);
+                    if (res.ok) onTileDeleted(section.id, t.id);
+                  }}
+                  style={{ position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+          {/* Empty slots in edit mode */}
+          {editMode && Array.from({ length: emptySlots }).map((_, i) => (
+            <button key={`empty-${i}`} type="button" onClick={() => onAddTile(section.id)}
+              style={{ width: tileW, height: tileH, border: "2px dashed #D1D5DB", borderRadius: 8, background: "#F9FAFB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", gap: 4 }}>
+              <span style={{ fontSize: 22, color: "#9CA3AF", lineHeight: 1 }}>+</span>
+              <span style={{ fontSize: 10, color: "#9CA3AF" }}>Add tile</span>
+            </button>
+          ))}
+        </div>
+        {/* See all / Add products link */}
+        {editMode ? (
+          <a href={`/store/${storeId}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
+            {section.blocks.length > 0 ? `See all ${section.blocks.length} products →` : "+ Add products →"}
+          </a>
+        ) : (
+          section.blocks.length > 0 && (
+            <a href={`/store/${storeId}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
+              See all {section.blocks.length} products →
             </a>
-            {editMode && (
-              <button type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (deletingTiles.current.has(t.id)) return;
-                  deletingTiles.current.add(t.id);
-                  const res = await fetch(`/api/store/${storeId}/sections/${section.id}/tiles/${t.id}`, { method: "DELETE", credentials: "include" });
-                  deletingTiles.current.delete(t.id);
-                  if (res.ok) onTileDeleted(section.id, t.id);
-                }}
-                style={{ position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.65)", color: "#fff", border: "none", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                ×
-              </button>
-            )}
-          </div>
-        ))}
-        {editMode && Array.from({ length: emptySlots }).map((_, i) => (
-          <button key={`empty-${i}`} type="button" onClick={() => onAddTile(section.id)}
-            style={{ width: tileW, height: tileH, border: "2px dashed #D1D5DB", borderRadius: 8, background: "#F9FAFB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", gap: 4 }}>
-            <span style={{ fontSize: 22, color: "#9CA3AF", lineHeight: 1 }}>+</span>
-            <span style={{ fontSize: 10, color: "#9CA3AF" }}>Add tile</span>
-          </button>
-        ))}
-      </div>
+          )
+        )}
+      </>
     );
   };
 
-  const gridContent = renderGrid();
-  if (gridContent === null && !editMode) return null;
+  const content = renderBlocks();
+  if (content === null && !editMode) return null;
 
   return (
-    <div style={{ background: "#fff", border: `1px solid ${A.border}`, borderRadius: 12, padding: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", width: cardW, minWidth: cardW, maxWidth: cardW, flexShrink: 0 }}>
-      {/* Section header — title + Add tile only, no delete (delete is at row level) */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, color: A.text, margin: 0 }}>{section.title}</h2>
+    <section
+      ref={setNodeRef}
+      style={{ ...style, background: "#fff", border: `1px solid ${A.border}`, borderRadius: 12, padding: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)", width: cardW, minWidth: cardW, maxWidth: cardW, position: "relative" }}
+      className="mb-0 shrink-0"
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {editMode && (
+            <button className="cursor-grab text-xs px-2 py-1 rounded"
+              style={{ color: A.textMuted, border: `1px solid ${A.border}`, background: "#f9f9f9" }}
+              {...attributes} {...listeners} title="Drag section">
+              ☰
+            </button>
+          )}
+          <h2 className="text-lg font-semibold" style={{ color: A.text }}>{section.title}</h2>
+        </div>
         {editMode && (
           <button onClick={() => onAddTile(section.id)}
-            style={{ fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 6, background: "#fff", color: A.text, border: `1px solid ${A.border}`, cursor: "pointer" }}>
+            className="text-xs font-semibold px-3 py-1.5 rounded-md"
+            style={{ background: "#fff", color: A.text, border: `1px solid ${A.border}` }}>
             + Add tile
           </button>
         )}
       </div>
 
-      {gridContent}
-
-      {editMode ? (
-        <a href={`/store/${storeId}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
-          {section.blocks.length > 0 ? `See all ${section.blocks.length} products →` : "+ Add products →"}
-        </a>
-      ) : (
-        section.blocks.length > 0 && (
-          <a href={`/store/${storeId}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
-            See all {section.blocks.length} products →
-          </a>
-        )
-      )}
+      {content}
 
       {editMode && section.blocks.length > 0 && (
         <DndContext sensors={sensorsBlocks} collisionDetection={closestCenter} onDragEnd={handleBlockDragEnd}>
@@ -277,11 +300,10 @@ function SortableSection({
           </SortableContext>
         </DndContext>
       )}
-    </div>
+    </section>
   );
 }
 
-// --- LEARNING TOP NAV ---
 function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; isOwner: boolean; onEditClick: () => void }) {
   return (
     <header style={{ width: "100%", background: "#FFFFFF", borderBottom: "1px solid #E8E4DE", padding: "14px 28px", display: "flex", alignItems: "center", gap: 16, position: "sticky", top: 0, zIndex: 50, boxSizing: "border-box" }}>
@@ -291,7 +313,7 @@ function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; 
         <span style={{ fontSize: 15, fontWeight: 600, color: "#1A1714", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pageName}</span>
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-        {isOwner && <a href="/self?tab=earn" style={{ padding: "7px 14px", borderRadius: 7, background: "transparent", color: "#888", fontSize: 12, fontWeight: 500, border: "1px solid #E8E4DE", cursor: "pointer", textDecoration: "none" }}>← Initiatives</a>}
+        {isOwner && <a href="/self?tab=earn" style={{ padding: "7px 14px", borderRadius: 7, background: "transparent", color: "#888", fontSize: 12, fontWeight: 500, border: "1px solid #E8E4DE", cursor: "pointer", textDecoration: "none", fontFamily: "system-ui, sans-serif" }}>← Initiatives</a>}
         {isOwner
           ? <button onClick={onEditClick} style={{ padding: "7px 16px", borderRadius: 7, background: "#1A1714", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer" }}>Edit Course</button>
           : <button style={{ padding: "7px 16px", borderRadius: 7, background: "#4A7FB5", color: "#fff", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer" }}>Enroll</button>
@@ -301,7 +323,6 @@ function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; 
   );
 }
 
-// --- TOP NAV ---
 function TopNav({ editMode, onToggleEdit, isOwner, editLabel }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string }) {
   const [q, setQ] = useState("");
   return (
@@ -327,7 +348,8 @@ function TopNav({ editMode, onToggleEdit, isOwner, editLabel }: { editMode: bool
             {isOwner && (
               <>
                 <a href="/self?tab=earn" className="text-xs font-semibold px-3 py-1.5 rounded-md" style={{ background: "transparent", color: "#ccc", border: "1px solid #848688" }}>← My Businesses</a>
-                <button onClick={onToggleEdit} className="text-xs font-semibold px-3 py-1.5 rounded-md" style={editMode ? { background: A.accent, color: "#111", border: `1px solid #FCD200` } : { background: "transparent", color: "#fff", border: `1px solid #848688` }}>
+                <button onClick={onToggleEdit} className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                  style={editMode ? { background: A.accent, color: "#111", border: `1px solid #FCD200` } : { background: "transparent", color: "#fff", border: `1px solid #848688` }}>
                   {editLabel ?? (editMode ? "Done Editing" : "Edit Store")}
                 </button>
               </>
@@ -339,7 +361,6 @@ function TopNav({ editMode, onToggleEdit, isOwner, editLabel }: { editMode: bool
   );
 }
 
-// --- STORE HERO ---
 function StoreHero({ store, totalBlocks }: { store: Store; totalBlocks: number }) {
   return (
     <div className="w-full" style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
@@ -352,31 +373,33 @@ function StoreHero({ store, totalBlocks }: { store: Store; totalBlocks: number }
           <h1 className="text-lg sm:text-xl font-bold truncate" style={{ color: A.text }}>{store.name}</h1>
           <p className="text-sm" style={{ color: A.textMuted }}>{store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}</p>
         </div>
-        <div className="ml-auto hidden md:flex"><span className="text-sm" style={{ color: A.link }}>Visit the {store.name} Store</span></div>
+        <div className="ml-auto hidden md:flex items-center gap-2">
+          <span className="text-sm" style={{ color: A.link }}>Visit the {store.name} Store</span>
+        </div>
       </div>
     </div>
   );
 }
 
-// --- ADD SECTION MODAL ---
 function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { storeId: string; existingSections: Section[]; onClose: () => void; onCreated: (section: Section) => void }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const maxRow = existingSections.reduce((m, s) => Math.max(m, s.rowIndex ?? 0), -1);
-  const newRowIndex = maxRow + 1;
+  const maxExistingRow = existingSections.reduce((m, s) => Math.max(m, s.rowIndex ?? 0), -1);
+  const newRowIndex = maxExistingRow + 1;
 
-  const pill = (active: boolean): React.CSSProperties => ({ background: active ? A.accent : "#fff", color: active ? "#fff" : A.text, border: `1px solid ${active ? A.accent : A.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer" });
+  const pill = (active: boolean) => ({ background: active ? A.accent : "#fff", color: active ? "#fff" : A.text, border: `1px solid ${active ? A.accent : A.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer" });
 
   async function createSections() {
     const cfg = selectedId ? LAYOUT_CONFIGS[selectedId] : null;
     if (!cfg || loading) return;
     setLoading(true);
-    const maxOrder = existingSections.reduce((m, s) => Math.max(m, (s as any).order ?? 0), -1);
+    const currentMaxOrder = existingSections.reduce((m, s) => Math.max(m, (s as any).order ?? 0), -1);
     try {
       for (let i = 0; i < cfg.sections.length; i++) {
         const sec = cfg.sections[i];
-        const res = await fetch("/api/section", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ storeId, title: `Section ${existingSections.length + i + 1}`, columns: sec.cols, rows: 1, rowIndex: newRowIndex, order: maxOrder + 1 + i }) });
+        const res = await fetch("/api/section", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ storeId, title: `Section ${existingSections.length + i + 1}`, columns: sec.cols, rows: 1, rowIndex: newRowIndex, order: currentMaxOrder + 1 + i }) });
         if (res.ok) { const data = await res.json(); onCreated({ ...data, blocks: [], tiles: [], subsections: [] }); }
       }
       onClose();
@@ -386,7 +409,7 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div style={{ width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", border: `1px solid ${A.border}` }}>
-        <p style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 12 }}>Step {step} of 2</p>
+        <p style={{ fontSize: 11, color: "#9ca3af", marginBottom: 12 }}>Step {step} of 2</p>
         {step === 1 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div><h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 2px" }}>Choose layout</h3><p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>Pick how many sections to add in this row.</p></div>
@@ -395,9 +418,11 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
                 const active = selectedId === id;
                 return (
                   <button key={id} type="button" onClick={() => setSelectedId(id)}
-                    style={{ padding: "10px 8px 8px", borderRadius: 8, border: active ? "2px solid #6366f1" : `1px solid ${A.border}`, background: active ? "#EEF2FF" : "#FAFAFA", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-                    <div style={{ display: "flex", gap: 2 }}>
-                      {cfg.sections.map((sec, i) => <div key={i} style={{ width: sec.colSpan * 20, height: 20, borderRadius: 3, background: active ? "#818CF8" : "#D1D5DB" }} />)}
+                    style={{ padding: "10px 8px 8px", borderRadius: 8, border: active ? "2px solid #6366f1" : `1px solid ${A.border}`, background: active ? "#eef2ff" : "#fafafa", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 2, alignItems: "center" }}>
+                      {cfg.sections.map((sec: LayoutSec, i: number) => (
+                        <div key={i} style={{ width: sec.colSpan * 20, height: 20, borderRadius: 3, background: active ? "#818cf8" : "#d1d5db" }} />
+                      ))}
                     </div>
                     <span style={{ fontSize: 11, color: active ? "#6366f1" : A.textMuted }}>{cfg.label}</span>
                   </button>
@@ -406,7 +431,7 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" onClick={onClose} style={{ ...pill(false), color: A.textMuted }}>Cancel</button>
-              <button type="button" disabled={!selectedId} onClick={() => setStep(2)} style={{ ...pill(true), opacity: selectedId ? 1 : 0.4 }}>Next →</button>
+              <button type="button" disabled={!selectedId} onClick={() => setStep(2)} style={{ ...pill(true), opacity: selectedId ? 1 : 0.4, cursor: selectedId ? "pointer" : "default" }}>Next →</button>
             </div>
           </div>
         )}
@@ -414,11 +439,13 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 2px" }}>Confirm</h3>
-              <p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>Creating {selectedId ? LAYOUT_CONFIGS[selectedId].sections.length : 0} section{selectedId && LAYOUT_CONFIGS[selectedId].sections.length !== 1 ? "s" : ""} in a new row.</p>
+              <p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>Creating {selectedId ? LAYOUT_CONFIGS[selectedId].sections.length : 0} section{(selectedId && LAYOUT_CONFIGS[selectedId].sections.length !== 1) ? "s" : ""} in a new row.</p>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
               <button type="button" onClick={() => setStep(1)} style={pill(false)}>← Back</button>
-              <button type="button" disabled={loading} onClick={createSections} style={{ ...pill(true), opacity: loading ? 0.5 : 1 }}>{loading ? "Creating…" : "Create"}</button>
+              <button type="button" disabled={loading} onClick={createSections} style={{ ...pill(true), opacity: loading ? 0.5 : 1, display: "flex", alignItems: "center", gap: 6 }}>
+                {loading ? <><span style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid #fff", borderTopColor: "transparent", display: "inline-block" }} />Creating…</> : "Create"}
+              </button>
             </div>
           </div>
         )}
@@ -427,7 +454,6 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
   );
 }
 
-// --- ADD BLOCK MODAL ---
 function AddBlockModal({ sectionId, onClose, onCreated }: { sectionId: string; onClose: () => void; onCreated: (block: Block) => void }) {
   const [form, setForm] = useState({ title: "", description: "", mediaType: "image" as MediaType, mediaUrl: "", actionType: "view" as ActionType, price: "" });
   const [loading, setLoading] = useState(false);
@@ -456,7 +482,6 @@ function AddBlockModal({ sectionId, onClose, onCreated }: { sectionId: string; o
   );
 }
 
-// --- ADD TILE MODAL ---
 function AddTileModal({ sectionId, storeId, onClose, onCreated }: { sectionId: string; storeId: string; onClose: () => void; onCreated: (tile: Tile) => void }) {
   const [label, setLabel] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -509,7 +534,6 @@ function AddTileModal({ sectionId, storeId, onClose, onCreated }: { sectionId: s
   );
 }
 
-// --- OVERLAY ---
 function Overlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -555,11 +579,23 @@ export default function StorePage() {
   const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [showManageFilters, setShowManageFilters] = useState(false);
 
+  async function handleSubscribeConfirm(consentFields: string[]) {
+    if (!subscribingBlock || !store?.pageId) return;
+    try {
+      const res = await fetch(`/api/pages/${store.pageId}/subscribe`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ tier: subscribingBlock.title, consentGranted: true, consentTimestamp: new Date().toISOString(), consentFields }) });
+      const data = await res.json();
+      if (!res.ok || !data.subscribed) throw new Error(data.error || "Subscription failed");
+      setSubscribeStatus("success");
+    } catch { setSubscribeStatus("error"); }
+    finally { setSubscribingBlock(null); }
+  }
+
   const fetchStore = useCallback(async () => {
     try {
       const res = await fetch(`/api/store/${id}`);
       if (res.ok) { const data = await res.json(); setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null); }
-    } catch (e) { console.error(e); }
+    } catch (error) { console.error("Failed to fetch store:", error); }
     finally { setLoading(false); }
   }, [id]);
 
@@ -581,9 +617,9 @@ export default function StorePage() {
         if (d.error) return;
         setLearningCourse(d);
         setLearningSections((d.store?.sections ?? []).map((s: any) => ({ ...s, blocks: s.blocks ?? [] })));
-        const pm: Record<string, { status: string; mastery: number }> = {};
-        (d.progress ?? []).forEach((p: any) => { pm[p.blockId] = { status: p.status, mastery: p.mastery }; });
-        setLearningProgress(pm);
+        const progressMap: Record<string, { status: string; mastery: number }> = {};
+        (d.progress ?? []).forEach((p: { blockId: string; status: string; mastery: number }) => { progressMap[p.blockId] = { status: p.status, mastery: p.mastery }; });
+        setLearningProgress(progressMap);
       }).catch(() => {});
   }, [store?.pageId, store?.pageType]);
 
@@ -593,9 +629,9 @@ export default function StorePage() {
   async function handleSectionDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (!over || active.id === over.id || !store) return;
-    const oi = store.sections.findIndex((s) => s.id === active.id);
-    const ni = store.sections.findIndex((s) => s.id === over.id);
-    const reordered = arrayMove(store.sections, oi, ni);
+    const oldIndex = store.sections.findIndex((s) => s.id === active.id);
+    const newIndex = store.sections.findIndex((s) => s.id === over.id);
+    const reordered = arrayMove(store.sections, oldIndex, newIndex);
     setStore({ ...store, sections: reordered });
     await fetch("/api/section/reorder", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storeId: store.id, orderedIds: reordered.map((s) => s.id) }) });
   }
@@ -616,43 +652,32 @@ export default function StorePage() {
     setStore({ ...store, sections: store.sections.map((s) => s.id === sectionId ? { ...s, blocks: [...s.blocks, block] } : s) });
   }
 
-  async function handleSubscribeConfirm(consentFields: string[]) {
-    if (!subscribingBlock || !store?.pageId) return;
-    try {
-      const res = await fetch(`/api/pages/${store.pageId}/subscribe`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ tier: subscribingBlock.title, consentGranted: true, consentTimestamp: new Date().toISOString(), consentFields }) });
-      const data = await res.json();
-      if (!res.ok || !data.subscribed) throw new Error(data.error || "Subscription failed");
-      setSubscribeStatus("success");
-    } catch { setSubscribeStatus("error"); }
-    finally { setSubscribingBlock(null); }
-  }
-
   // Delete all sections in a row
   async function handleDeleteRow(rowSections: Section[]) {
-    const sectionTitles = rowSections.map((s) => s.title).join(", ");
-    if (!confirm(`Delete entire row (${sectionTitles}) and all their tiles and products? This cannot be undone.`)) return;
+    const names = rowSections.map((s) => `"${s.title}"`).join(", ");
+    if (!confirm(`Delete entire row (${names}) and all their tiles and products? This cannot be undone.`)) return;
     for (const section of rowSections) {
-      await fetch("/api/section", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ sectionId: section.id }),
-      });
+      await fetch("/api/section", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ sectionId: section.id }) });
     }
     const deletedIds = new Set(rowSections.map((s) => s.id));
     setStore((prev) => prev ? { ...prev, sections: prev.sections.filter((s) => !deletedIds.has(s.id)) } : prev);
   }
 
   if (loading) return <LoadingSkeleton />;
-  if (!store) return <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}><p className="text-sm" style={{ color: A.textMuted }}>Store not found.</p></div>;
+  if (!store) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
+      <div className="text-center"><p className="text-sm" style={{ color: A.textMuted }}>Store not found.</p></div>
+    </div>
+  );
 
   const isLearning = store.pageType === "learning";
   const activeFilter = storeFilters.find((f) => f.id === activeFilterId) ?? null;
   const activeBanner: StoreBannerData | null = (activeFilter?.banner as StoreBannerData | null) ?? null;
-  const visibleSections = activeFilterId ? store.sections.filter((s) => (activeFilter?.sectionIds ?? []).includes(s.id)) : store.sections;
-  const availableW = Math.min(screenW - 16, 1334);
+  const visibleSections = activeFilterId
+    ? store.sections.filter((s) => (activeFilter?.sectionIds ?? []).includes(s.id))
+    : store.sections;
 
-  // Group by rowIndex
+  // Group sections by rowIndex
   const rowMap = new Map<number, Section[]>();
   visibleSections.forEach((s) => {
     const ri = s.rowIndex ?? 0;
@@ -674,7 +699,7 @@ export default function StorePage() {
         </>
       )}
 
-      {isLearning ? (
+      {store.pageType === "learning" ? (
         <>
           {learningCourse ? (
             <LearningPageView
@@ -683,7 +708,9 @@ export default function StorePage() {
               sections={learningSections} isOwner={store.isOwner} studentProgress={learningProgress}
             />
           ) : (
-            <div className="flex items-center justify-center py-20"><div className="w-6 h-6 rounded-full animate-spin" style={{ border: "3px solid #DDDDDD", borderTopColor: "#232F3E" }} /></div>
+            <div className="flex items-center justify-center py-20">
+              <div className="w-6 h-6 rounded-full animate-spin" style={{ border: "3px solid #DDDDDD", borderTopColor: "#232F3E" }} />
+            </div>
           )}
           {store.pageId && (
             <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 24px 48px", background: "#FAF8F5" }}>
@@ -695,23 +722,38 @@ export default function StorePage() {
         <main className="w-full px-2 py-4">
           {visibleSections.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center gap-2" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
-              <span style={{ color: A.textMuted, fontSize: 18 }}>▤</span>
-              <p className="text-sm" style={{ color: A.textMuted }}>{activeFilterId ? "No sections in this filter." : store.isOwner ? "No sections yet. Click Edit to get started." : "This store has no content yet."}</p>
+              <div className="w-12 h-12 rounded-md flex items-center justify-center mb-2" style={{ background: "#fff", border: `1px solid ${A.border}` }}>
+                <span style={{ color: A.textMuted, fontSize: 18 }}>▤</span>
+              </div>
+              <p className="text-sm" style={{ color: A.textMuted }}>
+                {activeFilterId ? "No sections in this filter." : (store.isOwner ? "No sections yet. Click Edit to get started." : "This store has no content yet.")}
+              </p>
             </div>
           )}
 
-          {subscribeStatus === "success" && <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#0d9f6e22", color: "#0d9f6e", border: "1px solid #0d9f6e55" }}>✓ Subscribed successfully!</div>}
-          {subscribeStatus === "error" && <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#ff444422", color: "#ff4444", border: "1px solid #ff444455" }}>Subscription failed. Please try again.</div>}
+          {subscribeStatus === "success" && (
+            <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#0d9f6e22", color: "#0d9f6e", border: "1px solid #0d9f6e55" }}>✓ Subscribed successfully!</div>
+          )}
+          {subscribeStatus === "error" && (
+            <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#ff444422", color: "#ff4444", border: "1px solid #ff444455" }}>Subscription failed. Please try again.</div>
+          )}
 
-          {/* ROWS */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {/* ROWS — centered, with row-level delete in edit mode */}
+          <div className="flex flex-col gap-3">
             {sortedRows.map((rowSections, rowIdx) => {
-              const tileW = calcTileW(rowSections, availableW);
+              const totalCols = rowSections.reduce((s, sec) => s + (sec.columns ?? 1), 0);
+              const totalGaps = (rowSections.length - 1) * GAP;
+              const totalPad = rowSections.length * 24;
+              const totalIntraGaps = rowSections.reduce((s, sec) => s + Math.max(0, (sec.columns ?? 1) - 1) * 6, 0);
+              const raw = Math.floor((SCREEN - totalGaps - totalPad - totalIntraGaps) / totalCols);
+              const tileW = Math.max(raw, 80);
+              const tileH = TILE_H;
+
               return (
                 <div key={rowIdx}>
-                  {/* Row header — only in edit mode */}
+                  {/* Row label + delete — edit mode only */}
                   {editMode && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6, gap: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 6 }}>
                       <span style={{ fontSize: 11, color: A.textMuted }}>Row {rowIdx + 1} · {rowSections.length} section{rowSections.length !== 1 ? "s" : ""}</span>
                       <button
                         onClick={() => handleDeleteRow(rowSections)}
@@ -721,43 +763,59 @@ export default function StorePage() {
                       </button>
                     </div>
                   )}
-                  {/* Sections in row */}
+                  {/* Sections — centered */}
                   <div style={{ display: "flex", gap: GAP, alignItems: "flex-start", justifyContent: "center" }}>
-                    {rowSections.map((section) => (
-                      <SortableSection
-                        key={section.id}
-                        section={section}
-                        storeId={store.id}
-                        editMode={editMode}
-                        tileW={tileW}
-                        tileH={TILE_H}
-                        cardW={calcCardW(section, tileW)}
-                        onBlocksReorder={handleBlocksReorder}
-                        onAddTile={(sid) => setAddingTile(sid)}
-                        onTileDeleted={(sid, tid) => setStore((prev) => prev ? { ...prev, sections: prev.sections.map((s) => s.id === sid ? { ...s, tiles: (s.tiles ?? []).filter((t) => t.id !== tid) } : s) } : prev)}
-                      />
-                    ))}
+                    {rowSections.map((section) => {
+                      const cols = section.columns ?? 1;
+                      const cardW = cols * tileW + (cols - 1) * 6 + 24;
+                      return (
+                        <SortableSection
+                          key={section.id}
+                          section={section}
+                          storeId={store.id}
+                          editMode={editMode}
+                          tileW={tileW}
+                          tileH={tileH}
+                          cardW={cardW}
+                          onBlocksReorder={handleBlocksReorder}
+                          onAddTile={(sid) => setAddingTile(sid)}
+                          onTileDeleted={(sid, tid) => setStore((prev) => prev ? { ...prev, sections: prev.sections.map((s) => s.id === sid ? { ...s, tiles: (s.tiles ?? []).filter((t) => t.id !== tid) } : s) } : prev)}
+                        />
+                      );
+                    })}
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {store.isOwner && (
+          {/* Add section — edit mode only */}
+          {editMode && store.isOwner && (
             <div className="mt-6">
-              <button onClick={() => setShowAddSection(true)} className="text-xs font-semibold px-4 py-2 rounded-md" style={{ background: "#fff", color: A.text, border: `1px solid ${A.border}` }}>+ Add section</button>
+              <button onClick={() => setShowAddSection(true)} className="text-xs font-semibold px-4 py-2 rounded-md" style={{ background: "#fff", color: A.text, border: `1px solid ${A.border}` }}>
+                + Add section
+              </button>
             </div>
           )}
         </main>
       )}
 
-      {showAddSection && store && <AddSectionModal storeId={store.id} existingSections={store.sections} onClose={() => setShowAddSection(false)} onCreated={onSectionCreated} />}
-      {addBlockForSection && <AddBlockModal sectionId={addBlockForSection} onClose={() => setAddBlockForSection(null)} onCreated={(block) => onBlockCreated(addBlockForSection, block)} />}
+      {showAddSection && store && (
+        <AddSectionModal storeId={store.id} existingSections={store.sections} onClose={() => setShowAddSection(false)} onCreated={onSectionCreated} />
+      )}
+      {addBlockForSection && (
+        <AddBlockModal sectionId={addBlockForSection} onClose={() => setAddBlockForSection(null)} onCreated={(block) => onBlockCreated(addBlockForSection, block)} />
+      )}
       {addingTile && store && (
         <AddTileModal sectionId={addingTile} storeId={store.id} onClose={() => setAddingTile(null)}
-          onCreated={(tile) => { setStore((prev) => prev ? { ...prev, sections: prev.sections.map((s) => s.id === addingTile ? { ...s, tiles: [...(s.tiles ?? []), tile] } : s) } : prev); setAddingTile(null); }} />
+          onCreated={(tile) => {
+            setStore((prev) => prev ? { ...prev, sections: prev.sections.map((s) => s.id === addingTile ? { ...s, tiles: [...(s.tiles ?? []), tile] } : s) } : prev);
+            setAddingTile(null);
+          }} />
       )}
-      {subscribingBlock && store && <ConsentModal expertName={store.name} onConfirm={handleSubscribeConfirm} onCancel={() => setSubscribingBlock(null)} />}
+      {subscribingBlock && store && (
+        <ConsentModal expertName={store.name} onConfirm={handleSubscribeConfirm} onCancel={() => setSubscribingBlock(null)} />
+      )}
       {showManageFilters && store && (
         <ManageFiltersPanel storeId={store.id} filters={storeFilters} sections={store.sections.map((s) => ({ id: s.id, title: s.title }))} globalBanner={globalBanner}
           onClose={(updatedFilters, updatedGlobalBanner) => { setStoreFilters(updatedFilters); setGlobalBanner(updatedGlobalBanner); setShowManageFilters(false); }} />
