@@ -5,20 +5,16 @@ import getServerUser from "@/lib/serverAuth";
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
   const { storeId, title, type, sectionType, prereqIds, columns, rows, rowIndex } = await req.json();
   if (!storeId || !title?.trim())
     return NextResponse.json({ error: "storeId and title required" }, { status: 400 });
-
   const store = await prisma.store.findUnique({ where: { id: storeId } });
   if (!store || store.ownerId !== user.id)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
   const maxOrder = await prisma.storeSection.aggregate({
     where: { storeId },
     _max: { order: true },
   });
-
   const section = await prisma.storeSection.create({
     data: {
       storeId,
@@ -32,24 +28,40 @@ export async function POST(req: NextRequest) {
       order: (maxOrder._max.order ?? -1) + 1,
     },
   });
-
   return NextResponse.json(section, { status: 201 });
 }
 
-export async function DELETE(req: NextRequest) {
+export async function PATCH(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const { sectionId } = await req.json().catch(() => ({}));
+  const { sectionId, title } = await req.json().catch(() => ({}));
   if (!sectionId) return NextResponse.json({ error: "sectionId required" }, { status: 400 });
-
   const section = await prisma.storeSection.findUnique({
     where: { id: sectionId },
     include: { store: true },
   });
   if (!section || section.store.ownerId !== user.id)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const updated = await prisma.storeSection.update({
+    where: { id: sectionId },
+    data: {
+      ...(typeof title === "string" && title.trim() ? { title: title.trim() } : {}),
+    },
+  });
+  return NextResponse.json(updated);
+}
 
+export async function DELETE(req: NextRequest) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { sectionId } = await req.json().catch(() => ({}));
+  if (!sectionId) return NextResponse.json({ error: "sectionId required" }, { status: 400 });
+  const section = await prisma.storeSection.findUnique({
+    where: { id: sectionId },
+    include: { store: true },
+  });
+  if (!section || section.store.ownerId !== user.id)
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   await prisma.storeSection.delete({ where: { id: sectionId } });
   return NextResponse.json({ ok: true });
 }
