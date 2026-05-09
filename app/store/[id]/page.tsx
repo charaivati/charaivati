@@ -99,6 +99,7 @@ const inputStyle = { background: "#fff", color: A.text, border: `1px solid ${A.b
 const SCREEN = 1334;
 const GAP = 8;
 const TILE_H = 180;
+const MAX_TILE_W = 300; // cap so single sections don't fill full screen
 
 type LayoutSec = { cols: number; colSpan: number };
 type LayoutConfig = { label: string; sections: LayoutSec[]; tileW: number };
@@ -116,24 +117,12 @@ const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
 };
 
 // --- SECTION CARD ---
-// No delete button here — deletion is at row level
 function SortableSection({
-  section,
-  storeId,
-  editMode,
-  tileW,
-  tileH,
-  cardW,
-  onBlocksReorder,
-  onAddTile,
-  onTileDeleted,
+  section, storeId, editMode, tileW, tileH, cardW,
+  onBlocksReorder, onAddTile, onTileDeleted,
 }: {
-  section: Section;
-  storeId: string;
-  editMode: boolean;
-  tileW: number;
-  tileH: number;
-  cardW: number;
+  section: Section; storeId: string; editMode: boolean;
+  tileW: number; tileH: number; cardW: number;
   onBlocksReorder: (sectionId: string, newBlocks: Block[]) => void;
   onAddTile: (sectionId: string) => void;
   onTileDeleted: (sectionId: string, tileId: string) => void;
@@ -154,16 +143,18 @@ function SortableSection({
   }
 
   const renderBlocks = () => {
-    const cols = section.columns ?? 3;
+    // Fix: default cols to 1 (not 3) so columns prop is respected
+    const cols = section.columns ?? 1;
     const rowCount = section.rows ?? 1;
     const IMG_H = Math.round(tileH * 0.72);
     const LBL_H = Math.round(tileH * 0.28);
     const maxVisible = cols * rowCount;
+    // Fix: always default to [] so undefined tiles show placeholders
     const tiles = section.tiles ?? [];
     const visibleTiles = tiles.slice(0, maxVisible);
     const emptySlots = Math.max(0, maxVisible - visibleTiles.length);
 
-    // Edit mode, completely empty: dashed "+" placeholders
+    // Edit mode, completely empty — show dashed placeholder grid
     if (tiles.length === 0 && editMode) {
       return (
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${tileW}px)`, gap: 6 }}>
@@ -178,15 +169,13 @@ function SortableSection({
       );
     }
 
-    // Customer view, no tiles: show placeholder
+    // Customer view, no tiles — show placeholder if products exist
     if (tiles.length === 0 && !editMode) {
       if (section.blocks.length === 0) return null;
-      // Has products but no tiles — show a placeholder tile
       return (
         <>
           <a href={`/store/${storeId}/section/${section.id}`}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: tileW, height: tileH, background: "linear-gradient(135deg, #F3F4F6, #E5E7EB)", borderRadius: 8, textDecoration: "none", border: `1px solid ${A.border}` }}>
-            {/* Grid icon */}
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: "#C0C0C0", marginBottom: 6 }}>
               <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
               <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
@@ -237,7 +226,7 @@ function SortableSection({
               )}
             </div>
           ))}
-          {/* Empty slots in edit mode */}
+          {/* Remaining empty slots in edit mode */}
           {editMode && Array.from({ length: emptySlots }).map((_, i) => (
             <button key={`empty-${i}`} type="button" onClick={() => onAddTile(section.id)}
               style={{ width: tileW, height: tileH, border: "2px dashed #D1D5DB", borderRadius: 8, background: "#F9FAFB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", gap: 4 }}>
@@ -246,7 +235,6 @@ function SortableSection({
             </button>
           ))}
         </div>
-        {/* See all / Add products link */}
         {editMode ? (
           <a href={`/store/${storeId}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
             {section.blocks.length > 0 ? `See all ${section.blocks.length} products →` : "+ Add products →"}
@@ -381,14 +369,19 @@ function StoreHero({ store, totalBlocks }: { store: Store; totalBlocks: number }
   );
 }
 
-function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { storeId: string; existingSections: Section[]; onClose: () => void; onCreated: (section: Section) => void }) {
+function AddSectionModal({ storeId, existingSections, onClose, onCreated }: {
+  storeId: string; existingSections: Section[]; onClose: () => void; onCreated: (section: Section) => void;
+}) {
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const maxExistingRow = existingSections.reduce((m, s) => Math.max(m, s.rowIndex ?? 0), -1);
   const newRowIndex = maxExistingRow + 1;
 
-  const pill = (active: boolean) => ({ background: active ? A.accent : "#fff", color: active ? "#fff" : A.text, border: `1px solid ${active ? A.accent : A.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer" });
+  const pill = (active: boolean) => ({
+    background: active ? A.accent : "#fff", color: active ? "#fff" : A.text,
+    border: `1px solid ${active ? A.accent : A.border}`, borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 500, cursor: "pointer",
+  });
 
   async function createSections() {
     const cfg = selectedId ? LAYOUT_CONFIGS[selectedId] : null;
@@ -398,9 +391,18 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
     try {
       for (let i = 0; i < cfg.sections.length; i++) {
         const sec = cfg.sections[i];
-        const res = await fetch("/api/section", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({ storeId, title: `Section ${existingSections.length + i + 1}`, columns: sec.cols, rows: 1, rowIndex: newRowIndex, order: currentMaxOrder + 1 + i }) });
-        if (res.ok) { const data = await res.json(); onCreated({ ...data, blocks: [], tiles: [], subsections: [] }); }
+        const res = await fetch("/api/section", {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({
+            storeId, title: `Section ${existingSections.length + i + 1}`,
+            columns: sec.cols, rows: 1, rowIndex: newRowIndex, order: currentMaxOrder + 1 + i,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          // Fix: explicitly set tiles: [] so placeholders render immediately
+          onCreated({ ...data, blocks: [], tiles: [], subsections: [] });
+        }
       }
       onClose();
     } finally { setLoading(false); }
@@ -412,7 +414,10 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
         <p style={{ fontSize: 11, color: "#9ca3af", marginBottom: 12 }}>Step {step} of 2</p>
         {step === 1 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div><h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 2px" }}>Choose layout</h3><p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>Pick how many sections to add in this row.</p></div>
+            <div>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 2px" }}>Choose layout</h3>
+              <p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>Pick how many sections to add in this row.</p>
+            </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
               {Object.entries(LAYOUT_CONFIGS).map(([id, cfg]) => {
                 const active = selectedId === id;
@@ -431,7 +436,8 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" onClick={onClose} style={{ ...pill(false), color: A.textMuted }}>Cancel</button>
-              <button type="button" disabled={!selectedId} onClick={() => setStep(2)} style={{ ...pill(true), opacity: selectedId ? 1 : 0.4, cursor: selectedId ? "pointer" : "default" }}>Next →</button>
+              <button type="button" disabled={!selectedId} onClick={() => setStep(2)}
+                style={{ ...pill(true), opacity: selectedId ? 1 : 0.4, cursor: selectedId ? "pointer" : "default" }}>Next →</button>
             </div>
           </div>
         )}
@@ -439,11 +445,14 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: { st
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             <div>
               <h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 2px" }}>Confirm</h3>
-              <p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>Creating {selectedId ? LAYOUT_CONFIGS[selectedId].sections.length : 0} section{(selectedId && LAYOUT_CONFIGS[selectedId].sections.length !== 1) ? "s" : ""} in a new row.</p>
+              <p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>
+                Creating {selectedId ? LAYOUT_CONFIGS[selectedId].sections.length : 0} section{(selectedId && LAYOUT_CONFIGS[selectedId].sections.length !== 1) ? "s" : ""} in a new row.
+              </p>
             </div>
             <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
               <button type="button" onClick={() => setStep(1)} style={pill(false)}>← Back</button>
-              <button type="button" disabled={loading} onClick={createSections} style={{ ...pill(true), opacity: loading ? 0.5 : 1, display: "flex", alignItems: "center", gap: 6 }}>
+              <button type="button" disabled={loading} onClick={createSections}
+                style={{ ...pill(true), opacity: loading ? 0.5 : 1, display: "flex", alignItems: "center", gap: 6 }}>
                 {loading ? <><span style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid #fff", borderTopColor: "transparent", display: "inline-block" }} />Creating…</> : "Create"}
               </button>
             </div>
@@ -644,7 +653,8 @@ export default function StorePage() {
 
   function onSectionCreated(section: Section) {
     if (!store) return;
-    setStore({ ...store, sections: [...store.sections, section] });
+    // Fix: ensure tiles is always [] when adding to store state
+    setStore({ ...store, sections: [...store.sections, { ...section, tiles: section.tiles ?? [] }] });
   }
 
   function onBlockCreated(sectionId: string, block: Block) {
@@ -677,7 +687,7 @@ export default function StorePage() {
     ? store.sections.filter((s) => (activeFilter?.sectionIds ?? []).includes(s.id))
     : store.sections;
 
-  // Group sections by rowIndex
+  // Group by rowIndex
   const rowMap = new Map<number, Section[]>();
   visibleSections.forEach((s) => {
     const ri = s.rowIndex ?? 0;
@@ -738,7 +748,7 @@ export default function StorePage() {
             <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#ff444422", color: "#ff4444", border: "1px solid #ff444455" }}>Subscription failed. Please try again.</div>
           )}
 
-          {/* ROWS — centered, with row-level delete in edit mode */}
+          {/* ROWS */}
           <div className="flex flex-col gap-3">
             {sortedRows.map((rowSections, rowIdx) => {
               const totalCols = rowSections.reduce((s, sec) => s + (sec.columns ?? 1), 0);
@@ -746,7 +756,8 @@ export default function StorePage() {
               const totalPad = rowSections.length * 24;
               const totalIntraGaps = rowSections.reduce((s, sec) => s + Math.max(0, (sec.columns ?? 1) - 1) * 6, 0);
               const raw = Math.floor((SCREEN - totalGaps - totalPad - totalIntraGaps) / totalCols);
-              const tileW = Math.max(raw, 80);
+              // Fix: cap tileW so single sections don't fill the whole screen
+              const tileW = Math.min(Math.max(raw, 80), MAX_TILE_W);
               const tileH = TILE_H;
 
               return (
@@ -755,10 +766,8 @@ export default function StorePage() {
                   {editMode && (
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 6 }}>
                       <span style={{ fontSize: 11, color: A.textMuted }}>Row {rowIdx + 1} · {rowSections.length} section{rowSections.length !== 1 ? "s" : ""}</span>
-                      <button
-                        onClick={() => handleDeleteRow(rowSections)}
-                        style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, color: "#EF4444", border: "1px solid #FCA5A5", background: "#fff", cursor: "pointer" }}
-                      >
+                      <button onClick={() => handleDeleteRow(rowSections)}
+                        style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, color: "#EF4444", border: "1px solid #FCA5A5", background: "#fff", cursor: "pointer" }}>
                         Delete row
                       </button>
                     </div>
