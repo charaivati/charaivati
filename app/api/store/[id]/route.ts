@@ -49,10 +49,29 @@ export async function GET(
     ...f,
     sectionIds: f.sections.map((s) => s.sectionId),
   }));
+
   const globalBanner = store.banners?.[0] ?? null;
+
   const sections = (store.sections ?? []).map((s) => ({
     ...s,
     filterIds: s.filterLinks.map((fl) => fl.filterId),
   }));
-  return NextResponse.json({ ...store, sections, filters, globalBanner, pageType, isOwner: user?.id === store.ownerId });
+
+  // Reassign rowIndex for legacy sections: if all sections
+  // have rowIndex=0, treat each as its own row based on order
+  const allRowZero = sections.every((s) => (s.rowIndex ?? 0) === 0);
+
+  const processedSections =
+    allRowZero && sections.length > 1
+      ? sections.map((s, i) => ({ ...s, rowIndex: i }))
+      : sections;
+
+  return NextResponse.json({
+    ...store,
+    sections: processedSections,
+    filters,
+    globalBanner,
+    pageType,
+    isOwner: user?.id === store.ownerId,
+  });
 }
