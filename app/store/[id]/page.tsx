@@ -99,7 +99,6 @@ const inputStyle = { background: "#fff", color: A.text, border: `1px solid ${A.b
 const SCREEN = 1334;
 const GAP = 8;
 const TILE_H = 180;
-const MAX_TILE_W = 300; // cap so single sections don't fill full screen
 
 type LayoutSec = { cols: number; colSpan: number };
 type LayoutConfig = { label: string; sections: LayoutSec[]; tileW: number };
@@ -117,12 +116,24 @@ const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
 };
 
 // --- SECTION CARD ---
+// No delete button here — deletion is at row level via handleDeleteRow
 function SortableSection({
-  section, storeId, editMode, tileW, tileH, cardW,
-  onBlocksReorder, onAddTile, onTileDeleted,
+  section,
+  storeId,
+  editMode,
+  tileW,
+  tileH,
+  cardW,
+  onBlocksReorder,
+  onAddTile,
+  onTileDeleted,
 }: {
-  section: Section; storeId: string; editMode: boolean;
-  tileW: number; tileH: number; cardW: number;
+  section: Section;
+  storeId: string;
+  editMode: boolean;
+  tileW: number;
+  tileH: number;
+  cardW: number;
   onBlocksReorder: (sectionId: string, newBlocks: Block[]) => void;
   onAddTile: (sectionId: string) => void;
   onTileDeleted: (sectionId: string, tileId: string) => void;
@@ -143,18 +154,18 @@ function SortableSection({
   }
 
   const renderBlocks = () => {
-    // Fix: default cols to 1 (not 3) so columns prop is respected
+    // CHANGE: default to 1 (not 3) so section.columns is respected
     const cols = section.columns ?? 1;
     const rowCount = section.rows ?? 1;
     const IMG_H = Math.round(tileH * 0.72);
     const LBL_H = Math.round(tileH * 0.28);
     const maxVisible = cols * rowCount;
-    // Fix: always default to [] so undefined tiles show placeholders
+    // CHANGE: always default tiles to [] so placeholders show immediately
     const tiles = section.tiles ?? [];
     const visibleTiles = tiles.slice(0, maxVisible);
     const emptySlots = Math.max(0, maxVisible - visibleTiles.length);
 
-    // Edit mode, completely empty — show dashed placeholder grid
+    // Edit mode, completely empty — dashed placeholder grid
     if (tiles.length === 0 && editMode) {
       return (
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${tileW}px)`, gap: 6 }}>
@@ -169,7 +180,7 @@ function SortableSection({
       );
     }
 
-    // Customer view, no tiles — show placeholder if products exist
+    // Customer view, no tiles — CHANGE: show grid icon placeholder if products exist
     if (tiles.length === 0 && !editMode) {
       if (section.blocks.length === 0) return null;
       return (
@@ -270,6 +281,7 @@ function SortableSection({
           )}
           <h2 className="text-lg font-semibold" style={{ color: A.text }}>{section.title}</h2>
         </div>
+        {/* CHANGE: removed Delete section button — deletion is now at row level */}
         {editMode && (
           <button onClick={() => onAddTile(section.id)}
             className="text-xs font-semibold px-3 py-1.5 rounded-md"
@@ -400,7 +412,7 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: {
         });
         if (res.ok) {
           const data = await res.json();
-          // Fix: explicitly set tiles: [] so placeholders render immediately
+          // CHANGE: explicitly set tiles: [] so placeholders render immediately without refresh
           onCreated({ ...data, blocks: [], tiles: [], subsections: [] });
         }
       }
@@ -653,7 +665,7 @@ export default function StorePage() {
 
   function onSectionCreated(section: Section) {
     if (!store) return;
-    // Fix: ensure tiles is always [] when adding to store state
+    // CHANGE: ensure tiles is always [] so placeholders render immediately
     setStore({ ...store, sections: [...store.sections, { ...section, tiles: section.tiles ?? [] }] });
   }
 
@@ -662,7 +674,7 @@ export default function StorePage() {
     setStore({ ...store, sections: store.sections.map((s) => s.id === sectionId ? { ...s, blocks: [...s.blocks, block] } : s) });
   }
 
-  // Delete all sections in a row
+  // CHANGE: delete entire row (all sections sharing same rowIndex)
   async function handleDeleteRow(rowSections: Section[]) {
     const names = rowSections.map((s) => `"${s.title}"`).join(", ");
     if (!confirm(`Delete entire row (${names}) and all their tiles and products? This cannot be undone.`)) return;
@@ -748,7 +760,7 @@ export default function StorePage() {
             <div className="mb-4 px-4 py-3 rounded-md text-sm font-medium" style={{ background: "#ff444422", color: "#ff4444", border: "1px solid #ff444455" }}>Subscription failed. Please try again.</div>
           )}
 
-          {/* ROWS */}
+          {/* ROWS — centered, with row-level delete in edit mode */}
           <div className="flex flex-col gap-3">
             {sortedRows.map((rowSections, rowIdx) => {
               const totalCols = rowSections.reduce((s, sec) => s + (sec.columns ?? 1), 0);
@@ -756,13 +768,13 @@ export default function StorePage() {
               const totalPad = rowSections.length * 24;
               const totalIntraGaps = rowSections.reduce((s, sec) => s + Math.max(0, (sec.columns ?? 1) - 1) * 6, 0);
               const raw = Math.floor((SCREEN - totalGaps - totalPad - totalIntraGaps) / totalCols);
-              // Fix: cap tileW so single sections don't fill the whole screen
-              const tileW = Math.min(Math.max(raw, 80), MAX_TILE_W);
+              // CHANGE: no upper cap — tile width fills row proportionally (original behavior)
+              const tileW = Math.max(raw, 80);
               const tileH = TILE_H;
 
               return (
                 <div key={rowIdx}>
-                  {/* Row label + delete — edit mode only */}
+                  {/* CHANGE: row label + delete button — edit mode only */}
                   {editMode && (
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 6 }}>
                       <span style={{ fontSize: 11, color: A.textMuted }}>Row {rowIdx + 1} · {rowSections.length} section{rowSections.length !== 1 ? "s" : ""}</span>
@@ -772,7 +784,7 @@ export default function StorePage() {
                       </button>
                     </div>
                   )}
-                  {/* Sections — centered */}
+                  {/* CHANGE: justifyContent center so rows are centered on screen */}
                   <div style={{ display: "flex", gap: GAP, alignItems: "flex-start", justifyContent: "center" }}>
                     {rowSections.map((section) => {
                       const cols = section.columns ?? 1;
@@ -798,7 +810,7 @@ export default function StorePage() {
             })}
           </div>
 
-          {/* Add section — edit mode only */}
+          {/* CHANGE: add section button only in edit mode */}
           {editMode && store.isOwner && (
             <div className="mt-6">
               <button onClick={() => setShowAddSection(true)} className="text-xs font-semibold px-4 py-2 rounded-md" style={{ background: "#fff", color: A.text, border: `1px solid ${A.border}` }}>
