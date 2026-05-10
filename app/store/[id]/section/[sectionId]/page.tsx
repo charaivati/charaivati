@@ -493,14 +493,6 @@ export default function SectionPage() {
   const [addingBlock, setAddingBlock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Commerce state
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [cartOpen, setCartOpen] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [addressModalOpen, setAddressModalOpen] = useState(false);
-  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
-  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
-
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
       .then((r) => r.json())

@@ -130,7 +130,7 @@ async function sendOrderEmail({
   addressLine: string;
 }) {
   try {
-    const { sendEmail } = await import("@/lib/email");
+    const { sendEmail } = await import("@/lib/sendEmail");
     await sendEmail({
       to,
       subject: `New Order on ${storeName} — #${orderId.slice(-8).toUpperCase()}`,
@@ -156,6 +156,6 @@ Log in to Charaivati to view and manage this order.
       `.trim(),
     });
   } catch {
-    console.warn("Email not sent — check lib/email.ts implementation");
+    console.warn("Email not sent — check lib/sendEmail.ts implementation");
   }
 }
