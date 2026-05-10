@@ -351,31 +351,53 @@ function AddBlockModal({ sectionId, onClose, onCreated }: {
 
 // ─── TopNav ───────────────────────────────────────────────────────────────────
 
-function TopNav({ storeName, isOwner, editMode, onToggleEdit, cartCount, onCartOpen, onAddressClick, deliveryLabel }: {
-  storeName: string; isOwner: boolean; editMode: boolean; onToggleEdit: () => void;
-  cartCount: number; onCartOpen: () => void; onAddressClick: () => void; deliveryLabel: string;
+function TopNav({
+  storeName,
+  isOwner,
+  editMode,
+  onToggleEdit,
+  onSearch,
+  searchQuery,
+}: {
+  storeName: string;
+  isOwner: boolean;
+  editMode: boolean;
+  onToggleEdit: () => void;
+  onSearch: (q: string) => void;
+  searchQuery: string;
 }) {
-  const [q, setQ] = useState("");
   return (
     <header className="w-full sticky top-0 z-50">
       <div className="w-full" style={{ background: A.nav }}>
         <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
-          <div className="flex items-center gap-2 pr-2">
-            <div className="w-24 h-8 rounded-sm flex items-center justify-center font-bold" style={{ background: "#fff", color: A.nav }}>store</div>
-          </div>
-          <button onClick={onAddressClick} className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left hover:opacity-80">
+          <div className="hidden md:flex flex-col text-white text-xs leading-tight pr-3">
             <span className="opacity-80">Deliver to</span>
             <span className="font-bold underline">{deliveryLabel}</span>
           </button>
           <div className="flex-1 flex">
-            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}><option>All</option></select>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${storeName}`} className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
+            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}>
+              <option>All</option>
+            </select>
+            <input value={searchQuery} onChange={(e) => onSearch(e.target.value)} placeholder={`Search ${storeName}`} className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
             <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
           </div>
           <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
-            <div className="leading-tight"><div className="opacity-80">Hello, Sign in</div><div className="font-bold">Account &amp; Lists ▾</div></div>
-            <div className="leading-tight"><div className="opacity-80">Returns</div><div className="font-bold">&amp; Orders</div></div>
-            <button onClick={onCartOpen} className="flex items-center gap-1 relative">
+            {isOwner ? (
+              <a href="/self?tab=earn" className="leading-tight text-white text-xs hover:opacity-80">
+                <div className="opacity-80">Manage</div>
+                <div className="font-bold">Your Stores ▾</div>
+              </a>
+            ) : (
+              <a href="/self" className="leading-tight text-white text-xs hover:opacity-80">
+                <div className="opacity-80">Hello, Sign in</div>
+                <div className="font-bold">My Account ▾</div>
+              </a>
+            )}
+            <a href="/orders" className="leading-tight text-white text-xs hover:opacity-80">
+              <div className="opacity-80">Returns &amp;</div>
+              <div className="font-bold">Orders</div>
+            </a>
+            <div className="flex items-center gap-1">
               <span className="text-lg">🛒</span>
               <span className="font-bold">Cart</span>
               {cartCount > 0 && (
@@ -469,6 +491,7 @@ export default function SectionPage() {
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [addingBlock, setAddingBlock] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Commerce state
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -507,20 +530,18 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
-  async function handleAddToCart(block: Block) {
-    const res = await fetch(`/api/store/cart/${storeId}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ blockId: block.id, quantity: 1 }),
-    });
-    if (res.ok) {
-      const item = await res.json();
-      setCartItems((prev) => {
-        const exists = prev.find((i) => i.blockId === block.id);
-        if (exists) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i);
-        return [...prev, item];
-      });
-      setCartOpen(true);
-    }
+  const visibleBlocks = blocks.filter((b) =>
+    b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    searchQuery === ""
+  );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
+        <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+      </div>
+    );
   }
 
   async function handleWishlist(blockId: string) {
@@ -553,13 +574,7 @@ export default function SectionPage() {
 
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
-      <TopNav
-        storeName={storeName} isOwner={isOwner} editMode={editMode}
-        onToggleEdit={() => setEditMode((v) => !v)}
-        cartCount={cartCount} onCartOpen={() => setCartOpen(true)}
-        onAddressClick={() => setAddressModalOpen(true)}
-        deliveryLabel={deliveryLabel}
-      />
+      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} />
 
       <main className="max-w-7xl mx-auto px-3 py-6">
         <a href={`/store/${id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
@@ -577,13 +592,11 @@ export default function SectionPage() {
         </div>
         <p className="text-sm mb-4" style={{ color: A.textMuted }}>{blocks.length} product{blocks.length !== 1 ? "s" : ""} in this section</p>
 
-        {blocks.length === 0 ? (
-          <p className="text-sm" style={{ color: A.textMuted }}>
-            No products yet.{isOwner ? " Click 'Edit Section' to add some." : ""}
-          </p>
+        {visibleBlocks.length === 0 ? (
+          <p className="text-sm" style={{ color: A.textMuted }}>No products yet.{isOwner ? " Click 'Edit Section' to add some." : ""}</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {blocks.map((block) => (
+            {visibleBlocks.map((block) => (
               <ProductCard
                 key={block.id}
                 block={block}
