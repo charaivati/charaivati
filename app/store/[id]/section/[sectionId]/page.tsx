@@ -416,7 +416,7 @@ function TopNav({
               <div className="opacity-80">Returns &amp;</div>
               <div className="font-bold">Orders</div>
             </a>
-            <div className="flex items-center gap-1">
+            <button onClick={onCartOpen} className="flex items-center gap-1 relative">
               <span className="text-lg">🛒</span>
               <span className="font-bold">Cart</span>
               {(cartCount ?? 0) > 0 && (
