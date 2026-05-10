@@ -77,6 +77,31 @@ type Store = {
   sections: Section[];
 };
 
+
+
+type CartItem = {
+  id: string;
+  blockId: string;
+  quantity: number;
+  block: {
+    id: string;
+    title: string;
+    price: number | null;
+    mediaUrl: string | null;
+    mediaType: string;
+  };
+};
+
+type Address = {
+  id: string;
+  name: string;
+  phone: string;
+  line1: string;
+  city: string;
+  state: string;
+  pincode: string;
+  isDefault: boolean;
+};
 // --- THEME & STYLES ---
 const A = {
   bg: "#E3E6E6",
@@ -376,28 +401,41 @@ function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; 
   );
 }
 
-function TopNav({ editMode, onToggleEdit, isOwner, editLabel }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string }) {
-  const [q, setQ] = useState("");
+function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCount, onAddressClick, deliveryLabel, storeId, searchQuery, onSearch, userName, onAccountClick }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string; onCartOpen: () => void; cartCount: number; onAddressClick: () => void; deliveryLabel: string; storeId: string; searchQuery: string; onSearch: (q: string) => void; userName?: string | null; onAccountClick?: () => void }) {
   return (
     <header className="w-full sticky top-0 z-50">
       <div className="w-full" style={{ background: A.nav }}>
         <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
-          <div className="flex items-center gap-2 pr-2">
-            <div className="w-24 h-8 rounded-sm flex items-center justify-center font-bold" style={{ background: "#fff", color: A.nav }}>store</div>
-          </div>
-          <div className="hidden md:flex flex-col text-white text-xs leading-tight pr-3">
+          <button onClick={onAddressClick} className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left hover:opacity-80">
             <span className="opacity-80">Deliver to</span>
-            <span className="font-bold">Kolkata 700001</span>
-          </div>
+            <span className="font-bold underline">{deliveryLabel}</span>
+          </button>
           <div className="flex-1 flex">
             <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}><option>All</option></select>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Store" className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
+            <input value={searchQuery} onChange={(e) => onSearch(e.target.value)} placeholder="Search Store" className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
             <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: `1px solid #FEBD69` }}>🔍</button>
           </div>
           <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
-            <div className="leading-tight"><div className="opacity-80">Hello, Sign in</div><div className="font-bold">Account & Lists ▾</div></div>
-            <div className="leading-tight"><div className="opacity-80">Returns</div><div className="font-bold">& Orders</div></div>
-            <div className="flex items-center gap-1"><span className="text-lg">🛒</span><span className="font-bold">Cart</span></div>
+            {isOwner ? (
+              <a href="/self?tab=earn" className="leading-tight text-white text-xs hover:opacity-80">
+                <div className="opacity-80">Manage</div>
+                <div className="font-bold">Your Stores ▾</div>
+              </a>
+            ) : (
+              <a href="/store/account" style={{ textDecoration: "none" }}
+                className="leading-tight text-white text-xs hover:opacity-80">
+                <div className="opacity-80">
+                  {userName ? `Hello, ${userName.split(" ")[0]}` : "Hello, Sign in"}
+                </div>
+                <div className="font-bold">My Account ▾</div>
+              </a>
+            )}
+            <a href="/store/account?tab=orders" style={{ textDecoration: "none" }}
+              className="leading-tight text-white text-xs hover:opacity-80">
+              <div className="opacity-80">Returns &amp;</div>
+              <div className="font-bold">Orders</div>
+            </a>
+            <button onClick={onCartOpen} className="flex items-center gap-1 relative"><span className="text-lg">🛒</span><span className="font-bold">Cart</span>{cartCount > 0 && (<span style={{ position: "absolute", top: -6, right: -8, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>{cartCount}</span>)}</button>
             {isOwner && (
               <>
                 <a href="/self?tab=earn" className="text-xs font-semibold px-3 py-1.5 rounded-md" style={{ background: "transparent", color: "#ccc", border: "1px solid #848688" }}>← My Businesses</a>
@@ -618,6 +656,53 @@ function Overlay({ onClose, children }: { onClose: () => void; children: React.R
   );
 }
 
+
+function CartDrawer({ open, onClose, items, onRemove, storeName, onCheckout }: { open: boolean; onClose: () => void; items: CartItem[]; onRemove: (blockId: string) => void; storeId: string; storeName: string; onCheckout: () => void; }) {
+  const total = items.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0);
+  return <div className={`fixed inset-0 z-50 ${open ? "pointer-events-auto" : "pointer-events-none"}`}>
+    <div onClick={onClose} className="absolute inset-0" style={{ background: "rgba(0,0,0,0.45)", opacity: open ? 1 : 0, transition: "opacity 0.2s" }} />
+    <div className="absolute right-0 top-0 h-full" style={{ width: 380, maxWidth: "92vw", background: "#fff", borderLeft: `1px solid ${A.border}`, boxShadow: "-10px 0 30px rgba(0,0,0,0.16)", transform: open ? "translateX(0)" : "translateX(100%)", transition: "transform 0.25s" }}>
+      <div className="p-4 flex items-center justify-between border-b" style={{ borderColor: A.border }}><h3 className="font-semibold" style={{ color: A.text }}>Cart — {storeName}</h3><button onClick={onClose}>✕</button></div>
+      <div className="p-4" style={{ height: "calc(100% - 130px)", overflowY: "auto" }}>{items.length===0 ? <div className="h-full flex items-center justify-center text-sm" style={{ color: A.textMuted }}>Your cart is empty</div> : items.map((i)=><div key={i.id} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: "#f0f0f0" }}><div style={{ width:48,height:48,borderRadius:8,overflow:"hidden",background:"#f3f4f6" }}>{i.block.mediaUrl?<img src={i.block.mediaUrl} className="w-full h-full object-cover"/>:<div/>}</div><div className="flex-1 min-w-0"><div className="text-sm truncate">{i.block.title}</div><div className="text-xs" style={{ color:A.textMuted }}>{i.block.price==null?"Free":`₹${i.block.price}`}</div><div className="text-xs" style={{ color:A.textMuted }}>Qty: {i.quantity}</div></div><button className="text-xs" style={{ color:"#EF4444" }} onClick={()=>onRemove(i.blockId)}>×</button></div>)}</div>
+      <div className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white" style={{ borderColor: A.border }}><div className="font-semibold mb-2">Total: ₹{total}</div><button onClick={onCheckout} disabled={!items.length} className="w-full py-2 rounded-md text-sm font-semibold" style={{ background: A.accent, color: "#fff", opacity: items.length?1:0.5 }}>Checkout</button></div>
+    </div>
+  </div>;
+}
+
+function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: { open: boolean; onClose: () => void; items: CartItem[]; total: number; storeId: string; onOrderPlaced: () => void; }) {
+  const [step, setStep] = useState<1|2>(1); const [addresses, setAddresses] = useState<Address[]>([]); const [selected, setSelected] = useState<string>("");
+  const [adding, setAdding] = useState(false); const [placing, setPlacing] = useState(false); const [success, setSuccess] = useState(false);
+  const [form, setForm] = useState({ name:"", phone:"", line1:"", city:"", state:"", pincode:"" });
+  useEffect(()=>{ if(!open) return; setStep(1); fetch('/api/store/address',{credentials:'include'}).then(r=>r.ok?r.json():[]).then((a:Address[])=>{setAddresses(a); const d=a.find(x=>x.isDefault)??a[0]; if(d) setSelected(d.id);}).catch(()=>{}); },[open]);
+  if(!open) return null;
+  return <Overlay onClose={onClose}><div className="space-y-3" style={{ maxWidth: 480 }}>
+    <h3 className="text-sm font-semibold">Checkout</h3>
+    {step===1 ? <><div className="space-y-2 max-h-56 overflow-auto">{addresses.map(a=><button key={a.id} onClick={()=>setSelected(a.id)} className="w-full text-left p-2 rounded-md" style={{ border:`1px solid ${selected===a.id?A.accent:A.border}` }}><div className="text-xs font-semibold">{a.name} · {a.phone}</div><div className="text-xs" style={{ color:A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div></button>)}</div><button className="text-xs" style={{ color:A.link }} onClick={()=>setAdding(v=>!v)}>+ Add new address</button>{adding&&<div className="space-y-2">{Object.keys(form).map((k)=><input key={k} value={(form as any)[k]} onChange={(e)=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={k} className={inputCls} style={inputStyle} />)}<button className="text-xs px-3 py-1 rounded" style={{ background:A.accent,color:'#fff' }} onClick={async()=>{const r=await fetch('/api/store/address',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({...form,isDefault:false})}); if(r.ok){const a=await r.json(); setAddresses(p=>[...p,a]); setSelected(a.id); setAdding(false);}}}>Save address</button></div>}<button disabled={!selected} onClick={()=>setStep(2)} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff',opacity:selected?1:0.5 }}>Next →</button></> : <>{success?<div className="text-sm" style={{ color:'#16A34A' }}>✓ Order placed! The store owner will contact you shortly.</div>:<><div className="text-xs space-y-1">{items.map(i=><div key={i.id}>{i.block.title} x{i.quantity} — ₹{(i.block.price ?? 0)*i.quantity}</div>)}</div><div className="text-xs">Total: ₹{total}</div><div className="text-xs">Cash on Delivery</div><button disabled={placing} onClick={async()=>{setPlacing(true); const r=await fetch('/api/store/orders',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({storeId,addressId:selected})}); setPlacing(false); if(r.ok){setSuccess(true); onOrderPlaced(); setTimeout(onClose,3000);}}} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff' }}>{placing?'Placing…':'Place Order'}</button></>}</>} </div></Overlay>;
+}
+
+function AddressModal({ open, onClose, onSelected }: { open: boolean; onClose: () => void; onSelected: (address: Address) => void; }) {
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [selected, setSelected] = useState<string>("");
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/store/address', { credentials: 'include' }).then((r) => r.ok ? r.json() : []).then((a: Address[]) => {
+      setAddresses(a);
+      const d = a.find((x) => x.isDefault) ?? a[0];
+      if (d) setSelected(d.id);
+    }).catch(() => {});
+  }, [open]);
+  if (!open) return null;
+  return <Overlay onClose={onClose}><div className="space-y-2"><h3 className="text-sm font-semibold">Select delivery address</h3>
+    {addresses.map((a) => <button key={a.id} onClick={() => setSelected(a.id)} className="w-full text-left p-2 rounded-md" style={{ border: `1px solid ${selected===a.id ? A.accent : A.border}` }}><div className="text-xs font-semibold">{a.name} · {a.phone}</div><div className="text-xs" style={{ color: A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div></button>)}
+    <button className="text-xs" style={{ color: A.link }} onClick={() => setAdding((v) => !v)}>+ Add new address</button>
+    {adding && <div className="space-y-2">{Object.keys(form).map((k) => <input key={k} value={(form as any)[k]} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} placeholder={k} className={inputCls} style={inputStyle} />)}
+      <button className="text-xs px-3 py-1 rounded" style={{ background: A.accent, color: '#fff' }} onClick={async () => { const r = await fetch('/api/store/address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ ...form, isDefault: true }) }); if (r.ok) { const a = await r.json(); setAddresses((p) => [a, ...p]); setSelected(a.id); } }}>Save address</button>
+    </div>}
+    <button disabled={!selected} onClick={() => { const addr = addresses.find((a) => a.id === selected); if (addr) onSelected(addr); onClose(); }} className="w-full py-2 rounded text-xs" style={{ background: A.accent, color: '#fff', opacity: selected ? 1 : 0.5 }}>Use this address</button></div></Overlay>;
+}
+
 function LoadingSkeleton() {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
@@ -651,6 +736,14 @@ export default function StorePage() {
   const [globalBanner, setGlobalBanner] = useState<StoreBannerData | null>(null);
   const [activeFilterId, setActiveFilterId] = useState<string | null>(null);
   const [showManageFilters, setShowManageFilters] = useState(false);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
 
   async function handleSubscribeConfirm(consentFields: string[]) {
     if (!subscribingBlock || !store?.pageId) return;
@@ -667,7 +760,10 @@ export default function StorePage() {
   const fetchStore = useCallback(async () => {
     try {
       const res = await fetch(`/api/store/${id}`);
-      if (res.ok) { const data = await res.json(); setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null); }
+      if (res.ok) { const data = await res.json(); setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null);
+        fetch(`/api/store/cart/${data.id}`, { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setCartItems(items)).catch(() => {});
+        fetch("/api/store/wishlist", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setWishlist(new Set(items.map((i: any) => i.blockId)))).catch(() => {});
+        fetch("/api/store/address", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((addresses: Address[]) => { const def = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null; setDefaultAddress(def); }).catch(() => {}); }
     } catch (error) { console.error("Failed to fetch store:", error); }
     finally { setLoading(false); }
   }, [id]);
@@ -695,6 +791,13 @@ export default function StorePage() {
         setLearningProgress(progressMap);
       }).catch(() => {});
   }, [store?.pageId, store?.pageType]);
+
+  useEffect(() => {
+    fetch("/api/user/me", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { user: null })
+      .then(d => setCurrentUser(d.user))
+      .catch(() => {});
+  }, []);
 
   const totalBlocks = store?.sections.reduce((a, s) => a + s.blocks.length, 0) ?? 0;
   const sensorsSections = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -730,6 +833,28 @@ export default function StorePage() {
     setStore({ ...store, sections: store.sections.map((s) => s.id === sectionId ? { ...s, title: newTitle } : s) });
   }
 
+
+  async function handleAddToCart(block: Block, storeId: string) {
+    if (!store) return;
+    const res = await fetch(`/api/store/cart/${storeId}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id, quantity: 1 }) });
+    if (res.ok) {
+      const item = await res.json();
+      setCartItems((prev) => { const exists = prev.find((i) => i.blockId === block.id); if (exists) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i); return [...prev, item]; });
+      setCartOpen(true);
+    }
+  }
+
+  async function handleWishlist(blockId: string, storeId: string) {
+    const res = await fetch("/api/store/wishlist", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId, storeId }) });
+    if (res.ok) { const data = await res.json(); setWishlist((prev) => { const next = new Set(prev); if (data.wishlisted) next.add(blockId); else next.delete(blockId); return next; }); }
+  }
+
+  async function handleRemoveFromCart(blockId: string) {
+    if (!store) return;
+    await fetch(`/api/store/cart/${store.id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
+    setCartItems((prev) => prev.filter((i) => i.blockId !== blockId));
+  }
+
   async function handleDeleteRow(rowSections: Section[]) {
     const names = rowSections.map((s) => `"${s.title}"`).join(", ");
     if (!confirm(`Delete entire row (${names}) and all their tiles and products? This cannot be undone.`)) return;
@@ -753,9 +878,10 @@ export default function StorePage() {
   const visibleSections = activeFilterId
     ? store.sections.filter((s) => (activeFilter?.sectionIds ?? []).includes(s.id))
     : store.sections;
+  const searchFilteredSections = visibleSections.filter((s) => s.title.toLowerCase().includes(searchQuery.toLowerCase()) || searchQuery === "");
 
   const rowMap = new Map<number, Section[]>();
-  visibleSections.forEach((s) => {
+  searchFilteredSections.forEach((s) => {
     const ri = s.rowIndex ?? 0;
     if (!rowMap.has(ri)) rowMap.set(ri, []);
     rowMap.get(ri)!.push(s);
@@ -768,7 +894,7 @@ export default function StorePage() {
         <LearningTopNav pageName={learningCourse?.page.title ?? store.name} isOwner={store.isOwner} onEditClick={() => router.push(`/business/store/${store.pageId ?? id}`)} />
       ) : (
         <>
-          <TopNav editMode={editMode} onToggleEdit={() => setEditMode((e) => !e)} isOwner={store.isOwner} />
+          <TopNav editMode={editMode} onToggleEdit={() => setEditMode((e) => !e)} isOwner={store.isOwner} onCartOpen={() => setCartOpen(true)} cartCount={cartItems.reduce((s, i) => s + i.quantity, 0)} onAddressClick={() => setAddressModalOpen(true)} deliveryLabel={defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address"} storeId={store.id} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} />
           <FilterBar filters={storeFilters} activeFilterId={activeFilterId} onFilterChange={setActiveFilterId} editMode={editMode && store.isOwner} onEditFilters={() => setShowManageFilters(true)} />
           <BannerZone banner={activeBanner} globalBanner={globalBanner} editMode={editMode && store.isOwner} onEdit={() => setShowManageFilters(true)} />
           <StoreHero store={store} totalBlocks={totalBlocks} />
@@ -796,7 +922,7 @@ export default function StorePage() {
         </>
       ) : (
         <main className="w-full px-2 py-4">
-          {visibleSections.length === 0 && (
+          {searchFilteredSections.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20 text-center gap-2" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
               <div className="w-12 h-12 rounded-md flex items-center justify-center mb-2" style={{ background: "#fff", border: `1px solid ${A.border}` }}>
                 <span style={{ color: A.textMuted, fontSize: 18 }}>▤</span>
@@ -887,6 +1013,9 @@ export default function StorePage() {
       {subscribingBlock && store && (
         <ConsentModal expertName={store.name} onConfirm={handleSubscribeConfirm} onCancel={() => setSubscribingBlock(null)} />
       )}
+      <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} items={cartItems} onRemove={handleRemoveFromCart} storeId={store.id} storeName={store.name} onCheckout={() => setCheckoutOpen(true)} />
+      <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0)} storeId={store.id} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />
+      <AddressModal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} onSelected={(addr) => setDefaultAddress(addr)} />
       {showManageFilters && store && (
         <ManageFiltersPanel storeId={store.id} filters={storeFilters} sections={store.sections.map((s) => ({ id: s.id, title: s.title }))} globalBanner={globalBanner}
           onClose={(updatedFilters, updatedGlobalBanner) => { setStoreFilters(updatedFilters); setGlobalBanner(updatedGlobalBanner); setShowManageFilters(false); }} />
