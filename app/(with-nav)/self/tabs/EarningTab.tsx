@@ -698,6 +698,12 @@ export default function EarningTab() {
             <p className="text-sm text-gray-500 py-2">No initiatives yet. Create one below.</p>
           )}
 
+          <a href="/apps"
+            className="flex items-center gap-2 text-sm font-medium px-4 py-2 rounded-lg mt-4"
+            style={{ background: "#6366f1", color: "#fff", textDecoration: "none", width: "fit-content" }}>
+            📱 Get the Store App
+          </a>
+
           {/* Create New Initiative */}
           <div className="pt-2 border-t border-gray-800 space-y-3">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Add an Initiative</p>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useStoreShell } from "@/app/store/[id]/StoreShellContext";
 
 const A = {
   bg: "#E3E6E6",
@@ -129,6 +130,7 @@ function AddressModal({ open, onClose, onSelected }: {
   const [selected, setSelected] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
+  const [formError, setFormError] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -150,18 +152,25 @@ function AddressModal({ open, onClose, onSelected }: {
             <div className="text-xs" style={{ color: A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div>
           </button>
         ))}
-        <button className="text-xs" style={{ color: A.link }} onClick={() => setAdding((v) => !v)}>+ Add new address</button>
+        <button className="text-xs" style={{ color: A.link }} onClick={() => { setAdding((v) => !v); setFormError(""); }}>+ Add new address</button>
         {adding && (
           <div className="space-y-2">
             {Object.keys(form).map((k) => (
               <input key={k} value={(form as any)[k]}
-                onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+                onChange={(e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setFormError(""); }}
                 placeholder={k} className={inputCls} style={inputStyle} />
             ))}
+            {formError && <p className="text-xs" style={{ color: "#EF4444" }}>{formError}</p>}
             <button className="text-xs px-3 py-1 rounded" style={{ background: A.accent, color: "#fff" }}
               onClick={async () => {
-                const r = await fetch("/api/store/address", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ ...form, isDefault: true }) });
-                if (r.ok) { const a = await r.json(); setAddresses((p) => [a, ...p]); setSelected(a.id); setAdding(false); }
+                const { name, phone, line1, city, state, pincode } = form;
+                if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
+                  setFormError("Please fill all address fields");
+                  return;
+                }
+                setFormError("");
+                const r = await fetch("/api/store/address", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ name: name.trim(), phone: phone.trim(), line1: line1.trim(), city: city.trim(), state: state.trim(), pincode: pincode.trim(), isDefault: true }) });
+                if (r.ok) { const a = await r.json(); setAddresses((p) => [a, ...p]); setSelected(a.id); setAdding(false); setForm({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" }); }
               }}>Save address</button>
           </div>
         )}
@@ -189,6 +198,7 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
   const [placing, setPlacing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
+  const [formError, setFormError] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -215,18 +225,25 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
                 </button>
               ))}
             </div>
-            <button className="text-xs" style={{ color: A.link }} onClick={() => setAdding((v) => !v)}>+ Add new address</button>
+            <button className="text-xs" style={{ color: A.link }} onClick={() => { setAdding((v) => !v); setFormError(""); }}>+ Add new address</button>
             {adding && (
               <div className="space-y-2">
                 {Object.keys(form).map((k) => (
                   <input key={k} value={(form as any)[k]}
-                    onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+                    onChange={(e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setFormError(""); }}
                     placeholder={k} className={inputCls} style={inputStyle} />
                 ))}
+                {formError && <p className="text-xs" style={{ color: "#EF4444" }}>{formError}</p>}
                 <button className="text-xs px-3 py-1 rounded" style={{ background: A.accent, color: "#fff" }}
                   onClick={async () => {
-                    const r = await fetch("/api/store/address", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ ...form, isDefault: false }) });
-                    if (r.ok) { const a = await r.json(); setAddresses((p) => [...p, a]); setSelected(a.id); setAdding(false); }
+                    const { name, phone, line1, city, state, pincode } = form;
+                    if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
+                      setFormError("Please fill all address fields");
+                      return;
+                    }
+                    setFormError("");
+                    const r = await fetch("/api/store/address", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ name: name.trim(), phone: phone.trim(), line1: line1.trim(), city: city.trim(), state: state.trim(), pincode: pincode.trim(), isDefault: false }) });
+                    if (r.ok) { const a = await r.json(); setAddresses((p) => [...p, a]); setSelected(a.id); setAdding(false); setForm({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" }); }
                   }}>Save address</button>
               </div>
             )}
@@ -523,6 +540,12 @@ export default function SectionPage() {
   const [addingBlock, setAddingBlock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
+  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
@@ -558,6 +581,46 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
+  async function handleAddToCart(block: Block) {
+    const res = await fetch(`/api/store/cart/${storeId}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id }) });
+    if (res.ok) {
+      const item = await res.json();
+      setCartItems((prev) => {
+        const existing = prev.find((i) => i.blockId === block.id);
+        if (existing) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i);
+        return [...prev, item];
+      });
+    }
+  }
+
+  async function handleWishlist(blockId: string) {
+    const isWished = wishlist.has(blockId);
+    if (isWished) {
+      await fetch("/api/store/wishlist", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
+      setWishlist((prev) => { const next = new Set(prev); next.delete(blockId); return next; });
+    } else {
+      await fetch("/api/store/wishlist", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
+      setWishlist((prev) => new Set([...prev, blockId]));
+    }
+  }
+
+  const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0);
+  const cartTotal = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0);
+
+  // Sync to shared layout shell — must be before any early return
+  const shell = useStoreShell();
+  useEffect(() => { shell.setStoreName(storeName); }, [storeName]);
+  useEffect(() => { shell.setIsOwner(isOwner); }, [isOwner]);
+  useEffect(() => { shell.setCartCount(cartCount); }, [cartCount]);
+  useEffect(() => {
+    shell.setDeliveryLabel(defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address");
+  }, [defaultAddress]);
+  useEffect(() => {
+    shell.registerOpenCart(() => setCartOpen(true));
+    shell.registerOpenAddress(() => setAddressModalOpen(true));
+    shell.setShowNav(true);
+  }, []);
+
   const visibleBlocks = blocks.filter((b) =>
     b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -577,12 +640,8 @@ export default function SectionPage() {
     setCartItems((prev) => prev.filter((i) => i.blockId !== blockId));
   }
 
-  const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0);
-  const cartTotal = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0);
-
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
-      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} onCartOpen={() => {}} cartCount={0} onAddressClick={() => {}} deliveryLabel="Set address" storeId={id} />
 
       <main className="max-w-7xl mx-auto px-3 py-6">
         <a href={`/store/${id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
@@ -641,6 +700,17 @@ export default function SectionPage() {
         open={addressModalOpen} onClose={() => setAddressModalOpen(false)}
         onSelected={(addr) => setDefaultAddress(addr)}
       />
+
+      {/* Floating edit button for section owners */}
+      {isOwner && (
+        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 50 }}>
+          <button
+            onClick={() => setEditMode((v) => !v)}
+            style={{ padding: "10px 20px", borderRadius: 24, background: editMode ? "#6366f1" : "#fff", color: editMode ? "#fff" : "#0F1111", border: "1px solid #DDDDDD", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            {editMode ? "✓ Done" : "✏️ Edit Section"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

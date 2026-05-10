@@ -9,6 +9,7 @@ import FilterBar, { type StoreFilterItem } from "@/components/store/FilterBar";
 import BannerZone, { type StoreBannerData } from "@/components/store/BannerZone";
 import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
 import { resilientFetch } from "@/lib/writeQueue";
+import { useStoreShell } from "./StoreShellContext";
 
 type CourseApiData = {
   courseType: string;
@@ -517,7 +518,10 @@ function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCo
   );
 }
 
-function StoreHero({ store, totalBlocks }: { store: Store; totalBlocks: number }) {
+function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
+  store: Store; totalBlocks: number;
+  isPinned: boolean; onPin: () => void; isOwner: boolean;
+}) {
   return (
     <div className="w-full" style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
       {store.bannerUrl && <img src={store.bannerUrl} alt="banner" className="w-full h-40 sm:h-56 object-cover" />}
@@ -531,6 +535,18 @@ function StoreHero({ store, totalBlocks }: { store: Store; totalBlocks: number }
         </div>
         <div className="ml-auto hidden md:flex items-center gap-2">
           <span className="text-sm" style={{ color: A.link }}>Visit the {store.name} Store</span>
+          {!isOwner && (
+            <button onClick={onPin} title={isPinned ? "Unpin store" : "Pin store"}
+              style={{
+                width: 36, height: 36, borderRadius: "50%",
+                background: isPinned ? "#EEF2FF" : "#fff",
+                border: `1px solid ${isPinned ? "#6366f1" : "#DDDDDD"}`,
+                cursor: "pointer", fontSize: 16,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+              {isPinned ? "📌" : "🔖"}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -777,6 +793,7 @@ function AddressModal({ open, onClose, onSelected }: { open: boolean; onClose: (
   const [selected, setSelected] = useState<string>("");
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
+  const [formError, setFormError] = useState("");
   useEffect(() => {
     if (!open) return;
     fetch('/api/store/address', { credentials: 'include' }).then((r) => r.ok ? r.json() : []).then((a: Address[]) => {
@@ -788,9 +805,10 @@ function AddressModal({ open, onClose, onSelected }: { open: boolean; onClose: (
   if (!open) return null;
   return <Overlay onClose={onClose}><div className="space-y-2"><h3 className="text-sm font-semibold">Select delivery address</h3>
     {addresses.map((a) => <button key={a.id} onClick={() => setSelected(a.id)} className="w-full text-left p-2 rounded-md" style={{ border: `1px solid ${selected===a.id ? A.accent : A.border}` }}><div className="text-xs font-semibold">{a.name} · {a.phone}</div><div className="text-xs" style={{ color: A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div></button>)}
-    <button className="text-xs" style={{ color: A.link }} onClick={() => setAdding((v) => !v)}>+ Add new address</button>
-    {adding && <div className="space-y-2">{Object.keys(form).map((k) => <input key={k} value={(form as any)[k]} onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} placeholder={k} className={inputCls} style={inputStyle} />)}
-      <button className="text-xs px-3 py-1 rounded" style={{ background: A.accent, color: '#fff' }} onClick={async () => { const r = await fetch('/api/store/address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ ...form, isDefault: true }) }); if (r.ok) { const a = await r.json(); setAddresses((p) => [a, ...p]); setSelected(a.id); } }}>Save address</button>
+    <button className="text-xs" style={{ color: A.link }} onClick={() => { setAdding((v) => !v); setFormError(""); }}>+ Add new address</button>
+    {adding && <div className="space-y-2">{Object.keys(form).map((k) => <input key={k} value={(form as any)[k]} onChange={(e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setFormError(""); }} placeholder={k} className={inputCls} style={inputStyle} />)}
+      {formError && <p className="text-xs" style={{ color: "#EF4444" }}>{formError}</p>}
+      <button className="text-xs px-3 py-1 rounded" style={{ background: A.accent, color: '#fff' }} onClick={async () => { const { name, phone, line1, city, state, pincode } = form; if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) { setFormError("Please fill all address fields"); return; } setFormError(""); const r = await fetch('/api/store/address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name: name.trim(), phone: phone.trim(), line1: line1.trim(), city: city.trim(), state: state.trim(), pincode: pincode.trim(), isDefault: true }) }); if (r.ok) { const a = await r.json(); setAddresses((p) => [a, ...p]); setSelected(a.id); setAdding(false); setForm({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" }); } }}>Save address</button>
     </div>}
     <button disabled={!selected} onClick={() => { const addr = addresses.find((a) => a.id === selected); if (addr) onSelected(addr); onClose(); }} className="w-full py-2 rounded text-xs" style={{ background: A.accent, color: '#fff', opacity: selected ? 1 : 0.5 }}>Use this address</button></div></Overlay>;
 }
@@ -834,8 +852,11 @@ export default function StorePage() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
   const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
+  const [isPinned, setIsPinned] = useState(false);
+
+  const shell = useStoreShell();
+  const { searchQuery, setSearchQuery } = shell;
 
   async function handleSubscribeConfirm(consentFields: string[]) {
     if (!subscribingBlock || !store?.pageId) return;
@@ -855,12 +876,32 @@ export default function StorePage() {
       if (res.ok) { const data = await res.json(); setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null);
         fetch(`/api/store/cart/${data.id}`, { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setCartItems(items)).catch(() => {});
         fetch("/api/store/wishlist", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setWishlist(new Set(items.map((i: any) => i.blockId)))).catch(() => {});
-        fetch("/api/store/address", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((addresses: Address[]) => { const def = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null; setDefaultAddress(def); }).catch(() => {}); }
+        fetch("/api/store/address", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((addresses: Address[]) => { const def = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null; setDefaultAddress(def); }).catch(() => {});
+        fetch("/api/store/pinned", { credentials: "include" }).then((r) => r.ok ? r.json() : { pinned: [] }).then((d) => { setIsPinned(d.pinned?.some((p: any) => p.storeId === data.id) ?? false); }).catch(() => {}); }
     } catch (error) { console.error("Failed to fetch store:", error); }
     finally { setLoading(false); }
   }, [id]);
 
   useEffect(() => { fetchStore(); }, [fetchStore]);
+
+  // Sync cart count, address label, and cart/address openers to shared shell
+  useEffect(() => {
+    shell.setCartCount(cartItems.reduce((s, i) => s + i.quantity, 0));
+  }, [cartItems]);
+  useEffect(() => {
+    shell.setDeliveryLabel(defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address");
+  }, [defaultAddress]);
+  useEffect(() => {
+    shell.registerOpenCart(() => setCartOpen(true));
+    shell.registerOpenAddress(() => setAddressModalOpen(true));
+  }, []);
+  useEffect(() => {
+    if (!store) return;
+    shell.setStoreName(store.name ?? "Store");
+    shell.setIsOwner(!!store.isOwner);
+    shell.setShowNav(store.pageType !== "learning");
+    shell.setSearchQuery("");
+  }, [store?.id]);
 
   useEffect(() => {
     function update() { setScreenW(window.innerWidth); }
@@ -944,6 +985,20 @@ export default function StorePage() {
     if (res.ok) { const data = await res.json(); setWishlist((prev) => { const next = new Set(prev); if (data.wishlisted) next.add(blockId); else next.delete(blockId); return next; }); }
   }
 
+  async function handlePinStore() {
+    if (!store) return;
+    const res = await fetch("/api/store/pinned", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ storeId: store.id }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setIsPinned(data.pinned);
+    }
+  }
+
   async function handleRemoveFromCart(blockId: string) {
     if (!store) return;
     await fetch(`/api/store/cart/${store.id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
@@ -993,10 +1048,9 @@ export default function StorePage() {
         <LearningTopNav pageName={learningCourse?.page.title ?? store.name} isOwner={store.isOwner} onEditClick={() => router.push(`/business/store/${store.pageId ?? id}`)} />
       ) : (
         <>
-          <TopNav editMode={editMode} onToggleEdit={() => setEditMode((e) => !e)} isOwner={store.isOwner} onCartOpen={() => setCartOpen(true)} cartCount={cartItems.reduce((s, i) => s + i.quantity, 0)} onAddressClick={() => setAddressModalOpen(true)} deliveryLabel={defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address"} storeId={store.id} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} />
           <FilterBar filters={storeFilters} activeFilterId={activeFilterId} onFilterChange={setActiveFilterId} editMode={editMode && store.isOwner} onEditFilters={() => setShowManageFilters(true)} />
           <BannerZone banner={activeBanner} globalBanner={globalBanner} editMode={editMode && store.isOwner} onEdit={() => setShowManageFilters(true)} />
-          <StoreHero store={store} totalBlocks={totalBlocks} />
+          <StoreHero store={store} totalBlocks={totalBlocks} isPinned={isPinned} onPin={handlePinStore} isOwner={store.isOwner} />
         </>
       )}
 
@@ -1116,6 +1170,16 @@ export default function StorePage() {
       )}
       {subscribingBlock && store && (
         <ConsentModal expertName={store.name} onConfirm={handleSubscribeConfirm} onCancel={() => setSubscribingBlock(null)} />
+      )}
+      {/* Floating edit button — owners only, non-learning stores */}
+      {!isLearning && store.isOwner && (
+        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 50 }}>
+          <button
+            onClick={() => setEditMode((e) => !e)}
+            style={{ padding: "10px 20px", borderRadius: 24, background: editMode ? "#6366f1" : "#fff", color: editMode ? "#fff" : "#0F1111", border: "1px solid #DDDDDD", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            {editMode ? "✓ Done Editing" : "✏️ Edit Store"}
+          </button>
+        </div>
       )}
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} items={cartItems} onRemove={handleRemoveFromCart} storeId={store.id} storeName={store.name} onCheckout={() => setCheckoutOpen(true)} />
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0)} storeId={store.id} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />

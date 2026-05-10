@@ -70,7 +70,7 @@ model User {
   cartItems     CartItem[]
   orders        Order[]
   wishlistItems WishlistItem[]
-
+  pinnedStores  PinnedStore[]
   @@index([email])
   @@index([phone])
 }
@@ -255,7 +255,7 @@ model Store {
   cartItems     CartItem[]
   orders        Order[]
   wishlistItems WishlistItem[]
-
+  pinnedByUsers PinnedStore[]
   @@index([ownerId])
 }
 
@@ -1265,4 +1265,16 @@ model WishlistItem {
   @@unique([userId, blockId])
   @@index([userId])
   @@index([storeId])
+}
+
+model PinnedStore {
+  id        String   @id @default(cuid())
+  userId    String
+  storeId   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, storeId])
+  @@index([userId])
 }
