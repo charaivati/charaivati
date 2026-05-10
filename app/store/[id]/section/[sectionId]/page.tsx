@@ -3,8 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
-// ─── Theme ────────────────────────────────────────────────────────────────────
-
 const A = {
   bg: "#E3E6E6",
   nav: "#131921",
@@ -75,6 +73,77 @@ function Overlay({ onClose, children }: { onClose: () => void; children: React.R
   );
 }
 
+// ─── TopNav ───────────────────────────────────────────────────────────────────
+
+function TopNav({ storeName, isOwner, editMode, onToggleEdit, searchQuery, onSearch,
+  cartCount, onCartOpen, onAddressClick, deliveryLabel }: {
+  storeName: string; isOwner: boolean; editMode: boolean; onToggleEdit: () => void;
+  searchQuery: string; onSearch: (q: string) => void;
+  cartCount: number; onCartOpen: () => void; onAddressClick: () => void; deliveryLabel: string;
+}) {
+  return (
+    <header className="w-full sticky top-0 z-50">
+      <div className="w-full" style={{ background: A.nav }}>
+        <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
+          {/* Delivery address */}
+          <div onClick={onAddressClick}
+            className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left cursor-pointer hover:opacity-80">
+            <span className="opacity-80">Deliver to</span>
+            <span className="font-bold underline">{deliveryLabel}</span>
+          </div>
+          {/* Search */}
+          <div className="flex-1 flex">
+            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm"
+              style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}>
+              <option>All</option>
+            </select>
+            <input value={searchQuery} onChange={(e) => onSearch(e.target.value)}
+              placeholder={`Search ${storeName}`}
+              className="flex-1 h-10 px-3 text-sm outline-none"
+              style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
+            <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
+          </div>
+          {/* Right side */}
+          <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
+            {isOwner ? (
+              <a href="/self?tab=earn" className="leading-tight text-white text-xs hover:opacity-80" style={{ textDecoration: "none" }}>
+                <div className="opacity-80">Manage</div>
+                <div className="font-bold">Your Stores ▾</div>
+              </a>
+            ) : (
+              <a href="/self" className="leading-tight text-white text-xs hover:opacity-80" style={{ textDecoration: "none" }}>
+                <div className="opacity-80">Hello, Sign in</div>
+                <div className="font-bold">My Account ▾</div>
+              </a>
+            )}
+            <a href="/orders" className="leading-tight text-white text-xs hover:opacity-80" style={{ textDecoration: "none" }}>
+              <div className="opacity-80">Returns &amp;</div>
+              <div className="font-bold">Orders</div>
+            </a>
+            <button onClick={onCartOpen} className="flex items-center gap-1 relative">
+              <span className="text-lg">🛒</span>
+              <span className="font-bold">Cart</span>
+              {cartCount > 0 && (
+                <span style={{ position: "absolute", top: -6, right: -8, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {cartCount}
+                </span>
+              )}
+            </button>
+            {isOwner && (
+              <button onClick={onToggleEdit} className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                style={editMode
+                  ? { background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }
+                  : { background: "transparent", color: "#fff", border: "1px solid #848688" }}>
+                {editMode ? "Done" : "Edit Section"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
 // ─── Cart Drawer ──────────────────────────────────────────────────────────────
 
 function CartDrawer({ open, onClose, items, onRemove, storeName, onCheckout }: {
@@ -98,9 +167,7 @@ function CartDrawer({ open, onClose, items, onRemove, storeName, onCheckout }: {
             : items.map((i) => (
               <div key={i.id} className="flex items-center gap-3 py-2 border-b" style={{ borderColor: "#f0f0f0" }}>
                 <div style={{ width: 48, height: 48, borderRadius: 8, overflow: "hidden", background: "#f3f4f6", flexShrink: 0 }}>
-                  {i.block.mediaUrl
-                    ? <img src={i.block.mediaUrl} className="w-full h-full object-cover" alt={i.block.title} />
-                    : <div />}
+                  {i.block.mediaUrl ? <img src={i.block.mediaUrl} className="w-full h-full object-cover" alt={i.block.title} /> : <div />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm truncate">{i.block.title}</div>
@@ -138,15 +205,11 @@ function AddressModal({ open, onClose, onSelected }: {
     if (!open) return;
     fetch("/api/store/address", { credentials: "include" })
       .then((r) => r.ok ? r.json() : [])
-      .then((a: Address[]) => {
-        setAddresses(a);
-        const d = a.find((x) => x.isDefault) ?? a[0];
-        if (d) setSelected(d.id);
-      }).catch(() => {});
+      .then((a: Address[]) => { setAddresses(a); const d = a.find((x) => x.isDefault) ?? a[0]; if (d) setSelected(d.id); })
+      .catch(() => {});
   }, [open]);
 
   if (!open) return null;
-
   return (
     <Overlay onClose={onClose}>
       <div className="space-y-2">
@@ -158,9 +221,7 @@ function AddressModal({ open, onClose, onSelected }: {
             <div className="text-xs" style={{ color: A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div>
           </button>
         ))}
-        <button className="text-xs" style={{ color: A.link }} onClick={() => setAdding((v) => !v)}>
-          + Add new address
-        </button>
+        <button className="text-xs" style={{ color: A.link }} onClick={() => setAdding((v) => !v)}>+ Add new address</button>
         {adding && (
           <div className="space-y-2">
             {Object.keys(form).map((k) => (
@@ -172,9 +233,7 @@ function AddressModal({ open, onClose, onSelected }: {
               onClick={async () => {
                 const r = await fetch("/api/store/address", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ ...form, isDefault: true }) });
                 if (r.ok) { const a = await r.json(); setAddresses((p) => [a, ...p]); setSelected(a.id); setAdding(false); }
-              }}>
-              Save address
-            </button>
+              }}>Save address</button>
           </div>
         )}
         <button disabled={!selected}
@@ -212,7 +271,6 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
   }, [open]);
 
   if (!open) return null;
-
   return (
     <Overlay onClose={onClose}>
       <div className="space-y-3">
@@ -240,9 +298,7 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
                   onClick={async () => {
                     const r = await fetch("/api/store/address", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ ...form, isDefault: false }) });
                     if (r.ok) { const a = await r.json(); setAddresses((p) => [...p, a]); setSelected(a.id); setAdding(false); }
-                  }}>
-                  Save address
-                </button>
+                  }}>Save address</button>
               </div>
             )}
             <button disabled={!selected} onClick={() => setStep(2)} className="w-full py-2 rounded text-xs"
@@ -279,8 +335,7 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
                   const r = await fetch("/api/store/orders", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ storeId, addressId: selected }) });
                   setPlacing(false);
                   if (r.ok) { setSuccess(true); onOrderPlaced(); setTimeout(onClose, 3000); }
-                }} className="w-full py-2 rounded text-xs font-semibold"
-                  style={{ background: A.accent, color: "#fff" }}>
+                }} className="w-full py-2 rounded text-xs font-semibold" style={{ background: A.accent, color: "#fff" }}>
                   {placing ? "Placing…" : "Place Order"}
                 </button>
               </>
@@ -328,12 +383,13 @@ function AddBlockModal({ sectionId, onClose, onCreated }: {
   return (
     <Overlay onClose={onClose}>
       <form onSubmit={submit} className="flex flex-col gap-3">
-        <div><h3 className="text-sm font-semibold mb-0.5" style={{ color: A.text }}>New product</h3></div>
+        <h3 className="text-sm font-semibold" style={{ color: A.text }}>New product</h3>
         <input autoFocus value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Title" className={inputCls} style={inputStyle} />
         <textarea value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Description (optional)" rows={2} className={inputCls} style={inputStyle} />
         <div className="flex gap-2">
           <input value={form.mediaUrl} onChange={(e) => set("mediaUrl", e.target.value)} placeholder="Image or video URL" className={inputCls} style={inputStyle} />
-          <label className="shrink-0 flex items-center gap-1 text-xs px-3 py-2 rounded-md cursor-pointer whitespace-nowrap" style={{ border: `1px solid ${A.border}`, background: "#fff", color: A.textMuted }}>
+          <label className="shrink-0 flex items-center gap-1 text-xs px-3 py-2 rounded-md cursor-pointer whitespace-nowrap"
+            style={{ border: `1px solid ${A.border}`, background: "#fff", color: A.textMuted }}>
             {uploading ? "Uploading…" : "Upload"}
             <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />
           </label>
@@ -349,76 +405,6 @@ function AddBlockModal({ sectionId, onClose, onCreated }: {
   );
 }
 
-// ─── TopNav ───────────────────────────────────────────────────────────────────
-
-function TopNav({
-  storeName,
-  isOwner,
-  editMode,
-  onToggleEdit,
-  onSearch,
-  searchQuery,
-}: {
-  storeName: string;
-  isOwner: boolean;
-  editMode: boolean;
-  onToggleEdit: () => void;
-  onSearch: (q: string) => void;
-  searchQuery: string;
-}) {
-  return (
-    <header className="w-full sticky top-0 z-50">
-      <div className="w-full" style={{ background: A.nav }}>
-        <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
-          <div className="hidden md:flex flex-col text-white text-xs leading-tight pr-3">
-            <span className="opacity-80">Deliver to</span>
-            <span className="font-bold underline">{deliveryLabel}</span>
-          </button>
-          <div className="flex-1 flex">
-            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}>
-              <option>All</option>
-            </select>
-            <input value={searchQuery} onChange={(e) => onSearch(e.target.value)} placeholder={`Search ${storeName}`} className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
-            <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
-          </div>
-          <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
-            {isOwner ? (
-              <a href="/self?tab=earn" className="leading-tight text-white text-xs hover:opacity-80">
-                <div className="opacity-80">Manage</div>
-                <div className="font-bold">Your Stores ▾</div>
-              </a>
-            ) : (
-              <a href="/self" className="leading-tight text-white text-xs hover:opacity-80">
-                <div className="opacity-80">Hello, Sign in</div>
-                <div className="font-bold">My Account ▾</div>
-              </a>
-            )}
-            <a href="/orders" className="leading-tight text-white text-xs hover:opacity-80">
-              <div className="opacity-80">Returns &amp;</div>
-              <div className="font-bold">Orders</div>
-            </a>
-            <div className="flex items-center gap-1">
-              <span className="text-lg">🛒</span>
-              <span className="font-bold">Cart</span>
-              {cartCount > 0 && (
-                <span style={{ position: "absolute", top: -6, right: -8, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {cartCount}
-                </span>
-              )}
-            </button>
-            {isOwner && (
-              <button onClick={onToggleEdit} className="text-xs font-semibold px-3 py-1.5 rounded-md"
-                style={editMode ? { background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` } : { background: "transparent", color: "#fff", border: "1px solid #848688" }}>
-                {editMode ? "Done" : "Edit Section"}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </header>
-  );
-}
-
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
 function ProductCard({ block, editMode, onRemove, onAddToCart, onWishlist, isWishlisted }: {
@@ -427,14 +413,12 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onWishlist, isWis
 }) {
   return (
     <div className="rounded-md bg-white hover:shadow-md transition-shadow relative" style={{ border: `1px solid ${A.border}` }}>
-      {/* Wishlist heart */}
       {!editMode && (
         <button onClick={onWishlist}
           style={{ position: "absolute", top: 6, right: 6, zIndex: 2, width: 28, height: 28, borderRadius: "50%", background: "rgba(255,255,255,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
           {isWishlisted ? <span style={{ color: "#EF4444" }}>♥</span> : <span style={{ color: "#9CA3AF" }}>♡</span>}
         </button>
       )}
-      {/* Remove button for owner in edit mode */}
       {editMode && onRemove && (
         <button onClick={onRemove} className="absolute top-1 right-1 z-10 text-xs px-2 py-0.5 rounded"
           style={{ background: "rgba(0,0,0,0.65)", color: "#fff" }}>
@@ -493,6 +477,14 @@ export default function SectionPage() {
   const [addingBlock, setAddingBlock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Commerce state
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
+
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
       .then((r) => r.json())
@@ -500,10 +492,8 @@ export default function SectionPage() {
         setStoreName(data.name ?? "Store");
         setStoreId(data.id ?? id);
         setIsOwner(!!data.isOwner);
-        const found = (data.sections ?? []).find((s: { id: string; title: string; blocks: Block[] }) => s.id === sectionId);
+        const found = (data.sections ?? []).find((s: any) => s.id === sectionId);
         if (found) { setSectionTitle(found.title); setBlocks(found.blocks ?? []); }
-
-        // Fetch cart, wishlist, default address
         fetch(`/api/store/cart/${data.id}`, { credentials: "include" })
           .then((r) => r.ok ? r.json() : []).then(setCartItems).catch(() => {});
         fetch("/api/store/wishlist", { credentials: "include" })
@@ -522,18 +512,20 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
-  const visibleBlocks = blocks.filter((b) =>
-    b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    searchQuery === ""
-  );
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
-        <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-      </div>
-    );
+  async function handleAddToCart(block: Block) {
+    const res = await fetch(`/api/store/cart/${storeId}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+      body: JSON.stringify({ blockId: block.id, quantity: 1 }),
+    });
+    if (res.ok) {
+      const item = await res.json();
+      setCartItems((prev) => {
+        const exists = prev.find((i) => i.blockId === block.id);
+        if (exists) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i);
+        return [...prev, item];
+      });
+      setCartOpen(true);
+    }
   }
 
   async function handleWishlist(blockId: string) {
@@ -556,6 +548,12 @@ export default function SectionPage() {
   const cartTotal = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0);
   const deliveryLabel = defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address";
 
+  const visibleBlocks = blocks.filter((b) =>
+    b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    searchQuery === ""
+  );
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
@@ -566,13 +564,19 @@ export default function SectionPage() {
 
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
-      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} />
+      <TopNav
+        storeName={storeName} isOwner={isOwner} editMode={editMode}
+        onToggleEdit={() => setEditMode((v) => !v)}
+        searchQuery={searchQuery} onSearch={setSearchQuery}
+        cartCount={cartCount} onCartOpen={() => setCartOpen(true)}
+        onAddressClick={() => setAddressModalOpen(true)}
+        deliveryLabel={deliveryLabel}
+      />
 
       <main className="max-w-7xl mx-auto px-3 py-6">
         <a href={`/store/${id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
           ← Back to store
         </a>
-
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-xl font-bold" style={{ color: A.text }}>{sectionTitle}</h1>
           {editMode && isOwner && (
@@ -582,10 +586,14 @@ export default function SectionPage() {
             </button>
           )}
         </div>
-        <p className="text-sm mb-4" style={{ color: A.textMuted }}>{blocks.length} product{blocks.length !== 1 ? "s" : ""} in this section</p>
+        <p className="text-sm mb-4" style={{ color: A.textMuted }}>
+          {blocks.length} product{blocks.length !== 1 ? "s" : ""} in this section
+        </p>
 
         {visibleBlocks.length === 0 ? (
-          <p className="text-sm" style={{ color: A.textMuted }}>No products yet.{isOwner ? " Click 'Edit Section' to add some." : ""}</p>
+          <p className="text-sm" style={{ color: A.textMuted }}>
+            {searchQuery ? `No products matching "${searchQuery}"` : `No products yet.${isOwner ? " Click 'Edit Section' to add some." : ""}`}
+          </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {visibleBlocks.map((block) => (
