@@ -8,6 +8,7 @@ import InitiativePostsBlock from "@/components/initiative/InitiativePostsBlock";
 import FilterBar, { type StoreFilterItem } from "@/components/store/FilterBar";
 import BannerZone, { type StoreBannerData } from "@/components/store/BannerZone";
 import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
+import { resilientFetch } from "@/lib/writeQueue";
 
 type CourseApiData = {
   courseType: string;
@@ -181,12 +182,11 @@ function SortableSection({
     if (trimmed === section.title) return;
     // Optimistic update
     onTitleChanged(section.id, trimmed);
-    await fetch("/api/section", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ sectionId: section.id, title: trimmed }),
-    });
+    await resilientFetch(
+      "/api/section",
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sectionId: section.id, title: trimmed }) },
+      { label: `Rename section to "${trimmed}"` }
+    );
   }
 
   function handleBlockDragEnd(event: DragEndEvent) {
@@ -271,9 +271,13 @@ function SortableSection({
                     e.stopPropagation();
                     if (deletingTiles.current.has(t.id)) return;
                     deletingTiles.current.add(t.id);
-                    const res = await fetch(`/api/store/${storeId}/sections/${section.id}/tiles/${t.id}`, { method: "DELETE", credentials: "include" });
+                    const tileResult = await resilientFetch(
+                      `/api/store/${storeId}/sections/${section.id}/tiles/${t.id}`,
+                      { method: "DELETE" },
+                      { label: `Delete tile "${t.label}"`, onSuccess: () => onTileDeleted(section.id, t.id) }
+                    );
                     deletingTiles.current.delete(t.id);
-                    if (res.ok) onTileDeleted(section.id, t.id);
+                    if (tileResult.queued) onTileDeleted(section.id, t.id);
                   }}
                   style={{ position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>
                   ×
@@ -494,17 +498,21 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: {
     try {
       for (let i = 0; i < cfg.sections.length; i++) {
         const sec = cfg.sections[i];
-        const res = await fetch("/api/section", {
-          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({
-            storeId, title: `Section ${existingSections.length + i + 1}`,
-            columns: sec.cols, rows: 1, rowIndex: newRowIndex, order: currentMaxOrder + 1 + i,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          onCreated({ ...data, blocks: [], tiles: [], subsections: [] });
-        }
+        const sectionTitle = `Section ${existingSections.length + i + 1}`;
+        await resilientFetch(
+          "/api/section",
+          {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              storeId, title: sectionTitle,
+              columns: sec.cols, rows: 1, rowIndex: newRowIndex, order: currentMaxOrder + 1 + i,
+            }),
+          },
+          {
+            label: `Create section "${sectionTitle}"`,
+            onSuccess: (data) => onCreated({ ...(data as any), blocks: [], tiles: [], subsections: [] }),
+          }
+        );
       }
       onClose();
     } finally { setLoading(false); }
@@ -618,8 +626,12 @@ function AddTileModal({ sectionId, storeId, onClose, onCreated }: { sectionId: s
     e.preventDefault();
     if (!label.trim()) return;
     setLoading(true);
-    const res = await fetch(`/api/store/${storeId}/sections/${sectionId}/tiles`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ label: label.trim(), imageUrl, imageKey }) });
-    if (res.ok) { const data = await res.json(); onCreated(data.tile); onClose(); }
+    const tilePostResult = await resilientFetch(
+      `/api/store/${storeId}/sections/${sectionId}/tiles`,
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: label.trim(), imageUrl, imageKey }) },
+      { label: `Add tile "${label.trim()}"`, onSuccess: (data) => { onCreated((data as any).tile); onClose(); } }
+    );
+    if (tilePostResult.queued) onClose();
     setLoading(false);
   }
 
@@ -809,7 +821,11 @@ export default function StorePage() {
     const newIndex = store.sections.findIndex((s) => s.id === over.id);
     const reordered = arrayMove(store.sections, oldIndex, newIndex);
     setStore({ ...store, sections: reordered });
-    await fetch("/api/section/reorder", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storeId: store.id, orderedIds: reordered.map((s) => s.id) }) });
+    await resilientFetch(
+      "/api/section/reorder",
+      { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ storeId: store.id, orderedIds: reordered.map((s) => s.id) }) },
+      { label: "Reorder sections" }
+    );
   }
 
   async function handleBlocksReorder(sectionId: string, newBlocks: Block[]) {
@@ -818,9 +834,8 @@ export default function StorePage() {
     await fetch("/api/block/reorder", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sectionId, orderedIds: newBlocks.map((b) => b.id) }) });
   }
 
-  function onSectionCreated(section: Section) {
-    if (!store) return;
-    setStore({ ...store, sections: [...store.sections, { ...section, tiles: section.tiles ?? [] }] });
+  function onSectionCreated(_section: Section) {
+    fetchStore();
   }
 
   function onBlockCreated(sectionId: string, block: Block) {
@@ -859,7 +874,11 @@ export default function StorePage() {
     const names = rowSections.map((s) => `"${s.title}"`).join(", ");
     if (!confirm(`Delete entire row (${names}) and all their tiles and products? This cannot be undone.`)) return;
     for (const section of rowSections) {
-      await fetch("/api/section", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ sectionId: section.id }) });
+      await resilientFetch(
+        "/api/section",
+        { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sectionId: section.id }) },
+        { label: `Delete section "${section.title}"` }
+      );
     }
     const deletedIds = new Set(rowSections.map((s) => s.id));
     setStore((prev) => prev ? { ...prev, sections: prev.sections.filter((s) => !deletedIds.has(s.id)) } : prev);

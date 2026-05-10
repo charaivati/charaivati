@@ -118,7 +118,7 @@ export default function LandingPage() {
   }, []);
 
   async function onChoose(lang: Lang) {
-    const code = lang.code || lang.name;
+    const code = lang.code || "en";
     try {
       try {
         localStorage.setItem("app.language", code);
@@ -153,7 +153,7 @@ export default function LandingPage() {
       }
       const newLang: Lang = { id: json.data.id, name: json.data.name, code: json.data.code, nativeName: json.data.nativeName ?? null };
       setLangs((prev) => [...prev, newLang]);
-      const newCode = newLang.code || newLang.name;
+      const newCode = newLang.code || "en";
       try {
         localStorage.setItem("app.language", newCode);
       } catch {}

@@ -17,7 +17,10 @@ export default function LanguageProvider({ children }: { children: React.ReactNo
   const [lang, setLangState] = useState<string>(() => {
     try {
       const stored = typeof window !== "undefined" ? localStorage.getItem("lang") : null;
-      return stored ?? "en";
+      // Only accept values that look like a locale code (e.g. "en", "hi", "zh-CN").
+      // Rejects display names like "English" that were saved by a previous bug.
+      if (stored && /^[a-z]{2,8}(-[a-zA-Z]{2,4})?$/.test(stored)) return stored;
+      return "en";
     } catch {
       return "en";
     }
