@@ -73,77 +73,6 @@ function Overlay({ onClose, children }: { onClose: () => void; children: React.R
   );
 }
 
-// ─── TopNav ───────────────────────────────────────────────────────────────────
-
-function TopNav({ storeName, isOwner, editMode, onToggleEdit, searchQuery, onSearch,
-  cartCount, onCartOpen, onAddressClick, deliveryLabel }: {
-  storeName: string; isOwner: boolean; editMode: boolean; onToggleEdit: () => void;
-  searchQuery: string; onSearch: (q: string) => void;
-  cartCount: number; onCartOpen: () => void; onAddressClick: () => void; deliveryLabel: string;
-}) {
-  return (
-    <header className="w-full sticky top-0 z-50">
-      <div className="w-full" style={{ background: A.nav }}>
-        <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
-          {/* Delivery address */}
-          <div onClick={onAddressClick}
-            className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left cursor-pointer hover:opacity-80">
-            <span className="opacity-80">Deliver to</span>
-            <span className="font-bold underline">{deliveryLabel}</span>
-          </div>
-          {/* Search */}
-          <div className="flex-1 flex">
-            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm"
-              style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}>
-              <option>All</option>
-            </select>
-            <input value={searchQuery} onChange={(e) => onSearch(e.target.value)}
-              placeholder={`Search ${storeName}`}
-              className="flex-1 h-10 px-3 text-sm outline-none"
-              style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
-            <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
-          </div>
-          {/* Right side */}
-          <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
-            {isOwner ? (
-              <a href="/self?tab=earn" className="leading-tight text-white text-xs hover:opacity-80" style={{ textDecoration: "none" }}>
-                <div className="opacity-80">Manage</div>
-                <div className="font-bold">Your Stores ▾</div>
-              </a>
-            ) : (
-              <a href="/self" className="leading-tight text-white text-xs hover:opacity-80" style={{ textDecoration: "none" }}>
-                <div className="opacity-80">Hello, Sign in</div>
-                <div className="font-bold">My Account ▾</div>
-              </a>
-            )}
-            <a href="/orders" className="leading-tight text-white text-xs hover:opacity-80" style={{ textDecoration: "none" }}>
-              <div className="opacity-80">Returns &amp;</div>
-              <div className="font-bold">Orders</div>
-            </a>
-            <button onClick={onCartOpen} className="flex items-center gap-1 relative">
-              <span className="text-lg">🛒</span>
-              <span className="font-bold">Cart</span>
-              {cartCount > 0 && (
-                <span style={{ position: "absolute", top: -6, right: -8, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {cartCount}
-                </span>
-              )}
-            </button>
-            {isOwner && (
-              <button onClick={onToggleEdit} className="text-xs font-semibold px-3 py-1.5 rounded-md"
-                style={editMode
-                  ? { background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }
-                  : { background: "transparent", color: "#fff", border: "1px solid #848688" }}>
-                {editMode ? "Done" : "Edit Section"}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </header>
-  );
-}
-
 // ─── Cart Drawer ──────────────────────────────────────────────────────────────
 
 function CartDrawer({ open, onClose, items, onRemove, storeName, onCheckout }: {
@@ -416,6 +345,8 @@ function TopNav({
   searchQuery,
   userName,
   onAccountClick,
+  cartCount,
+  onCartOpen,
 }: {
   storeName: string;
   isOwner: boolean;
@@ -425,6 +356,8 @@ function TopNav({
   searchQuery: string;
   userName?: string | null;
   onAccountClick?: () => void;
+  cartCount?: number;
+  onCartOpen?: () => void;
 }) {
   return (
     <header className="w-full sticky top-0 z-50">
@@ -461,10 +394,15 @@ function TopNav({
               <div className="opacity-80">Returns &amp;</div>
               <div className="font-bold">Orders</div>
             </a>
-            <div className="flex items-center gap-1">
+            <button onClick={onCartOpen} className="flex items-center gap-1 relative">
               <span className="text-lg">🛒</span>
               <span className="font-bold">Cart</span>
-            </div>
+              {(cartCount ?? 0) > 0 && (
+                <span style={{ position: "absolute", top: -6, right: -8, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {cartCount}
+                </span>
+              )}
+            </button>
             {isOwner && (
               <button
                 onClick={onToggleEdit}
@@ -555,6 +493,12 @@ export default function SectionPage() {
   const [addingBlock, setAddingBlock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
+  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
+  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
@@ -590,6 +534,29 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
+  async function handleAddToCart(block: Block) {
+    const res = await fetch(`/api/store/cart/${storeId}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id }) });
+    if (res.ok) {
+      const item = await res.json();
+      setCartItems((prev) => {
+        const existing = prev.find((i) => i.blockId === block.id);
+        if (existing) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i);
+        return [...prev, item];
+      });
+    }
+  }
+
+  async function handleWishlist(blockId: string) {
+    const isWished = wishlist.has(blockId);
+    if (isWished) {
+      await fetch("/api/store/wishlist", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
+      setWishlist((prev) => { const next = new Set(prev); next.delete(blockId); return next; });
+    } else {
+      await fetch("/api/store/wishlist", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
+      setWishlist((prev) => new Set([...prev, blockId]));
+    }
+  }
+
   const visibleBlocks = blocks.filter((b) =>
     b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -611,25 +578,10 @@ export default function SectionPage() {
 
   const cartCount = cartItems.reduce((s, i) => s + i.quantity, 0);
   const cartTotal = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0);
-  const deliveryLabel = defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address";
-
-  const visibleBlocks = blocks.filter((b) =>
-    b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    searchQuery === ""
-  );
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
-        <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
-      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} />
+      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} cartCount={cartCount} onCartOpen={() => setCartOpen(true)} />
 
       <main className="max-w-7xl mx-auto px-3 py-6">
         <a href={`/store/${id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
