@@ -405,6 +405,49 @@ function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; 
   );
 }
 
+function MobileMenu({ isOwner, editMode, onToggleEdit, userName, storeId }: {
+  isOwner: boolean; editMode: boolean; onToggleEdit: () => void;
+  userName?: string | null; storeId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <button onClick={() => setOpen((v) => !v)}
+        style={{ width: 32, height: 32, borderRadius: "50%", background: "#6366f1", color: "#fff", border: "none", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {userName?.[0]?.toUpperCase() ?? "👤"}
+      </button>
+      {open && (
+        <div onClick={() => setOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+      )}
+      {open && (
+        <div style={{ position: "absolute", right: 0, top: 38, zIndex: 50, background: "#fff", borderRadius: 10, border: "1px solid #DDDDDD", boxShadow: "0 8px 24px rgba(0,0,0,0.15)", minWidth: 180, overflow: "hidden" }}>
+          <a href="/store/account"
+            style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
+            👤 {userName ? `Hello, ${userName.split(" ")[0]}` : "Sign in"}
+          </a>
+          <a href="/store/account?tab=orders"
+            style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
+            📦 My Orders
+          </a>
+          {isOwner && (
+            <>
+              <a href="/self?tab=earn"
+                style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
+                🏪 My Businesses
+              </a>
+              <button onClick={() => { onToggleEdit(); setOpen(false); }}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 16px", fontSize: 13, border: "none", background: editMode ? "#EEF2FF" : "#fff", color: editMode ? "#6366f1" : "#0F1111", cursor: "pointer" }}>
+                ✏️ {editMode ? "Done Editing" : "Edit Store"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCount, onAddressClick, deliveryLabel, storeId, searchQuery, onSearch, userName, onAccountClick }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string; onCartOpen: () => void; cartCount: number; onAddressClick: () => void; deliveryLabel: string; storeId: string; searchQuery: string; onSearch: (q: string) => void; userName?: string | null; onAccountClick?: () => void }) {
   return (
     <header className="w-full sticky top-0 z-50">
@@ -451,6 +494,23 @@ function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCo
             )}
           </div>
         </div>
+        {/* Mobile-only secondary nav row */}
+        <div className="flex md:hidden w-full px-3 py-2 gap-2 items-center" style={{ background: "#232F3E" }}>
+          <button onClick={onCartOpen} className="flex items-center gap-1 relative text-white text-xs">
+            <span className="text-base">🛒</span>
+            <span className="font-semibold">Cart</span>
+            {cartCount > 0 && (
+              <span style={{ position: "absolute", top: -4, right: -6, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 14, height: 14, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {cartCount}
+              </span>
+            )}
+          </button>
+          <div style={{ flex: 1 }} />
+          <button onClick={onAddressClick} className="text-white text-xs opacity-80 hover:opacity-100">
+            📍 {deliveryLabel}
+          </button>
+          <MobileMenu isOwner={isOwner} editMode={editMode} onToggleEdit={onToggleEdit} userName={userName} storeId={storeId} />
+        </div>
       </div>
     </header>
   );
@@ -482,6 +542,7 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: {
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [mobileCols, setMobileCols] = useState(2);
   const maxExistingRow = existingSections.reduce((m, s) => Math.max(m, s.rowIndex ?? 0), -1);
   const newRowIndex = maxExistingRow + 1;
 
@@ -506,6 +567,7 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: {
             body: JSON.stringify({
               storeId, title: sectionTitle,
               columns: sec.cols, rows: 1, rowIndex: newRowIndex, order: currentMaxOrder + 1 + i,
+              mobileColumns: Math.min(sec.cols, mobileCols),
             }),
           },
           {
@@ -544,6 +606,23 @@ function AddSectionModal({ storeId, existingSections, onClose, onCreated }: {
                 );
               })}
             </div>
+            {selectedId && LAYOUT_CONFIGS[selectedId].sections.some((s) => s.cols > 2) && (
+              <div>
+                <p style={{ fontSize: 12, color: A.textMuted, margin: "0 0 6px" }}>
+                  📱 Mobile layout (max 2 columns on small screens)
+                </p>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" onClick={() => setMobileCols(1)}
+                    style={{ flex: 1, padding: "8px", borderRadius: 8, fontSize: 12, border: mobileCols === 1 ? "2px solid #6366f1" : "1px solid #DDDDDD", background: mobileCols === 1 ? "#EEF2FF" : "#fafafa", cursor: "pointer" }}>
+                    ▬ 1 column
+                  </button>
+                  <button type="button" onClick={() => setMobileCols(2)}
+                    style={{ flex: 1, padding: "8px", borderRadius: 8, fontSize: 12, border: mobileCols === 2 ? "2px solid #6366f1" : "1px solid #DDDDDD", background: mobileCols === 2 ? "#EEF2FF" : "#fafafa", cursor: "pointer" }}>
+                    ▬▬ 2 columns
+                  </button>
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button type="button" onClick={onClose} style={{ ...pill(false), color: A.textMuted }}>Cancel</button>
               <button type="button" disabled={!selectedId} onClick={() => setStep(2)}
@@ -961,11 +1040,16 @@ export default function StorePage() {
 
           <div className="flex flex-col gap-3">
             {sortedRows.map((rowSections, rowIdx) => {
-              const totalCols = rowSections.reduce((s, sec) => s + (sec.columns ?? 1), 0);
-              const totalGaps = (rowSections.length - 1) * GAP;
-              const totalPad = rowSections.length * 24;
-              const totalIntraGaps = rowSections.reduce((s, sec) => s + Math.max(0, (sec.columns ?? 1) - 1) * 6, 0);
-              const raw = Math.floor((SCREEN - totalGaps - totalPad - totalIntraGaps) / totalCols);
+              const isMobile = screenW < 640;
+              const effectiveSections = isMobile
+                ? rowSections.map((s) => ({ ...s, columns: Math.min(s.columns ?? 1, 2) }))
+                : rowSections;
+              const totalCols = effectiveSections.reduce((s, sec) => s + (sec.columns ?? 1), 0);
+              const totalGaps = (effectiveSections.length - 1) * GAP;
+              const totalPad = effectiveSections.length * 24;
+              const totalIntraGaps = effectiveSections.reduce((s, sec) => s + Math.max(0, (sec.columns ?? 1) - 1) * 6, 0);
+              const availableW = Math.min(screenW, SCREEN) - 32;
+              const raw = Math.floor((availableW - totalGaps - totalPad - totalIntraGaps) / totalCols);
               const tileW = Math.max(raw, 80);
               const tileH = TILE_H;
 
@@ -981,7 +1065,7 @@ export default function StorePage() {
                     </div>
                   )}
                   <div style={{ display: "flex", gap: GAP, alignItems: "flex-start", justifyContent: "center" }}>
-                    {rowSections.map((section) => {
+                    {effectiveSections.map((section) => {
                       const cols = section.columns ?? 1;
                       const cardW = cols * tileW + (cols - 1) * 6 + 24;
                       return (
