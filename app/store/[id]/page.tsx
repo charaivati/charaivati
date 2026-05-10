@@ -406,7 +406,10 @@ function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCo
     <header className="w-full sticky top-0 z-50">
       <div className="w-full" style={{ background: A.nav }}>
         <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
-          <div onClick={onAddressClick} className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left hover:opacity-80 cursor-pointer">
+          <div
+            onClick={onAddressClick}
+            className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left hover:opacity-80 cursor-pointer"
+          >
             <span className="opacity-80">Deliver to</span>
             <span className="font-bold underline">{deliveryLabel}</span>
           </div>
