@@ -345,8 +345,11 @@ function TopNav({
   searchQuery,
   userName,
   onAccountClick,
-  cartCount,
   onCartOpen,
+  cartCount,
+  onAddressClick,
+  deliveryLabel,
+  storeId,
 }: {
   storeName: string;
   isOwner: boolean;
@@ -356,9 +359,31 @@ function TopNav({
   searchQuery: string;
   userName?: string | null;
   onAccountClick?: () => void;
-  cartCount?: number;
-  onCartOpen?: () => void;
+  onCartOpen: () => void;
+  cartCount: number;
+  onAddressClick: () => void;
+  deliveryLabel: string;
+  storeId: string;
 }) {
+  function MobileMenu({ isOwner, editMode, onToggleEdit, userName, onAddressClick, deliveryLabel }: { isOwner: boolean; editMode: boolean; onToggleEdit: () => void; userName?: string | null; storeId: string; onAddressClick: () => void; deliveryLabel: string }) {
+    const [open, setOpen] = useState(false);
+    return (
+      <div style={{ position: "relative" }}>
+        <button onClick={() => setOpen((o) => !o)} className="text-white text-lg" style={{ flexShrink: 0 }}>☰</button>
+        {open && (
+          <div style={{ position: "absolute", right: 0, top: 28, width: 220, background: "#fff", border: `1px solid ${A.border}`, borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", zIndex: 60 }}>
+            <div style={{ padding: "10px 16px", fontSize: 12, borderBottom: "1px solid #f0f0f0", color: A.textMuted }}>
+              📍 {deliveryLabel}
+              <button onClick={() => { onAddressClick(); setOpen(false); }} style={{ marginLeft: 8, fontSize: 11, color: "#6366f1", border: "none", background: "none", cursor: "pointer" }}>Change</button>
+            </div>
+            <a href="/store/account" style={{ display: "block", padding: "10px 16px", fontSize: 12, color: A.text, textDecoration: "none" }}>{userName ? `Hello, ${userName.split(" ")[0]}` : "Hello, Sign in"}</a>
+            <a href="/store/account?tab=orders" style={{ display: "block", padding: "10px 16px", fontSize: 12, color: A.text, textDecoration: "none" }}>Orders</a>
+            {isOwner && <button onClick={() => { onToggleEdit(); setOpen(false); }} style={{ width: "100%", textAlign: "left", padding: "10px 16px", fontSize: 12, border: "none", background: "none", color: A.text }}>{editMode ? "Done" : "Edit Section"}</button>}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <header className="w-full sticky top-0 z-50">
       <div className="w-full" style={{ background: A.nav }}>
@@ -368,9 +393,6 @@ function TopNav({
             <span className="font-bold">Kolkata 700001</span>
           </div>
           <div className="flex-1 flex">
-            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}>
-              <option>All</option>
-            </select>
             <input value={searchQuery} onChange={(e) => onSearch(e.target.value)} placeholder={`Search ${storeName}`} className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
             <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
           </div>
@@ -394,7 +416,7 @@ function TopNav({
               <div className="opacity-80">Returns &amp;</div>
               <div className="font-bold">Orders</div>
             </a>
-            <button onClick={onCartOpen} className="flex items-center gap-1 relative">
+            <div className="flex items-center gap-1">
               <span className="text-lg">🛒</span>
               <span className="font-bold">Cart</span>
               {(cartCount ?? 0) > 0 && (
@@ -416,6 +438,14 @@ function TopNav({
             )}
           </div>
         </div>
+      </div>
+      <div className="flex md:hidden w-full px-3 py-2 gap-2 items-center" style={{ background: "#232F3E" }}>
+        <div className="flex flex-1">
+          <input placeholder="Search Store" value={searchQuery} onChange={(e) => onSearch(e.target.value)} className="flex-1 h-9 px-3 text-sm outline-none rounded-l-md" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}`, borderLeft: `1px solid ${A.border}` }} />
+          <button className="h-9 px-3 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
+        </div>
+        <button onClick={onCartOpen} className="flex items-center gap-1 relative text-white" style={{ flexShrink: 0 }}><span className="text-lg">🛒</span>{cartCount > 0 && (<span style={{ position: "absolute", top: -4, right: -6, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 14, height: 14, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" }}>{cartCount}</span>)}</button>
+        <MobileMenu isOwner={isOwner} editMode={editMode} onToggleEdit={onToggleEdit} userName={userName} storeId={storeId} onAddressClick={onAddressClick} deliveryLabel={deliveryLabel} />
       </div>
     </header>
   );
@@ -493,12 +523,6 @@ export default function SectionPage() {
   const [addingBlock, setAddingBlock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [cartOpen, setCartOpen] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [addressModalOpen, setAddressModalOpen] = useState(false);
-  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
-  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
@@ -534,29 +558,6 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
-  async function handleAddToCart(block: Block) {
-    const res = await fetch(`/api/store/cart/${storeId}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id }) });
-    if (res.ok) {
-      const item = await res.json();
-      setCartItems((prev) => {
-        const existing = prev.find((i) => i.blockId === block.id);
-        if (existing) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i);
-        return [...prev, item];
-      });
-    }
-  }
-
-  async function handleWishlist(blockId: string) {
-    const isWished = wishlist.has(blockId);
-    if (isWished) {
-      await fetch("/api/store/wishlist", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
-      setWishlist((prev) => { const next = new Set(prev); next.delete(blockId); return next; });
-    } else {
-      await fetch("/api/store/wishlist", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
-      setWishlist((prev) => new Set([...prev, blockId]));
-    }
-  }
-
   const visibleBlocks = blocks.filter((b) =>
     b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -581,7 +582,7 @@ export default function SectionPage() {
 
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
-      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} cartCount={cartCount} onCartOpen={() => setCartOpen(true)} />
+      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} onCartOpen={() => {}} cartCount={0} onAddressClick={() => {}} deliveryLabel="Set address" storeId={id} />
 
       <main className="max-w-7xl mx-auto px-3 py-6">
         <a href={`/store/${id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
