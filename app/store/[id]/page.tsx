@@ -401,18 +401,15 @@ function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; 
   );
 }
 
-function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCount, onAddressClick, deliveryLabel, storeId, searchQuery, onSearch }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string; onCartOpen: () => void; cartCount: number; onAddressClick: () => void; deliveryLabel: string; storeId: string; searchQuery: string; onSearch: (q: string) => void }) {
+function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCount, onAddressClick, deliveryLabel, storeId, searchQuery, onSearch, userName, onAccountClick }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string; onCartOpen: () => void; cartCount: number; onAddressClick: () => void; deliveryLabel: string; storeId: string; searchQuery: string; onSearch: (q: string) => void; userName?: string | null; onAccountClick?: () => void }) {
   return (
     <header className="w-full sticky top-0 z-50">
       <div className="w-full" style={{ background: A.nav }}>
         <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
-          <div
-            onClick={onAddressClick}
-            className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left hover:opacity-80 cursor-pointer"
-          >
+          <button onClick={onAddressClick} className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left hover:opacity-80">
             <span className="opacity-80">Deliver to</span>
             <span className="font-bold underline">{deliveryLabel}</span>
-          </div>
+          </button>
           <div className="flex-1 flex">
             <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}><option>All</option></select>
             <input value={searchQuery} onChange={(e) => onSearch(e.target.value)} placeholder="Search Store" className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
@@ -425,10 +422,17 @@ function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCo
                 <div className="font-bold">Your Stores ▾</div>
               </a>
             ) : (
-              <div className="leading-tight"><div className="opacity-80">Hello, Sign in</div><div className="font-bold">Account & Lists ▾</div></div>
+              <a href="/store/account" style={{ textDecoration: "none" }}
+                className="leading-tight text-white text-xs hover:opacity-80">
+                <div className="opacity-80">
+                  {userName ? `Hello, ${userName.split(" ")[0]}` : "Hello, Sign in"}
+                </div>
+                <div className="font-bold">My Account ▾</div>
+              </a>
             )}
-            <a href={`/store/${storeId}/orders`} className="leading-tight text-white text-xs hover:opacity-80">
-              <div className="opacity-80">View</div>
+            <a href="/store/account?tab=orders" style={{ textDecoration: "none" }}
+              className="leading-tight text-white text-xs hover:opacity-80">
+              <div className="opacity-80">Returns &amp;</div>
               <div className="font-bold">Orders</div>
             </a>
             <button onClick={onCartOpen} className="flex items-center gap-1 relative"><span className="text-lg">🛒</span><span className="font-bold">Cart</span>{cartCount > 0 && (<span style={{ position: "absolute", top: -6, right: -8, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>{cartCount}</span>)}</button>
@@ -739,6 +743,7 @@ export default function StorePage() {
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
 
   async function handleSubscribeConfirm(consentFields: string[]) {
     if (!subscribingBlock || !store?.pageId) return;
@@ -786,6 +791,13 @@ export default function StorePage() {
         setLearningProgress(progressMap);
       }).catch(() => {});
   }, [store?.pageId, store?.pageType]);
+
+  useEffect(() => {
+    fetch("/api/user/me", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { user: null })
+      .then(d => setCurrentUser(d.user))
+      .catch(() => {});
+  }, []);
 
   const totalBlocks = store?.sections.reduce((a, s) => a + s.blocks.length, 0) ?? 0;
   const sensorsSections = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -882,7 +894,7 @@ export default function StorePage() {
         <LearningTopNav pageName={learningCourse?.page.title ?? store.name} isOwner={store.isOwner} onEditClick={() => router.push(`/business/store/${store.pageId ?? id}`)} />
       ) : (
         <>
-          <TopNav editMode={editMode} onToggleEdit={() => setEditMode((e) => !e)} isOwner={store.isOwner} onCartOpen={() => setCartOpen(true)} cartCount={cartItems.reduce((s, i) => s + i.quantity, 0)} onAddressClick={() => setAddressModalOpen(true)} deliveryLabel={defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address"} storeId={store.id} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} />
+          <TopNav editMode={editMode} onToggleEdit={() => setEditMode((e) => !e)} isOwner={store.isOwner} onCartOpen={() => setCartOpen(true)} cartCount={cartItems.reduce((s, i) => s + i.quantity, 0)} onAddressClick={() => setAddressModalOpen(true)} deliveryLabel={defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address"} storeId={store.id} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} />
           <FilterBar filters={storeFilters} activeFilterId={activeFilterId} onFilterChange={setActiveFilterId} editMode={editMode && store.isOwner} onEditFilters={() => setShowManageFilters(true)} />
           <BannerZone banner={activeBanner} globalBanner={globalBanner} editMode={editMode && store.isOwner} onEdit={() => setShowManageFilters(true)} />
           <StoreHero store={store} totalBlocks={totalBlocks} />

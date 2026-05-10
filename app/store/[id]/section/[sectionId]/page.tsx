@@ -405,6 +405,84 @@ function AddBlockModal({ sectionId, onClose, onCreated }: {
   );
 }
 
+// ─── TopNav ───────────────────────────────────────────────────────────────────
+
+function TopNav({
+  storeName,
+  isOwner,
+  editMode,
+  onToggleEdit,
+  onSearch,
+  searchQuery,
+  userName,
+  onAccountClick,
+}: {
+  storeName: string;
+  isOwner: boolean;
+  editMode: boolean;
+  onToggleEdit: () => void;
+  onSearch: (q: string) => void;
+  searchQuery: string;
+  userName?: string | null;
+  onAccountClick?: () => void;
+}) {
+  return (
+    <header className="w-full sticky top-0 z-50">
+      <div className="w-full" style={{ background: A.nav }}>
+        <div className="max-w-7xl mx-auto px-3 h-14 flex items-center gap-3">
+          <div className="hidden md:flex flex-col text-white text-xs leading-tight pr-3">
+            <span className="opacity-80">Deliver to</span>
+            <span className="font-bold">Kolkata 700001</span>
+          </div>
+          <div className="flex-1 flex">
+            <select className="hidden sm:block h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}>
+              <option>All</option>
+            </select>
+            <input value={searchQuery} onChange={(e) => onSearch(e.target.value)} placeholder={`Search ${storeName}`} className="flex-1 h-10 px-3 text-sm outline-none" style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}` }} />
+            <button className="h-10 px-4 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
+          </div>
+          <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
+            {isOwner ? (
+              <a href="/self?tab=earn" className="leading-tight text-white text-xs hover:opacity-80">
+                <div className="opacity-80">Manage</div>
+                <div className="font-bold">Your Stores ▾</div>
+              </a>
+            ) : (
+              <a href="/store/account" style={{ textDecoration: "none" }}
+                className="leading-tight text-white text-xs hover:opacity-80">
+                <div className="opacity-80">
+                  {userName ? `Hello, ${userName.split(" ")[0]}` : "Hello, Sign in"}
+                </div>
+                <div className="font-bold">My Account ▾</div>
+              </a>
+            )}
+            <a href="/store/account?tab=orders" style={{ textDecoration: "none" }}
+              className="leading-tight text-white text-xs hover:opacity-80">
+              <div className="opacity-80">Returns &amp;</div>
+              <div className="font-bold">Orders</div>
+            </a>
+            <div className="flex items-center gap-1">
+              <span className="text-lg">🛒</span>
+              <span className="font-bold">Cart</span>
+            </div>
+            {isOwner && (
+              <button
+                onClick={onToggleEdit}
+                className="text-xs font-semibold px-3 py-1.5 rounded-md"
+                style={editMode
+                  ? { background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }
+                  : { background: "transparent", color: "#fff", border: "1px solid #848688" }}
+              >
+                {editMode ? "Done" : "Edit Section"}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
 function ProductCard({ block, editMode, onRemove, onAddToCart, onWishlist, isWishlisted }: {
@@ -476,14 +554,7 @@ export default function SectionPage() {
   const [editMode, setEditMode] = useState(false);
   const [addingBlock, setAddingBlock] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Commerce state
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [cartOpen, setCartOpen] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [addressModalOpen, setAddressModalOpen] = useState(false);
-  const [wishlist, setWishlist] = useState<Set<string>>(new Set());
-  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
 
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
@@ -507,36 +578,30 @@ export default function SectionPage() {
       .finally(() => setLoading(false));
   }, [id, sectionId]);
 
+  useEffect(() => {
+    fetch("/api/user/me", { credentials: "include" })
+      .then(r => r.ok ? r.json() : { user: null })
+      .then(d => setCurrentUser(d.user))
+      .catch(() => {});
+  }, []);
+
   async function removeBlock(blockId: string) {
     const res = await fetch("/api/block", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
-  async function handleAddToCart(block: Block) {
-    const res = await fetch(`/api/store/cart/${storeId}`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ blockId: block.id, quantity: 1 }),
-    });
-    if (res.ok) {
-      const item = await res.json();
-      setCartItems((prev) => {
-        const exists = prev.find((i) => i.blockId === block.id);
-        if (exists) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i);
-        return [...prev, item];
-      });
-      setCartOpen(true);
-    }
-  }
+  const visibleBlocks = blocks.filter((b) =>
+    b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    searchQuery === ""
+  );
 
-  async function handleWishlist(blockId: string) {
-    const res = await fetch("/api/store/wishlist", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ blockId, storeId }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setWishlist((prev) => { const next = new Set(prev); if (data.wishlisted) next.add(blockId); else next.delete(blockId); return next; });
-    }
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
+        <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+      </div>
+    );
   }
 
   async function handleRemoveFromCart(blockId: string) {
@@ -564,14 +629,7 @@ export default function SectionPage() {
 
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
-      <TopNav
-        storeName={storeName} isOwner={isOwner} editMode={editMode}
-        onToggleEdit={() => setEditMode((v) => !v)}
-        searchQuery={searchQuery} onSearch={setSearchQuery}
-        cartCount={cartCount} onCartOpen={() => setCartOpen(true)}
-        onAddressClick={() => setAddressModalOpen(true)}
-        deliveryLabel={deliveryLabel}
-      />
+      <TopNav storeName={storeName} isOwner={isOwner} editMode={editMode} onToggleEdit={() => setEditMode((v) => !v)} searchQuery={searchQuery} onSearch={(q) => setSearchQuery(q)} userName={currentUser?.name ?? currentUser?.email ?? null} />
 
       <main className="max-w-7xl mx-auto px-3 py-6">
         <a href={`/store/${id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
@@ -591,9 +649,7 @@ export default function SectionPage() {
         </p>
 
         {visibleBlocks.length === 0 ? (
-          <p className="text-sm" style={{ color: A.textMuted }}>
-            {searchQuery ? `No products matching "${searchQuery}"` : `No products yet.${isOwner ? " Click 'Edit Section' to add some." : ""}`}
-          </p>
+          <p className="text-sm" style={{ color: A.textMuted }}>No products yet.{isOwner ? " Click 'Edit Section' to add some." : ""}</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {visibleBlocks.map((block) => (
