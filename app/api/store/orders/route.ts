@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
-import sendEmail from "@/lib/email";
+import sendEmail from "@/lib/sendEmail";
 
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
