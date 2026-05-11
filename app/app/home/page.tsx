@@ -1,305 +1,281 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import {
+  Heart,
+  Search,
+  Users,
+  Briefcase,
+  GraduationCap,
+  Store,
+  ArrowRight,
+  ShieldCheck,
+} from "lucide-react";
 
-const A = {
-  bg: "#F3F4F6",
-  nav: "#131921",
-  border: "#E5E7EB",
-  text: "#111827",
-  textMuted: "#6B7280",
-  accent: "#6366f1",
-  surface: "#FFFFFF",
-};
-
-// ─── Types ────────────────────────────────────────────────────────
-type User = { id: string; name: string | null; email: string; avatarUrl?: string | null };
-type MyStore = { id: string; name: string };
-type PinnedItem = { storeId: string; storeName: string; description?: string | null; previewImage?: string | null };
-type WishlistItem = {
-  blockId: string;
-  block: { id: string; title: string; price: number | null; mediaUrl: string | null; mediaType: string };
-};
-
-// ─── Scroll row (hides scrollbar cross-browser) ──────────────────
-const scrollRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 12,
-  overflowX: "auto",
-  paddingBottom: 8,
-  scrollbarWidth: "none",
-  msOverflowStyle: "none",
-};
-
-// ─── Page ─────────────────────────────────────────────────────────
-export default function AppHomePage() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
-  const [myStores, setMyStores] = useState<MyStore[]>([]);
-  const [pinned, setPinned] = useState<PinnedItem[]>([]);
-  const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
-  const [profileOpen, setProfileOpen] = useState(false);
-
-  // Fetch user first
-  useEffect(() => {
-    fetch("/api/user/me", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : { user: null }))
-      .then((d) => setUser(d.user ?? null))
-      .catch(() => {})
-      .finally(() => setLoadingUser(false));
-  }, []);
-
-  // Fetch store data once user is known
-  useEffect(() => {
-    if (!user) return;
-    Promise.all([
-      fetch("/api/store/my-stores", { credentials: "include" }).then((r) => r.ok ? r.json() : { stores: [] }),
-      fetch("/api/store/pinned", { credentials: "include" }).then((r) => r.ok ? r.json() : { pinned: [] }),
-      fetch("/api/store/wishlist", { credentials: "include" }).then((r) => r.ok ? r.json() : []),
-    ]).then(([storesData, pinnedData, wishlistData]) => {
-      setMyStores(storesData.stores ?? []);
-      setPinned(pinnedData.pinned ?? []);
-      setWishlist(Array.isArray(wishlistData) ? wishlistData : []);
-    }).catch(() => {});
-  }, [user]);
-
-  async function handleSignOut() {
-    await fetch("/api/user/logout", { method: "POST", credentials: "include" });
-    window.location.href = "/login";
-  }
-
-  const initial = (user?.name ?? user?.email ?? "?")[0]?.toUpperCase() ?? "?";
+export default function HomePage() {
+  const features = [
+    {
+      icon: <Store size={28} />,
+      title: "Create Your Store",
+      desc: "Sell goods, services, courses, or anything you're passionate about.",
+      color: "from-violet-500/20 to-indigo-500/10",
+      iconColor: "text-violet-600",
+    },
+    {
+      icon: <Briefcase size={28} />,
+      title: "Monetize Your Passion",
+      desc: "Turn your skills and ideas into meaningful income.",
+      color: "from-green-500/20 to-emerald-500/10",
+      iconColor: "text-green-600",
+    },
+    {
+      icon: <Search size={28} />,
+      title: "Explore & Discover",
+      desc: "Find amazing stores, services, courses, and initiatives around you.",
+      color: "from-sky-500/20 to-cyan-500/10",
+      iconColor: "text-sky-600",
+    },
+    {
+      icon: <Heart size={28} />,
+      title: "Join Initiatives",
+      desc: "Support causes, participate in initiatives and make a real impact.",
+      color: "from-pink-500/20 to-rose-500/10",
+      iconColor: "text-pink-600",
+    },
+    {
+      icon: <Users size={28} />,
+      title: "Collaborate",
+      desc: "Connect with experts, seek help, and build together.",
+      color: "from-orange-500/20 to-amber-500/10",
+      iconColor: "text-orange-600",
+    },
+  ];
 
   return (
-    <div style={{ background: A.bg, minHeight: "100vh" }}>
+    <div className="min-h-screen bg-[#f5f5f7] text-[#111827] overflow-hidden pb-28">
+      {/* Hero Section */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-violet-100 via-white to-indigo-100 opacity-90" />
 
-      {/* ── Top bar ─────────────────────────────────────────────── */}
-      <header style={{
-        background: A.nav, height: 56, display: "flex", alignItems: "center",
-        justifyContent: "space-between", padding: "0 16px",
-        position: "sticky", top: 0, zIndex: 50,
-      }}>
-        <span style={{ color: "#fff", fontFamily: "monospace", fontSize: 13, letterSpacing: "0.1em" }}>
-          charaivati
-        </span>
+        <div className="absolute top-20 left-[-120px] w-72 h-72 bg-violet-300/20 blur-3xl rounded-full" />
+        <div className="absolute bottom-0 right-[-100px] w-72 h-72 bg-indigo-300/20 blur-3xl rounded-full" />
 
-        <div style={{ position: "relative" }}>
-          {!loadingUser && (
-            user ? (
-              <>
-                <button
-                  onClick={() => setProfileOpen((v) => !v)}
-                  style={{
-                    width: 34, height: 34, borderRadius: "50%", background: A.accent,
-                    border: "none", cursor: "pointer", color: "#fff", fontWeight: 700,
-                    fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                  {initial}
-                </button>
-                {profileOpen && (
-                  <>
-                    <div onClick={() => setProfileOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
-                    <div style={{
-                      position: "absolute", right: 0, top: 42, zIndex: 50, background: A.surface,
-                      borderRadius: 10, border: `1px solid ${A.border}`,
-                      boxShadow: "0 8px 24px rgba(0,0,0,0.12)", minWidth: 200, overflow: "hidden",
-                    }}>
-                      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${A.border}` }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: A.text }}>{user.name ?? "Account"}</div>
-                        <div style={{ fontSize: 11, color: A.textMuted, marginTop: 2 }}>{user.email}</div>
-                      </div>
-                      <a href="/store/account"
-                        style={{ display: "block", padding: "10px 16px", fontSize: 13, color: A.text, textDecoration: "none" }}>
-                        My Account
-                      </a>
-                      <button onClick={handleSignOut}
-                        style={{
-                          display: "block", width: "100%", textAlign: "left",
-                          padding: "10px 16px", fontSize: 13, color: "#EF4444",
-                          background: "none", border: "none", cursor: "pointer",
-                        }}>
-                        Sign out
-                      </button>
+        <div className="relative px-6 pt-10 pb-16 max-w-7xl mx-auto">
+          {/* Main Hero */}
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left */}
+            <div>
+              <div className="inline-flex items-center gap-2 bg-violet-100 text-violet-700 px-4 py-2 rounded-full text-sm font-medium">
+                ✦ Build. Share. Impact.
+              </div>
+
+              <h1 className="mt-6 text-5xl md:text-6xl font-black leading-[1.05] tracking-tight text-[#111827]">
+                Find your{" "}
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500">
+                  Drive.
+                </span>
+                <br />
+                Build your{" "}
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500">
+                  Space.
+                </span>
+              </h1>
+
+              <p className="mt-6 text-[18px] leading-8 text-gray-600 max-w-xl">
+                Create stores for goods, services, courses or initiatives.
+                Explore amazing stores, get help and join causes that matter.
+              </p>
+
+              {/* CTA */}
+              <div className="flex flex-wrap gap-4 mt-10">
+                <Link
+                  href="/app/saved"
+                  className="group px-7 py-4 rounded-3xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold shadow-[0_10px_40px_rgba(99,102,241,0.35)] flex items-center gap-2 hover:scale-[1.02] transition-all"
+                >
+                  Explore Stores
+                  <ArrowRight
+                    size={18}
+                    className="group-hover:translate-x-1 transition"
+                  />
+                </Link>
+
+                <Link
+                  href="/app/initiatives"
+                  className="px-7 py-4 rounded-3xl bg-white/80 backdrop-blur border border-violet-200 text-violet-700 font-semibold hover:bg-violet-50 transition"
+                >
+                  Your Initiatives
+                </Link>
+              </div>
+
+              {/* Community */}
+              <div className="flex items-center gap-4 mt-10">
+                <div className="flex -space-x-3">
+                  {["A", "R", "K"].map((letter, i) => (
+                    <div
+                      key={i}
+                      className="w-11 h-11 rounded-full border-2 border-white bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-sm font-semibold shadow"
+                    >
+                      {letter}
                     </div>
-                  </>
-                )}
-              </>
-            ) : (
-              <a href="/login?redirect=/app/home"
-                style={{
-                  fontSize: 13, fontWeight: 600, color: "#fff", textDecoration: "none",
-                  padding: "6px 14px", border: "1px solid rgba(255,255,255,0.3)", borderRadius: 6,
-                }}>
-                Sign in
-              </a>
-            )
-          )}
-        </div>
-      </header>
+                  ))}
 
-      {/* ── Page body ───────────────────────────────────────────── */}
-      <div style={{ maxWidth: 480, margin: "0 auto" }}>
-
-        {/* ── Owner section: Your Initiatives ─────────────────── */}
-        {user && myStores.length > 0 && (
-          <section style={{ padding: "20px 16px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <h2 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: 0 }}>Your Initiatives</h2>
-              <a href="/self?tab=earn" style={{ fontSize: 12, color: A.accent, textDecoration: "none" }}>
-                Manage →
-              </a>
-            </div>
-
-            <div style={scrollRowStyle}>
-              {myStores.map((store) => (
-                <div key={store.id} style={{
-                  minWidth: 160, width: 160, height: 120, background: A.surface,
-                  borderRadius: 12, border: `1px solid ${A.border}`,
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.06)", padding: "14px 12px",
-                  flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "space-between",
-                }}>
-                  <div style={{
-                    fontSize: 13, fontWeight: 700, color: A.text,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
-                    {store.name}
-                  </div>
-                  <div>
-                    <a href={`/store/${store.id}`}
-                      style={{ display: "block", fontSize: 11, color: A.accent, textDecoration: "none", marginBottom: 4 }}>
-                      View Store →
-                    </a>
-                    <a href={`/store/${store.id}/orders`}
-                      style={{ display: "block", fontSize: 11, color: A.textMuted, textDecoration: "none" }}>
-                      Orders
-                    </a>
+                  <div className="w-11 h-11 rounded-full bg-black border-2 border-white flex items-center justify-center text-white text-sm font-semibold">
+                    1K+
                   </div>
                 </div>
-              ))}
+
+                <p className="text-sm text-gray-600 leading-6">
+                  Creators, builders and changemakers trust Charaivati
+                </p>
+              </div>
             </div>
 
-            <a href="/self?tab=earn" style={{
-              display: "block", marginTop: 10, padding: "10px 16px",
-              background: A.surface, border: `1px dashed ${A.border}`,
-              borderRadius: 10, textAlign: "center",
-              fontSize: 13, fontWeight: 600, color: A.accent, textDecoration: "none",
-            }}>
-              + Create Initiative
-            </a>
-          </section>
-        )}
+            {/* Right Graphic */}
+            <div className="relative hidden lg:flex justify-center items-center min-h-[500px]">
+              <div className="absolute w-[420px] h-[420px] rounded-full border border-dashed border-violet-300 animate-spin [animation-duration:40s]" />
 
-        {/* ── Buyer section ────────────────────────────────────── */}
-        <section style={{ padding: "24px 16px 0" }}>
-
-          {/* Pinned stores */}
-          <div style={{ marginBottom: 28 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 12px" }}>
-              📌 Saved Stores
-            </h2>
-            {!user ? (
-              <p style={{ fontSize: 13, color: A.textMuted, margin: 0 }}>
-                <a href="/login?redirect=/app/home" style={{ color: A.accent }}>Sign in</a> to save stores
-              </p>
-            ) : pinned.length === 0 ? (
-              <p style={{ fontSize: 13, color: A.textMuted, margin: 0 }}>
-                No saved stores yet — browse and pin stores you like
-              </p>
-            ) : (
-              <div style={scrollRowStyle}>
-                {pinned.map((p) => (
-                  <a key={p.storeId} href={`/store/${p.storeId}`} style={{
-                    minWidth: 140, width: 140, background: A.surface,
-                    borderRadius: 12, border: `1px solid ${A.border}`,
-                    overflow: "hidden", textDecoration: "none", flexShrink: 0, display: "block",
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
-                  }}>
-                    {p.previewImage ? (
-                      <img src={p.previewImage} alt={p.storeName}
-                        style={{ width: "100%", height: 80, objectFit: "cover", display: "block" }} />
-                    ) : (
-                      <div style={{
-                        width: "100%", height: 80,
-                        background: "linear-gradient(135deg, #6366f1 0%, #818cf8 100%)",
-                      }} />
-                    )}
-                    <div style={{
-                      padding: "8px 10px", fontSize: 12, fontWeight: 600, color: A.text,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    }}>
-                      {p.storeName}
-                    </div>
-                  </a>
-                ))}
+              <div className="absolute w-[260px] h-[260px] rounded-full bg-gradient-to-br from-violet-100 to-white shadow-2xl flex items-center justify-center text-7xl">
+                🌱
               </div>
-            )}
-          </div>
 
-          {/* Wishlist */}
-          <div style={{ marginBottom: 28 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 12px" }}>
-              ❤️ Saved Products
-            </h2>
-            {!user ? (
-              <p style={{ fontSize: 13, color: A.textMuted, margin: 0 }}>
-                <a href="/login?redirect=/app/home" style={{ color: A.accent }}>Sign in</a> to save products
-              </p>
-            ) : wishlist.length === 0 ? (
-              <p style={{ fontSize: 13, color: A.textMuted, margin: 0 }}>No saved products yet</p>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                {wishlist.map((item) => (
-                  <div key={item.blockId} style={{
-                    background: A.surface, borderRadius: 10,
-                    border: `1px solid ${A.border}`, overflow: "hidden",
-                  }}>
-                    {item.block.mediaUrl ? (
-                      <img src={item.block.mediaUrl} alt={item.block.title}
-                        style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", display: "block" }} />
-                    ) : (
-                      <div style={{
-                        width: "100%", aspectRatio: "1/1", background: "#F9FAFB",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}>
-                        <span style={{ fontSize: 28, color: A.textMuted }}>🖼</span>
-                      </div>
-                    )}
-                    <div style={{ padding: "8px 10px" }}>
-                      <div style={{
-                        fontSize: 12, fontWeight: 600, color: A.text,
-                        display: "-webkit-box", WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical", overflow: "hidden",
-                      }}>
-                        {item.block.title}
-                      </div>
-                      <div style={{ fontSize: 11, color: A.textMuted, margin: "4px 0 6px" }}>
-                        {item.block.price != null
-                          ? `₹${item.block.price.toLocaleString("en-IN")}`
-                          : "Free"}
-                      </div>
-                      <button style={{
-                        width: "100%", padding: "6px 0", background: A.accent,
-                        color: "#fff", border: "none", borderRadius: 6,
-                        fontSize: 11, fontWeight: 600, cursor: "pointer",
-                      }}>
-                        Add to Cart
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              {/* Floating cards */}
+              <div className="absolute top-4 left-32 bg-white shadow-xl rounded-3xl p-5 w-40">
+                <div className="w-12 h-12 rounded-2xl bg-violet-100 flex items-center justify-center text-violet-600">
+                  <Store />
+                </div>
+
+                <h3 className="mt-4 font-bold text-lg">Goods</h3>
               </div>
-            )}
-          </div>
-        </section>
 
-        {/* ── Browse all ──────────────────────────────────────── */}
-        <div style={{ padding: "4px 16px 40px", textAlign: "center" }}>
-          <a href="/" style={{ fontSize: 13, color: A.accent, textDecoration: "none" }}>
-            Browse all stores →
-          </a>
+              <div className="absolute top-40 left-0 bg-white shadow-xl rounded-3xl p-5 w-40">
+                <div className="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600">
+                  <Briefcase />
+                </div>
+
+                <h3 className="mt-4 font-bold text-lg">Services</h3>
+              </div>
+
+              <div className="absolute top-40 right-0 bg-white shadow-xl rounded-3xl p-5 w-40">
+                <div className="w-12 h-12 rounded-2xl bg-green-100 flex items-center justify-center text-green-600">
+                  <GraduationCap />
+                </div>
+
+                <h3 className="mt-4 font-bold text-lg">Courses</h3>
+              </div>
+
+              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white shadow-xl rounded-3xl p-5 w-40">
+                <div className="w-12 h-12 rounded-2xl bg-pink-100 flex items-center justify-center text-pink-600">
+                  <Heart />
+                </div>
+
+                <h3 className="mt-4 font-bold text-lg">Initiatives</h3>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="px-6 py-14 max-w-7xl mx-auto">
+        <div className="text-center">
+          <h2 className="text-3xl font-black tracking-tight">
+            All you need to grow and make impact
+          </h2>
+
+          <p className="mt-3 text-gray-500 text-lg">
+            Create. Explore. Collaborate. Monetize.
+          </p>
         </div>
 
-      </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-5 mt-12">
+          {features.map((feature, index) => (
+            <div
+              key={index}
+              className="bg-white rounded-[28px] p-7 border border-gray-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
+            >
+              <div
+                className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${feature.color} flex items-center justify-center ${feature.iconColor}`}
+              >
+                {feature.icon}
+              </div>
+
+              <h3 className="mt-6 text-2xl font-bold leading-tight">
+                {feature.title}
+              </h3>
+
+              <p className="mt-4 text-gray-500 leading-7">
+                {feature.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Bottom Banner */}
+      <section className="px-6 max-w-7xl mx-auto">
+        <div className="relative overflow-hidden rounded-[36px] border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-indigo-50 p-10">
+          <div className="absolute top-0 right-0 w-80 h-80 bg-violet-300/20 blur-3xl rounded-full" />
+
+          <div className="relative flex flex-col lg:flex-row gap-10 items-center justify-between">
+            <div className="max-w-2xl">
+              <div className="w-16 h-16 rounded-3xl bg-violet-100 flex items-center justify-center text-violet-600">
+                <ShieldCheck size={30} />
+              </div>
+
+              <h2 className="mt-6 text-4xl font-black leading-tight">
+                Your passion can change your life.
+                <br />
+                Your initiative can change the world.
+              </h2>
+
+              <p className="mt-5 text-gray-600 text-lg leading-8">
+                Charaivati helps creators, educators, builders and communities
+                grow together through a connected digital ecosystem.
+              </p>
+
+              <div className="flex flex-wrap gap-5 mt-8 text-sm text-gray-500">
+                <Link
+                  href="/about-charaivati"
+                  className="text-violet-600 font-semibold hover:underline"
+                >
+                  Learn more →
+                </Link>
+
+                <Link
+                  href="/terms-of-service"
+                  className="hover:text-black transition"
+                >
+                  Terms of Service
+                </Link>
+
+                <Link
+                  href="/privacy-policy"
+                  className="hover:text-black transition"
+                >
+                  Privacy Policy
+                </Link>
+
+                <Link
+                  href="/security"
+                  className="hover:text-black transition"
+                >
+                  Security
+                </Link>
+              </div>
+            </div>
+
+            <div>
+              <Link
+                href="/app/initiatives"
+                className="inline-flex items-center gap-2 px-8 py-5 rounded-3xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold shadow-[0_10px_40px_rgba(99,102,241,0.35)] hover:scale-[1.03] transition-all"
+              >
+                Get Started Now
+                <ArrowRight size={18} />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

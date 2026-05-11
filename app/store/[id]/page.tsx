@@ -10,6 +10,7 @@ import BannerZone, { type StoreBannerData } from "@/components/store/BannerZone"
 import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
 import { resilientFetch } from "@/lib/writeQueue";
 import { useStoreShell } from "./StoreShellContext";
+import ImageLibraryPicker from "@/components/store/ImageLibraryPicker";
 
 type CourseApiData = {
   courseType: string;
@@ -252,8 +253,10 @@ function SortableSection({
     return (
       <>
         <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${tileW}px)`, gap: 6 }}>
-          {visibleTiles.map((t) => (
-            <div key={t.id} style={{ width: tileW, height: tileH, position: "relative", flexShrink: 0 }}>
+          {visibleTiles.map((t) => {
+            const spanFull = visibleTiles.length === 1 && cols > 1;
+            return (
+            <div key={t.id} style={{ width: spanFull ? "100%" : tileW, height: tileH, position: "relative", flexShrink: 0, ...(spanFull ? { gridColumn: "1 / -1" } : {}) }}>
               <a href={`/store/${storeId}/section/${section.id}`}
                 style={{ display: "block", width: "100%", height: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${A.border}`, textDecoration: "none", background: "#fff" }}>
                 <div style={{ height: IMG_H, overflow: "hidden", background: "#F5F5F5" }}>
@@ -285,7 +288,8 @@ function SortableSection({
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
           {/* Remaining empty slots in edit mode — only if not full */}
           {editMode && !isFull && Array.from({ length: emptySlots }).map((_, i) => (
             <button key={`empty-${i}`} type="button" onClick={() => onAddTile(section.id)}
@@ -403,6 +407,205 @@ function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; 
         }
       </div>
     </header>
+  );
+}
+
+// ─── Bulk Image Upload Modal ──────────────────────────────────────────────────
+
+type LibraryImage = { id: string; name: string; imageUrl: string; imageKey: string | null; createdAt: string };
+type UploadEntry = { file: File; preview: string; name: string; status: "idle" | "uploading" | "done" | "error"; url?: string };
+
+function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: () => void }) {
+  const [entries, setEntries] = useState<UploadEntry[]>([]);
+  const [library, setLibrary] = useState<LibraryImage[]>([]);
+  const [loadingLib, setLoadingLib] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch(`/api/store/${storeId}/images`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { images: [] })
+      .then((d) => setLibrary(d.images ?? []))
+      .catch(() => {})
+      .finally(() => setLoadingLib(false));
+  }, [storeId]);
+
+  function onFilesSelected(files: FileList | null) {
+    if (!files) return;
+    const newEntries: UploadEntry[] = Array.from(files).map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+      name: file.name.replace(/\.[^.]+$/, ""),
+      status: "idle",
+    }));
+    setEntries((prev) => [...prev, ...newEntries]);
+  }
+
+  function updateEntry(idx: number, patch: Partial<UploadEntry>) {
+    setEntries((prev) => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
+  }
+
+  async function uploadAll() {
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
+    if (!cloudName || !uploadPreset) { alert("Cloudinary not configured"); return; }
+    setUploading(true);
+    const pending = entries.filter((e) => e.status === "idle");
+    await Promise.all(pending.map(async (entry, relIdx) => {
+      const idx = entries.indexOf(entry);
+      updateEntry(idx, { status: "uploading" });
+      try {
+        const fd = new FormData();
+        fd.append("file", entry.file);
+        fd.append("upload_preset", uploadPreset);
+        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body: fd });
+        const data = await res.json();
+        if (!data.secure_url) throw new Error("Upload failed");
+        // Save to DB
+        const saveRes = await fetch(`/api/store/${storeId}/images`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ name: entry.name.trim() || entry.file.name, imageUrl: data.secure_url, imageKey: data.public_id ?? null }),
+        });
+        if (saveRes.ok) {
+          const saved = await saveRes.json();
+          setLibrary((prev) => [saved.image, ...prev]);
+          updateEntry(idx, { status: "done", url: data.secure_url });
+        } else {
+          updateEntry(idx, { status: "error" });
+        }
+      } catch {
+        updateEntry(idx, { status: "error" });
+      }
+    }));
+    setUploading(false);
+    setEntries((prev) => prev.filter((e) => e.status !== "done"));
+  }
+
+  async function deleteImage(imageId: string) {
+    await fetch(`/api/store/${storeId}/images/${imageId}`, { method: "DELETE", credentials: "include" });
+    setLibrary((prev) => prev.filter((img) => img.id !== imageId));
+  }
+
+  function copyUrl(url: string) {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(url);
+      setTimeout(() => setCopied(null), 2000);
+    });
+  }
+
+  const pendingCount = entries.filter((e) => e.status === "idle").length;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: "#fff", borderRadius: "20px 20px 0 0", width: "100%", maxWidth: 680, maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 -8px 40px rgba(0,0,0,0.18)" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px 14px", borderBottom: "1px solid #EEEEEE" }}>
+          <div>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: "#0F1111", margin: 0 }}>📸 Image Library</h2>
+            <p style={{ fontSize: 12, color: "#565959", margin: "2px 0 0" }}>{library.length} saved image{library.length !== 1 ? "s" : ""}</p>
+          </div>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: "50%", background: "#F3F4F6", border: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+        </div>
+
+        <div style={{ overflowY: "auto", flex: 1, padding: "16px 20px" }}>
+          {/* Upload zone */}
+          <div
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); onFilesSelected(e.dataTransfer.files); }}
+            style={{ border: "2px dashed #6366f1", borderRadius: 12, padding: "24px 16px", textAlign: "center", cursor: "pointer", background: "#F5F5FF", marginBottom: 16 }}>
+            <div style={{ fontSize: 28, marginBottom: 6 }}>📁</div>
+            <p style={{ fontSize: 13, fontWeight: 600, color: "#6366f1", margin: "0 0 2px" }}>Click or drag & drop images here</p>
+            <p style={{ fontSize: 11, color: "#9CA3AF", margin: 0 }}>Select multiple files at once</p>
+            <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={(e) => onFilesSelected(e.target.files)} />
+          </div>
+
+          {/* Staged entries */}
+          {entries.length > 0 && (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#0F1111" }}>
+                  {pendingCount} ready to upload
+                </span>
+                {pendingCount > 0 && (
+                  <button onClick={uploadAll} disabled={uploading}
+                    style={{ padding: "7px 16px", borderRadius: 20, background: "#6366f1", color: "#fff", border: "none", fontSize: 12, fontWeight: 600, cursor: uploading ? "default" : "pointer", opacity: uploading ? 0.7 : 1 }}>
+                    {uploading ? "Uploading…" : `Upload ${pendingCount} image${pendingCount !== 1 ? "s" : ""}`}
+                  </button>
+                )}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+                {entries.map((entry, idx) => (
+                  <div key={idx} style={{ background: "#F9FAFB", borderRadius: 10, border: "1px solid #E5E7EB", overflow: "hidden" }}>
+                    <div style={{ position: "relative", height: 90 }}>
+                      <img src={entry.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      {entry.status === "uploading" && (
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <div style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid #fff", borderTopColor: "transparent", animation: "spin 0.7s linear infinite" }} />
+                        </div>
+                      )}
+                      {entry.status === "done" && (
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(16,185,129,0.7)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>✓</div>
+                      )}
+                      {entry.status === "error" && (
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(239,68,68,0.7)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>✗</div>
+                      )}
+                      <button onClick={() => setEntries((p) => p.filter((_, i) => i !== idx))}
+                        style={{ position: "absolute", top: 4, right: 4, width: 18, height: 18, borderRadius: "50%", background: "rgba(0,0,0,0.6)", color: "#fff", border: "none", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                    </div>
+                    <div style={{ padding: "6px 8px" }}>
+                      <input
+                        value={entry.name}
+                        onChange={(e) => updateEntry(idx, { name: e.target.value })}
+                        placeholder="Image name"
+                        style={{ width: "100%", fontSize: 11, padding: "3px 6px", border: "1px solid #E5E7EB", borderRadius: 5, outline: "none", color: "#0F1111", background: "#fff", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Library */}
+          <div>
+            <p style={{ fontSize: 12, fontWeight: 600, color: "#565959", margin: "0 0 8px" }}>Saved images</p>
+            {loadingLib ? (
+              <div style={{ display: "flex", justifyContent: "center", padding: 20 }}>
+                <div style={{ width: 20, height: 20, borderRadius: "50%", border: "2px solid #6366f1", borderTopColor: "transparent" }} className="animate-spin" />
+              </div>
+            ) : library.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#9CA3AF", textAlign: "center", padding: "16px 0" }}>No images yet — upload some above</p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10 }}>
+                {library.map((img) => (
+                  <div key={img.id} style={{ background: "#F9FAFB", borderRadius: 10, border: "1px solid #E5E7EB", overflow: "hidden" }}>
+                    <img src={img.imageUrl} alt={img.name} style={{ width: "100%", height: 80, objectFit: "cover", display: "block" }} />
+                    <div style={{ padding: "6px 8px" }}>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#0F1111", margin: "0 0 5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.name}</p>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button onClick={() => copyUrl(img.imageUrl)}
+                          style={{ flex: 1, fontSize: 10, padding: "3px 0", borderRadius: 5, border: "1px solid #E5E7EB", background: copied === img.imageUrl ? "#DCFCE7" : "#fff", color: copied === img.imageUrl ? "#16A34A" : "#565959", cursor: "pointer" }}>
+                          {copied === img.imageUrl ? "Copied!" : "Copy URL"}
+                        </button>
+                        <button onClick={() => deleteImage(img.id)}
+                          style={{ padding: "3px 6px", borderRadius: 5, border: "1px solid #FCA5A5", background: "#fff", color: "#EF4444", fontSize: 10, cursor: "pointer" }}>
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -720,12 +923,12 @@ function AddTileModal({ sectionId, storeId, onClose, onCreated }: { sectionId: s
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!label.trim()) return;
     setLoading(true);
+    const tileLabel = label.trim() || "Untitled";
     const tilePostResult = await resilientFetch(
       `/api/store/${storeId}/sections/${sectionId}/tiles`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: label.trim(), imageUrl, imageKey }) },
-      { label: `Add tile "${label.trim()}"`, onSuccess: (data) => { onCreated((data as any).tile); onClose(); } }
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ label: tileLabel, imageUrl, imageKey }) },
+      { label: `Add tile "${tileLabel}"`, onSuccess: (data) => { onCreated((data as any).tile); onClose(); } }
     );
     if (tilePostResult.queued) onClose();
     setLoading(false);
@@ -742,12 +945,18 @@ function AddTileModal({ sectionId, storeId, onClose, onCreated }: { sectionId: s
             <button type="button" onClick={() => { setImageUrl(null); setImageKey(null); }} className="absolute top-1 right-1 text-xs px-2 py-0.5 rounded" style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}>Remove</button>
           </div>
         ) : (
-          <label className="flex items-center gap-2 text-xs cursor-pointer px-3 py-2 rounded-md" style={{ border: `1px solid ${A.border}`, color: A.textMuted, background: "#fff" }}>
-            {uploading ? "Uploading…" : "Upload image"}
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />
-          </label>
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center gap-2 text-xs cursor-pointer px-3 py-2 rounded-md" style={{ border: `1px solid ${A.border}`, color: A.textMuted, background: "#fff" }}>
+              {uploading ? "Uploading…" : "Upload image"}
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />
+            </label>
+            <ImageLibraryPicker
+              storeId={storeId}
+              onSelect={(url, key) => { setImageUrl(url); setImageKey(key); }}
+            />
+          </div>
         )}
-        <button type="submit" disabled={loading || !label.trim()} className="py-2 rounded-md text-xs font-semibold disabled:opacity-40" style={{ background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>{loading ? "Adding…" : "Add tile"}</button>
+        <button type="submit" disabled={loading} className="py-2 rounded-md text-xs font-semibold disabled:opacity-40" style={{ background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>{loading ? "Adding…" : "Add tile"}</button>
       </form>
     </Overlay>
   );
@@ -854,6 +1063,7 @@ export default function StorePage() {
   const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
   const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
   const [isPinned, setIsPinned] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   const shell = useStoreShell();
   const { searchQuery, setSearchQuery } = shell;
@@ -1105,7 +1315,7 @@ export default function StorePage() {
               const totalIntraGaps = effectiveSections.reduce((s, sec) => s + Math.max(0, (sec.columns ?? 1) - 1) * 6, 0);
               const availableW = Math.min(screenW, SCREEN) - 32;
               const raw = Math.floor((availableW - totalGaps - totalPad - totalIntraGaps) / totalCols);
-              const tileW = Math.max(raw, 80);
+              const tileW = Math.max(raw, 120);
               const tileH = TILE_H;
 
               return (
@@ -1119,7 +1329,8 @@ export default function StorePage() {
                       </button>
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: GAP, alignItems: "flex-start", justifyContent: "center" }}>
+                  <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" as any, paddingBottom: 4 }}>
+                  <div style={{ display: "flex", gap: GAP, alignItems: "flex-start", width: "fit-content", margin: "0 auto" }}>
                     {effectiveSections.map((section) => {
                       const cols = section.columns ?? 1;
                       const cardW = cols * tileW + (cols - 1) * 6 + 24;
@@ -1139,6 +1350,7 @@ export default function StorePage() {
                         />
                       );
                     })}
+                  </div>
                   </div>
                 </div>
               );
@@ -1171,15 +1383,25 @@ export default function StorePage() {
       {subscribingBlock && store && (
         <ConsentModal expertName={store.name} onConfirm={handleSubscribeConfirm} onCancel={() => setSubscribingBlock(null)} />
       )}
-      {/* Floating edit button — owners only, non-learning stores */}
+      {/* Floating edit controls — owners only, non-learning stores */}
       {!isLearning && store.isOwner && (
-        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 50 }}>
+        <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 50, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+          {editMode && (
+            <button
+              onClick={() => setShowBulkUpload(true)}
+              style={{ padding: "9px 18px", borderRadius: 24, background: "#fff", color: "#6366f1", border: "1px solid #6366f1", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+              📸 Bulk image upload
+            </button>
+          )}
           <button
             onClick={() => setEditMode((e) => !e)}
             style={{ padding: "10px 20px", borderRadius: 24, background: editMode ? "#6366f1" : "#fff", color: editMode ? "#fff" : "#0F1111", border: "1px solid #DDDDDD", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             {editMode ? "✓ Done Editing" : "✏️ Edit Store"}
           </button>
         </div>
+      )}
+      {showBulkUpload && store && (
+        <BulkImageUploadModal storeId={store.id} onClose={() => setShowBulkUpload(false)} />
       )}
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} items={cartItems} onRemove={handleRemoveFromCart} storeId={store.id} storeName={store.name} onCheckout={() => setCheckoutOpen(true)} />
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0)} storeId={store.id} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />

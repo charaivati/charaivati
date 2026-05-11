@@ -77,7 +77,10 @@ function AuthForm() {
     }
   }
 
-  let redirectTo = validateRedirect(initialRedirect) || "/self";
+  let redirectTo =
+  validateRedirect(initialRedirect) ||
+  (sp?.get("container") === "app" ? "/app/home" : null) ||
+  "/self";
   if (redirectTo === "/login" || redirectTo.startsWith("/login?"))
     redirectTo = "/self";
 

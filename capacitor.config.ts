@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Charaivati Store',
   webDir: 'out',
   server: {
-    url: 'https://charaivati.com',
+    url: 'https://charaivati.com/app/home',
     cleartext: false,
   },
 };

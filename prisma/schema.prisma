@@ -256,7 +256,20 @@ model Store {
   orders        Order[]
   wishlistItems WishlistItem[]
   pinnedByUsers PinnedStore[]
+  images        StoreImage[]
   @@index([ownerId])
+}
+
+model StoreImage {
+  id        String   @id @default(cuid())
+  storeId   String
+  name      String
+  imageUrl  String
+  imageKey  String?
+  createdAt DateTime @default(now())
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId])
 }
 
 model StoreSection {

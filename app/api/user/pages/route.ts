@@ -102,7 +102,18 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "unauthorized" }, { status: 403 });
     }
 
-    // Delete the page (cascade will handle related records like PageFollow)
+    // Clean up associated Store if one exists (Store.pageId has no cascade back to Page)
+    const store = await prisma.store.findFirst({
+      where: { pageId },
+      select: { id: true },
+    });
+    if (store) {
+      // Orders have no cascade from Store, delete them first
+      await prisma.order.deleteMany({ where: { storeId: store.id } });
+      await prisma.store.delete({ where: { id: store.id } });
+    }
+
+    // Delete the page (cascades PageFollow, HelpingInitiative, etc.)
     await prisma.page.delete({
       where: { id: pageId },
     });

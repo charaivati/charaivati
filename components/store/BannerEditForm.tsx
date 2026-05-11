@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Upload } from "lucide-react";
 import type { StoreBannerData } from "./BannerZone";
+import ImageLibraryPicker from "./ImageLibraryPicker";
 
 interface BannerEditFormProps {
   storeId: string;
@@ -98,6 +99,13 @@ export default function BannerEditForm({ storeId, banner, isGlobal = false, onSa
         {imageUrl && (
           <img src={imageUrl} alt="" className="mt-2 rounded-lg w-full max-h-24 object-cover" />
         )}
+        <div className="mt-1.5">
+          <ImageLibraryPicker
+            storeId={storeId}
+            onSelect={(url) => setImageUrl(url)}
+            dark
+          />
+        </div>
       </div>
 
       {/* Text fields */}
