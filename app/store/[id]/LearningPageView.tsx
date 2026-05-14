@@ -356,6 +356,7 @@ export default function LearningPageView({
   const [showWhy, setShowWhy]                 = useState(false);
   const [progress, setProgress]               = useState<Record<string, { status: string; mastery: number }>>(studentProgress);
   const [marking, setMarking]                 = useState(false);
+  const [mobileShowLesson, setMobileShowLesson] = useState(false);
 
   const allBlocks     = sections.flatMap((s) => s.blocks);
   const doneCount     = allBlocks.filter((b) => progress[b.id]?.status === "done").length;
@@ -490,10 +491,10 @@ export default function LearningPageView({
 
       {/* ── Lessons tab ─────────────────────────────────────────────── */}
       {activeTab === "lessons" && (
-        <div style={{ maxWidth: 1100, margin: "0 auto", display: "flex", minHeight: "calc(100vh - 240px)" }}>
+        <div className="flex flex-col md:flex-row" style={{ maxWidth: 1100, margin: "0 auto", minHeight: "calc(100vh - 240px)" }}>
 
           {/* ── Left sidebar ──────────────────────────────────────── */}
-          <div style={{ width: 240, flexShrink: 0, background: C.card, borderRight: `1px solid ${C.border}`, overflowY: "auto", padding: "20px 0" }}>
+          <div className={`w-full md:w-60 flex-shrink-0 md:block ${mobileShowLesson ? 'hidden' : 'block'}`} style={{ background: C.card, borderRight: `1px solid ${C.border}`, overflowY: "auto", padding: "20px 0" }}>
             <p style={{ fontSize: 10, fontFamily: C.mono, color: C.muted, fontWeight: 600, letterSpacing: "0.1em", padding: "0 16px 12px", margin: 0 }}>
               {sectionLabel}
             </p>
@@ -511,7 +512,7 @@ export default function LearningPageView({
                 <button
                   key={section.id}
                   disabled={isLocked}
-                  onClick={() => { setActiveSectionId(section.id); setActiveBlockId(null); }}
+                  onClick={() => { setActiveSectionId(section.id); setActiveBlockId(null); setMobileShowLesson(true); }}
                   style={{
                     display: "block", width: "100%", textAlign: "left",
                     padding: "10px 16px 12px",
@@ -539,7 +540,13 @@ export default function LearningPageView({
           </div>
 
           {/* ── Content area ──────────────────────────────────────── */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px", minWidth: 0 }}>
+          <div className={`flex-1 min-w-0 md:block ${mobileShowLesson ? 'block' : 'hidden'}`} style={{ overflowY: "auto", padding: "24px 28px" }}>
+            <button
+              className="md:hidden mb-4 text-sm text-gray-500 flex items-center gap-1"
+              onClick={() => { setMobileShowLesson(false); setActiveBlockId(null); }}
+            >
+              ← Back to Chapters
+            </button>
 
             {sections.length === 0 && (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: C.muted, fontSize: 14, fontFamily: C.font }}>
@@ -583,7 +590,7 @@ export default function LearningPageView({
                       <button
                         key={block.id}
                         disabled={isLocked}
-                        onClick={() => !isLocked && setActiveBlockId(block.id)}
+                        onClick={() => { if (!isLocked) { setActiveBlockId(block.id); setMobileShowLesson(true); } }}
                         style={{
                           display: "flex", alignItems: "center", gap: 12,
                           width: "100%", textAlign: "left",
