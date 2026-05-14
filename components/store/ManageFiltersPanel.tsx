@@ -25,6 +25,7 @@ export default function ManageFiltersPanel({ storeId, filters: initialFilters, s
   const [pendingSections, setPendingSections] = useState<Record<string, string[]>>({});
   const [newFilterName, setNewFilterName] = useState("");
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [showGlobalBannerEdit, setShowGlobalBannerEdit] = useState(false);
 
@@ -49,19 +50,24 @@ export default function ManageFiltersPanel({ storeId, filters: initialFilters, s
   async function addFilter() {
     if (!newFilterName.trim()) return;
     setAdding(true);
+    setAddError(null);
     try {
       const res = await fetch(`/api/store/${storeId}/filters`, {
         method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
         body: JSON.stringify({ name: newFilterName.trim() }),
       });
-      const data = await res.json();
-      if (data.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
         setFilters((prev) => [...prev, data.filter]);
         setEditNames((prev) => ({ ...prev, [data.filter.id]: data.filter.name }));
         setUseGlobalBanner((prev) => ({ ...prev, [data.filter.id]: true }));
         setPendingSections((prev) => ({ ...prev, [data.filter.id]: [] }));
         setNewFilterName("");
+      } else {
+        setAddError(data.error || `Failed to add filter (${res.status})`);
       }
+    } catch {
+      setAddError("Network error — could not add filter");
     } finally {
       setAdding(false);
     }
@@ -69,10 +75,17 @@ export default function ManageFiltersPanel({ storeId, filters: initialFilters, s
 
   async function deleteFilter(filterId: string) {
     if (!confirm("Delete this filter?")) return;
-    const res = await fetch(`/api/store/${storeId}/filters/${filterId}`, { method: "DELETE", credentials: "include" });
-    if ((await res.json()).ok) {
-      setFilters((prev) => prev.filter((f) => f.id !== filterId));
-      if (expandedId === filterId) setExpandedId(null);
+    try {
+      const res = await fetch(`/api/store/${storeId}/filters/${filterId}`, { method: "DELETE", credentials: "include" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setFilters((prev) => prev.filter((f) => f.id !== filterId));
+        if (expandedId === filterId) setExpandedId(null);
+      } else {
+        alert(data.error || `Failed to delete filter (${res.status})`);
+      }
+    } catch {
+      alert("Network error — could not delete filter");
     }
   }
 
@@ -83,7 +96,7 @@ export default function ManageFiltersPanel({ storeId, filters: initialFilters, s
     const useGlobal = useGlobalBanner[filterId] ?? true;
     const currentBannerId = useGlobal ? null : (filters.find((f) => f.id === filterId)?.bannerId ?? null);
     try {
-      await Promise.all([
+      const [patchRes, putRes] = await Promise.all([
         fetch(`/api/store/${storeId}/filters/${filterId}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
           body: JSON.stringify({ name, bannerId: currentBannerId }),
@@ -93,8 +106,22 @@ export default function ManageFiltersPanel({ storeId, filters: initialFilters, s
           body: JSON.stringify({ sectionIds }),
         }),
       ]);
+      const [patchData, putData] = await Promise.all([
+        patchRes.json().catch(() => ({})),
+        putRes.json().catch(() => ({})),
+      ]);
+      if (!patchRes.ok || !patchData.ok) {
+        alert(patchData.error || `Failed to save filter name (${patchRes.status})`);
+        return;
+      }
+      if (!putRes.ok || !putData.ok) {
+        alert(putData.error || `Failed to save sections (${putRes.status})`);
+        return;
+      }
       setFilters((prev) => prev.map((f) => f.id === filterId ? { ...f, name, sectionIds, bannerId: currentBannerId } : f));
       setExpandedId(null);
+    } catch {
+      alert("Network error — could not save filter");
     } finally {
       setSaving(null);
     }
@@ -230,17 +257,20 @@ export default function ManageFiltersPanel({ storeId, filters: initialFilters, s
           })}
 
           {/* Add filter */}
-          <div className="flex gap-2 pt-1">
-            <input
-              value={newFilterName}
-              onChange={(e) => setNewFilterName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") addFilter(); }}
-              placeholder="New filter name…"
-              className={inputCls + " flex-1"}
-            />
-            <button onClick={addFilter} disabled={adding || !newFilterName.trim()} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50">
-              <Plus size={16} />
-            </button>
+          <div className="flex flex-col gap-1.5 pt-1">
+            <div className="flex gap-2">
+              <input
+                value={newFilterName}
+                onChange={(e) => { setNewFilterName(e.target.value); setAddError(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") addFilter(); }}
+                placeholder="New filter name…"
+                className={inputCls + " flex-1"}
+              />
+              <button onClick={addFilter} disabled={adding || !newFilterName.trim()} className="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:opacity-50">
+                {adding ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin inline-block" /> : <Plus size={16} />}
+              </button>
+            </div>
+            {addError && <p className="text-xs text-red-400 px-1">{addError}</p>}
           </div>
         </div>
       </div>
