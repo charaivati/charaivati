@@ -87,6 +87,26 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const storeId = searchParams.get("storeId");
+  const all = searchParams.get("all");
+  const statusFilter = searchParams.get("status");
+
+  if (all === "true") {
+    const stores = await prisma.store.findMany({
+      where: { ownerId: user.id },
+      select: { id: true },
+    });
+    const storeIds = stores.map((s) => s.id);
+    const orders = await prisma.order.findMany({
+      where: { storeId: { in: storeIds } },
+      include: {
+        store: { select: { id: true, name: true } },
+        address: true,
+        user: { select: { name: true, email: true } },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    return NextResponse.json(orders);
+  }
 
   if (storeId) {
     const store = await prisma.store.findUnique({ where: { id: storeId } });
@@ -94,8 +114,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    const where: { storeId: string; status?: string } = { storeId };
+    if (statusFilter) where.status = statusFilter;
+
     const orders = await prisma.order.findMany({
-      where: { storeId },
+      where,
       include: { address: true, user: { select: { name: true, email: true } } },
       orderBy: { createdAt: "desc" },
     });

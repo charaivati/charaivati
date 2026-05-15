@@ -165,11 +165,55 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 3. Bottom tabs: Home, Initiatives, Explore, Account
 4. Auth state fetched from `/api/user/me` on layout mount
 
-### Store Purchase Flow
+### Store Purchase Flow — Cart (standard)
 1. User browses `/store/[id]` — sections and blocks fetched
-2. `POST /api/store/cart/[storeId]` — add block to cart
-3. `POST /api/store/orders` — checkout, creates `Order` with JSON snapshot of items
+2. `POST /api/store/cart/[storeId]` — add block to cart; "Add to Cart" button flashes "✓ Added" for 2 seconds
+3. `POST /api/store/orders` — checkout, creates `Order` with JSON snapshot of items, clears cart
 4. Order status progresses: `pending → confirmed → shipped → delivered`
+
+### Store Purchase Flow — Buy Now (express)
+1. User clicks "Buy Now" on a product card (section page)
+2. `QuickOrderModal` opens with item pre-loaded; cart is never touched
+3. Steps: Items review (qty stepper) → Delivery address → Invoice profile (optional) → Place order
+4. `POST /api/store/orders/quick` with `{ storeId, addressId, items[], billingProfileId? }` — creates `Order` directly
+5. On success: confirmation screen with order ID + "View my orders" link
+
+### Store Order Management (owner side)
+- `GET /api/store/orders?storeId=X` — orders for one store (owner-only)
+- `GET /api/store/orders?storeId=X&status=delivered` — filter by any status value
+- `GET /api/store/orders?all=true` — orders across **all** stores owned by the user; each order includes `store { id, name }`
+- `/store/[storeId]/orders` — active order list with status-update controls; "Delivered Orders →" button in header
+- `/store/[storeId]/orders/delivered` — read-only delivered archive; no status-update buttons; "← Active Orders" back link
+- `/store/orders/all` — aggregated view across all owned stores; store name shown as a chip on each card; full status-update controls
+- `/store/account?tab=stores` — summary view: "All Orders" pill plus per-store pills; "View all →" routes to the correct full page
+
+### Billing Profiles
+- Users can save multiple billing profiles (`BillingProfile` model) for GST / invoice use
+- Each profile has `legalName` (required), `companyName`, `gstNumber`, optional billing address fields, and an optional `linkedStoreId`
+- Managed in `/store/account?tab=invoice` — displayed as cards; add/edit/delete inline
+- Selected during `QuickOrderModal` step 3; available in future cart checkout invoice step
+- API: `GET/POST /api/store/billing-profiles`, `PATCH/DELETE /api/store/billing-profiles/[profileId]`
+
+### Store Image Pool (upload dedup)
+All store image uploads route through `lib/store/uploadImage.ts` — `uploadStoreImage(file, storeId)`. **Never call Cloudinary directly from store UI components.**
+
+The pipeline:
+1. Hash file client-side (SHA-256 via `crypto.subtle`)
+2. Check DB — if hash exists for this store, return existing record immediately (`alreadyExisted: true`)
+3. Upload to Cloudinary (`cloud: dyphnp3oc`, preset `posts_unsigned`, `public_id = fileHash`)
+4. Upsert into `StoreImage` — handles any race condition between steps 2 and 4
+
+`StoreImage` fields (post-migration): `id`, `storeId`, `url`, `cloudinaryId`, `fileHash`, `fileName`, `uploadedAt`. Old fields `name`, `imageUrl`, `imageKey`, `createdAt` are gone — do not reference them.
+
+API surface:
+- `POST /api/store/images/check` — hash lookup; returns `{ exists: true, image }` or `{ exists: false }`
+- `POST /api/store/images/save` — upsert on `[storeId, fileHash]`
+- `GET /api/store/images/list?storeId=` — list images for a store (owner only)
+- `GET /api/store/[id]/images` — same list, legacy path used by BulkImageUploadModal
+
+Picker UI: `StoreImagePickerModal` (in `components/store/`) — shows grid, search, "Upload new" button. Opened from the product block form ("Choose from library"). "Paste URL instead" toggle is the fallback for external URLs.
+
+**Wishlist toggle:** `POST /api/store/wishlist` is a toggle — if the item exists it deletes it (`{ wishlisted: false }`), otherwise creates it (`{ wishlisted: true }`). Requires both `blockId` and `storeId`. There is no separate DELETE endpoint for wishlist items.
 
 ---
 

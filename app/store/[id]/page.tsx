@@ -11,6 +11,7 @@ import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
 import { resilientFetch } from "@/lib/writeQueue";
 import { useStoreShell } from "./StoreShellContext";
 import ImageLibraryPicker from "@/components/store/ImageLibraryPicker";
+import { uploadStoreImage } from "@/lib/store/uploadImage";
 
 type CourseApiData = {
   courseType: string;
@@ -412,8 +413,8 @@ function LearningTopNav({ pageName, isOwner, onEditClick }: { pageName: string; 
 
 // ─── Bulk Image Upload Modal ──────────────────────────────────────────────────
 
-type LibraryImage = { id: string; name: string; imageUrl: string; imageKey: string | null; createdAt: string };
-type UploadEntry = { file: File; preview: string; name: string; status: "idle" | "uploading" | "done" | "error"; url?: string };
+type LibraryImage = { id: string; fileName: string | null; url: string; cloudinaryId: string | null; fileHash: string; uploadedAt: string };
+type UploadEntry = { file: File; preview: string; name: string; status: "idle" | "uploading" | "done" | "error"; url?: string; dupReused?: boolean };
 
 function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: () => void }) {
   const [entries, setEntries] = useState<UploadEntry[]>([]);
@@ -424,9 +425,9 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch(`/api/store/${storeId}/images`, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : { images: [] })
-      .then((d) => setLibrary(d.images ?? []))
+    fetch(`/api/store/images/list?storeId=${storeId}`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setLibrary(Array.isArray(data) ? data : []))
       .catch(() => {})
       .finally(() => setLoadingLib(false));
   }, [storeId]);
@@ -447,35 +448,15 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
   }
 
   async function uploadAll() {
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-    if (!cloudName || !uploadPreset) { alert("Cloudinary not configured"); return; }
     setUploading(true);
     const pending = entries.filter((e) => e.status === "idle");
-    await Promise.all(pending.map(async (entry, relIdx) => {
+    await Promise.all(pending.map(async (entry) => {
       const idx = entries.indexOf(entry);
       updateEntry(idx, { status: "uploading" });
       try {
-        const fd = new FormData();
-        fd.append("file", entry.file);
-        fd.append("upload_preset", uploadPreset);
-        const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body: fd });
-        const data = await res.json();
-        if (!data.secure_url) throw new Error("Upload failed");
-        // Save to DB
-        const saveRes = await fetch(`/api/store/${storeId}/images`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ name: entry.name.trim() || entry.file.name, imageUrl: data.secure_url, imageKey: data.public_id ?? null }),
-        });
-        if (saveRes.ok) {
-          const saved = await saveRes.json();
-          setLibrary((prev) => [saved.image, ...prev]);
-          updateEntry(idx, { status: "done", url: data.secure_url });
-        } else {
-          updateEntry(idx, { status: "error" });
-        }
+        const result = await uploadStoreImage(entry.file, storeId);
+        setLibrary((prev) => prev.some((i) => i.id === result.id) ? prev : [result, ...prev]);
+        updateEntry(idx, { status: "done", url: result.url, dupReused: result.alreadyExisted });
       } catch {
         updateEntry(idx, { status: "error" });
       }
@@ -508,7 +489,7 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
             <h2 style={{ fontSize: 16, fontWeight: 700, color: "#0F1111", margin: 0 }}>📸 Image Library</h2>
             <p style={{ fontSize: 12, color: "#565959", margin: "2px 0 0" }}>{library.length} saved image{library.length !== 1 ? "s" : ""}</p>
           </div>
-          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: "50%", background: "#F3F4F6", border: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: "50%", background: "#F3F4F6", color: "#111827", border: "none", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
         </div>
 
         <div style={{ overflowY: "auto", flex: 1, padding: "16px 20px" }}>
@@ -549,7 +530,10 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
                         </div>
                       )}
                       {entry.status === "done" && (
-                        <div style={{ position: "absolute", inset: 0, background: "rgba(16,185,129,0.7)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>✓</div>
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(16,185,129,0.7)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                          <span style={{ fontSize: 22 }}>✓</span>
+                          {entry.dupReused && <span style={{ fontSize: 9, color: "#fff", background: "rgba(0,0,0,0.3)", padding: "1px 4px", borderRadius: 4 }}>Reused</span>}
+                        </div>
                       )}
                       {entry.status === "error" && (
                         <div style={{ position: "absolute", inset: 0, background: "rgba(239,68,68,0.7)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>✗</div>
@@ -584,13 +568,13 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))", gap: 10 }}>
                 {library.map((img) => (
                   <div key={img.id} style={{ background: "#F9FAFB", borderRadius: 10, border: "1px solid #E5E7EB", overflow: "hidden" }}>
-                    <img src={img.imageUrl} alt={img.name} style={{ width: "100%", height: 80, objectFit: "cover", display: "block" }} />
+                    <img src={img.url} alt={img.fileName ?? ""} style={{ width: "100%", height: 80, objectFit: "cover", display: "block" }} />
                     <div style={{ padding: "6px 8px" }}>
-                      <p style={{ fontSize: 11, fontWeight: 600, color: "#0F1111", margin: "0 0 5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.name}</p>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#0F1111", margin: "0 0 5px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{img.fileName ?? "image"}</p>
                       <div style={{ display: "flex", gap: 4 }}>
-                        <button onClick={() => copyUrl(img.imageUrl)}
-                          style={{ flex: 1, fontSize: 10, padding: "3px 0", borderRadius: 5, border: "1px solid #E5E7EB", background: copied === img.imageUrl ? "#DCFCE7" : "#fff", color: copied === img.imageUrl ? "#16A34A" : "#565959", cursor: "pointer" }}>
-                          {copied === img.imageUrl ? "Copied!" : "Copy URL"}
+                        <button onClick={() => copyUrl(img.url)}
+                          style={{ flex: 1, fontSize: 10, padding: "3px 0", borderRadius: 5, border: "1px solid #E5E7EB", background: copied === img.url ? "#DCFCE7" : "#fff", color: copied === img.url ? "#16A34A" : "#565959", cursor: "pointer" }}>
+                          {copied === img.url ? "Copied!" : "Copy URL"}
                         </button>
                         <button onClick={() => deleteImage(img.id)}
                           style={{ padding: "3px 6px", borderRadius: 5, border: "1px solid #FCA5A5", background: "#fff", color: "#EF4444", fontSize: 10, cursor: "pointer" }}>
@@ -908,16 +892,13 @@ function AddTileModal({ sectionId, storeId, onClose, onCreated }: { sectionId: s
   const [loading, setLoading] = useState(false);
 
   async function uploadImage(file: File) {
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-    if (!cloudName || !uploadPreset) { alert("Cloudinary not configured"); return; }
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file); fd.append("upload_preset", uploadPreset);
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body: fd });
-      const data = await res.json();
-      if (data.secure_url) { setImageUrl(data.secure_url); setImageKey(data.public_id ?? null); }
+      const result = await uploadStoreImage(file, storeId);
+      setImageUrl(result.url);
+      setImageKey(result.cloudinaryId ?? null);
+    } catch {
+      alert("Upload failed — please try again.");
     } finally { setUploading(false); }
   }
 

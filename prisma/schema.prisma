@@ -66,11 +66,12 @@ model User {
   msgBackups              ChatMessageBackup[]  @relation("UserMsgBackups")
   projectTimelines        ProjectTimeline[]
   aiGoals                 AiGoal[]
-  addresses     Address[]
-  cartItems     CartItem[]
-  orders        Order[]
-  wishlistItems WishlistItem[]
-  pinnedStores  PinnedStore[]
+  addresses       Address[]
+  cartItems       CartItem[]
+  orders          Order[]
+  wishlistItems   WishlistItem[]
+  pinnedStores    PinnedStore[]
+  billingProfiles BillingProfile[]
   @@index([email])
   @@index([phone])
 }
@@ -252,23 +253,26 @@ model Store {
   sections    StoreSection[]
   filters     StoreFilter[]
   banners     StoreBanner[]
-  cartItems     CartItem[]
-  orders        Order[]
-  wishlistItems WishlistItem[]
-  pinnedByUsers PinnedStore[]
-  images        StoreImage[]
+  cartItems       CartItem[]
+  orders          Order[]
+  wishlistItems   WishlistItem[]
+  pinnedByUsers   PinnedStore[]
+  images          StoreImage[]
+  billingProfiles BillingProfile[]
   @@index([ownerId])
 }
 
 model StoreImage {
-  id        String   @id @default(cuid())
-  storeId   String
-  name      String
-  imageUrl  String
-  imageKey  String?
-  createdAt DateTime @default(now())
-  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  storeId      String
+  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  url          String
+  cloudinaryId String?
+  fileHash     String
+  fileName     String?
+  uploadedAt   DateTime @default(now())
 
+  @@unique([storeId, fileHash])
   @@index([storeId])
 }
 
@@ -1289,5 +1293,23 @@ model PinnedStore {
   store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, storeId])
+  @@index([userId])
+}
+
+model BillingProfile {
+  id            String   @id @default(cuid())
+  userId        String
+  legalName     String
+  companyName   String?
+  gstNumber     String?
+  addressLine   String?
+  city          String?
+  state         String?
+  pinCode       String?
+  linkedStoreId String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedStore   Store?   @relation(fields: [linkedStoreId], references: [id])
+
   @@index([userId])
 }

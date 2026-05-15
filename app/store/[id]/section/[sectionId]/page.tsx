@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { useStoreShell } from "@/app/store/[id]/StoreShellContext";
+import QuickOrderModal from "@/components/store/QuickOrderModal";
+import StoreImagePickerModal from "@/components/store/StoreImagePickerModal";
 
 const A = {
   bg: "#E3E6E6",
@@ -295,27 +297,14 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
 
 // ─── AddBlockModal ────────────────────────────────────────────────────────────
 
-function AddBlockModal({ sectionId, onClose, onCreated }: {
-  sectionId: string; onClose: () => void; onCreated: (block: Block) => void;
+function AddBlockModal({ sectionId, storeId, onClose, onCreated }: {
+  sectionId: string; storeId: string; onClose: () => void; onCreated: (block: Block) => void;
 }) {
   const [form, setForm] = useState({ title: "", description: "", mediaType: "image" as MediaType, mediaUrl: "", actionType: "view" as ActionType, price: "" });
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [showPasteUrl, setShowPasteUrl] = useState(false);
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
-
-  async function uploadImage(file: File) {
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    const preset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-    if (!cloudName || !preset) { alert("Cloudinary not configured"); return; }
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file); fd.append("upload_preset", preset);
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, { method: "POST", body: fd });
-      const data = await res.json();
-      if (data.secure_url) { set("mediaUrl", data.secure_url); set("mediaType", data.resource_type === "video" ? "video" : "image"); }
-    } finally { setUploading(false); }
-  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -327,27 +316,55 @@ function AddBlockModal({ sectionId, onClose, onCreated }: {
   }
 
   return (
-    <Overlay onClose={onClose}>
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <h3 className="text-sm font-semibold" style={{ color: A.text }}>New product</h3>
-        <input autoFocus value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Title" className={inputCls} style={inputStyle} />
-        <textarea value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Description (optional)" rows={2} className={inputCls} style={inputStyle} />
-        <div className="flex gap-2">
-          <input value={form.mediaUrl} onChange={(e) => set("mediaUrl", e.target.value)} placeholder="Image or video URL" className={inputCls} style={inputStyle} />
-          <label className="shrink-0 flex items-center gap-1 text-xs px-3 py-2 rounded-md cursor-pointer whitespace-nowrap"
-            style={{ border: `1px solid ${A.border}`, background: "#fff", color: A.textMuted }}>
-            {uploading ? "Uploading…" : "Upload"}
-            <input type="file" accept="image/*,video/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />
-          </label>
-        </div>
-        {form.mediaUrl && <img src={form.mediaUrl} alt="" className="w-full max-h-28 object-cover rounded-md" />}
-        <input value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="Price (optional)" inputMode="decimal" className={inputCls} style={inputStyle} />
-        <button type="submit" disabled={loading || !form.title.trim()} className="py-2 rounded-md text-xs font-semibold disabled:opacity-40"
-          style={{ background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>
-          {loading ? "Adding…" : "Add product"}
-        </button>
-      </form>
-    </Overlay>
+    <>
+      <Overlay onClose={onClose}>
+        <form onSubmit={submit} className="flex flex-col gap-3">
+          <h3 className="text-sm font-semibold" style={{ color: A.text }}>New product</h3>
+          <input autoFocus value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Title" className={inputCls} style={inputStyle} />
+          <textarea value={form.description} onChange={(e) => set("description", e.target.value)} placeholder="Description (optional)" rows={2} className={inputCls} style={inputStyle} />
+
+          {/* Image field — library picker + paste URL */}
+          <div className="space-y-2">
+            {form.mediaUrl && (
+              <div className="relative">
+                <img src={form.mediaUrl} alt="" className="w-full max-h-28 object-cover rounded-md" />
+                <button type="button" onClick={() => set("mediaUrl", "")}
+                  className="absolute top-1 right-1 text-xs px-1.5 py-0.5 rounded"
+                  style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}>✕</button>
+              </div>
+            )}
+            <button type="button" onClick={() => setShowPicker(true)}
+              className="w-full py-2 rounded-md text-xs font-medium"
+              style={{ border: `1px solid ${A.accent}`, color: A.accent, background: "#EEF2FF", cursor: "pointer" }}>
+              📂 Choose from library
+            </button>
+            <button type="button" onClick={() => setShowPasteUrl((v) => !v)}
+              className="text-xs" style={{ color: A.textMuted, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+              {showPasteUrl ? "Hide URL input" : "Paste URL instead"}
+            </button>
+            {showPasteUrl && (
+              <input value={form.mediaUrl} onChange={(e) => { set("mediaUrl", e.target.value); set("mediaType", "image"); }}
+                placeholder="https://… image or video URL"
+                className={inputCls} style={inputStyle} />
+            )}
+          </div>
+
+          <input value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="Price (optional)" inputMode="decimal" className={inputCls} style={inputStyle} />
+          <button type="submit" disabled={loading || !form.title.trim()} className="py-2 rounded-md text-xs font-semibold disabled:opacity-40"
+            style={{ background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>
+            {loading ? "Adding…" : "Add product"}
+          </button>
+        </form>
+      </Overlay>
+
+      {showPicker && (
+        <StoreImagePickerModal
+          storeId={storeId}
+          onSelect={(url) => { set("mediaUrl", url); set("mediaType", "image"); }}
+          onClose={() => setShowPicker(false)}
+        />
+      )}
+    </>
   );
 }
 
@@ -470,10 +487,19 @@ function TopNav({
 
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
-function ProductCard({ block, editMode, onRemove, onAddToCart, onWishlist, isWishlisted }: {
+function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishlist, isWishlisted }: {
   block: Block; editMode: boolean; onRemove?: () => void;
-  onAddToCart?: () => void; onWishlist?: () => void; isWishlisted?: boolean;
+  onAddToCart?: () => void; onBuyNow?: () => void; onWishlist?: () => void; isWishlisted?: boolean;
 }) {
+  const [added, setAdded] = useState(false);
+
+  function handleAddToCart() {
+    if (!onAddToCart) return;
+    onAddToCart();
+    setAdded(true);
+    setTimeout(() => setAdded(false), 2000);
+  }
+
   return (
     <div className="rounded-md bg-white hover:shadow-md transition-shadow relative" style={{ border: `1px solid ${A.border}` }}>
       {!editMode && (
@@ -510,11 +536,14 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onWishlist, isWis
         )}
         {!editMode && (
           <div className="mt-3 flex gap-2">
-            <button onClick={onAddToCart} className="text-xs font-medium px-3 py-2 rounded-md flex-1"
-              style={{ background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>
-              Add to Cart
+            <button onClick={handleAddToCart}
+              className="text-xs font-medium px-3 py-2 rounded-md flex-1 transition-all"
+              style={added
+                ? { background: "#10B981", color: "#fff", border: "1px solid #059669" }
+                : { background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>
+              {added ? "✓ Added" : "Add to Cart"}
             </button>
-            <button onClick={onAddToCart} className="text-xs font-medium px-3 py-2 rounded-md"
+            <button onClick={onBuyNow} className="text-xs font-medium px-3 py-2 rounded-md"
               style={{ background: "#FFA41C", border: "1px solid #FF8F00", color: "#111" }}>
               Buy Now
             </button>
@@ -546,6 +575,7 @@ export default function SectionPage() {
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
+  const [quickOrderItem, setQuickOrderItem] = useState<{ blockId: string; title: string; price: number; quantity: number; imageUrl?: string | null } | null>(null);
 
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
@@ -581,6 +611,10 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
+  function handleBuyNow(block: Block) {
+    setQuickOrderItem({ blockId: block.id, title: block.title, price: block.price ?? 0, quantity: 1, imageUrl: block.mediaUrl ?? null });
+  }
+
   async function handleAddToCart(block: Block) {
     const res = await fetch(`/api/store/cart/${storeId}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id }) });
     if (res.ok) {
@@ -594,13 +628,19 @@ export default function SectionPage() {
   }
 
   async function handleWishlist(blockId: string) {
-    const isWished = wishlist.has(blockId);
-    if (isWished) {
-      await fetch("/api/store/wishlist", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
-      setWishlist((prev) => { const next = new Set(prev); next.delete(blockId); return next; });
-    } else {
-      await fetch("/api/store/wishlist", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId }) });
-      setWishlist((prev) => new Set([...prev, blockId]));
+    const res = await fetch("/api/store/wishlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ blockId, storeId: storeId || id }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setWishlist((prev) => {
+        const next = new Set(prev);
+        if (data.wishlisted) next.add(blockId); else next.delete(blockId);
+        return next;
+      });
     }
   }
 
@@ -671,6 +711,7 @@ export default function SectionPage() {
                 editMode={editMode}
                 onRemove={() => removeBlock(block.id)}
                 onAddToCart={() => handleAddToCart(block)}
+                onBuyNow={() => handleBuyNow(block)}
                 onWishlist={() => handleWishlist(block.id)}
                 isWishlisted={wishlist.has(block.id)}
               />
@@ -680,7 +721,7 @@ export default function SectionPage() {
       </main>
 
       {addingBlock && (
-        <AddBlockModal sectionId={sectionId} onClose={() => setAddingBlock(false)}
+        <AddBlockModal sectionId={sectionId} storeId={storeId || id} onClose={() => setAddingBlock(false)}
           onCreated={(block) => { setBlocks((prev) => [...prev, block]); setAddingBlock(false); }} />
       )}
 
@@ -710,6 +751,16 @@ export default function SectionPage() {
             {editMode ? "✓ Done" : "✏️ Edit Section"}
           </button>
         </div>
+      )}
+
+      {quickOrderItem && (
+        <QuickOrderModal
+          open={!!quickOrderItem}
+          onClose={() => setQuickOrderItem(null)}
+          storeId={storeId}
+          storeName={storeName}
+          initialItem={quickOrderItem}
+        />
       )}
     </div>
   );

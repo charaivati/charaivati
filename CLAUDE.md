@@ -69,8 +69,49 @@ All API routes live under `app/api/`. Key areas:
 - `app/api/store/` — store management, blocks, sections, cart, orders
 - `app/api/friends/` — friend requests, accept/decline/remove
 
+#### Store orders GET params
+`GET /api/store/orders` supports three modes:
+- No params → returns the **current user's own purchases** (buyer view)
+- `?storeId=X` → returns orders for that store (owner only); add `&status=delivered` (or any status) to filter
+- `?all=true` → returns orders across **all stores owned** by the current user; each order includes `store { id, name }`
+
+#### Two order creation paths
+- `POST /api/store/orders` — **cart-based**: fetches cart items, creates Order, clears cart
+- `POST /api/store/orders/quick` — **express (Buy Now)**: accepts `{ storeId, addressId, items[], billingProfileId? }` directly; never reads or modifies the cart table
+
+#### Billing profiles
+- `GET/POST /api/store/billing-profiles` — list or create `BillingProfile` records
+- `PATCH/DELETE /api/store/billing-profiles/[profileId]` — update or delete
+- Each profile: `legalName` (required), `companyName`, `gstNumber`, billing address fields, optional `linkedStoreId`
+- Users select a billing profile during checkout for GST invoice purposes
+
+### Store Order Pages
+- `/store/account?tab=stores` — owner order dashboard; "All Orders" pill aggregates across all stores; "View all →" goes to `/store/orders/all`
+- `/store/orders/all` — full view of all orders across every store the user owns; store name shown as chip
+- `/store/[storeId]/orders` — per-store active orders with status-update controls; "Delivered Orders →" button in header
+- `/store/[storeId]/orders/delivered` — read-only archive of delivered orders for one store; "← Active Orders" back link
+
+### Buy Now / Quick Order UX
+- "Buy Now" button on product cards opens `QuickOrderModal` (ephemeral React state — never touches cart)
+- "Add to Cart" button flashes green "✓ Added" for 2 seconds on successful add
+- `QuickOrderModal` steps: Items review → Delivery address → Invoice profile (optional, from billing profiles) → Confirmation
+- Managed in `components/store/QuickOrderModal.tsx`
+
+### Store Image Pool
+All store image uploads go through a two-layer dedup pipeline — **never call Cloudinary directly** from store upload forms.
+
+- **Utility**: `lib/store/uploadImage.ts` exports `uploadStoreImage(file, storeId)`:
+  1. SHA-256 hash the file client-side (`crypto.subtle`)
+  2. `POST /api/store/images/check` → returns existing record immediately if hash exists (`alreadyExisted: true`)
+  3. Upload to Cloudinary (`cloud: dyphnp3oc`, `preset: posts_unsigned`, `public_id = fileHash`)
+  4. `POST /api/store/images/save` → upsert on `[storeId, fileHash]`
+- **DB constraint**: `@@unique([storeId, fileHash])` on `StoreImage` is the hard guarantee against duplicates
+- **API**: `POST /api/store/images/check`, `POST /api/store/images/save`, `GET /api/store/images/list?storeId=`
+- **Legacy path** (`/api/store/[id]/images`) still exists for the bulk library modal; it now uses new field names
+- **`StoreImage` fields**: `id`, `storeId`, `url`, `cloudinaryId`, `fileHash`, `fileName`, `uploadedAt` — old fields `name`, `imageUrl`, `imageKey`, `createdAt` no longer exist
+
 ### Components
-- `components/store/` — e-commerce builder (filters, banners, image library)
+- `components/store/` — e-commerce builder (filters, banners, image library, QuickOrderModal, StoreImagePickerModal)
 - `components/social/` — chat panel, friend requests
 - `components/timeline/` — project timeline with phases and milestones
 - `components/business/` — question cards, scoring dashboard
@@ -85,6 +126,7 @@ All API routes live under `app/api/`. Key areas:
 - `lib/writeQueue.ts` — queued write operations
 - `lib/timeline-templates.ts` — predefined timeline templates
 - `lib/sectionTagMappings.ts` — maps store section types to tags
+- `lib/store/uploadImage.ts` — `uploadStoreImage(file, storeId)`: dedup-aware upload utility; single source of truth for all store image uploads
 
 ### Security Notes
 - CSP headers are configured in `next.config.mjs` — update them when adding new external scripts, styles, or media sources
@@ -104,3 +146,7 @@ Start every session by reading /docs/START_HERE.md.
 - `/docs/modules/auth.md` — middleware does NOT protect API routes
 - `/docs/flows/add-new-api-route.md` — CSRF is built but unwired, do not add it
 - `/docs/modules/profile-schemas.md` — `heightCm`/`weightKg` exist in two out-of-sync places
+- **Two order endpoints exist** — `POST /api/store/orders` (cart-based, clears cart) vs `POST /api/store/orders/quick` (express, never touches cart). Do not use the cart-based endpoint from `QuickOrderModal` — it will empty the user's persistent cart.
+- **`QuickOrderModal` is ephemeral** — closing it mid-flow loses all state. It never writes to DB until "Place Order" is clicked.
+- **`StoreImage` field names changed** — old fields `name`, `imageUrl`, `imageKey`, `createdAt` no longer exist. Current fields: `url`, `fileHash`, `cloudinaryId`, `fileName`, `uploadedAt`. Any code reading `storeImage.imageUrl` or `storeImage.name` will be undefined.
+- **Never call Cloudinary directly for store images** — always use `uploadStoreImage()` from `lib/store/uploadImage.ts`. Direct calls bypass the dedup check and DB save, creating orphaned Cloudinary assets and missed dedup hits.

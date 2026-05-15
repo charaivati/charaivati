@@ -18,40 +18,22 @@ type Order = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  pending:   "#F59E0B",
-  confirmed: "#6366f1",
-  shipped:   "#3B82F6",
-  delivered: "#10B981",
-  cancelled: "#EF4444",
+  pending: "#F59E0B", confirmed: "#6366f1", shipped: "#3B82F6",
+  delivered: "#10B981", cancelled: "#EF4444",
 };
 
-export default function StoreOrdersPage() {
+export default function DeliveredOrdersPage() {
   const { id } = useParams<{ id: string }>();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/store/orders?storeId=${id}`, { credentials: "include" })
+    fetch(`/api/store/orders?storeId=${id}&status=delivered`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : [])
       .then(setOrders)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
-
-  async function updateStatus(orderId: string, status: string) {
-    setUpdating(orderId);
-    const res = await fetch(`/api/store/orders/${orderId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) {
-      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o));
-    }
-    setUpdating(null);
-  }
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
@@ -61,36 +43,30 @@ export default function StoreOrdersPage() {
 
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
-      {/* Header */}
       <div className="sticky top-0 z-10 px-6 py-4 border-b bg-white" style={{ borderColor: A.border }}>
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold" style={{ color: A.text }}>Orders</h1>
-            <p className="text-xs" style={{ color: A.textMuted }}>{orders.length} total orders</p>
+            <h1 className="text-lg font-bold" style={{ color: A.text }}>Delivered Orders</h1>
+            <p className="text-xs" style={{ color: A.textMuted }}>
+              {orders.length} delivered order{orders.length !== 1 ? "s" : ""}
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <a href={`/store/${id}/orders/delivered`} className="text-xs px-3 py-1.5 rounded-md font-medium"
-              style={{ background: "#F0FDF4", color: "#10B981", border: "1px solid #A7F3D0" }}>
-              Delivered Orders →
-            </a>
-            <a href={`/store/${id}`} className="text-xs px-3 py-1.5 rounded-md"
-              style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
-              ← Back to store
-            </a>
-          </div>
+          <a href={`/store/${id}/orders`} className="text-xs px-3 py-1.5 rounded-md"
+            style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
+            ← Active Orders
+          </a>
         </div>
       </div>
 
       <main className="max-w-5xl mx-auto px-6 py-6 space-y-4">
         {orders.length === 0 ? (
           <div className="text-center py-20">
-            <p className="text-2xl mb-2">📦</p>
-            <p className="text-sm" style={{ color: A.textMuted }}>No orders yet.</p>
+            <p className="text-2xl mb-2">✅</p>
+            <p className="text-sm" style={{ color: A.textMuted }}>No delivered orders yet.</p>
           </div>
         ) : (
           orders.map((order) => (
             <div key={order.id} className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${A.border}` }}>
-              {/* Order header */}
               <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
                 <div>
                   <div className="flex items-center gap-2">
@@ -113,7 +89,6 @@ export default function StoreOrdersPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Items */}
                 <div className="md:col-span-1">
                   <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>ITEMS</p>
                   <div className="space-y-1">
@@ -126,14 +101,12 @@ export default function StoreOrdersPage() {
                   </div>
                 </div>
 
-                {/* Customer */}
                 <div>
                   <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>CUSTOMER</p>
                   <p className="text-xs" style={{ color: A.text }}>{order.user.name ?? "—"}</p>
                   <p className="text-xs" style={{ color: A.textMuted }}>{order.user.email ?? "—"}</p>
                 </div>
 
-                {/* Address */}
                 <div>
                   <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>DELIVERY</p>
                   <p className="text-xs" style={{ color: A.text }}>{order.address.name}</p>
@@ -141,24 +114,6 @@ export default function StoreOrdersPage() {
                   <p className="text-xs" style={{ color: A.textMuted }}>{order.address.city}, {order.address.state} {order.address.pincode}</p>
                   <p className="text-xs" style={{ color: A.textMuted }}>📞 {order.address.phone}</p>
                 </div>
-              </div>
-
-              {/* Status update */}
-              <div className="mt-4 pt-4 border-t flex items-center gap-2 flex-wrap" style={{ borderColor: "#f0f0f0" }}>
-                <span className="text-xs" style={{ color: A.textMuted }}>Update status:</span>
-                {["pending","confirmed","shipped","delivered","cancelled"].map((s) => (
-                  <button key={s} disabled={order.status === s || updating === order.id}
-                    onClick={() => updateStatus(order.id, s)}
-                    className="text-xs px-2 py-1 rounded capitalize"
-                    style={{
-                      background: order.status === s ? `${STATUS_COLORS[s]}20` : "#f9fafb",
-                      color: order.status === s ? STATUS_COLORS[s] : A.textMuted,
-                      border: `1px solid ${order.status === s ? STATUS_COLORS[s] : A.border}`,
-                      cursor: order.status === s ? "default" : "pointer",
-                    }}>
-                    {s}
-                  </button>
-                ))}
               </div>
             </div>
           ))

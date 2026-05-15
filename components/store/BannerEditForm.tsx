@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Upload } from "lucide-react";
 import type { StoreBannerData } from "./BannerZone";
 import ImageLibraryPicker from "./ImageLibraryPicker";
+import { uploadStoreImage } from "@/lib/store/uploadImage";
 
 interface BannerEditFormProps {
   storeId: string;
@@ -22,17 +23,12 @@ export default function BannerEditForm({ storeId, banner, isGlobal = false, onSa
   const [saving, setSaving] = useState(false);
 
   async function uploadImage(file: File) {
-    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
-    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-    if (!cloudName || !uploadPreset) { alert("Cloudinary not configured"); return; }
     setUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("upload_preset", uploadPreset);
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, { method: "POST", body: fd });
-      const data = await res.json();
-      if (data.secure_url) setImageUrl(data.secure_url);
+      const result = await uploadStoreImage(file, storeId);
+      setImageUrl(result.url);
+    } catch {
+      alert("Upload failed — please try again.");
     } finally {
       setUploading(false);
     }
@@ -100,11 +96,7 @@ export default function BannerEditForm({ storeId, banner, isGlobal = false, onSa
           <img src={imageUrl} alt="" className="mt-2 rounded-lg w-full max-h-24 object-cover" />
         )}
         <div className="mt-1.5">
-          <ImageLibraryPicker
-            storeId={storeId}
-            onSelect={(url) => setImageUrl(url)}
-            dark
-          />
+          <ImageLibraryPicker storeId={storeId} onSelect={(url) => setImageUrl(url)} dark />
         </div>
       </div>
 

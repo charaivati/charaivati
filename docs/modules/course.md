@@ -194,6 +194,24 @@ in any rendering logic.
 
 ---
 
+## Mobile Layout — LearningPageView
+
+`app/store/[id]/LearningPageView.tsx` renders all course pages. On desktop it uses a fixed two-column split (chapters sidebar left, content area right). On mobile it collapses to a single-column flow controlled by a `mobileShowLesson` boolean state (default `false`).
+
+| State | Mobile: chapters panel | Mobile: content panel |
+|---|---|---|
+| `false` (default) | `block` (full width) | `hidden` |
+| `true` (lesson/section open) | `hidden` | `block` (full width) |
+
+**Key behaviours:**
+- Clicking a chapter (section) sets `mobileShowLesson = true` → content area slides into view showing the block list
+- Clicking a lesson (block) also sets `mobileShowLesson = true` → content area shows the lesson detail
+- "← Back to Chapters" button at the top of the content area (`className="md:hidden"`) sets `mobileShowLesson = false` and clears `activeBlockId`
+- The existing "← Back" button inside `BlockDetailPanel` only clears `activeBlockId` (goes from lesson detail back to block list within the content area); it does **not** set `mobileShowLesson = false`
+- Desktop layout (`md:` breakpoint and above) is entirely unaffected — the Tailwind `md:block` class overrides any `hidden` or `block` applied for mobile
+
+**Pattern rule:** Never remove the `md:block` class from either panel. It is what keeps the desktop layout intact when `mobileShowLesson` is toggled.
+
 ## Risks & Fragile Areas
 - A course page requires BOTH a `Course` record AND a `Store` record linked to the same `pageId`.
   If one is created without the other, `GET /api/course/[pageId]` returns a partial response:

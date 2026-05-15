@@ -36,19 +36,27 @@ type Order = {
   items: OrderItem[];
 };
 type MyStore = { id: string; name: string };
-type InvoiceDetails = {
-  legalName?: string; gstNumber?: string; companyName?: string;
-  billingLine1?: string; billingCity?: string; billingState?: string; billingPincode?: string;
+type BillingProfile = {
+  id: string;
+  legalName: string;
+  companyName: string | null;
+  gstNumber: string | null;
+  addressLine: string | null;
+  city: string | null;
+  state: string | null;
+  pinCode: string | null;
+  linkedStoreId: string | null;
+  linkedStore: { id: string; name: string } | null;
+};
+const BP_EMPTY: Omit<BillingProfile, "id" | "linkedStore"> = {
+  legalName: "", companyName: "", gstNumber: "",
+  addressLine: "", city: "", state: "", pinCode: "", linkedStoreId: "",
 };
 
 // ─── Constants ────────────────────────────────────────────────────
 const iCls = "w-full text-sm px-3 py-2 rounded-md outline-none";
 const iStyle = { background: A.surface, color: A.text, border: `1px solid ${A.border}` };
 const ADDR_EMPTY = { name: "", phone: "", line1: "", city: "", state: "", pincode: "" };
-const INV_EMPTY: InvoiceDetails = {
-  legalName: "", gstNumber: "", companyName: "",
-  billingLine1: "", billingCity: "", billingState: "", billingPincode: "",
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────
 function fmtDate(d: string) {
@@ -165,7 +173,7 @@ function PurchaseOrderCard({ order }: { order: Order }) {
   );
 }
 
-function StoreOrderCard({ order }: { order: Order }) {
+function StoreOrderCard({ order, showStore }: { order: Order; showStore?: boolean }) {
   const itemCount = order.items?.length ?? 0;
   return (
     <div className="p-3 rounded-lg" style={{ background: A.bg, border: `1px solid ${A.border}` }}>
@@ -174,6 +182,12 @@ function StoreOrderCard({ order }: { order: Order }) {
           <span className="text-xs font-mono font-bold shrink-0" style={{ color: A.text }}>
             #{order.id.slice(-8).toUpperCase()}
           </span>
+          {showStore && order.store && (
+            <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
+              style={{ background: "#EEF2FF", color: A.accent }}>
+              {order.store.name}
+            </span>
+          )}
           <span className="text-xs truncate" style={{ color: A.textMuted }}>
             {order.user?.name ?? order.user?.email ?? "Customer"}
           </span>
@@ -222,12 +236,14 @@ function AccountPageContent() {
   const [selectedStoreOrders, setSelectedStoreOrders] = useState<Order[]>([]);
   const [loadingStoreOrders, setLoadingStoreOrders] = useState(false);
 
-  // Invoice tab
-  const [existingFundsProfile, setExistingFundsProfile] = useState<Record<string, unknown>>({});
-  const [invoiceForm, setInvoiceForm] = useState<InvoiceDetails>(INV_EMPTY);
+  // Invoice / Billing profiles tab
+  const [billingProfiles, setBillingProfiles] = useState<BillingProfile[]>([]);
+  const [showBpForm, setShowBpForm] = useState(false);
+  const [editingBpId, setEditingBpId] = useState<string | null>(null);
+  const [bpForm, setBpForm] = useState<Omit<BillingProfile, "id" | "linkedStore">>(BP_EMPTY);
   const [billingPinLoading, setBillingPinLoading] = useState(false);
-  const [savingInvoice, setSavingInvoice] = useState(false);
-  const [invoiceSaved, setInvoiceSaved] = useState(false);
+  const [savingBp, setSavingBp] = useState(false);
+  const [bpSaved, setBpSaved] = useState(false);
 
   // Load user
   useEffect(() => {
@@ -246,26 +262,27 @@ function AccountPageContent() {
       fetch("/api/store/address", { credentials: "include" }).then((r) => r.ok ? r.json() : []),
       fetch("/api/store/orders", { credentials: "include" }).then((r) => r.ok ? r.json() : []),
       fetch("/api/store/my-stores", { credentials: "include" }).then((r) => r.ok ? r.json() : { stores: [] }),
-      fetch("/api/user/profile", { credentials: "include" }).then((r) => r.ok ? r.json() : { profile: null }),
-    ]).then(([addrs, ordersData, storesData, profileData]) => {
+      fetch("/api/store/billing-profiles", { credentials: "include" }).then((r) => r.ok ? r.json() : []),
+    ]).then(([addrs, ordersData, storesData, bpData]) => {
       setAddresses(Array.isArray(addrs) ? addrs : []);
       setOrders(Array.isArray(ordersData) ? ordersData : ordersData.orders ?? []);
       const stores: MyStore[] = storesData.stores ?? [];
       setMyStores(stores);
       if (stores.length > 0) setSelectedStoreId(stores[0].id);
-      const fp: Record<string, unknown> = profileData.profile?.fundsProfile ?? {};
-      setExistingFundsProfile(fp);
-      setInvoiceForm({ ...INV_EMPTY, ...((fp.invoiceDetails as InvoiceDetails) ?? {}) });
+      setBillingProfiles(Array.isArray(bpData) ? bpData : []);
     }).catch(() => {})
       .finally(() => setLoadingData(false));
   }, [user]);
 
-  // Fetch orders for selected store
+  // Fetch orders for selected store (or all stores)
   useEffect(() => {
     if (!selectedStoreId) return;
     setLoadingStoreOrders(true);
     setSelectedStoreOrders([]);
-    fetch(`/api/store/orders?storeId=${selectedStoreId}`, { credentials: "include" })
+    const url = selectedStoreId === "all"
+      ? "/api/store/orders?all=true"
+      : `/api/store/orders?storeId=${selectedStoreId}`;
+    fetch(url, { credentials: "include" })
       .then((r) => r.ok ? r.json() : [])
       .then((data) => setSelectedStoreOrders(Array.isArray(data) ? data : []))
       .catch(() => {})
@@ -324,31 +341,84 @@ function AccountPageContent() {
     } finally { setSavingAddr(false); }
   }
 
-  // Invoice handlers
-  function setInvField(k: keyof InvoiceDetails, v: string) {
-    setInvoiceForm((f) => ({ ...f, [k]: v }));
+  // Billing profile handlers
+  function setBpField(k: keyof typeof BP_EMPTY, v: string) {
+    setBpForm((f) => ({ ...f, [k]: v }));
+  }
+
+  function openNewBpForm() {
+    setEditingBpId(null);
+    setBpForm(BP_EMPTY);
+    setShowBpForm(true);
+  }
+
+  function openEditBpForm(profile: BillingProfile) {
+    setEditingBpId(profile.id);
+    setBpForm({
+      legalName: profile.legalName,
+      companyName: profile.companyName ?? "",
+      gstNumber: profile.gstNumber ?? "",
+      addressLine: profile.addressLine ?? "",
+      city: profile.city ?? "",
+      state: profile.state ?? "",
+      pinCode: profile.pinCode ?? "",
+      linkedStoreId: profile.linkedStoreId ?? "",
+    });
+    setShowBpForm(true);
   }
 
   async function handleBillingPinLookup(pin: string) {
     setBillingPinLoading(true);
     const result = await lookupPinCode(pin);
-    if (result) setInvoiceForm((f) => ({ ...f, billingCity: result.city, billingState: result.state }));
+    if (result) setBpForm((f) => ({ ...f, city: result.city, state: result.state }));
     setBillingPinLoading(false);
   }
 
-  async function handleSaveInvoice() {
-    if (!invoiceForm.legalName?.trim()) return;
-    setSavingInvoice(true);
+  async function handleSaveBp() {
+    if (!bpForm.legalName.trim()) return;
+    setSavingBp(true);
     try {
-      await fetch("/api/user/profile", {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({
-          fundsProfile: { ...existingFundsProfile, invoiceDetails: invoiceForm },
-        }),
-      });
-      setInvoiceSaved(true);
-      setTimeout(() => setInvoiceSaved(false), 2000);
-    } finally { setSavingInvoice(false); }
+      const body = {
+        legalName: bpForm.legalName.trim(),
+        companyName: bpForm.companyName?.trim() || null,
+        gstNumber: bpForm.gstNumber?.trim() || null,
+        addressLine: bpForm.addressLine?.trim() || null,
+        city: bpForm.city?.trim() || null,
+        state: bpForm.state?.trim() || null,
+        pinCode: bpForm.pinCode?.trim() || null,
+        linkedStoreId: bpForm.linkedStoreId || null,
+      };
+      let r: Response;
+      if (editingBpId) {
+        r = await fetch(`/api/store/billing-profiles/${editingBpId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          credentials: "include", body: JSON.stringify(body),
+        });
+      } else {
+        r = await fetch("/api/store/billing-profiles", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "include", body: JSON.stringify(body),
+        });
+      }
+      if (r.ok) {
+        const saved: BillingProfile = await r.json();
+        if (editingBpId) {
+          setBillingProfiles((prev) => prev.map((p) => p.id === editingBpId ? saved : p));
+        } else {
+          setBillingProfiles((prev) => [...prev, saved]);
+        }
+        setShowBpForm(false);
+        setEditingBpId(null);
+        setBpForm(BP_EMPTY);
+        setBpSaved(true);
+        setTimeout(() => setBpSaved(false), 2000);
+      }
+    } finally { setSavingBp(false); }
+  }
+
+  async function handleDeleteBp(id: string) {
+    await fetch(`/api/store/billing-profiles/${id}`, { method: "DELETE", credentials: "include" });
+    setBillingProfiles((prev) => prev.filter((p) => p.id !== id));
   }
 
   // Auth states
@@ -521,8 +591,16 @@ function AccountPageContent() {
         {/* ── Tab 2: My Stores ────────────────────────────────────── */}
         {activeTab === "stores" && (
           <div>
-            {myStores.length > 1 && (
+            {myStores.length >= 1 && (
               <div className="flex flex-wrap gap-2 mb-5">
+                <button
+                  onClick={() => setSelectedStoreId("all")}
+                  className="text-sm px-4 py-1.5 rounded-full font-medium"
+                  style={selectedStoreId === "all"
+                    ? { background: A.accent, color: "#fff", border: `1px solid ${A.accent}` }
+                    : { background: A.surface, color: A.text, border: `1px solid ${A.border}`, cursor: "pointer" }}>
+                  All Orders
+                </button>
                 {myStores.map((s) => (
                   <button key={s.id} onClick={() => setSelectedStoreId(s.id)}
                     className="text-sm px-4 py-1.5 rounded-full font-medium"
@@ -539,9 +617,12 @@ function AccountPageContent() {
               <>
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="text-sm font-bold" style={{ color: A.text }}>
-                    {myStores.find((s) => s.id === selectedStoreId)?.name} — Recent Orders
+                    {selectedStoreId === "all"
+                      ? "All Stores — Recent Orders"
+                      : `${myStores.find((s) => s.id === selectedStoreId)?.name} — Recent Orders`}
                   </h2>
-                  <a href={`/store/${selectedStoreId}/orders`}
+                  <a
+                    href={selectedStoreId === "all" ? "/store/orders/all" : `/store/${selectedStoreId}/orders`}
                     className="text-xs font-medium" style={{ color: A.accent, textDecoration: "none" }}>
                     View all →
                   </a>
@@ -551,15 +632,18 @@ function AccountPageContent() {
                   <div className="flex justify-center py-8"><Spinner /></div>
                 ) : selectedStoreOrders.length === 0 ? (
                   <p className="text-sm text-center py-8" style={{ color: A.textMuted }}>
-                    No orders received yet for this store.
+                    {selectedStoreId === "all"
+                      ? "No orders across any store yet."
+                      : "No orders received yet for this store."}
                   </p>
                 ) : (
                   <div className="space-y-2">
                     {selectedStoreOrders.slice(0, 5).map((order) => (
-                      <StoreOrderCard key={order.id} order={order} />
+                      <StoreOrderCard key={order.id} order={order} showStore={selectedStoreId === "all"} />
                     ))}
                     {selectedStoreOrders.length > 5 && (
-                      <a href={`/store/${selectedStoreId}/orders`}
+                      <a
+                        href={selectedStoreId === "all" ? "/store/orders/all" : `/store/${selectedStoreId}/orders`}
                         className="text-xs block text-center py-2"
                         style={{ color: A.accent, textDecoration: "none" }}>
                         +{selectedStoreOrders.length - 5} more orders →
@@ -576,77 +660,153 @@ function AccountPageContent() {
         {activeTab === "invoice" && (
           <div className="space-y-4">
             <p className="text-xs" style={{ color: A.textMuted }}>
-              These details appear on invoices generated for your purchases.
+              Save billing profiles for invoices. You can link each profile to a specific store (for GST purposes) or keep it personal.
             </p>
-            <div className="rounded-xl p-4 space-y-3" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            {/* Existing profiles */}
+            {billingProfiles.length > 0 && (
+              <div className="space-y-3">
+                {billingProfiles.map((profile) => (
+                  <div key={profile.id} className="rounded-xl p-4" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold" style={{ color: A.text }}>{profile.legalName}</span>
+                          {profile.linkedStore && (
+                            <span className="text-xs px-2 py-0.5 rounded-full"
+                              style={{ background: "#EEF2FF", color: A.accent }}>
+                              {profile.linkedStore.name}
+                            </span>
+                          )}
+                        </div>
+                        {profile.companyName && (
+                          <div className="text-xs mt-0.5" style={{ color: A.textMuted }}>{profile.companyName}</div>
+                        )}
+                        {profile.gstNumber && (
+                          <div className="text-xs mt-0.5 font-mono" style={{ color: A.textMuted }}>GST: {profile.gstNumber}</div>
+                        )}
+                        {(profile.addressLine || profile.city) && (
+                          <div className="text-xs mt-1" style={{ color: A.textMuted }}>
+                            {[profile.addressLine, profile.city, profile.state, profile.pinCode].filter(Boolean).join(", ")}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-1.5 shrink-0">
+                        <button onClick={() => openEditBpForm(profile)}
+                          className="text-xs px-2 py-1 rounded"
+                          style={{ border: `1px solid ${A.accent}`, color: A.accent, background: A.surface, cursor: "pointer" }}>
+                          Edit
+                        </button>
+                        <button onClick={() => handleDeleteBp(profile.id)}
+                          className="text-xs px-2 py-1 rounded"
+                          style={{ border: "1px solid #FCA5A5", color: "#EF4444", background: A.surface, cursor: "pointer" }}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add new profile form */}
+            {showBpForm ? (
+              <div className="rounded-xl p-4 space-y-3" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
+                <h3 className="text-sm font-semibold" style={{ color: A.text }}>
+                  {editingBpId ? "Edit billing profile" : "New billing profile"}
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>
+                      Legal Name <span style={{ color: "#EF4444" }}>*</span>
+                    </label>
+                    <input value={bpForm.legalName}
+                      onChange={(e) => setBpField("legalName", e.target.value)}
+                      placeholder="Your legal name" className={iCls} style={iStyle} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Company Name</label>
+                    <input value={bpForm.companyName ?? ""}
+                      onChange={(e) => setBpField("companyName", e.target.value)}
+                      placeholder="Company (optional)" className={iCls} style={iStyle} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>GST Number</label>
+                    <input value={bpForm.gstNumber ?? ""}
+                      onChange={(e) => setBpField("gstNumber", e.target.value)}
+                      placeholder="GST number (optional)" className={iCls} style={iStyle} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Link to Store (optional)</label>
+                    <select value={bpForm.linkedStoreId ?? ""}
+                      onChange={(e) => setBpField("linkedStoreId", e.target.value)}
+                      className={iCls} style={iStyle}>
+                      <option value="">Personal / No store</option>
+                      {myStores.map((s) => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
                 <div>
-                  <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>
-                    Legal Name <span style={{ color: "#EF4444" }}>*</span>
-                  </label>
-                  <input value={invoiceForm.legalName ?? ""}
-                    onChange={(e) => setInvField("legalName", e.target.value)}
-                    placeholder="Your legal name" className={iCls} style={iStyle} />
+                  <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Billing Address</label>
+                  <input value={bpForm.addressLine ?? ""}
+                    onChange={(e) => setBpField("addressLine", e.target.value)}
+                    placeholder="Address line (optional)" className={iCls} style={iStyle} />
                 </div>
-                <div>
-                  <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Company Name</label>
-                  <input value={invoiceForm.companyName ?? ""}
-                    onChange={(e) => setInvField("companyName", e.target.value)}
-                    placeholder="Company (optional)" className={iCls} style={iStyle} />
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="relative">
+                    <input value={bpForm.pinCode ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                        setBpField("pinCode", v);
+                        if (v.length === 6) handleBillingPinLookup(v);
+                      }}
+                      placeholder="PIN code" inputMode="numeric" className={iCls} style={iStyle} />
+                    {billingPinLoading && (
+                      <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: A.textMuted }}>⏳</span>
+                    )}
+                  </div>
+                  <input value={bpForm.city ?? ""}
+                    onChange={(e) => setBpField("city", e.target.value)}
+                    placeholder="City" className={iCls} style={iStyle} />
+                  <input value={bpForm.state ?? ""}
+                    onChange={(e) => setBpField("state", e.target.value)}
+                    placeholder="State" className={iCls} style={iStyle} />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button onClick={handleSaveBp}
+                    disabled={savingBp || !bpForm.legalName.trim()}
+                    className="text-sm px-5 py-2 rounded-md font-medium"
+                    style={{
+                      background: A.accent, color: "#fff",
+                      opacity: (savingBp || !bpForm.legalName.trim()) ? 0.6 : 1,
+                      cursor: (savingBp || !bpForm.legalName.trim()) ? "default" : "pointer",
+                    }}>
+                    {savingBp ? "Saving…" : editingBpId ? "Update" : "Save profile"}
+                  </button>
+                  <button onClick={() => { setShowBpForm(false); setEditingBpId(null); setBpForm(BP_EMPTY); }}
+                    className="text-sm px-4 py-2 rounded-md"
+                    style={{ border: `1px solid ${A.border}`, color: A.textMuted, background: A.surface, cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                  {bpSaved && <span className="text-sm font-medium" style={{ color: "#10B981" }}>✓ Saved</span>}
                 </div>
               </div>
-
-              <div>
-                <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>GST Number</label>
-                <input value={invoiceForm.gstNumber ?? ""}
-                  onChange={(e) => setInvField("gstNumber", e.target.value)}
-                  placeholder="GST number (optional)" className={iCls} style={iStyle} />
-              </div>
-
-              <div>
-                <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Billing Address</label>
-                <input value={invoiceForm.billingLine1 ?? ""}
-                  onChange={(e) => setInvField("billingLine1", e.target.value)}
-                  placeholder="Address line (optional)" className={iCls} style={iStyle} />
-              </div>
-
-              <div className="grid grid-cols-3 gap-2">
-                <div className="relative">
-                  <input value={invoiceForm.billingPincode ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "").slice(0, 6);
-                      setInvField("billingPincode", v);
-                      if (v.length === 6) handleBillingPinLookup(v);
-                    }}
-                    placeholder="PIN code" inputMode="numeric" className={iCls} style={iStyle} />
-                  {billingPinLoading && (
-                    <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: A.textMuted }}>⏳</span>
-                  )}
-                </div>
-                <input value={invoiceForm.billingCity ?? ""}
-                  onChange={(e) => setInvField("billingCity", e.target.value)}
-                  placeholder="City" className={iCls} style={iStyle} />
-                <input value={invoiceForm.billingState ?? ""}
-                  onChange={(e) => setInvField("billingState", e.target.value)}
-                  placeholder="State" className={iCls} style={iStyle} />
-              </div>
-
-              <div className="flex items-center gap-3 pt-1">
-                <button onClick={handleSaveInvoice}
-                  disabled={savingInvoice || !invoiceForm.legalName?.trim()}
-                  className="text-sm px-5 py-2 rounded-md font-medium"
-                  style={{
-                    background: A.accent, color: "#fff",
-                    opacity: (savingInvoice || !invoiceForm.legalName?.trim()) ? 0.6 : 1,
-                    cursor: (savingInvoice || !invoiceForm.legalName?.trim()) ? "default" : "pointer",
-                  }}>
-                  {savingInvoice ? "Saving…" : "Save"}
-                </button>
-                {invoiceSaved && (
-                  <span className="text-sm font-medium" style={{ color: "#10B981" }}>✓ Saved</span>
-                )}
-              </div>
-            </div>
+            ) : (
+              <button onClick={openNewBpForm}
+                className="w-full py-3 rounded-xl text-sm font-medium"
+                style={{ border: `2px dashed ${A.border}`, color: A.accent, background: "transparent", cursor: "pointer" }}>
+                + Add billing profile
+              </button>
+            )}
           </div>
         )}
       </main>
