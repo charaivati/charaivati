@@ -112,7 +112,7 @@ export default function StoreImagePickerModal({ storeId, onSelect, onClose }: Pr
             <div className="text-center py-16">
               <p className="text-2xl mb-2">🖼️</p>
               <p className="text-sm" style={{ color: "#565959" }}>
-                {query ? "No images match that name." : "No images yet. Click "Upload new" to add some."}
+                {query ? "No images match that name." : 'No images yet. Click “Upload new” to add some.'}
               </p>
             </div>
           ) : (

@@ -8,9 +8,21 @@ export async function GET(
 ) {
   const { id } = await params;
 
+  // Resolve slug → real cuid if needed. A cuid is 25 chars starting with 'c',
+  // all alphanumeric. Anything else is treated as a potential slug.
+  const isCuid = /^c[a-z0-9]{24}$/i.test(id);
+  let storeId = id;
+  if (!isCuid) {
+    const rows = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM "Store" WHERE slug = ${id} LIMIT 1
+    `;
+    if (!rows[0]?.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    storeId = rows[0].id;
+  }
+
   const [store, user] = await Promise.all([
     prisma.store.findUnique({
-      where: { id },
+      where: { id: storeId },
       include: {
         sections: {
           orderBy: { order: "asc" },
@@ -35,6 +47,12 @@ export async function GET(
   ]);
 
   if (!store) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Fetch slug via raw SQL — safe with stale Prisma client
+  const slugRow = await prisma.$queryRaw<{ slug: string | null }[]>`
+    SELECT slug FROM "Store" WHERE id = ${storeId} LIMIT 1
+  `;
+  const slug = slugRow[0]?.slug ?? null;
 
   let pageType = "store";
   if (store.pageId) {
@@ -68,6 +86,7 @@ export async function GET(
 
   return NextResponse.json({
     ...store,
+    slug,
     sections: processedSections,
     filters,
     globalBanner,

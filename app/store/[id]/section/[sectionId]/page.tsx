@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useStoreShell } from "@/app/store/[id]/StoreShellContext";
 import QuickOrderModal from "@/components/store/QuickOrderModal";
 import StoreImagePickerModal from "@/components/store/StoreImagePickerModal";
@@ -20,6 +20,7 @@ const A = {
 
 type MediaType = "image" | "video" | "link" | "none";
 type ActionType = "view" | "buy" | "book" | "contact" | "subscribe";
+type RatingData = { average: number; count: number; userRating: number | null };
 
 type Block = {
   id: string;
@@ -487,15 +488,163 @@ function TopNav({
 
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
-function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishlist, isWishlisted }: {
+function QtyStepperInline({ qty, onChange }: { qty: number; onChange: (n: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [raw, setRaw] = useState("");
+
+  function clamp(n: number) { return Math.min(99, Math.max(1, n)); }
+
+  function startEdit() { setRaw(String(qty)); setEditing(true); }
+
+  function commitEdit() {
+    const n = parseInt(raw, 10);
+    onChange(isNaN(n) ? qty : clamp(n));
+    setEditing(false);
+  }
+
+  const btn: React.CSSProperties = {
+    width: 18, height: 18, borderRadius: 4, border: `1px solid ${A.border}`,
+    background: "#f9fafb", color: A.text, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: 11, fontWeight: 700, lineHeight: 1, flexShrink: 0, padding: 0,
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: 0 }}>
+      <button type="button" style={btn}
+        onClick={(e) => { e.stopPropagation(); onChange(clamp(qty - 1)); }}>−</button>
+      {editing ? (
+        <input
+          autoFocus
+          value={raw}
+          onChange={(e) => setRaw(e.target.value.replace(/\D/g, ""))}
+          onBlur={commitEdit}
+          onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); }}
+          style={{ width: 26, height: 18, textAlign: "center", fontSize: 11, border: `1px solid ${A.accent}`, borderRadius: 3, outline: "none", color: A.text, background: "#fff", padding: 0 }}
+        />
+      ) : (
+        <span
+          onClick={(e) => { e.stopPropagation(); startEdit(); }}
+          style={{ width: 26, textAlign: "center", fontSize: 11, fontWeight: 600, color: A.text, cursor: "text", userSelect: "none" }}
+        >{qty}</span>
+      )}
+      <button type="button" style={btn}
+        onClick={(e) => { e.stopPropagation(); onChange(clamp(qty + 1)); }}>+</button>
+    </div>
+  );
+}
+
+// ─── StarRating ───────────────────────────────────────────────────────────────
+
+function StarRating({ productId, ratingData, isOwner, isLoggedIn, onRate }: {
+  productId: string;
+  ratingData: RatingData | undefined;
+  isOwner: boolean;
+  isLoggedIn: boolean;
+  onRate: (productId: string, rating: number) => void;
+}) {
+  const [hovered, setHovered] = useState(0);
+  const [flash, setFlash] = useState<string | null>(null);
+  const [thanks, setThanks] = useState(false);
+
+  const isInteractive = isLoggedIn && !isOwner;
+  const avg = ratingData?.average ?? 0;
+  const count = ratingData?.count ?? 0;
+  const userRating = ratingData?.userRating ?? 0;
+
+  function showFlash(msg: string) {
+    setFlash(msg);
+    setTimeout(() => setFlash(null), 2000);
+  }
+
+  function handleClick(i: number) {
+    if (isOwner) { showFlash("You can't rate your own product."); return; }
+    if (!isLoggedIn) { showFlash("Log in to rate."); return; }
+    onRate(productId, i);
+    setThanks(true);
+    setTimeout(() => setThanks(false), 2000);
+  }
+
+  if (flash) return (
+    <p className="text-xs mt-1" style={{ color: A.textMuted, minHeight: 18 }}>{flash}</p>
+  );
+  if (thanks) return (
+    <p className="text-xs mt-1 font-medium" style={{ color: "#10B981", minHeight: 18 }}>Thanks for rating!</p>
+  );
+
+  // Skeleton while data loading
+  if (ratingData === undefined) return (
+    <div className="flex items-center gap-0.5 mt-1" style={{ minHeight: 18 }}>
+      {[1,2,3,4,5].map((i) => (
+        <span key={i} style={{ color: "#E5E7EB", fontSize: 13, lineHeight: 1 }}>☆</span>
+      ))}
+    </div>
+  );
+
+  const filledUpTo = hovered || userRating || Math.round(avg);
+
+  const starRow = (
+    <span
+      className="flex items-center"
+      style={{ gap: 1 }}
+      onMouseLeave={() => isInteractive && setHovered(0)}
+    >
+      {[1,2,3,4,5].map((i) => (
+        <span
+          key={i}
+          onMouseEnter={() => isInteractive && setHovered(i)}
+          onClick={() => handleClick(i)}
+          style={{
+            color: i <= filledUpTo ? "#F59E0B" : "#D1D5DB",
+            fontSize: 13,
+            lineHeight: 1,
+            cursor: isInteractive ? "pointer" : "default",
+            userSelect: "none" as const,
+          }}
+        >
+          {i <= filledUpTo ? "★" : "☆"}
+        </span>
+      ))}
+    </span>
+  );
+
+  if (count === 0) {
+    return (
+      <div className="flex items-center gap-1 mt-1" style={{ minHeight: 18 }}>
+        {isInteractive ? (
+          <>
+            {starRow}
+            <span style={{ fontSize: 10, color: A.textMuted }}>Be first</span>
+          </>
+        ) : (
+          <span style={{ fontSize: 10, color: A.textMuted }}>No ratings yet</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 mt-1" style={{ minHeight: 18 }}>
+      {starRow}
+      <span style={{ fontSize: 10, color: A.textMuted }}>({count})</span>
+    </div>
+  );
+}
+
+// ─── ProductCard ──────────────────────────────────────────────────────────────
+
+function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishlist, isWishlisted, ratingData, isOwner, isLoggedIn, onRate }: {
   block: Block; editMode: boolean; onRemove?: () => void;
-  onAddToCart?: () => void; onBuyNow?: () => void; onWishlist?: () => void; isWishlisted?: boolean;
+  onAddToCart?: (qty: number) => void; onBuyNow?: (qty: number) => void; onWishlist?: () => void; isWishlisted?: boolean;
+  ratingData?: RatingData; isOwner?: boolean; isLoggedIn?: boolean;
+  onRate?: (productId: string, rating: number) => void;
 }) {
   const [added, setAdded] = useState(false);
+  const [qty, setQty] = useState(1);
 
   function handleAddToCart() {
     if (!onAddToCart) return;
-    onAddToCart();
+    onAddToCart(qty);
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
   }
@@ -521,14 +670,22 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishl
         }
       </div>
       <div className="px-3 pb-4 pt-2">
-        <p className="text-sm leading-snug line-clamp-2" style={{ color: A.text }}>{block.title || "Untitled"}</p>
+        <div className="flex items-start justify-between gap-1">
+          <p className="text-sm leading-snug line-clamp-2 flex-1" style={{ color: A.text }}>{block.title || "Untitled"}</p>
+          {!editMode && <QtyStepperInline qty={qty} onChange={setQty} />}
+        </div>
         {block.description && (
           <p className="text-xs mt-0.5 line-clamp-1" style={{ color: A.textMuted }}>{block.description}</p>
         )}
-        <div className="flex items-center gap-1 mt-1 text-xs">
-          <span style={{ color: A.link }}>★★★★☆</span>
-          <span style={{ color: A.link }}>(1,234)</span>
-        </div>
+        {!editMode && (
+          <StarRating
+            productId={block.id}
+            ratingData={ratingData}
+            isOwner={isOwner ?? false}
+            isLoggedIn={isLoggedIn ?? false}
+            onRate={onRate ?? (() => {})}
+          />
+        )}
         {block.price != null && (
           <div className="mt-1">
             <span className="text-sm font-medium" style={{ color: A.text }}>₹{block.price.toLocaleString("en-IN")}</span>
@@ -543,7 +700,7 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishl
                 : { background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>
               {added ? "✓ Added" : "Add to Cart"}
             </button>
-            <button onClick={onBuyNow} className="text-xs font-medium px-3 py-2 rounded-md"
+            <button onClick={() => onBuyNow?.(qty)} className="text-xs font-medium px-3 py-2 rounded-md"
               style={{ background: "#FFA41C", border: "1px solid #FF8F00", color: "#111" }}>
               Buy Now
             </button>
@@ -558,9 +715,11 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishl
 
 export default function SectionPage() {
   const { id, sectionId } = useParams<{ id: string; sectionId: string }>();
+  const router = useRouter();
 
   const [storeName, setStoreName] = useState("");
   const [storeId, setStoreId] = useState("");
+  const [storeSlug, setStoreSlug] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [sectionTitle, setSectionTitle] = useState("");
   const [blocks, setBlocks] = useState<Block[]>([]);
@@ -576,16 +735,34 @@ export default function SectionPage() {
   const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
   const [quickOrderItem, setQuickOrderItem] = useState<{ blockId: string; title: string; price: number; quantity: number; imageUrl?: string | null } | null>(null);
+  const [ratings, setRatings] = useState<Record<string, RatingData>>({});
 
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
+        // Canonical redirect: cuid URL → slug URL
+        if (data.slug && id !== data.slug) {
+          router.replace(`/store/${data.slug}/section/${sectionId}`);
+          return;
+        }
         setStoreName(data.name ?? "Store");
         setStoreId(data.id ?? id);
+        setStoreSlug(data.slug ?? null);
         setIsOwner(!!data.isOwner);
         const found = (data.sections ?? []).find((s: any) => s.id === sectionId);
-        if (found) { setSectionTitle(found.title); setBlocks(found.blocks ?? []); }
+        if (found) {
+          setSectionTitle(found.title);
+          const foundBlocks: Block[] = found.blocks ?? [];
+          setBlocks(foundBlocks);
+          if (foundBlocks.length > 0) {
+            const ids = foundBlocks.map((b) => b.id).join(",");
+            fetch(`/api/store/products/ratings?ids=${ids}`, { credentials: "include" })
+              .then((r) => r.ok ? r.json() : {})
+              .then(setRatings)
+              .catch(() => {});
+          }
+        }
         fetch(`/api/store/cart/${data.id}`, { credentials: "include" })
           .then((r) => r.ok ? r.json() : []).then(setCartItems).catch(() => {});
         fetch("/api/store/wishlist", { credentials: "include" })
@@ -611,17 +788,35 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
-  function handleBuyNow(block: Block) {
-    setQuickOrderItem({ blockId: block.id, title: block.title, price: block.price ?? 0, quantity: 1, imageUrl: block.mediaUrl ?? null });
+  async function handleRate(productId: string, rating: number) {
+    try {
+      const res = await fetch(`/api/store/products/${productId}/rate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ rating }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRatings((prev) => ({
+          ...prev,
+          [productId]: { average: data.average, count: data.count, userRating: rating },
+        }));
+      }
+    } catch {}
   }
 
-  async function handleAddToCart(block: Block) {
-    const res = await fetch(`/api/store/cart/${storeId}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id }) });
+  function handleBuyNow(block: Block, qty: number) {
+    setQuickOrderItem({ blockId: block.id, title: block.title, price: block.price ?? 0, quantity: qty, imageUrl: block.mediaUrl ?? null });
+  }
+
+  async function handleAddToCart(block: Block, qty: number) {
+    const res = await fetch(`/api/store/cart/${storeId}`, { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id, quantity: qty }) });
     if (res.ok) {
       const item = await res.json();
       setCartItems((prev) => {
         const existing = prev.find((i) => i.blockId === block.id);
-        if (existing) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + 1 } : i);
+        if (existing) return prev.map((i) => i.blockId === block.id ? { ...i, quantity: i.quantity + qty } : i);
         return [...prev, item];
       });
     }
@@ -684,7 +879,7 @@ export default function SectionPage() {
     <div className="min-h-screen" style={{ background: A.bg }}>
 
       <main className="max-w-7xl mx-auto px-3 py-6">
-        <a href={`/store/${id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
+        <a href={`/store/${storeSlug ?? storeId || id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
           ← Back to store
         </a>
         <div className="flex items-center justify-between mb-1">
@@ -710,10 +905,14 @@ export default function SectionPage() {
                 block={block}
                 editMode={editMode}
                 onRemove={() => removeBlock(block.id)}
-                onAddToCart={() => handleAddToCart(block)}
-                onBuyNow={() => handleBuyNow(block)}
+                onAddToCart={(qty) => handleAddToCart(block, qty)}
+                onBuyNow={(qty) => handleBuyNow(block, qty)}
                 onWishlist={() => handleWishlist(block.id)}
                 isWishlisted={wishlist.has(block.id)}
+                ratingData={ratings[block.id]}
+                isOwner={isOwner}
+                isLoggedIn={currentUser !== null}
+                onRate={handleRate}
               />
             ))}
           </div>

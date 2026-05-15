@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
 
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
@@ -86,7 +87,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
-  const storeId = searchParams.get("storeId");
+  let storeId = searchParams.get("storeId");
   const all = searchParams.get("all");
   const statusFilter = searchParams.get("status");
 
@@ -105,14 +106,26 @@ export async function GET(req: NextRequest) {
       },
       orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json(orders);
+    const slugs = await getStoreSlugs(storeIds);
+    return NextResponse.json(
+      orders.map((o) => ({ ...o, store: { ...o.store, slug: slugs[o.store.id] ?? null } }))
+    );
   }
 
   if (storeId) {
+    // Resolve slug → real cuid without relying on Prisma client knowing about slug
+    const isCuid = /^c[a-z0-9]{24}$/i.test(storeId);
+    if (!isCuid) {
+      const rows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "Store" WHERE slug = ${storeId} LIMIT 1
+      `;
+      storeId = rows[0]?.id ?? storeId;
+    }
     const store = await prisma.store.findUnique({ where: { id: storeId } });
     if (!store || store.ownerId !== user.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    storeId = store.id;
 
     const where: { storeId: string; status?: string } = { storeId };
     if (statusFilter) where.status = statusFilter;
@@ -130,7 +143,14 @@ export async function GET(req: NextRequest) {
     include: { store: { select: { id: true, name: true } }, address: true },
     orderBy: { createdAt: "desc" },
   });
-  return NextResponse.json(orders);
+  const buyerStoreIds = [...new Set(orders.map((o) => o.storeId))];
+  const slugs = await getStoreSlugs(buyerStoreIds);
+  return NextResponse.json(
+    orders.map((o) => ({
+      ...o,
+      store: o.store ? { ...o.store, slug: slugs[o.store.id] ?? null } : o.store,
+    }))
+  );
 }
 
 async function sendOrderEmail({

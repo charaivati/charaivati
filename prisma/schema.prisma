@@ -72,6 +72,7 @@ model User {
   wishlistItems   WishlistItem[]
   pinnedStores    PinnedStore[]
   billingProfiles BillingProfile[]
+  productRatings  ProductRating[]
   @@index([email])
   @@index([phone])
 }
@@ -245,6 +246,7 @@ model Course {
 model Store {
   id          String         @id @default(cuid())
   name        String
+  slug        String?        @unique
   description String?
   ownerId     String
   pageId      String?        @unique
@@ -390,6 +392,7 @@ model StoreBlock {
   courseProgress CourseProgress[]
   cartItems     CartItem[]
   wishlistItems WishlistItem[]
+  ratings       ProductRating[]
 
   @@index([sectionId])
   @@index([subsectionId])
@@ -1311,5 +1314,19 @@ model BillingProfile {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   linkedStore   Store?   @relation(fields: [linkedStoreId], references: [id])
 
+  @@index([userId])
+}
+
+model ProductRating {
+  id        String     @id @default(cuid())
+  productId String
+  userId    String
+  rating    Int
+  createdAt DateTime   @default(now())
+  product   StoreBlock @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, userId])
+  @@index([productId])
   @@index([userId])
 }

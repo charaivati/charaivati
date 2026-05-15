@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
 
 export async function GET() {
   const stores = await prisma.store.findMany({
@@ -21,11 +22,13 @@ export async function GET() {
     take: 50,
   });
 
+  const slugs = await getStoreSlugs(stores.map((s) => s.id));
   return NextResponse.json({
     stores: stores.map((s) => ({
       id: s.id,
       name: s.name,
       description: s.description,
+      slug: slugs[s.id] ?? null,
       previewImage: s.sections[0]?.tiles[0]?.imageUrl ?? null,
     })),
   });

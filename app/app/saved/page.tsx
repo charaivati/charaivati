@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QuickOrderModal from "@/components/store/QuickOrderModal";
 
 const A = {
   bg: "#F3F4F6",
@@ -13,6 +14,7 @@ const A = {
 
 type Store = {
   id: string;
+  slug?: string | null;
   name: string;
   description?: string | null;
   previewImage?: string | null;
@@ -20,6 +22,7 @@ type Store = {
 
 type PinnedItem = {
   storeId: string;
+  storeSlug?: string | null;
   storeName: string;
   description?: string | null;
   previewImage?: string | null;
@@ -27,13 +30,19 @@ type PinnedItem = {
 
 type WishlistItem = {
   blockId: string;
+  storeId: string;
   block: {
     id: string;
     title: string;
     price: number | null;
     mediaUrl: string | null;
   };
-  store: { id: string; name: string };
+  store: { id: string; slug?: string | null; name: string };
+};
+
+type QuickItem = {
+  blockId: string; title: string; price: number; quantity: number; imageUrl?: string | null;
+  storeId: string; storeName: string;
 };
 
 export default function SavedPage() {
@@ -48,6 +57,7 @@ export default function SavedPage() {
   const [search, setSearch] = useState("");
   const [togglingPin, setTogglingPin] = useState<string | null>(null);
   const [removingWishlist, setRemovingWishlist] = useState<string | null>(null);
+  const [quickOrder, setQuickOrder] = useState<QuickItem | null>(null);
 
   const [loading, setLoading] = useState(true);
 
@@ -213,7 +223,7 @@ export default function SavedPage() {
                     }}
                   >
                     <a
-                      href={`/store/${p.storeId}`}
+                      href={`/store/${p.storeSlug ?? p.storeId}`}
                       style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0, textDecoration: "none" }}
                     >
                       {p.previewImage ? (
@@ -289,6 +299,7 @@ export default function SavedPage() {
             >
               {wishlist.map((item) => {
                 const removing = removingWishlist === item.blockId;
+                const storeHandle = item.store.slug ?? item.store.id;
                 return (
                   <div
                     key={item.blockId}
@@ -321,26 +332,55 @@ export default function SavedPage() {
                       }}>
                         {item.block.title}
                       </div>
-                      <div style={{ fontSize: 11, color: A.textMuted, marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: A.textMuted, marginTop: 2 }}>
                         {item.block.price != null
                           ? `₹${item.block.price.toLocaleString("en-IN")}`
                           : "Free"}
                       </div>
-                      <button
-                        onClick={() => toggleWishlist(item.blockId, item.store.id)}
-                        disabled={removing}
+                      <a
+                        href={`/store/${storeHandle}`}
                         style={{
-                          marginTop: 8, width: "100%",
-                          padding: "5px 0", borderRadius: 6,
-                          fontSize: 11, fontWeight: 600,
-                          cursor: removing ? "default" : "pointer",
-                          opacity: removing ? 0.6 : 1,
-                          border: "1px solid rgba(239,68,68,0.3)",
-                          background: A.surface, color: "#EF4444",
+                          display: "block", fontSize: 10, color: A.accent,
+                          marginTop: 3, textDecoration: "none",
+                          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         }}
                       >
-                        {removing ? "..." : "Unsave"}
-                      </button>
+                        {item.store.name}
+                      </a>
+                      <div style={{ display: "flex", gap: 5, marginTop: 8 }}>
+                        <button
+                          onClick={() => setQuickOrder({
+                            blockId: item.block.id,
+                            title: item.block.title,
+                            price: item.block.price ?? 0,
+                            quantity: 1,
+                            imageUrl: item.block.mediaUrl,
+                            storeId: item.store.id,
+                            storeName: item.store.name,
+                          })}
+                          style={{
+                            flex: 1, padding: "5px 0", borderRadius: 6,
+                            fontSize: 11, fontWeight: 600, cursor: "pointer",
+                            background: "#FFA41C", border: "1px solid #FF8F00", color: "#111",
+                          }}
+                        >
+                          Buy Now
+                        </button>
+                        <button
+                          onClick={() => toggleWishlist(item.blockId, item.store.id)}
+                          disabled={removing}
+                          style={{
+                            flex: 1, padding: "5px 0", borderRadius: 6,
+                            fontSize: 11, fontWeight: 600,
+                            cursor: removing ? "default" : "pointer",
+                            opacity: removing ? 0.6 : 1,
+                            border: "1px solid rgba(239,68,68,0.3)",
+                            background: A.surface, color: "#EF4444",
+                          }}
+                        >
+                          {removing ? "..." : "Unsave"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -494,7 +534,7 @@ export default function SavedPage() {
                         )}
 
                         <a
-                          href={`/store/${store.id}`}
+                          href={`/store/${store.slug ?? store.id}`}
                           style={{
                             padding: "5px 10px",
                             borderRadius: 6,
@@ -517,6 +557,22 @@ export default function SavedPage() {
           )}
         </section>
       </div>
+
+      {quickOrder && (
+        <QuickOrderModal
+          open
+          onClose={() => setQuickOrder(null)}
+          storeId={quickOrder.storeId}
+          storeName={quickOrder.storeName}
+          initialItem={{
+            blockId: quickOrder.blockId,
+            title: quickOrder.title,
+            price: quickOrder.price,
+            quantity: quickOrder.quantity,
+            imageUrl: quickOrder.imageUrl,
+          }}
+        />
+      )}
     </div>
   );
 }

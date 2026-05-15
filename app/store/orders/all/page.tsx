@@ -14,7 +14,7 @@ type Order = {
   items: OrderItem[];
   address: Address;
   user: { name: string | null; email: string | null };
-  store: { id: string; name: string };
+  store: { id: string; slug?: string | null; name: string };
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -91,7 +91,7 @@ export default function AllOrdersPage() {
                       style={{ background: `${STATUS_COLORS[order.status]}20`, color: STATUS_COLORS[order.status] ?? A.textMuted }}>
                       {order.status}
                     </span>
-                    <a href={`/store/${order.store.id}`}
+                    <a href={`/store/${order.store.slug ?? order.store.id}`}
                       className="text-xs px-2 py-0.5 rounded font-medium"
                       style={{ background: "#EEF2FF", color: A.accent, textDecoration: "none" }}>
                       {order.store.name}

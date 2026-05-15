@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
 
 export async function GET(req: NextRequest) {
   const user = await getServerUser(req);
@@ -25,14 +26,16 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
+  const slugs = await getStoreSlugs(pinned.map((p) => p.storeId));
   return NextResponse.json({
-    pinned: pinned.map(p => ({
+    pinned: pinned.map((p) => ({
       storeId: p.storeId,
+      storeSlug: slugs[p.storeId] ?? null,
       storeName: p.store.name,
       description: p.store.description,
       previewImage: p.store.sections[0]?.tiles[0]?.imageUrl ?? null,
       pinnedAt: p.createdAt,
-    }))
+    })),
   });
 }
 

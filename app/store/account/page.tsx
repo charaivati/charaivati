@@ -31,11 +31,11 @@ type OrderItem = { id: string; quantity: number; block: { title: string; price: 
 type Order = {
   id: string; status: string; createdAt: string; total: number;
   storeId?: string;
-  store?: { id: string; name: string };
+  store?: { id: string; slug?: string | null; name: string };
   user?: { name: string | null; email: string | null };
   items: OrderItem[];
 };
-type MyStore = { id: string; name: string };
+type MyStore = { id: string; slug?: string | null; name: string };
 type BillingProfile = {
   id: string;
   legalName: string;
@@ -133,6 +133,7 @@ function AddressCard({
 }
 
 function PurchaseOrderCard({ order }: { order: Order }) {
+  const storeHandle = order.store?.slug ?? order.store?.id ?? order.storeId;
   const storeId = order.store?.id ?? order.storeId;
   const storeName = order.store?.name;
   const total = order.total ?? order.items?.reduce((s, i) => s + (i.block?.price ?? 0) * i.quantity, 0) ?? 0;
@@ -144,8 +145,8 @@ function PurchaseOrderCard({ order }: { order: Order }) {
             #{order.id.slice(-8).toUpperCase()}
           </div>
           <div className="text-xs" style={{ color: A.textMuted }}>{fmtDate(order.createdAt)}</div>
-          {storeName && storeId && (
-            <a href={`/store/${storeId}`} className="text-xs hover:underline"
+          {storeName && storeHandle && (
+            <a href={`/store/${storeHandle}`} className="text-xs hover:underline"
               style={{ color: A.accent, textDecoration: "none" }}>
               {storeName}
             </a>
@@ -602,7 +603,7 @@ function AccountPageContent() {
                   All Orders
                 </button>
                 {myStores.map((s) => (
-                  <button key={s.id} onClick={() => setSelectedStoreId(s.id)}
+                  <button key={s.id} onClick={() => setSelectedStoreId(s.slug ?? s.id)}
                     className="text-sm px-4 py-1.5 rounded-full font-medium"
                     style={selectedStoreId === s.id
                       ? { background: A.accent, color: "#fff", border: `1px solid ${A.accent}` }

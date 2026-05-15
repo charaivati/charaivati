@@ -42,6 +42,7 @@ interface Section {
 
 interface Store {
   id: string;
+  slug?: string | null;
   name: string;
   description?: string | null;
 }
@@ -1450,7 +1451,7 @@ export default function StoreSetupPage() {
       if (!storeRes.ok) throw new Error("Could not load store data");
       const data = await storeRes.json();
 
-      setStore({ id: data.id, name: data.name, description: data.description });
+      setStore({ id: data.id, slug: data.slug ?? null, name: data.name, description: data.description });
       setStoreId(data.id);
       setBusinessName(data.name);
       setSections((data.sections ?? []).map((s: any) => ({ ...s, blocks: s.blocks ?? [] })));
@@ -1540,12 +1541,12 @@ export default function StoreSetupPage() {
             )}
             {store && (
               isLearning ? (
-                <a href={`/store/${store.id}`}
+                <a href={`/store/${store.slug ?? store.id}`}
                   className="text-xs px-3 py-1.5 rounded-lg border border-[#818CF8]/30 bg-[#818CF8]/10 text-[#818CF8] hover:bg-[#818CF8]/20 hover:text-white transition-colors">
                   ← View Course
                 </a>
               ) : (
-                <a href={`/store/${store.id}`} target="_blank" rel="noreferrer"
+                <a href={`/store/${store.slug ?? store.id}`} target="_blank" rel="noreferrer"
                   className="text-xs px-3 py-1.5 rounded-lg bg-[#818CF8]/10 border border-[#818CF8]/30 text-[#818CF8] hover:bg-[#818CF8]/20 hover:text-white transition-colors">
                   View Public Store ↗
                 </a>

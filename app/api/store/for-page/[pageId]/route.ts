@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
 
 // GET /api/store/for-page/[pageId]
 // Returns the store for this page, creating one if it doesn't exist yet.
@@ -36,5 +37,6 @@ export async function GET(
     });
   }
 
-  return NextResponse.json({ storeId: store.id });
+  const slugs = await getStoreSlugs([store.id]);
+  return NextResponse.json({ storeId: store.id, storeSlug: slugs[store.id] ?? null });
 }

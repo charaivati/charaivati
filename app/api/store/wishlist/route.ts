@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
 
 export async function GET(req: NextRequest) {
   const user = await getServerUser(req);
@@ -23,7 +24,10 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(items);
+  const slugs = await getStoreSlugs([...new Set(items.map((i) => i.storeId))]);
+  return NextResponse.json(
+    items.map((i) => ({ ...i, store: { ...i.store, slug: slugs[i.storeId] ?? null } }))
+  );
 }
 
 export async function POST(req: NextRequest) {

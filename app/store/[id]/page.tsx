@@ -71,6 +71,7 @@ type Section = {
 
 type Store = {
   id: string;
+  slug?: string | null;
   name: string;
   description?: string | null;
   avatarUrl?: string | null;
@@ -148,6 +149,7 @@ const LAYOUT_CONFIGS: Record<string, LayoutConfig> = {
 function SortableSection({
   section,
   storeId,
+  storeHandle,
   editMode,
   tileW,
   tileH,
@@ -159,6 +161,7 @@ function SortableSection({
 }: {
   section: Section;
   storeId: string;
+  storeHandle: string;
   editMode: boolean;
   tileW: number;
   tileH: number;
@@ -232,7 +235,7 @@ function SortableSection({
       if (section.blocks.length === 0) return null;
       return (
         <>
-          <a href={`/store/${storeId}/section/${section.id}`}
+          <a href={`/store/${storeHandle}/section/${section.id}`}
             style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: tileW, height: tileH, background: "linear-gradient(135deg, #F3F4F6, #E5E7EB)", borderRadius: 8, textDecoration: "none", border: `1px solid ${A.border}` }}>
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: "#C0C0C0", marginBottom: 6 }}>
               <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.5"/>
@@ -243,7 +246,7 @@ function SortableSection({
             <span style={{ fontSize: 12, color: A.textMuted, fontWeight: 500, marginBottom: 4 }}>{section.title}</span>
             <span style={{ fontSize: 11, color: "#6366f1" }}>View all →</span>
           </a>
-          <a href={`/store/${storeId}/section/${section.id}`} className="mt-2 block text-xs hover:underline" style={{ color: "#6366f1" }}>
+          <a href={`/store/${storeHandle}/section/${section.id}`} className="mt-2 block text-xs hover:underline" style={{ color: "#6366f1" }}>
             See all {section.blocks.length} products →
           </a>
         </>
@@ -258,7 +261,7 @@ function SortableSection({
             const spanFull = visibleTiles.length === 1 && cols > 1;
             return (
             <div key={t.id} style={{ width: spanFull ? "100%" : tileW, height: tileH, position: "relative", flexShrink: 0, ...(spanFull ? { gridColumn: "1 / -1" } : {}) }}>
-              <a href={`/store/${storeId}/section/${section.id}`}
+              <a href={`/store/${storeHandle}/section/${section.id}`}
                 style={{ display: "block", width: "100%", height: "100%", borderRadius: 8, overflow: "hidden", border: `1px solid ${A.border}`, textDecoration: "none", background: "#fff" }}>
                 <div style={{ height: IMG_H, overflow: "hidden", background: "#F5F5F5" }}>
                   {t.imageUrl
@@ -301,12 +304,12 @@ function SortableSection({
           ))}
         </div>
         {editMode ? (
-          <a href={`/store/${storeId}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
+          <a href={`/store/${storeHandle}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
             {section.blocks.length > 0 ? `See all ${section.blocks.length} products →` : "+ Add products →"}
           </a>
         ) : (
           section.blocks.length > 0 && (
-            <a href={`/store/${storeId}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
+            <a href={`/store/${storeHandle}/section/${section.id}`} style={{ display: "block", marginTop: 8, fontSize: 11, color: "#6366f1", textDecoration: "none" }}>
               See all {section.blocks.length} products →
             </a>
           )
@@ -718,7 +721,12 @@ function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
         </div>
         <div className="min-w-0">
           <h1 className="text-lg sm:text-xl font-bold truncate" style={{ color: A.text }}>{store.name}</h1>
-          <p className="text-sm" style={{ color: A.textMuted }}>{store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {store.slug && (
+              <span className="text-xs font-mono" style={{ color: A.textMuted }}>@{store.slug}</span>
+            )}
+            <p className="text-sm" style={{ color: A.textMuted }}>{store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}</p>
+          </div>
         </div>
         <div className="ml-auto hidden md:flex items-center gap-2">
           <span className="text-sm" style={{ color: A.link }}>Visit the {store.name} Store</span>
@@ -1064,7 +1072,13 @@ export default function StorePage() {
   const fetchStore = useCallback(async () => {
     try {
       const res = await fetch(`/api/store/${id}`);
-      if (res.ok) { const data = await res.json(); setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null);
+      if (res.ok) { const data = await res.json();
+        // Canonical redirect: cuid URL → slug URL
+        if (data.slug && id !== data.slug) {
+          router.replace(`/store/${data.slug}`);
+          return;
+        }
+        setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null);
         fetch(`/api/store/cart/${data.id}`, { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setCartItems(items)).catch(() => {});
         fetch("/api/store/wishlist", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setWishlist(new Set(items.map((i: any) => i.blockId)))).catch(() => {});
         fetch("/api/store/address", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((addresses: Address[]) => { const def = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null; setDefaultAddress(def); }).catch(() => {});
@@ -1320,6 +1334,7 @@ export default function StorePage() {
                           key={section.id}
                           section={section}
                           storeId={store.id}
+                          storeHandle={store.slug ?? store.id}
                           editMode={editMode}
                           tileW={tileW}
                           tileH={tileH}

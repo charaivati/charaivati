@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,10 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json({ stores });
+  const slugs = await getStoreSlugs(stores.map((s) => s.id));
+  return NextResponse.json({
+    stores: stores.map((s) => ({ ...s, slug: slugs[s.id] ?? null })),
+  });
 }
 
 export async function DELETE(req: NextRequest) {

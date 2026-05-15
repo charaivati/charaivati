@@ -151,8 +151,8 @@ export default function InitiativesPage() {
     try {
       const res = await fetch(`/api/store/for-page/${pageId}`, { credentials: "include" });
       if (res.ok) {
-        const { storeId } = await res.json();
-        router.push(`/store/${storeId}`);
+        const { storeId, storeSlug } = await res.json();
+        router.push(`/store/${storeSlug ?? storeId}`);
       }
     } finally {
       setOpeningStore(null);
