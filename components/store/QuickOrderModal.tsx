@@ -197,7 +197,7 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
   const selectedAddr = addresses.find((a) => a.id === selectedAddrId);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center pb-16 sm:pb-0"
       style={{ background: "rgba(0,0,0,0.65)" }}
       onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
