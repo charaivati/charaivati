@@ -172,9 +172,9 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 4. Order status progresses: `pending → confirmed → shipped → delivered`
 
 ### Store Purchase Flow — Buy Now (express)
-1. User clicks "Buy Now" on a product card (section page)
-2. `QuickOrderModal` opens with item pre-loaded; cart is never touched
-3. Steps: Items review (qty stepper) → Delivery address → Invoice profile (optional) → Place order
+1. User clicks "Buy Now" on a product card (section page) or on a wishlist item (Saved page)
+2. `QuickOrderModal` opens with item pre-loaded and selected qty; cart is never touched
+3. Steps: Items review (inline qty stepper) → Delivery address → Invoice profile (optional) → Place order
 4. `POST /api/store/orders/quick` with `{ storeId, addressId, items[], billingProfileId? }` — creates `Order` directly
 5. On success: confirmation screen with order ID + "View my orders" link
 
@@ -212,6 +212,20 @@ API surface:
 - `GET /api/store/[id]/images` — same list, legacy path used by BulkImageUploadModal
 
 Picker UI: `StoreImagePickerModal` (in `components/store/`) — shows grid, search, "Upload new" button. Opened from the product block form ("Choose from library"). "Paste URL instead" toggle is the fallback for external URLs.
+
+### Store Slugs
+- Every store has a `slug String? @unique` field generated from its name at creation (`lib/store/generateSlug.ts`)
+- `GET /api/store/[id]` resolves both cuid and slug — cuids via `findUnique`, slugs via `SELECT id FROM "Store" WHERE slug = $1` raw SQL
+- Store pages redirect `router.replace()` to the slug URL if the current URL uses a cuid — canonical URL is always the slug
+- All store-listing APIs inject slug via `getStoreSlugs()` from `lib/store/getStoreSlugs.ts`
+- `scripts/migrateStoreSlugs.ts` was used to backfill slugs for stores created before the field was added
+- **Stale-client warning**: `Store.slug` may not be in the Prisma generated client if `prisma generate` failed (EPERM on Windows while dev server runs). Always use `$queryRaw` for slug-field operations until `prisma generate` succeeds.
+
+### Product Ratings
+- `ProductRating` model: one rating (1–5) per user per `StoreBlock`; `@@unique([productId, userId])`
+- Store owners get a 403 from the rate endpoint
+- Section pages batch-fetch all ratings in one `GET /api/store/products/ratings?ids=...` call (uses `groupBy` aggregates — never N+1)
+- `StarRating` component handles hover, click-to-rate, "Thanks for rating!" feedback, owner/logged-out display-only modes
 
 **Wishlist toggle:** `POST /api/store/wishlist` is a toggle — if the item exists it deletes it (`{ wishlisted: false }`), otherwise creates it (`{ wishlisted: true }`). Requires both `blockId` and `storeId`. There is no separate DELETE endpoint for wishlist items.
 

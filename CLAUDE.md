@@ -85,17 +85,40 @@ All API routes live under `app/api/`. Key areas:
 - Each profile: `legalName` (required), `companyName`, `gstNumber`, billing address fields, optional `linkedStoreId`
 - Users select a billing profile during checkout for GST invoice purposes
 
+### Store Slugs
+Every store has a `slug String? @unique` field. Slugs are generated from the store name using `lib/store/generateSlug.ts` and assigned at creation time.
+
+- **Resolution**: `GET /api/store/[id]` accepts either a cuid or a slug. Cuids (`/^c[a-z0-9]{24}$/i`) resolve via `findUnique`. Everything else resolves via `SELECT id FROM "Store" WHERE slug = $1` raw SQL (Prisma-client-agnostic).
+- **Canonical redirect**: If a store page or section page is loaded using a cuid URL and the store has a slug, the page calls `router.replace()` to the slug URL. Browser bar always shows the slug after load.
+- **Slug in responses**: `GET /api/store/[id]` always returns `slug` via an explicit raw SQL lookup appended to the response. All store-listing APIs (`/api/store/all`, `/api/store/pinned`, `/api/store/my-stores`, `/api/store/orders`, `/api/store/wishlist`) also include slug via the `getStoreSlugs` batch helper.
+- **`lib/store/generateSlug.ts`** — `generateSlug(name)` (lowercase, hyphens) + `randomSuffix()` for collision avoidance
+- **`lib/store/getStoreSlugs.ts`** — `getStoreSlugs(ids[])` returns `Record<id, slug|null>` via a single `SELECT id, slug FROM "Store" WHERE id IN (...)` raw SQL; used by all APIs to inject slug without depending on the Prisma typed client
+- **Backfill**: `scripts/migrateStoreSlugs.ts` — run once to assign slugs to stores created before the field was added
+
 ### Store Order Pages
 - `/store/account?tab=stores` — owner order dashboard; "All Orders" pill aggregates across all stores; "View all →" goes to `/store/orders/all`
 - `/store/orders/all` — full view of all orders across every store the user owns; store name shown as chip
-- `/store/[storeId]/orders` — per-store active orders with status-update controls; "Delivered Orders →" button in header
-- `/store/[storeId]/orders/delivered` — read-only archive of delivered orders for one store; "← Active Orders" back link
+- `/store/[storeSlug]/orders` — per-store active orders with status-update controls; "Delivered Orders →" button in header
+- `/store/[storeSlug]/orders/delivered` — read-only archive of delivered orders for one store; "← Active Orders" back link
 
 ### Buy Now / Quick Order UX
 - "Buy Now" button on product cards opens `QuickOrderModal` (ephemeral React state — never touches cart)
 - "Add to Cart" button flashes green "✓ Added" for 2 seconds on successful add
-- `QuickOrderModal` steps: Items review → Delivery address → Invoice profile (optional, from billing profiles) → Confirmation
+- `QuickOrderModal` steps: Items review (with inline qty stepper) → Delivery address → Invoice profile (optional, from billing profiles) → Confirmation
 - Managed in `components/store/QuickOrderModal.tsx`
+- Also available on the **Saved Products** page (`/app/saved`) — wishlist items have a "Buy Now" button that opens `QuickOrderModal` directly
+
+### Product Ratings
+- One rating (1–5 stars) per user per product (`ProductRating` model, `@@unique([productId, userId])`)
+- Store owners cannot rate their own products (403 from the rate API)
+- **Batch fetch**: when a section page loads, it fetches ratings for all visible products in a single `GET /api/store/products/ratings?ids=id1,id2,...` call using `groupBy` aggregates; never one request per product
+- `StarRating` component in the section page: hover highlights, click to rate, "Thanks for rating!" flash, owner sees display-only stars with inline message, logged-out users see display-only stars with "Log in to rate." message
+- API: `POST /api/store/products/[productId]/rate`, `GET /api/store/products/[productId]/rating`, `GET /api/store/products/ratings?ids=`
+
+### Inline Quantity Stepper
+- Each product card on section pages has an inline `QtyStepperInline` component in the title row: `−` | number | `+`
+- The number is directly editable (click → input, blur/Enter commits, validates 1–99)
+- The selected qty is passed to both `onAddToCart(qty)` and `onBuyNow(qty)` — the cart API increments by `qty`, and `QuickOrderModal` opens with `quantity: qty` pre-loaded
 
 ### Store Image Pool
 All store image uploads go through a two-layer dedup pipeline — **never call Cloudinary directly** from store upload forms.
@@ -127,6 +150,8 @@ All store image uploads go through a two-layer dedup pipeline — **never call C
 - `lib/timeline-templates.ts` — predefined timeline templates
 - `lib/sectionTagMappings.ts` — maps store section types to tags
 - `lib/store/uploadImage.ts` — `uploadStoreImage(file, storeId)`: dedup-aware upload utility; single source of truth for all store image uploads
+- `lib/store/generateSlug.ts` — `generateSlug(name)` + `randomSuffix()`: slug generation for stores
+- `lib/store/getStoreSlugs.ts` — `getStoreSlugs(ids[])`: batch raw-SQL slug lookup; used by all store-listing APIs to add slug to responses without depending on the Prisma typed client
 
 ### Security Notes
 - CSP headers are configured in `next.config.mjs` — update them when adding new external scripts, styles, or media sources
@@ -148,5 +173,7 @@ Start every session by reading /docs/START_HERE.md.
 - `/docs/modules/profile-schemas.md` — `heightCm`/`weightKg` exist in two out-of-sync places
 - **Two order endpoints exist** — `POST /api/store/orders` (cart-based, clears cart) vs `POST /api/store/orders/quick` (express, never touches cart). Do not use the cart-based endpoint from `QuickOrderModal` — it will empty the user's persistent cart.
 - **`QuickOrderModal` is ephemeral** — closing it mid-flow loses all state. It never writes to DB until "Place Order" is clicked.
+- **Store slug resolution uses raw SQL** — `Store.slug` is not in the Prisma generated client until you run `prisma generate` after a successful `db push`. Use `$queryRaw`/`$executeRaw` for any query that reads or filters by `slug`; do not put `slug` in a Prisma `where` or `select` block while the client is stale. After restarting the dev server and re-running `prisma generate`, the typed client works normally.
+- **`ProductRating.productId` points to `StoreBlock`** — the relation is declared on `StoreBlock` (mapped to the `Block` table). Querying product ratings requires using the block's `id`, not any separate product ID.
 - **`StoreImage` field names changed** — old fields `name`, `imageUrl`, `imageKey`, `createdAt` no longer exist. Current fields: `url`, `fileHash`, `cloudinaryId`, `fileName`, `uploadedAt`. Any code reading `storeImage.imageUrl` or `storeImage.name` will be undefined.
 - **Never call Cloudinary directly for store images** — always use `uploadStoreImage()` from `lib/store/uploadImage.ts`. Direct calls bypass the dedup check and DB save, creating orphaned Cloudinary assets and missed dedup hits.

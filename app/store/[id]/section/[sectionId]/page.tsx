@@ -879,7 +879,7 @@ export default function SectionPage() {
     <div className="min-h-screen" style={{ background: A.bg }}>
 
       <main className="max-w-7xl mx-auto px-3 py-6">
-        <a href={`/store/${storeSlug ?? storeId || id}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
+        <a href={`/store/${storeSlug ?? (storeId || id)}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
           ← Back to store
         </a>
         <div className="flex items-center justify-between mb-1">

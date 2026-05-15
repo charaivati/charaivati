@@ -19,10 +19,12 @@ Full e-commerce system allowing users to create storefronts, organize products i
 - Deduplicated image library for store media (two-layer: DB hash + Cloudinary public_id)
 - Cart management (per-user, per-store)
 - Order creation, status tracking, and snapshot storage — two paths: cart-based (`POST /api/store/orders`) and express Buy Now (`POST /api/store/orders/quick`)
-- Wishlist and pinned stores (user favorites)
+- Wishlist and pinned stores (user favorites); wishlist items on the Saved page have a direct "Buy Now" button
 - Delivery address management
 - Billing profile management (multiple per user, optionally linked to a store for GST)
 - Section tile management for visual layouts
+- Store slug management — generation, resolution, canonical redirects
+- Product ratings (1–5 stars, per-user per-block, batch-aggregated)
 
 ## Inputs & Outputs
 
@@ -35,12 +37,14 @@ Full e-commerce system allowing users to create storefronts, organize products i
 | In | Quick-order payload (address ID + explicit items array — bypasses cart) |
 | In | Billing profile CRUD (legalName, gstNumber, optional linkedStoreId) |
 | In | Image file + storeId → `uploadStoreImage()` pipeline (hash check → Cloudinary → DB upsert) |
-| Out | Store page data with sections and blocks |
+| In | Rating (1–5) per user per product → upsert `ProductRating` |
+| Out | Store page data with sections and blocks; `slug` always included |
 | Out | Cart state per user per store |
 | Out | Order record with JSON snapshot of items at purchase time |
-| Out | Wishlist and pinned store lists |
+| Out | Wishlist and pinned store lists; each includes `slug` via `getStoreSlugs()` |
 | Out | Billing profile list for invoice selection at checkout |
 | Out | Deduplicated `StoreImage` record with `url`, `fileHash`, `cloudinaryId` |
+| Out | Batch rating aggregates `{ average, count, userRating }` per product |
 
 ## Dependencies
 - **auth** — all write operations require a valid session
@@ -86,6 +90,38 @@ Full e-commerce system allowing users to create storefronts, organize products i
 ### "Add to Cart" UX feedback
 - When "Add to Cart" is clicked successfully, the button flashes green ("✓ Added") for 2 seconds then reverts. No extra API call.
 
+### Inline Quantity Stepper (`QtyStepperInline`)
+- Rendered in the product title row on section pages (right side, compact)
+- `−` button, editable number display (click → `<input>`, blur/Enter commits, clamps 1–99), `+` button
+- Selected qty is forwarded to both `handleAddToCart(block, qty)` and `handleBuyNow(block, qty)`
+- `handleAddToCart` passes `{ quantity: qty }` to the cart POST (increments by `qty`)
+- `handleBuyNow` sets `quickOrderItem.quantity = qty` so the modal opens with the right amount
+
+### Product Ratings
+1. Section page loads → batch `GET /api/store/products/ratings?ids=...` (one request for all blocks)
+2. API uses `productRating.groupBy({ by: ['productId'], _avg: { rating: true }, _count: { rating: true } })` — one query
+3. Also fetches the current user's own rating in a parallel `findMany`
+4. Returns `Record<productId, { average, count, userRating }>` for all blocks at once
+5. `StarRating` component per card: amber `★`/`☆` characters, hover to preview, click to submit via `POST /api/store/products/[productId]/rate`
+6. Owner receives a 403; logged-out users see display-only stars
+
+### Store Slug Flows
+#### Creation
+1. `POST /api/store` creates the store row (no slug yet)
+2. Generates `candidate = generateSlug(name)` from `lib/store/generateSlug.ts`
+3. Checks conflict via `SELECT id FROM "Store" WHERE slug = $1` (raw SQL)
+4. If conflicting, retries with `${candidate}-${randomSuffix()}` up to 5 times
+5. Updates the row with the winning slug via `UPDATE "Store" SET slug = $1 WHERE id = $2`
+
+#### Resolution in GET /api/store/[id]
+- If `id` matches `/^c[a-z0-9]{24}$/i` (cuid): `findUnique({ where: { id } })`
+- Otherwise: `SELECT id FROM "Store" WHERE slug = $1 LIMIT 1`, then `findUnique({ where: { id: resolvedId } })`
+- Always appends `SELECT slug FROM "Store" WHERE id = $1` result to the JSON response
+
+#### Canonical redirect
+- Both `app/store/[id]/page.tsx` and `app/store/[id]/section/[sectionId]/page.tsx` check on data load: if `data.slug && id !== data.slug` → `router.replace(slug URL)` and abort state updates
+- Browser URL bar always ends up showing the slug version after first load
+
 ### Store Image Upload (dedup pipeline)
 All store image uploads use `uploadStoreImage(file, storeId)` from `lib/store/uploadImage.ts`:
 1. SHA-256 hash of file bytes client-side (`crypto.subtle.digest`)
@@ -130,7 +166,10 @@ Entry points that use this pipeline:
 | GET | /api/store/orders | Buyer: own purchases (no params); Owner: `?storeId=X` for one store, `?storeId=X&status=Y` to filter by status, `?all=true` for all owned stores |
 | PATCH | /api/store/orders/[orderId] | Update order status (owner only) |
 | POST | /api/store/wishlist | Toggle wishlist item — requires `blockId` + `storeId`; returns `{ wishlisted: bool }` |
-| GET | /api/store/wishlist | List wishlisted items for current user |
+| GET | /api/store/wishlist | List wishlisted items; each item includes `store { id, slug, name }` and `block { id, title, price, mediaUrl }` |
+| POST | /api/store/products/[productId]/rate | Upsert rating 1–5; rejects owner self-rating (403); returns `{ average, count }` |
+| GET | /api/store/products/[productId]/rating | Single product rating with `userRating` for current user |
+| GET | /api/store/products/ratings | `?ids=id1,id2,...` — batch ratings via `groupBy`; returns `Record<id, { average, count, userRating }>` |
 | GET/POST | /api/store/pinned | Pinned stores |
 | GET/POST | /api/store/address | Delivery addresses |
 | GET/POST | /api/store/billing-profiles | List / create billing profiles |
@@ -142,8 +181,8 @@ Entry points that use this pipeline:
 
 | Page | Purpose |
 |---|---|
-| `app/store/[id]/page.tsx` | Main store page — browsing, cart, checkout, image library |
-| `app/store/[id]/section/[sectionId]/page.tsx` | Section product grid with cart + wishlist; "Add to Cart" flashes "✓ Added"; "Buy Now" opens QuickOrderModal |
+| `app/store/[id]/page.tsx` | Main store page — browsing, cart, checkout, image library; redirects cuid URLs → slug URL |
+| `app/store/[id]/section/[sectionId]/page.tsx` | Section product grid; inline qty stepper; star ratings (batch-fetched); "Buy Now" opens QuickOrderModal; redirects cuid URLs → slug URL |
 | `app/store/account/page.tsx` | Buyer: addresses, purchases, billing profiles. Owner: per-store and "All Orders" aggregate order view |
 | `app/store/[id]/orders/page.tsx` | Per-store active order list with status-update controls; "Delivered Orders →" link in header |
 | `app/store/[id]/orders/delivered/page.tsx` | Read-only delivered order archive for one store; no status-update buttons; "← Active Orders" back link |
@@ -159,7 +198,7 @@ Entry points that use this pipeline:
 | `components/store/BannerEditForm.tsx` | Form for creating/editing a banner |
 | `components/store/ImageLibraryPicker.tsx` | Compact inline library picker (used in BannerEditForm); fetches from `/api/store/images/list` |
 | `components/store/StoreImagePickerModal.tsx` | Full-screen library picker with search, grid, "Upload new" (calls `uploadStoreImage`); opened from AddBlockModal |
-| `components/store/QuickOrderModal.tsx` | 4-step express checkout modal (Items → Address → Invoice → Confirm); ephemeral React state only, never writes to cart |
+| `components/store/QuickOrderModal.tsx` | 4-step express checkout modal (Items → Address → Invoice → Confirm); ephemeral React state only, never writes to cart; also used from the Saved page wishlist items |
 
 ## Database Models Used
 - `Store` — top-level store record
@@ -177,6 +216,7 @@ Entry points that use this pipeline:
 - `Address` — delivery address
 - `PinnedStore` — user-saved store
 - `BillingProfile` — per-user GST/invoice profile; optional `linkedStoreId` FK to Store; selected at checkout for invoice generation
+- `ProductRating` — one rating per user per `StoreBlock`; `@@unique([productId, userId])`; `productId` references `StoreBlock.id` (mapped to the `Block` table)
 
 ## Risks & Fragile Areas
 - `Order.items` is a JSON snapshot — no referential integrity after checkout. Price changes after purchase do not affect existing orders, which is correct, but querying historical pricing requires parsing JSON.
@@ -192,6 +232,9 @@ Entry points that use this pipeline:
 - **Dedup only within a store**: `@@unique([storeId, fileHash])` is per-store, not global. The same file uploaded to two different stores creates two `StoreImage` rows and two Cloudinary assets (same `public_id` per store, Cloudinary deduplicates across uploads with the same `public_id`).
 - **Image upload pipeline dependency**: if Cloudinary is unavailable, `uploadStoreImage` throws after the hash check step. The DB record is never created. The UI shows an alert. There is no retry queue.
 - **Race condition window**: between steps 2 (hash check) and 4 (DB upsert) in `uploadStoreImage`, a duplicate upload can proceed to Cloudinary. The upsert in step 4 handles the DB side; Cloudinary deduplication via `public_id` handles the asset side. No orphaned assets are created.
+- **Store slug + stale Prisma client**: `Store.slug` is in the DB but the Prisma typed client may not know about it if `prisma generate` failed with EPERM (dev server holds the DLL). All slug operations use `$queryRaw`/`$executeRaw` or `getStoreSlugs()` — never put `slug` in a typed Prisma `where`/`select` block until the client is regenerated by restarting the dev server.
+- **`ProductRating.productId` is a `StoreBlock.id`** — the model name `StoreBlock` is mapped to the `Block` table. Do not confuse with a separate `Product` model (there is none).
+- **Rating batch endpoint is not authenticated for reads** — `GET /api/store/products/ratings` returns public aggregate data with no auth check; `userRating` is `null` when not logged in.
 - **Wishlist toggle footgun:** `POST /api/store/wishlist` is a toggle, not a create-only. Calling it when the item already exists *deletes* it. Always inspect `{ wishlisted }` in the response to know the resulting state. The endpoint requires both `blockId` **and** `storeId` — omitting `storeId` returns 400. There is no DELETE endpoint for wishlist items.
 - **Order status filter is permissive:** `?status=` on the orders GET is not validated against an allowed list — any string value is passed directly to Prisma. An invalid status returns an empty array rather than an error.
 
