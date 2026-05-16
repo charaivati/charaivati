@@ -84,6 +84,23 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
+    // Auto-merge guest session if present
+    try {
+      const { mergeGuestToReal } = await import("@/lib/mergeGuest");
+      const { verifySessionToken, getTokenFromRequest } = await import("@/lib/session");
+      const guestToken = getTokenFromRequest(req);
+      if (guestToken) {
+        const guestPayload = await verifySessionToken(guestToken);
+        if (guestPayload?.userId && guestPayload.userId !== record.userId) {
+          await mergeGuestToReal(guestPayload.userId, record.userId).catch((e) =>
+            console.error("[magic] guest merge failed, continuing:", e)
+          );
+        }
+      }
+    } catch (e) {
+      console.error("[magic] guest merge block error:", e);
+    }
+
     const loginUrl = new URL("/login", req.nextUrl.origin);
     loginUrl.searchParams.set("verified", "1");
     if (record.user?.email) loginUrl.searchParams.set("email", String(record.user.email));

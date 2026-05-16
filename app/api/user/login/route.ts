@@ -271,6 +271,23 @@ export async function POST(req: Request): Promise<NextResponse> {
       email: user.email ?? undefined,
     });
 
+    // Auto-merge guest session if present
+    try {
+      const { verifySessionToken, getTokenFromRequest, COOKIE_NAME } = await import("@/lib/session");
+      const { mergeGuestToReal } = await import("@/lib/mergeGuest");
+      const guestToken = getTokenFromRequest(req);
+      if (guestToken) {
+        const guestPayload = await verifySessionToken(guestToken);
+        if (guestPayload?.userId && guestPayload.userId !== user.id) {
+          await mergeGuestToReal(guestPayload.userId, user.id).catch((e) =>
+            console.error("[login] guest merge failed, continuing:", e)
+          );
+        }
+      }
+    } catch (e) {
+      console.error("[login] guest merge block error:", e);
+    }
+
     // successful response
     let res = NextResponse.json({ ok: true, redirect: "/self", preferredLanguage: user.preferredLanguage ?? "en" });
 
