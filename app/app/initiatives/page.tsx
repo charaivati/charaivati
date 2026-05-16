@@ -117,6 +117,7 @@ const INPUT = {
 export default function InitiativesPage() {
   const router = useRouter();
 
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [pages, setPages] = useState<PageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<PendingDelete | null>(null);
@@ -139,6 +140,11 @@ export default function InitiativesPage() {
   const [hbTiers, setHbTiers] = useState([{ name: "", price: "", description: "" }]);
 
   useEffect(() => {
+    fetch("/api/user/me", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { user: null })
+      .then((d) => setIsLoggedIn(!!d.user))
+      .catch(() => setIsLoggedIn(false));
+
     fetch("/api/user/pages", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { pages: [] }))
       .then((d) => setPages(d.pages ?? []))
@@ -563,7 +569,26 @@ export default function InitiativesPage() {
             );
           })}
 
-          {showCreate ? createForm : (
+          {showCreate ? (
+            isLoggedIn === false ? (
+              <div style={{ textAlign: "center", padding: 32 }}>
+                <p style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 8 }}>
+                  Sign in to create your initiative
+                </p>
+                <p style={{ fontSize: 14, color: "#6B7280", marginBottom: 20 }}>
+                  It only takes a minute. Free forever.
+                </p>
+                <a href="/login?redirect=/app/initiatives"
+                  style={{
+                    display: "inline-block", padding: "12px 32px", borderRadius: 12,
+                    background: "#6366f1", color: "#fff",
+                    textDecoration: "none", fontWeight: 600, fontSize: 15,
+                  }}>
+                  Sign In →
+                </a>
+              </div>
+            ) : createForm
+          ) : (
             <button onClick={() => setShowCreate(true)} style={{
               display: "block", width: "100%", textAlign: "center",
               padding: "12px", borderRadius: 14,
