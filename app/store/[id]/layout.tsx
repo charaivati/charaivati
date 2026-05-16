@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, usePathname } from "next/navigation";
 import { StoreShellProvider, useStoreShell } from "./StoreShellContext";
 
 const NAV_BG = "#131921";
@@ -10,7 +10,8 @@ const BORDER = "#DDDDDD";
 const ACCENT = "#6366f1";
 
 function MobileProfileMenu() {
-  const { isOwner, userName, onOpenAddress, deliveryLabel } = useStoreShell();
+  const { isOwner, userName, onOpenAddress, deliveryLabel, isGuest } = useStoreShell();
+  const pathname = usePathname();
 
   const [open, setOpen] = useState(false);
   const [businessMenuOpen, setBusinessMenuOpen] = useState(false);
@@ -82,19 +83,51 @@ function MobileProfileMenu() {
             📍 {deliveryLabel}
           </button>
 
-          <a
-            href="/store/account"
-            style={{
-              display: "block",
-              padding: "10px 16px",
-              fontSize: 13,
-              color: "#0F1111",
-              textDecoration: "none",
-              borderBottom: "1px solid #f0f0f0",
-            }}
-          >
-            👤 {userName ? `Hello, ${userName.split(" ")[0]}` : "Sign in"}
-          </a>
+          {isGuest ? (
+            <>
+              <a
+                href={`/login?redirect=${encodeURIComponent(pathname ?? "/")}`}
+                style={{
+                  display: "block",
+                  padding: "10px 16px",
+                  fontSize: 13,
+                  color: "#6366f1",
+                  textDecoration: "none",
+                  borderBottom: "1px solid #f0f0f0",
+                  fontWeight: 600,
+                }}
+              >
+                🔑 Sign in
+              </a>
+              <a
+                href={`/register?redirect=${encodeURIComponent(pathname ?? "/")}`}
+                style={{
+                  display: "block",
+                  padding: "10px 16px",
+                  fontSize: 13,
+                  color: "#0F1111",
+                  textDecoration: "none",
+                  borderBottom: "1px solid #f0f0f0",
+                }}
+              >
+                ✨ Create account
+              </a>
+            </>
+          ) : (
+            <a
+              href="/store/account"
+              style={{
+                display: "block",
+                padding: "10px 16px",
+                fontSize: 13,
+                color: "#0F1111",
+                textDecoration: "none",
+                borderBottom: "1px solid #f0f0f0",
+              }}
+            >
+              👤 {userName ? `Hello, ${userName.split(" ")[0]}` : "Sign in"}
+            </a>
+          )}
 
           <a
             href="/store/account?tab=orders"
@@ -186,6 +219,7 @@ function StoreNav() {
   const {
     storeName,
     userName,
+    isGuest,
     cartCount,
     searchQuery,
     setSearchQuery,
@@ -348,17 +382,21 @@ function StoreNav() {
           {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
             <a
-              href="/store/account"
+              href={isGuest ? "/login" : "/store/account"}
               style={{ textDecoration: "none" }}
               className="leading-tight text-white text-xs hover:opacity-80"
             >
               <div className="opacity-80">
-                {userName
+                {isGuest
+                  ? "Hello, Guest"
+                  : userName
                   ? `Hello, ${userName.split(" ")[0]}`
                   : "Hello, Sign in"}
               </div>
 
-              <div className="font-bold">My Account ▾</div>
+              <div className="font-bold">
+                {isGuest ? "Sign in ▾" : "My Account ▾"}
+              </div>
             </a>
 
             <a
@@ -409,7 +447,7 @@ function StoreShellInner({ children }: { children: React.ReactNode }) {
   const params = useParams<{ id: string }>();
   const id = params?.id;
 
-  const { setStoreId, setUserName, showNav } = useStoreShell();
+  const { setStoreId, setUserName, setIsGuest, showNav } = useStoreShell();
 
   useEffect(() => {
     if (!id) return;
@@ -418,7 +456,10 @@ function StoreShellInner({ children }: { children: React.ReactNode }) {
 
     fetch("/api/user/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { user: null }))
-      .then((d) => setUserName(d.user?.name ?? d.user?.email ?? null))
+      .then((d) => {
+        setUserName(d.user?.name ?? d.user?.email ?? null);
+        setIsGuest(d.user?.status === "guest");
+      })
       .catch(() => {});
   }, [id]);
 

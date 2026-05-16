@@ -22,7 +22,7 @@ export async function GET(req: Request) {
   const [user, profile] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, name: true, email: true, avatarUrl: true },
+      select: { id: true, name: true, email: true, avatarUrl: true, status: true },
     }),
     prisma.profile.findUnique({
       where: { userId },
@@ -41,6 +41,7 @@ export async function GET(req: Request) {
       name: profile?.displayName || user.name || null,
       email: user.email,
       avatarUrl: user.avatarUrl ?? null,
+      status: user.status,
     },
   });
 }

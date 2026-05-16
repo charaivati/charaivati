@@ -11,6 +11,8 @@ type StoreShellValue = {
   setStoreId: (id: string) => void;
   userName: string | null;
   setUserName: (n: string | null) => void;
+  isGuest: boolean;
+  setIsGuest: (v: boolean) => void;
   cartCount: number;
   setCartCount: (n: number) => void;
   searchQuery: string;
@@ -38,6 +40,7 @@ export function StoreShellProvider({ children }: { children: ReactNode }) {
   const [isOwner, setIsOwner] = useState(false);
   const [storeId, setStoreId] = useState("");
   const [userName, setUserName] = useState<string | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   const [deliveryLabel, setDeliveryLabel] = useState("Set address");
@@ -57,6 +60,7 @@ export function StoreShellProvider({ children }: { children: ReactNode }) {
       isOwner, setIsOwner,
       storeId, setStoreId,
       userName, setUserName,
+      isGuest, setIsGuest,
       cartCount, setCartCount,
       searchQuery, setSearchQuery,
       deliveryLabel, setDeliveryLabel,
