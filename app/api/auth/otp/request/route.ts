@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
+import { sendSMS } from "@/lib/sms";
 
 function hashWithSalt(code: string, salt: Buffer) {
   const derived = crypto.scryptSync(code, salt, 64);
@@ -32,6 +33,10 @@ export async function POST(req: Request) {
         expiresAt,
       },
     });
+
+    if (targetType === "PHONE") {
+      await sendSMS(target, code);
+    }
 
     return NextResponse.json({ ok: true, id: otp.id });
   } catch (err: any) {

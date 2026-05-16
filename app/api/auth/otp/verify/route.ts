@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
+import { createSessionToken, setSessionCookie } from "@/lib/session";
 
 function hashWithSalt(code: string, saltHex: string) {
   const salt = Buffer.from(saltHex, "hex");
@@ -36,15 +37,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "invalid code" }, { status: 400 });
     }
 
-    // ✅ mark as used (only valid field is 'used')
+    // ✅ mark as used
     await prisma.otp.update({
       where: { id: otpRecord.id },
       data: { used: true },
     });
 
-    // return linked user if exists
+    if (targetType === "PHONE") {
+      // find or create user by phone number
+      let user = await prisma.user.findFirst({
+        where: { phone: target },
+        select: { id: true, phone: true },
+      });
+
+      if (!user) {
+        const last4 = target.replace(/\D/g, "").slice(-4);
+        user = await prisma.user.create({
+          data: {
+            phone: target,
+            name: `User${last4}`,
+            status: "active",
+          },
+          select: { id: true, phone: true },
+        });
+      }
+
+      const token = await createSessionToken({ userId: user.id });
+      const res = NextResponse.json({ ok: true });
+      setSessionCookie(res, token);
+      return res;
+    }
+
+    // Non-PHONE: return linked user (existing behaviour)
     const user = await prisma.user.findFirst({
-      where: targetType === "phone" ? { phone: target } : { email: target },
+      where: { email: target },
       select: { id: true, email: true, phone: true },
     });
 

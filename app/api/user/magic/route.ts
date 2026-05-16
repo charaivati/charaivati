@@ -112,8 +112,7 @@ export async function GET(req: NextRequest) {
       console.error("[magic] guest merge block error:", e);
     }
 
-    const loginUrl = new URL("/login", req.nextUrl.origin);
-    loginUrl.searchParams.set("verified", "1");
+    const loginUrl = new URL("/verified", req.nextUrl.origin);
     if (record.user?.email) loginUrl.searchParams.set("email", String(record.user.email));
     loginUrl.searchParams.set("redirect", safeRedirect);
     return NextResponse.redirect(loginUrl);
