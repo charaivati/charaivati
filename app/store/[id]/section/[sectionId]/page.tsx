@@ -190,11 +190,19 @@ function AddressModal({ open, onClose, onSelected }: {
 
 // ─── Checkout Modal ───────────────────────────────────────────────────────────
 
+const CHECKOUT_PERSONAL_ID = "personal";
+const CHECKOUT_SKIP_ID = "none";
+
+type CheckoutBillingProfile = {
+  id: string; legalName: string; gstNumber: string | null;
+  linkedStore: { name: string } | null;
+};
+
 function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: {
   open: boolean; onClose: () => void; items: CartItem[];
   total: number; storeId: string; onOrderPlaced: () => void;
 }) {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [adding, setAdding] = useState(false);
@@ -203,21 +211,64 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
   const [form, setForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
   const [formError, setFormError] = useState("");
 
+  // Invoice step state
+  const [billingProfiles, setBillingProfiles] = useState<CheckoutBillingProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(CHECKOUT_PERSONAL_ID);
+  const [userName, setUserName] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
-    setStep(1); setSuccess(false);
+    setStep(1); setSuccess(false); setSelectedProfileId(CHECKOUT_PERSONAL_ID);
     fetch("/api/store/address", { credentials: "include" })
       .then((r) => r.ok ? r.json() : [])
       .then((a: Address[]) => { setAddresses(a); const d = a.find((x) => x.isDefault) ?? a[0]; if (d) setSelected(d.id); })
       .catch(() => {});
   }, [open]);
 
+  // Fetch billing profiles + user when reaching invoice step
+  useEffect(() => {
+    if (!open || step !== 2) return;
+    Promise.all([
+      fetch("/api/store/billing-profiles", { credentials: "include" }).then((r) => r.ok ? r.json() : []),
+      fetch("/api/user/me", { credentials: "include" }).then((r) => r.ok ? r.json() : { user: null }),
+    ]).then(([profiles, meData]) => {
+      setBillingProfiles(Array.isArray(profiles) ? profiles : []);
+      setUserName(meData?.user?.name ?? null);
+    }).catch(() => {});
+  }, [open, step]);
+
+  const selectedAddr = addresses.find((a) => a.id === selected);
+
+  async function handlePlaceOrder() {
+    setPlacing(true);
+    const body: Record<string, unknown> = { storeId, addressId: selected };
+    if (selectedProfileId === CHECKOUT_PERSONAL_ID) {
+      body.invoiceData = {
+        legalName: userName ?? selectedAddr?.name ?? "Customer",
+        addressLine: selectedAddr?.line1 ?? "",
+        city: selectedAddr?.city ?? "",
+        state: selectedAddr?.state ?? "",
+        pinCode: selectedAddr?.pincode ?? "",
+      };
+    } else if (selectedProfileId !== CHECKOUT_SKIP_ID) {
+      body.billingProfileId = selectedProfileId;
+    }
+    const r = await fetch("/api/store/orders", {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+      body: JSON.stringify(body),
+    });
+    setPlacing(false);
+    if (r.ok) { setSuccess(true); onOrderPlaced(); setTimeout(onClose, 3000); }
+  }
+
   if (!open) return null;
   return (
     <Overlay onClose={onClose}>
       <div className="space-y-3">
         <h3 className="text-sm font-semibold">Checkout</h3>
-        {step === 1 ? (
+
+        {/* ── Step 1: Address ── */}
+        {step === 1 && (
           <>
             <div className="space-y-2 max-h-48 overflow-auto">
               {addresses.map((a) => (
@@ -241,8 +292,7 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
                   onClick={async () => {
                     const { name, phone, line1, city, state, pincode } = form;
                     if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
-                      setFormError("Please fill all address fields");
-                      return;
+                      setFormError("Please fill all address fields"); return;
                     }
                     setFormError("");
                     const r = await fetch("/api/store/address", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ name: name.trim(), phone: phone.trim(), line1: line1.trim(), city: city.trim(), state: state.trim(), pincode: pincode.trim(), isDefault: false }) });
@@ -255,7 +305,41 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
               Next →
             </button>
           </>
-        ) : (
+        )}
+
+        {/* ── Step 2: Invoice ── */}
+        {step === 2 && (
+          <>
+            <p className="text-xs font-medium" style={{ color: A.textMuted }}>Invoice type</p>
+            <select value={selectedProfileId} onChange={(e) => setSelectedProfileId(e.target.value)}
+              className={inputCls} style={inputStyle}>
+              <option value={CHECKOUT_PERSONAL_ID}>Personal (no GST)</option>
+              {billingProfiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.legalName}{p.gstNumber ? ` — GST: ${p.gstNumber}` : ""}{p.linkedStore ? ` (${p.linkedStore.name})` : ""}
+                </option>
+              ))}
+              <option value={CHECKOUT_SKIP_ID}>Don't need invoice</option>
+            </select>
+            {selectedProfileId === CHECKOUT_PERSONAL_ID && (
+              <div className="rounded p-2 text-xs space-y-0.5" style={{ background: "#F9FAFB", border: `1px solid ${A.border}` }}>
+                <p className="font-semibold" style={{ color: A.text }}>{userName ?? selectedAddr?.name ?? "Personal"}</p>
+                {selectedAddr && <p style={{ color: A.textMuted }}>{selectedAddr.line1}, {selectedAddr.city}, {selectedAddr.state} {selectedAddr.pincode}</p>}
+                <p style={{ color: A.textMuted }}>
+                  Want GST?{" "}
+                  <a href="/store/account?tab=invoice" target="_blank" rel="noreferrer" style={{ color: A.accent }}>Save a billing profile</a>.
+                </p>
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button onClick={() => setStep(1)} className="text-xs px-3 py-1.5 rounded" style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>← Back</button>
+              <button onClick={() => setStep(3)} className="flex-1 py-1.5 rounded text-xs font-semibold" style={{ background: A.accent, color: "#fff" }}>Next →</button>
+            </div>
+          </>
+        )}
+
+        {/* ── Step 3: Review + place ── */}
+        {step === 3 && (
           <>
             {success ? (
               <div className="text-sm py-4 text-center" style={{ color: "#16A34A" }}>
@@ -278,13 +362,9 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
                 <div className="text-xs px-2 py-1 rounded" style={{ background: "#F0FDF4", color: "#16A34A" }}>
                   💵 Cash on Delivery
                 </div>
-                <button onClick={() => setStep(1)} className="text-xs" style={{ color: A.link }}>← Change address</button>
-                <button disabled={placing} onClick={async () => {
-                  setPlacing(true);
-                  const r = await fetch("/api/store/orders", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ storeId, addressId: selected }) });
-                  setPlacing(false);
-                  if (r.ok) { setSuccess(true); onOrderPlaced(); setTimeout(onClose, 3000); }
-                }} className="w-full py-2 rounded text-xs font-semibold" style={{ background: A.accent, color: "#fff" }}>
+                <button onClick={() => setStep(2)} className="text-xs" style={{ color: A.link }}>← Change invoice</button>
+                <button disabled={placing} onClick={handlePlaceOrder}
+                  className="w-full py-2 rounded text-xs font-semibold" style={{ background: A.accent, color: "#fff" }}>
                   {placing ? "Placing…" : "Place Order"}
                 </button>
               </>

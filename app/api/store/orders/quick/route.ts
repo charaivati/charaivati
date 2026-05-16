@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { storeId, addressId, items, billingProfileId } = await req.json();
+  const { storeId, addressId, items, billingProfileId, invoiceData } = await req.json();
 
   if (!storeId || !addressId || !Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "storeId, addressId, and items are required" }, { status: 400 });
@@ -47,10 +47,24 @@ export async function POST(req: NextRequest) {
     items: orderItems,
   };
 
-  if (billingProfileId) {
-    const bp = await db.billingProfile.findUnique({ where: { id: billingProfileId } });
+  // Resolve invoice data — either inline (from QuickOrderModal personal profile)
+  // or expanded from a saved BillingProfile. Order has no billingProfileId column.
+  if (invoiceData && typeof invoiceData === "object") {
+    orderData.invoiceData = invoiceData;
+  } else if (billingProfileId) {
+    const bp = await (db.billingProfile as any).findUnique({ where: { id: billingProfileId } });
     if (bp && bp.userId === user.id) {
-      (orderData as any).billingProfileId = billingProfileId;
+      orderData.invoiceData = {
+        legalName: bp.legalName,
+        companyName: bp.companyName ?? null,
+        gstin: bp.gstin ?? null,
+        gstState: bp.gstState ?? null,
+        annualTurnover: bp.annualTurnover ?? null,
+        addressLine: bp.addressLine ?? null,
+        city: bp.city ?? null,
+        state: bp.state ?? null,
+        pinCode: bp.pinCode ?? null,
+      };
     }
   }
 

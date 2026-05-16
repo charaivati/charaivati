@@ -94,3 +94,29 @@ export async function GET(
     isOwner: user?.id === store.ownerId,
   });
 }
+
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params;
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const store = await prisma.store.findUnique({ where: { id }, select: { ownerId: true } });
+  if (!store) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (store.ownerId !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { name, description } = await req.json();
+
+  const updated = await prisma.store.update({
+    where: { id },
+    data: {
+      ...(name?.trim() && { name: name.trim() }),
+      ...(description !== undefined && { description: description?.trim() || null }),
+    },
+    select: { id: true, name: true, description: true, slug: true },
+  });
+
+  return NextResponse.json(updated);
+}

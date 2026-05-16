@@ -1259,8 +1259,16 @@ model Order {
   status    String   @default("pending")
   total     Float
   /// Snapshot of items: [{ blockId, title, price, quantity, imageUrl }]
-  items     Json
-  createdAt DateTime @default(now())
+  items       Json
+  /// Inline invoice: { legalName, addressLine, city, state, pinCode } — set when user selects Personal or provides ad-hoc details
+  invoiceData   Json?
+  invoiceNumber     String?
+  invoiceUrl        String?
+  invoiceType       String?
+  invoiceGenAt      DateTime?
+  invoiceSignedUrl  String?
+  invoiceSignedAt   DateTime?
+  createdAt         DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id])
   store     Store    @relation(fields: [storeId], references: [id])
@@ -1300,19 +1308,22 @@ model PinnedStore {
 }
 
 model BillingProfile {
-  id            String   @id @default(cuid())
-  userId        String
-  legalName     String
-  companyName   String?
-  gstNumber     String?
-  addressLine   String?
-  city          String?
-  state         String?
-  pinCode       String?
-  linkedStoreId String?
-  createdAt     DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  linkedStore   Store?   @relation(fields: [linkedStoreId], references: [id])
+  id             String   @id @default(cuid())
+  userId         String
+  legalName      String
+  companyName    String?
+  gstRegistered  Boolean  @default(false)
+  gstin          String?
+  gstState       String?
+  annualTurnover String?
+  addressLine    String?
+  city           String?
+  state          String?
+  pinCode        String?
+  linkedStoreId  String?
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedStore    Store?   @relation(fields: [linkedStoreId], references: [id])
 
   @@index([userId])
 }

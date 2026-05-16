@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import getServerUser from "@/lib/serverAuth";
 
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+
 export async function GET(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,10 +22,21 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
-  const { legalName, companyName, gstNumber, addressLine, city, state, pinCode, linkedStoreId } = body;
+  const {
+    legalName, companyName,
+    gstRegistered, gstin, gstState, annualTurnover,
+    addressLine, city, state, pinCode, linkedStoreId,
+  } = body;
 
   if (!legalName?.trim()) {
     return NextResponse.json({ error: "legalName is required" }, { status: 400 });
+  }
+
+  if (gstRegistered && gstin) {
+    const upper = String(gstin).toUpperCase().trim();
+    if (!GSTIN_RE.test(upper)) {
+      return NextResponse.json({ error: "Invalid GSTIN format" }, { status: 400 });
+    }
   }
 
   if (linkedStoreId) {
@@ -33,12 +46,17 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const profile = await db.billingProfile.create({
+  const cleanGstin = gstRegistered && gstin ? gstin.trim().toUpperCase() : null;
+
+  const profile = await (db.billingProfile as any).create({
     data: {
       userId: user.id,
       legalName: legalName.trim(),
       companyName: companyName?.trim() || null,
-      gstNumber: gstNumber?.trim() || null,
+      gstRegistered: !!gstRegistered,
+      gstin: cleanGstin,
+      gstState: gstRegistered ? gstState?.trim() || null : null,
+      annualTurnover: gstRegistered ? annualTurnover || null : null,
       addressLine: addressLine?.trim() || null,
       city: city?.trim() || null,
       state: state?.trim() || null,

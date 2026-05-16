@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 
 const A = {
   bg: "#E3E6E6",
@@ -16,6 +16,9 @@ const A = {
 
 const iCls = "w-full text-sm px-3 py-2 rounded-md outline-none placeholder:text-zinc-400";
 const iStyle = { background: A.surface, color: A.text, border: `1px solid ${A.border}` };
+
+const PERSONAL_ID = "personal";
+const SKIP_ID = "none";
 
 type QuickItem = {
   blockId: string;
@@ -76,9 +79,8 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
 
   // Invoice
   const [billingProfiles, setBillingProfiles] = useState<BillingProfile[]>([]);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>("none");
-  const [useDeliveryAsInvoice, setUseDeliveryAsInvoice] = useState(true);
-  const [invoiceAddr, setInvoiceAddr] = useState({ line1: "", city: "", state: "", pinCode: "" });
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(PERSONAL_ID);
+  const [userName, setUserName] = useState<string | null>(null);
 
   // Order
   const [placing, setPlacing] = useState(false);
@@ -94,9 +96,7 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
     setAddingAddr(false);
     setAddrForm({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
     setAddrFormError("");
-    setSelectedProfileId("none");
-    setUseDeliveryAsInvoice(true);
-    setInvoiceAddr({ line1: "", city: "", state: "", pinCode: "" });
+    setSelectedProfileId(PERSONAL_ID);
     setPlacing(false);
     setOrderId(null);
     setError("");
@@ -115,23 +115,24 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
       .catch(() => {});
   }, [open, step]);
 
-  // Fetch billing profiles on invoice step
+  // Fetch billing profiles + user name on invoice step
   useEffect(() => {
     if (!open || step !== 3) return;
-    fetch("/api/store/billing-profiles", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : [])
-      .then(setBillingProfiles)
-      .catch(() => {});
+    Promise.all([
+      fetch("/api/store/billing-profiles", { credentials: "include" }).then((r) => r.ok ? r.json() : []),
+      fetch("/api/user/me", { credentials: "include" }).then((r) => r.ok ? r.json() : { user: null }),
+    ]).then(([profiles, meData]) => {
+      setBillingProfiles(Array.isArray(profiles) ? profiles : []);
+      setUserName(meData?.user?.name ?? null);
+    }).catch(() => {});
   }, [open, step]);
 
   const total = items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const selectedAddr = addresses.find((a) => a.id === selectedAddrId);
 
   function updateQty(blockId: string, delta: number) {
     setItems((prev) =>
-      prev.map((i) => i.blockId === blockId
-        ? { ...i, quantity: Math.max(1, i.quantity + delta) }
-        : i
-      )
+      prev.map((i) => i.blockId === blockId ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)
     );
   }
 
@@ -173,7 +174,19 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
         addressId: selectedAddrId,
         items: items.map((i) => ({ blockId: i.blockId, title: i.title, price: i.price, quantity: i.quantity, imageUrl: i.imageUrl })),
       };
-      if (selectedProfileId !== "none") body.billingProfileId = selectedProfileId;
+
+      if (selectedProfileId === PERSONAL_ID) {
+        // Inline personal invoice — no GST, use delivery address details
+        body.invoiceData = {
+          legalName: userName ?? selectedAddr?.name ?? "Customer",
+          addressLine: selectedAddr?.line1 ?? "",
+          city: selectedAddr?.city ?? "",
+          state: selectedAddr?.state ?? "",
+          pinCode: selectedAddr?.pincode ?? "",
+        };
+      } else if (selectedProfileId !== SKIP_ID) {
+        body.billingProfileId = selectedProfileId;
+      }
 
       const r = await fetch("/api/store/orders/quick", {
         method: "POST",
@@ -194,8 +207,6 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
 
   if (!open) return null;
 
-  const selectedAddr = addresses.find((a) => a.id === selectedAddrId);
-
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center pb-16 sm:pb-0"
       style={{ background: "rgba(0,0,0,0.65)" }}
@@ -210,12 +221,10 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
             <p className="text-xs" style={{ color: A.textMuted }}>{storeName}</p>
           </div>
           <div className="flex items-center gap-3">
-            {/* Step indicator */}
             {step < 4 && (
               <div className="flex items-center gap-1">
                 {([1, 2, 3] as const).map((s) => (
-                  <div key={s}
-                    className="w-2 h-2 rounded-full transition-colors"
+                  <div key={s} className="w-2 h-2 rounded-full transition-colors"
                     style={{ background: step >= s ? A.accent : A.border }} />
                 ))}
               </div>
@@ -252,12 +261,10 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
                     <button onClick={() => updateQty(item.blockId, 1)}
                       className="w-7 h-7 rounded-full flex items-center justify-center text-sm font-bold"
                       style={{ border: `1px solid ${A.border}`, color: A.text, background: "#f9fafb" }}>+</button>
-                    <button onClick={() => removeItem(item.blockId)}
-                      className="text-xs ml-1" style={{ color: "#EF4444" }}>✕</button>
+                    <button onClick={() => removeItem(item.blockId)} className="text-xs ml-1" style={{ color: "#EF4444" }}>✕</button>
                   </div>
                 </div>
               ))}
-
               <div className="flex justify-between text-sm font-semibold pt-1" style={{ color: A.text }}>
                 <span>Total</span>
                 <span>₹{total.toLocaleString("en-IN")}</span>
@@ -304,43 +311,43 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
           {/* ── Step 3: Invoice ───────────────────────────── */}
           {step === 3 && (
             <>
-              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: A.textMuted }}>Invoice details (optional)</p>
+              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: A.textMuted }}>Invoice details</p>
 
               <div>
-                <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Billing profile</label>
+                <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Invoice type</label>
                 <select value={selectedProfileId}
                   onChange={(e) => setSelectedProfileId(e.target.value)}
                   className={iCls} style={iStyle}>
-                  <option value="none">No invoice / Skip</option>
+                  <option value={PERSONAL_ID}>Personal (no GST)</option>
                   {billingProfiles.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.legalName}{p.gstNumber ? ` — GST: ${p.gstNumber}` : ""}{p.linkedStore ? ` (${p.linkedStore.name})` : ""}
                     </option>
                   ))}
+                  <option value={SKIP_ID}>Don't need invoice</option>
                 </select>
               </div>
 
-              {selectedProfileId !== "none" && (
-                <>
-                  <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: A.text }}>
-                    <input type="checkbox" checked={useDeliveryAsInvoice}
-                      onChange={(e) => setUseDeliveryAsInvoice(e.target.checked)}
-                      className="rounded" />
-                    Use delivery address as invoice address
-                  </label>
-
-                  {!useDeliveryAsInvoice && (
-                    <div className="space-y-2 p-3 rounded-lg" style={{ border: `1px solid ${A.border}` }}>
-                      <p className="text-xs font-medium" style={{ color: A.textMuted }}>Invoice address</p>
-                      {(["line1", "city", "state", "pinCode"] as const).map((k) => (
-                        <input key={k} value={invoiceAddr[k]}
-                          onChange={(e) => setInvoiceAddr((f) => ({ ...f, [k]: e.target.value }))}
-                          placeholder={k === "line1" ? "Address line" : k === "pinCode" ? "PIN code" : k.charAt(0).toUpperCase() + k.slice(1)}
-                          className={iCls} style={iStyle} />
-                      ))}
-                    </div>
+              {selectedProfileId === PERSONAL_ID && (
+                <div className="rounded-lg p-3 space-y-1" style={{ background: "#F9FAFB", border: `1px solid ${A.border}` }}>
+                  <p className="text-xs font-medium" style={{ color: A.textMuted }}>Invoice will be issued to</p>
+                  <p className="text-sm font-semibold" style={{ color: A.text }}>
+                    {userName ?? selectedAddr?.name ?? "Personal"}
+                  </p>
+                  {selectedAddr && (
+                    <p className="text-xs" style={{ color: A.textMuted }}>
+                      {selectedAddr.line1}, {selectedAddr.city}, {selectedAddr.state} {selectedAddr.pincode}
+                    </p>
                   )}
-                </>
+                  <p className="text-xs mt-1" style={{ color: A.textMuted }}>
+                    To add GST details,{" "}
+                    <a href="/store/account?tab=invoice" target="_blank" rel="noreferrer"
+                      style={{ color: A.accent, textDecoration: "underline" }}>
+                      save a billing profile
+                    </a>
+                    {" "}first.
+                  </p>
+                </div>
               )}
             </>
           )}

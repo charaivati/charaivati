@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { storeId, addressId } = await req.json();
+  const { storeId, addressId, billingProfileId, invoiceData } = await req.json();
   if (!storeId || !addressId) {
     return NextResponse.json({ error: "storeId and addressId required" }, { status: 400 });
   }
@@ -40,6 +40,26 @@ export async function POST(req: NextRequest) {
 
   const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
+  const invoicePayload: Record<string, unknown> = {};
+  if (invoiceData && typeof invoiceData === "object") {
+    invoicePayload.invoiceData = invoiceData;
+  } else if (billingProfileId) {
+    const bp = await (prisma.billingProfile as any).findUnique({ where: { id: billingProfileId } });
+    if (bp && bp.userId === user.id) {
+      invoicePayload.invoiceData = {
+        legalName: bp.legalName,
+        companyName: bp.companyName ?? null,
+        gstin: bp.gstin ?? null,
+        gstState: bp.gstState ?? null,
+        annualTurnover: bp.annualTurnover ?? null,
+        addressLine: bp.addressLine ?? null,
+        city: bp.city ?? null,
+        state: bp.state ?? null,
+        pinCode: bp.pinCode ?? null,
+      };
+    }
+  }
+
   const order = await prisma.order.create({
     data: {
       userId: user.id,
@@ -48,7 +68,8 @@ export async function POST(req: NextRequest) {
       status: "pending",
       total,
       items,
-    },
+      ...invoicePayload,
+    } as any,
     include: { store: true, address: true },
   });
 
@@ -107,8 +128,13 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
     const slugs = await getStoreSlugs(storeIds);
+    const signedRowsAll = await prisma.$queryRaw<{ id: string; "invoiceSignedUrl": string | null }[]>`
+      SELECT id, "invoiceSignedUrl" FROM "Order" WHERE "storeId" = ANY(${storeIds}::text[])
+    `;
+    const signedMapAll: Record<string, string | null> = {};
+    for (const r of signedRowsAll) signedMapAll[r.id] = r["invoiceSignedUrl"] ?? null;
     return NextResponse.json(
-      orders.map((o) => ({ ...o, store: { ...o.store, slug: slugs[o.store.id] ?? null } }))
+      orders.map((o) => ({ ...o, store: { ...o.store, slug: slugs[o.store.id] ?? null }, invoiceSignedUrl: signedMapAll[o.id] ?? null }))
     );
   }
 
@@ -135,7 +161,12 @@ export async function GET(req: NextRequest) {
       include: { address: true, user: { select: { name: true, email: true } } },
       orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json(orders);
+    const signedRowsStore = await prisma.$queryRaw<{ id: string; "invoiceSignedUrl": string | null }[]>`
+      SELECT id, "invoiceSignedUrl" FROM "Order" WHERE "storeId" = ${storeId}
+    `;
+    const signedMapStore: Record<string, string | null> = {};
+    for (const r of signedRowsStore) signedMapStore[r.id] = r["invoiceSignedUrl"] ?? null;
+    return NextResponse.json(orders.map((o) => ({ ...o, invoiceSignedUrl: signedMapStore[o.id] ?? null })));
   }
 
   const orders = await prisma.order.findMany({
@@ -145,10 +176,19 @@ export async function GET(req: NextRequest) {
   });
   const buyerStoreIds = [...new Set(orders.map((o) => o.storeId))];
   const slugs = await getStoreSlugs(buyerStoreIds);
+
+  // Fetch signed invoice URLs via raw SQL (new columns may not be in stale client)
+  const signedRows = await prisma.$queryRaw<{ id: string; "invoiceSignedUrl": string | null }[]>`
+    SELECT id, "invoiceSignedUrl" FROM "Order" WHERE "userId" = ${user.id}
+  `;
+  const signedMap: Record<string, string | null> = {};
+  for (const r of signedRows) signedMap[r.id] = r["invoiceSignedUrl"] ?? null;
+
   return NextResponse.json(
     orders.map((o) => ({
       ...o,
       store: o.store ? { ...o.store, slug: slugs[o.store.id] ?? null } : o.store,
+      invoiceSignedUrl: signedMap[o.id] ?? null,
     }))
   );
 }

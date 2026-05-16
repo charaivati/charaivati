@@ -27,10 +27,13 @@ type Address = {
   id: string; name: string; phone: string; line1: string;
   city: string; state: string; pincode: string; isDefault: boolean;
 };
-type OrderItem = { id: string; quantity: number; block: { title: string; price: number | null } };
+// Items are stored as a JSON snapshot on the Order row: [{ blockId, title, price, quantity }]
+type OrderItem = { blockId: string; title: string; price: number; quantity: number; imageUrl?: string | null };
 type Order = {
   id: string; status: string; createdAt: string; total: number;
   storeId?: string;
+  invoiceUrl?: string | null;
+  invoiceSignedUrl?: string | null;
   store?: { id: string; slug?: string | null; name: string };
   user?: { name: string | null; email: string | null };
   items: OrderItem[];
@@ -40,7 +43,10 @@ type BillingProfile = {
   id: string;
   legalName: string;
   companyName: string | null;
-  gstNumber: string | null;
+  gstRegistered: boolean;
+  gstin: string | null;
+  gstState: string | null;
+  annualTurnover: string | null;
   addressLine: string | null;
   city: string | null;
   state: string | null;
@@ -48,8 +54,28 @@ type BillingProfile = {
   linkedStoreId: string | null;
   linkedStore: { id: string; name: string } | null;
 };
+const GSTIN_STATE_CODES: Record<string, string> = {
+  "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab",
+  "04": "Chandigarh", "05": "Uttarakhand", "06": "Haryana", "07": "Delhi",
+  "08": "Rajasthan", "09": "Uttar Pradesh", "10": "Bihar", "11": "Sikkim",
+  "12": "Arunachal Pradesh", "13": "Nagaland", "14": "Manipur", "15": "Mizoram",
+  "16": "Tripura", "17": "Meghalaya", "18": "Assam", "19": "West Bengal",
+  "20": "Jharkhand", "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh",
+  "24": "Gujarat", "26": "Daman & Diu / Dadra & Nagar Haveli", "27": "Maharashtra",
+  "29": "Karnataka", "30": "Goa", "32": "Kerala", "33": "Tamil Nadu",
+  "34": "Puducherry", "36": "Telangana", "37": "Andhra Pradesh", "38": "Ladakh",
+};
+
+const TURNOVER_OPTIONS = [
+  { value: "below_20L", label: "Below ₹20 Lakh" },
+  { value: "20L_to_40L", label: "₹20L – ₹40L" },
+  { value: "40L_to_5Cr", label: "₹40L – ₹5 Crore" },
+  { value: "above_5Cr", label: "Above ₹5 Crore (E-Invoice required)" },
+];
+
 const BP_EMPTY: Omit<BillingProfile, "id" | "linkedStore"> = {
-  legalName: "", companyName: "", gstNumber: "",
+  legalName: "", companyName: "",
+  gstRegistered: false, gstin: "", gstState: "", annualTurnover: "",
   addressLine: "", city: "", state: "", pinCode: "", linkedStoreId: "",
 };
 
@@ -136,7 +162,7 @@ function PurchaseOrderCard({ order }: { order: Order }) {
   const storeHandle = order.store?.slug ?? order.store?.id ?? order.storeId;
   const storeId = order.store?.id ?? order.storeId;
   const storeName = order.store?.name;
-  const total = order.total ?? order.items?.reduce((s, i) => s + (i.block?.price ?? 0) * i.quantity, 0) ?? 0;
+  const total = order.total ?? order.items?.reduce((s, i) => s + (i.price ?? 0) * i.quantity, 0) ?? 0;
   return (
     <div className="rounded-xl p-4" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -157,18 +183,27 @@ function PurchaseOrderCard({ order }: { order: Order }) {
       {order.items?.length > 0 && (
         <div className="space-y-1 pt-2 border-t" style={{ borderColor: A.border }}>
           {order.items.map((item, idx) => (
-            <div key={item.id ?? `${order.id}-${idx}`}
+            <div key={item.blockId ?? `${order.id}-${idx}`}
               className="flex justify-between text-xs" style={{ color: A.textMuted }}>
-              <span>{item.block?.title} × {item.quantity}</span>
-              <span>₹{((item.block?.price ?? 0) * item.quantity).toLocaleString("en-IN")}</span>
+              <span style={{ color: A.text }}>{item.title}</span>
+              <span>× {item.quantity} &nbsp; ₹{((item.price ?? 0) * item.quantity).toLocaleString("en-IN")}</span>
             </div>
           ))}
         </div>
       )}
-      <div className="flex justify-end mt-2 pt-2 border-t" style={{ borderColor: A.border }}>
+      <div className="flex items-center justify-between mt-2 pt-2 border-t" style={{ borderColor: A.border }}>
         <span className="text-sm font-bold" style={{ color: A.text }}>
           Total: ₹{total.toLocaleString("en-IN")}
         </span>
+        {order.invoiceSignedUrl ? (
+          <a href={`/api/orders/${order.id}/invoice/download`} download={`invoice-${order.id}.pdf`}
+            className="text-xs px-2.5 py-1 rounded-md font-medium"
+            style={{ background: "#F0FDF4", color: "#10B981", border: "1px solid #A7F3D0", textDecoration: "none" }}>
+            ⬇ Signed Invoice
+          </a>
+        ) : order.invoiceUrl ? (
+          <span className="text-xs" style={{ color: A.textMuted }}>Invoice pending signature</span>
+        ) : null}
       </div>
     </div>
   );
@@ -245,6 +280,7 @@ function AccountPageContent() {
   const [billingPinLoading, setBillingPinLoading] = useState(false);
   const [savingBp, setSavingBp] = useState(false);
   const [bpSaved, setBpSaved] = useState(false);
+  const [bpGstinError, setBpGstinError] = useState("");
 
   // Load user
   useEffect(() => {
@@ -355,10 +391,14 @@ function AccountPageContent() {
 
   function openEditBpForm(profile: BillingProfile) {
     setEditingBpId(profile.id);
+    setBpGstinError("");
     setBpForm({
       legalName: profile.legalName,
       companyName: profile.companyName ?? "",
-      gstNumber: profile.gstNumber ?? "",
+      gstRegistered: profile.gstRegistered ?? false,
+      gstin: profile.gstin ?? "",
+      gstState: profile.gstState ?? "",
+      annualTurnover: profile.annualTurnover ?? "",
       addressLine: profile.addressLine ?? "",
       city: profile.city ?? "",
       state: profile.state ?? "",
@@ -382,7 +422,10 @@ function AccountPageContent() {
       const body = {
         legalName: bpForm.legalName.trim(),
         companyName: bpForm.companyName?.trim() || null,
-        gstNumber: bpForm.gstNumber?.trim() || null,
+        gstRegistered: bpForm.gstRegistered,
+        gstin: bpForm.gstRegistered ? bpForm.gstin?.trim().toUpperCase() || null : null,
+        gstState: bpForm.gstRegistered ? bpForm.gstState?.trim() || null : null,
+        annualTurnover: bpForm.gstRegistered ? bpForm.annualTurnover || null : null,
         addressLine: bpForm.addressLine?.trim() || null,
         city: bpForm.city?.trim() || null,
         state: bpForm.state?.trim() || null,
@@ -421,6 +464,7 @@ function AccountPageContent() {
     await fetch(`/api/store/billing-profiles/${id}`, { method: "DELETE", credentials: "include" });
     setBillingProfiles((prev) => prev.filter((p) => p.id !== id));
   }
+
 
   // Auth states
   if (loadingUser) {
@@ -654,6 +698,7 @@ function AccountPageContent() {
                 )}
               </>
             )}
+
           </div>
         )}
 
@@ -683,8 +728,14 @@ function AccountPageContent() {
                         {profile.companyName && (
                           <div className="text-xs mt-0.5" style={{ color: A.textMuted }}>{profile.companyName}</div>
                         )}
-                        {profile.gstNumber && (
-                          <div className="text-xs mt-0.5 font-mono" style={{ color: A.textMuted }}>GST: {profile.gstNumber}</div>
+                        {profile.gstRegistered && profile.gstin && (
+                          <div className="text-xs mt-0.5 font-mono" style={{ color: A.textMuted }}>GSTIN: {profile.gstin}</div>
+                        )}
+                        {profile.gstRegistered && !profile.gstin && (
+                          <div className="text-xs mt-0.5" style={{ color: A.textMuted }}>GST Registered</div>
+                        )}
+                        {!profile.gstRegistered && (
+                          <div className="text-xs mt-0.5" style={{ color: A.textMuted }}>Bill of Supply</div>
                         )}
                         {(profile.addressLine || profile.city) && (
                           <div className="text-xs mt-1" style={{ color: A.textMuted }}>
@@ -734,24 +785,83 @@ function AccountPageContent() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>GST Number</label>
-                    <input value={bpForm.gstNumber ?? ""}
-                      onChange={(e) => setBpField("gstNumber", e.target.value)}
-                      placeholder="GST number (optional)" className={iCls} style={iStyle} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Link to Store (optional)</label>
-                    <select value={bpForm.linkedStoreId ?? ""}
-                      onChange={(e) => setBpField("linkedStoreId", e.target.value)}
-                      className={iCls} style={iStyle}>
-                      <option value="">Personal / No store</option>
-                      {myStores.map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                {/* Link to Store */}
+                <div>
+                  <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Link to Store (optional)</label>
+                  <select value={bpForm.linkedStoreId ?? ""}
+                    onChange={(e) => setBpField("linkedStoreId", e.target.value)}
+                    className={iCls} style={iStyle}>
+                    <option value="">Personal / No store</option>
+                    {myStores.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* GST Registration */}
+                <div className="space-y-3 pt-1">
+                  <label className="flex items-center gap-3 cursor-pointer select-none">
+                    <div
+                      onClick={() => { setBpForm((f) => ({ ...f, gstRegistered: !f.gstRegistered })); setBpGstinError(""); }}
+                      style={{ width: 40, height: 22, borderRadius: 11, background: bpForm.gstRegistered ? A.accent : A.border, transition: "background 0.2s", cursor: "pointer", position: "relative", flexShrink: 0 }}>
+                      <div style={{ position: "absolute", top: 3, left: bpForm.gstRegistered ? 20 : 3, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />
+                    </div>
+                    <span className="text-xs font-medium" style={{ color: A.text }}>
+                      {bpForm.gstRegistered ? "GST Registered" : "Not GST Registered"}
+                    </span>
+                  </label>
+
+                  {bpForm.gstRegistered ? (
+                    <div className="rounded-lg p-3 space-y-3" style={{ background: "#F9FAFB", border: `1px solid ${A.border}` }}>
+                      <div>
+                        <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>
+                          GSTIN <span style={{ color: "#EF4444" }}>*</span>
+                        </label>
+                        <input
+                          value={bpForm.gstin ?? ""}
+                          maxLength={15}
+                          onChange={(e) => {
+                            const upper = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15);
+                            const code = upper.slice(0, 2);
+                            setBpForm((f) => ({ ...f, gstin: upper, gstState: GSTIN_STATE_CODES[code] ?? f.gstState }));
+                            setBpGstinError("");
+                          }}
+                          onBlur={() => {
+                            const v = bpForm.gstin?.trim() ?? "";
+                            const RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+                            if (v && !RE.test(v)) setBpGstinError("Invalid GSTIN format");
+                            else setBpGstinError("");
+                          }}
+                          placeholder="e.g. 27AAAAA0000A1Z5"
+                          className={iCls} style={bpGstinError ? { ...iStyle, borderColor: "#EF4444" } : iStyle}
+                        />
+                        {bpForm.gstState && !bpGstinError && (
+                          <p className="text-xs mt-1" style={{ color: A.accent }}>📍 {bpForm.gstState}</p>
+                        )}
+                        {bpGstinError && <p className="text-xs mt-1" style={{ color: "#EF4444" }}>{bpGstinError}</p>}
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium block mb-1" style={{ color: A.textMuted }}>Annual Turnover</label>
+                        <select value={bpForm.annualTurnover ?? ""}
+                          onChange={(e) => setBpField("annualTurnover", e.target.value)}
+                          className={iCls} style={iStyle}>
+                          <option value="">Select turnover range</option>
+                          {TURNOVER_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                        {bpForm.annualTurnover === "above_5Cr" && (
+                          <p className="text-xs mt-1" style={{ color: "#F59E0B" }}>
+                            E-Invoice via IRP will be required for this store.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs px-1" style={{ color: A.textMuted }}>
+                      Your invoices will be issued as Bill of Supply. Buyers cannot claim input tax credit.
+                    </p>
+                  )}
                 </div>
 
                 <div>

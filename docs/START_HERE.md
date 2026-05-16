@@ -188,10 +188,10 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 - `/store/account?tab=stores` — summary view: "All Orders" pill plus per-store pills; "View all →" routes to the correct full page
 
 ### Billing Profiles
-- Users can save multiple billing profiles (`BillingProfile` model) for GST / invoice use
-- Each profile has `legalName` (required), `companyName`, `gstNumber`, optional billing address fields, and an optional `linkedStoreId`
-- Managed in `/store/account?tab=invoice` — displayed as cards; add/edit/delete inline
-- Selected during `QuickOrderModal` step 3; available in future cart checkout invoice step
+- Users save multiple billing profiles (`BillingProfile` model) for GST / invoice use
+- Each profile: `legalName` (required), `companyName`, **GST block** (`gstRegistered Boolean`, `gstin`, `gstState`, `annualTurnover`), billing address fields, optional `linkedStoreId`
+- Managed in `/store/account?tab=invoice` — Tax & Compliance toggle controls the GST block; GSTIN auto-derives state from first 2 digits; `above_5Cr` turnover shows an e-invoice warning
+- Selected during `QuickOrderModal` step 3 and `CheckoutModal` step 2; selected profile is **serialised into `Order.invoiceData` JSON** — no FK on the Order row
 - API: `GET/POST /api/store/billing-profiles`, `PATCH/DELETE /api/store/billing-profiles/[profileId]`
 
 ### Store Image Pool (upload dedup)
@@ -220,6 +220,23 @@ Picker UI: `StoreImagePickerModal` (in `components/store/`) — shows grid, sear
 - All store-listing APIs inject slug via `getStoreSlugs()` from `lib/store/getStoreSlugs.ts`
 - `scripts/migrateStoreSlugs.ts` was used to backfill slugs for stores created before the field was added
 - **Stale-client warning**: `Store.slug` may not be in the Prisma generated client if `prisma generate` failed (EPERM on Windows while dev server runs). Always use `$queryRaw` for slug-field operations until `prisma generate` succeeds.
+
+### Invoice System (auto-generate on delivery, owner signs, buyer downloads)
+Routes: `app/api/orders/[orderId]/invoice/` (generate), `.../sign/` (signed upload), `.../download/` (authenticated proxy).
+
+1. Owner marks order **delivered** → client auto-calls `POST /api/orders/[orderId]/invoice`
+2. Server renders PDF via `@react-pdf/renderer` (`lib/invoice/InvoiceDocument.tsx`); `invoiceType` is `"tax_invoice"` if seller's `BillingProfile.gstRegistered`, else `"bill_of_supply"`
+3. PDF uploaded to Cloudinary as `resource_type: "raw", type: "authenticated"` — access-controlled, not publicly fetchable
+4. `invoiceUrl`, `invoiceNumber`, `invoiceType`, `invoiceGenAt` written to Order
+5. Owner UI shows 3 states: generating → unsigned ready + sign-upload form → signed done
+6. Owner uploads signed PDF → `POST .../sign` → `invoiceSignedUrl` saved via `$executeRaw`
+7. Buyer sees **Signed Invoice** download link when `invoiceSignedUrl` exists; "Invoice pending signature" if only `invoiceUrl` exists
+
+Download proxy: `GET .../download` — derives `public_id` deterministically (`invoices/{orderId}` or `invoices/signed/{orderId}_signed`), generates a 60-second `private_download_url` signed token, streams PDF back. Raw Cloudinary URLs are never sent to the browser.
+
+Env: `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` (used by both client and server — there is no separate `CLOUDINARY_CLOUD_NAME`); `CLOUDINARY_API_KEY`/`CLOUDINARY_API_SECRET` from `.env.local` and Vercel env vars.
+
+**GST tax invoice and e-invoice cases pending testing.** The `"tax_invoice"` branch and `annualTurnover: "above_5Cr"` (IRN/IRP required) UI exist but have not been verified end-to-end with a real GSTIN.
 
 ### Product Ratings
 - `ProductRating` model: one rating (1–5) per user per `StoreBlock`; `@@unique([productId, userId])`
