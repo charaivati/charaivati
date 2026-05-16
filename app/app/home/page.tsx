@@ -1,281 +1,302 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import {
-  Heart,
-  Search,
-  Users,
-  Briefcase,
-  GraduationCap,
-  Store,
-  ArrowRight,
-  ShieldCheck,
-} from "lucide-react";
 
 export default function HomePage() {
-  const features = [
-    {
-      icon: <Store size={28} />,
-      title: "Create Your Store",
-      desc: "Sell goods, services, courses, or anything you're passionate about.",
-      color: "from-violet-500/20 to-indigo-500/10",
-      iconColor: "text-violet-600",
-    },
-    {
-      icon: <Briefcase size={28} />,
-      title: "Monetize Your Passion",
-      desc: "Turn your skills and ideas into meaningful income.",
-      color: "from-green-500/20 to-emerald-500/10",
-      iconColor: "text-green-600",
-    },
-    {
-      icon: <Search size={28} />,
-      title: "Explore & Discover",
-      desc: "Find amazing stores, services, courses, and initiatives around you.",
-      color: "from-sky-500/20 to-cyan-500/10",
-      iconColor: "text-sky-600",
-    },
-    {
-      icon: <Heart size={28} />,
-      title: "Join Initiatives",
-      desc: "Support causes, participate in initiatives and make a real impact.",
-      color: "from-pink-500/20 to-rose-500/10",
-      iconColor: "text-pink-600",
-    },
-    {
-      icon: <Users size={28} />,
-      title: "Collaborate",
-      desc: "Connect with experts, seek help, and build together.",
-      color: "from-orange-500/20 to-amber-500/10",
-      iconColor: "text-orange-600",
-    },
-  ];
+  const [gstModalOpen, setGstModalOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#f5f5f7] text-[#111827] overflow-hidden pb-28">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-100 via-white to-indigo-100 opacity-90" />
+    <div style={{
+      background: "#0F172A", minHeight: "100vh",
+      maxWidth: 390, margin: "0 auto",
+      fontFamily: "system-ui, -apple-system, sans-serif",
+    }}>
 
-        <div className="absolute top-20 left-[-120px] w-72 h-72 bg-violet-300/20 blur-3xl rounded-full" />
-        <div className="absolute bottom-0 right-[-100px] w-72 h-72 bg-indigo-300/20 blur-3xl rounded-full" />
-
-        <div className="relative px-6 pt-10 pb-16 max-w-7xl mx-auto">
-          {/* Main Hero */}
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            {/* Left */}
-            <div>
-              <div className="inline-flex items-center gap-2 bg-violet-100 text-violet-700 px-4 py-2 rounded-full text-sm font-medium">
-                ✦ Build. Share. Impact.
-              </div>
-
-              <h1 className="mt-6 text-5xl md:text-6xl font-black leading-[1.05] tracking-tight text-[#111827]">
-                Find your{" "}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500">
-                  Drive.
-                </span>
-                <br />
-                Build your{" "}
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-violet-600 to-indigo-500">
-                  Space.
-                </span>
-              </h1>
-
-              <p className="mt-6 text-[18px] leading-8 text-gray-600 max-w-xl">
-                Create stores for goods, services, courses or initiatives.
-                Explore amazing stores, get help and join causes that matter.
-              </p>
-
-              {/* CTA */}
-              <div className="flex flex-wrap gap-4 mt-10">
-                <Link
-                  href="/app/saved"
-                  className="group px-7 py-4 rounded-3xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold shadow-[0_10px_40px_rgba(99,102,241,0.35)] flex items-center gap-2 hover:scale-[1.02] transition-all"
-                >
-                  Explore Stores
-                  <ArrowRight
-                    size={18}
-                    className="group-hover:translate-x-1 transition"
-                  />
-                </Link>
-
-                <Link
-                  href="/app/initiatives"
-                  className="px-7 py-4 rounded-3xl bg-white/80 backdrop-blur border border-violet-200 text-violet-700 font-semibold hover:bg-violet-50 transition"
-                >
-                  Your Initiatives
-                </Link>
-              </div>
-
-              {/* Community */}
-              <div className="flex items-center gap-4 mt-10">
-                <div className="flex -space-x-3">
-                  {["A", "R", "K"].map((letter, i) => (
-                    <div
-                      key={i}
-                      className="w-11 h-11 rounded-full border-2 border-white bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white text-sm font-semibold shadow"
-                    >
-                      {letter}
-                    </div>
-                  ))}
-
-                  <div className="w-11 h-11 rounded-full bg-black border-2 border-white flex items-center justify-center text-white text-sm font-semibold">
-                    1K+
-                  </div>
-                </div>
-
-                <p className="text-sm text-gray-600 leading-6">
-                  Creators, builders and changemakers trust Charaivati
-                </p>
-              </div>
-            </div>
-
-            {/* Right Graphic */}
-            <div className="relative hidden lg:flex justify-center items-center min-h-[500px]">
-              <div className="absolute w-[420px] h-[420px] rounded-full border border-dashed border-violet-300 animate-spin [animation-duration:40s]" />
-
-              <div className="absolute w-[260px] h-[260px] rounded-full bg-gradient-to-br from-violet-100 to-white shadow-2xl flex items-center justify-center text-7xl">
-                🌱
-              </div>
-
-              {/* Floating cards */}
-              <div className="absolute top-4 left-32 bg-white shadow-xl rounded-3xl p-5 w-40">
-                <div className="w-12 h-12 rounded-2xl bg-violet-100 flex items-center justify-center text-violet-600">
-                  <Store />
-                </div>
-
-                <h3 className="mt-4 font-bold text-lg">Goods</h3>
-              </div>
-
-              <div className="absolute top-40 left-0 bg-white shadow-xl rounded-3xl p-5 w-40">
-                <div className="w-12 h-12 rounded-2xl bg-blue-100 flex items-center justify-center text-blue-600">
-                  <Briefcase />
-                </div>
-
-                <h3 className="mt-4 font-bold text-lg">Services</h3>
-              </div>
-
-              <div className="absolute top-40 right-0 bg-white shadow-xl rounded-3xl p-5 w-40">
-                <div className="w-12 h-12 rounded-2xl bg-green-100 flex items-center justify-center text-green-600">
-                  <GraduationCap />
-                </div>
-
-                <h3 className="mt-4 font-bold text-lg">Courses</h3>
-              </div>
-
-              <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white shadow-xl rounded-3xl p-5 w-40">
-                <div className="w-12 h-12 rounded-2xl bg-pink-100 flex items-center justify-center text-pink-600">
-                  <Heart />
-                </div>
-
-                <h3 className="mt-4 font-bold text-lg">Initiatives</h3>
-              </div>
-            </div>
-          </div>
-        </div>
+      {/* Dedication — white, bold, all-caps */}
+      <section style={{ background: "#fff", padding: "20px 20px 28px" }}>
+        <p style={{
+          fontSize: 17, fontWeight: 800, lineHeight: 1.5,
+          color: "#0F172A", textAlign: "center", margin: 0,
+          textTransform: "uppercase", letterSpacing: "0.02em",
+        }}>
+          <span style={{ color: "#6366f1" }}>To my younger self</span>,{" "}
+          who wanted to start a business.{" "}
+          <span style={{ color: "#6366f1" }}>To my friend</span>,{" "}
+          whose father&apos;s clothing store needed help.{" "}
+          To everyone who stopped because of{" "}
+          <span style={{ color: "#6366f1" }}>paperwork.</span>
+        </p>
       </section>
 
-      {/* Features */}
-      <section className="px-6 py-14 max-w-7xl mx-auto">
-        <div className="text-center">
-          <h2 className="text-3xl font-black tracking-tight">
-            All you need to grow and make impact
-          </h2>
-
-          <p className="mt-3 text-gray-500 text-lg">
-            Create. Explore. Collaborate. Monetize.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-5 mt-12">
-          {features.map((feature, index) => (
-            <div
-              key={index}
-              className="bg-white rounded-[28px] p-7 border border-gray-100 shadow-sm hover:shadow-2xl hover:-translate-y-1 transition-all duration-300"
-            >
-              <div
-                className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${feature.color} flex items-center justify-center ${feature.iconColor}`}
-              >
-                {feature.icon}
-              </div>
-
-              <h3 className="mt-6 text-2xl font-bold leading-tight">
-                {feature.title}
-              </h3>
-
-              <p className="mt-4 text-gray-500 leading-7">
-                {feature.desc}
-              </p>
+      {/* Network visual */}
+      <section style={{
+        background: "linear-gradient(160deg, #1E1B4B 0%, #312E81 40%, #1E3A5F 70%, #0F172A 100%)",
+        minHeight: 180, position: "relative", overflow: "hidden",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        {/* Dot grid */}
+        <div style={{
+          position: "absolute", inset: 0,
+          backgroundImage: "radial-gradient(circle, rgba(99,102,241,0.3) 1.5px, transparent 1.5px)",
+          backgroundSize: "28px 28px",
+        }} />
+        {/* Radial glow */}
+        <div style={{
+          position: "absolute",
+          width: 220, height: 220, borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)",
+          top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+        }} />
+        {/* Connector lines */}
+        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+          <line x1="28%" y1="50%" x2="50%" y2="50%"
+            stroke="rgba(99,102,241,0.35)" strokeWidth="1" strokeDasharray="5 4" />
+          <line x1="50%" y1="50%" x2="72%" y2="50%"
+            stroke="rgba(99,102,241,0.35)" strokeWidth="1" strokeDasharray="5 4" />
+          <line x1="50%" y1="20%" x2="50%" y2="50%"
+            stroke="rgba(99,102,241,0.25)" strokeWidth="1" strokeDasharray="4 4" />
+          <line x1="50%" y1="50%" x2="50%" y2="80%"
+            stroke="rgba(99,102,241,0.25)" strokeWidth="1" strokeDasharray="4 4" />
+        </svg>
+        {/* Nodes */}
+        <div style={{ position: "relative", zIndex: 1, display: "flex", gap: 28, alignItems: "center" }}>
+          {[
+            { icon: "🛍️", size: 44 },
+            { icon: "🌐", size: 64 },
+            { icon: "🤝", size: 44 },
+          ].map(({ icon, size }, i) => (
+            <div key={i} style={{
+              width: size, height: size, borderRadius: "50%",
+              background: "rgba(99,102,241,0.18)",
+              border: `${i === 1 ? 2 : 1}px solid rgba(99,102,241,${i === 1 ? 0.7 : 0.4})`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: i === 1 ? 28 : 20,
+              boxShadow: i === 1 ? "0 0 24px rgba(99,102,241,0.3)" : "none",
+            }}>
+              {icon}
             </div>
           ))}
         </div>
       </section>
 
-      {/* Bottom Banner */}
-      <section className="px-6 max-w-7xl mx-auto">
-        <div className="relative overflow-hidden rounded-[36px] border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-indigo-50 p-10">
-          <div className="absolute top-0 right-0 w-80 h-80 bg-violet-300/20 blur-3xl rounded-full" />
+      {/* Hero text + two-column cards */}
+      <section style={{ background: "#0F172A", padding: "20px 16px 0" }}>
 
-          <div className="relative flex flex-col lg:flex-row gap-10 items-center justify-between">
-            <div className="max-w-2xl">
-              <div className="w-16 h-16 rounded-3xl bg-violet-100 flex items-center justify-center text-violet-600">
-                <ShieldCheck size={30} />
-              </div>
+        {/* Tag */}
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
+          <span style={{
+            border: "1px solid rgba(99,102,241,0.5)",
+            color: "#A5B4FC", fontSize: 10, fontWeight: 700,
+            letterSpacing: "0.15em", padding: "5px 14px",
+            textTransform: "uppercase",
+          }}>
+            Igniting Ideas, Empowering Dreams
+          </span>
+        </div>
 
-              <h2 className="mt-6 text-4xl font-black leading-tight">
-                Your passion can change your life.
-                <br />
-                Your initiative can change the world.
-              </h2>
+        {/* Headline */}
+        <h1 style={{
+          fontSize: 26, fontWeight: 900, lineHeight: 1.2,
+          color: "#fff", margin: "0 0 10px",
+          textTransform: "uppercase", textAlign: "center",
+        }}>
+          Start,{" "}
+          <span style={{ color: "#818CF8" }}>Build</span> and{" "}
+          <span style={{ color: "#818CF8" }}>Share</span>{" "}
+          the Initiative You Always Wanted.
+        </h1>
 
-              <p className="mt-5 text-gray-600 text-lg leading-8">
-                Charaivati helps creators, educators, builders and communities
-                grow together through a connected digital ecosystem.
+        <p style={{ textAlign: "center", color: "#64748B", fontSize: 13, margin: "0 0 20px" }}>
+          Tap to get started
+        </p>
+
+        {/* Two columns */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: "14px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <span style={{ fontSize: 20 }}>🚀</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>My Initiatives</span>
+            </div>
+            {["Create a Store", "Run a Service", "Share a Cause", "Build a Community"].map((item) => (
+              <p key={item} style={{ fontSize: 12, color: "#374151", margin: "0 0 5px", lineHeight: 1.4 }}>
+                {item}
               </p>
+            ))}
+          </div>
 
-              <div className="flex flex-wrap gap-5 mt-8 text-sm text-gray-500">
-                <Link
-                  href="/about-charaivati"
-                  className="text-violet-600 font-semibold hover:underline"
-                >
-                  Learn more →
-                </Link>
-
-                <Link
-                  href="/terms-of-service"
-                  className="hover:text-black transition"
-                >
-                  Terms of Service
-                </Link>
-
-                <Link
-                  href="/privacy-policy"
-                  className="hover:text-black transition"
-                >
-                  Privacy Policy
-                </Link>
-
-                <Link
-                  href="/security"
-                  className="hover:text-black transition"
-                >
-                  Security
-                </Link>
-              </div>
+          <div style={{ background: "#fff", borderRadius: 14, padding: "14px 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <span style={{ fontSize: 20 }}>🌍</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>Explore & Buy</span>
             </div>
-
-            <div>
-              <Link
-                href="/app/initiatives"
-                className="inline-flex items-center gap-2 px-8 py-5 rounded-3xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-semibold shadow-[0_10px_40px_rgba(99,102,241,0.35)] hover:scale-[1.03] transition-all"
-              >
-                Get Started Now
-                <ArrowRight size={18} />
-              </Link>
-            </div>
+            {["Browse Stores", "Save Products", "Support Initiatives", "Connect & Collaborate"].map((item) => (
+              <p key={item} style={{ fontSize: 12, color: "#374151", margin: "0 0 5px", lineHeight: 1.4 }}>
+                {item}
+              </p>
+            ))}
           </div>
         </div>
       </section>
+
+      {/* Bottom CTA */}
+      <section style={{
+        background: "#060B18",
+        borderTop: "1px solid #1E293B",
+        padding: "20px 16px 36px",
+      }}>
+        <p style={{
+          textAlign: "center", fontSize: 11, fontWeight: 700,
+          color: "#475569", letterSpacing: "0.12em",
+          textTransform: "uppercase", margin: "0 0 14px",
+        }}>
+          Just start. The rest follows.
+        </p>
+
+        <Link
+          href="/app/initiatives"
+          style={{
+            display: "block", textAlign: "center",
+            background: "#6366f1", color: "#fff",
+            padding: "18px 24px", borderRadius: 12,
+            fontSize: 18, fontWeight: 800,
+            textTransform: "uppercase", letterSpacing: "0.04em",
+            textDecoration: "none",
+          }}
+        >
+          Begin Your Initiative
+        </Link>
+
+        <p style={{ fontSize: 11, color: "#475569", textAlign: "center", margin: "16px 0 0" }}>
+          No GST needed to start.{" "}
+          <button
+            onClick={() => setGstModalOpen(true)}
+            style={{
+              fontSize: 11, color: "#818CF8",
+              background: "none", border: "none",
+              cursor: "pointer", padding: 0,
+              textDecoration: "underline",
+            }}
+          >
+            See full details
+          </button>
+        </p>
+      </section>
+
+      {/* GST Modal */}
+      {gstModalOpen && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 100,
+            background: "rgba(0,0,0,0.6)",
+            display: "flex", alignItems: "flex-end",
+          }}
+          onClick={() => setGstModalOpen(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%", maxHeight: "80vh",
+              background: "#fff", borderRadius: "20px 20px 0 0",
+              padding: 24, overflowY: "auto",
+            }}
+          >
+            <div style={{
+              display: "flex", justifyContent: "space-between",
+              alignItems: "center", marginBottom: 20,
+            }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: "#111827", margin: 0 }}>
+                GST & Selling on Charaivati
+              </h3>
+              <button
+                onClick={() => setGstModalOpen(false)}
+                style={{
+                  fontSize: 22, background: "none", border: "none",
+                  cursor: "pointer", color: "#6B7280", lineHeight: 1,
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{
+              background: "#EFF6FF", border: "1px solid #BFDBFE",
+              borderRadius: 10, padding: 12, marginBottom: 20,
+            }}>
+              <p style={{ fontSize: 13, color: "#1E40AF", lineHeight: 1.6, margin: 0 }}>
+                Charaivati does not process payments. Buyers pay sellers directly
+                (Cash on Delivery). This means we are a listing platform, not an
+                e-commerce operator under GST law.
+              </p>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#16A34A", margin: "0 0 8px" }}>
+                ✓ You don&apos;t need GST if:
+              </p>
+              {[
+                "You sell goods only within your state",
+                "Yearly turnover under ₹40 lakhs (goods) or ₹20 lakhs (services)",
+                "You're just starting out",
+              ].map((item, i) => (
+                <p key={i} style={{ fontSize: 13, color: "#374151", margin: "0 0 4px", paddingLeft: 12 }}>
+                  • {item}
+                </p>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#DC2626", margin: "0 0 8px" }}>
+                ⚠ You need GST if:
+              </p>
+              {[
+                "Your turnover crosses the limits above",
+                "You sell to customers in other states",
+                "You voluntarily want to claim tax credits",
+              ].map((item, i) => (
+                <p key={i} style={{ fontSize: 13, color: "#374151", margin: "0 0 4px", paddingLeft: 12 }}>
+                  • {item}
+                </p>
+              ))}
+            </div>
+
+            <div style={{
+              background: "#F0FDF4", borderRadius: 10,
+              padding: 12, marginBottom: 20,
+            }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "#15803D", margin: "0 0 6px" }}>
+                💡 Good to know
+              </p>
+              <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, margin: "0 0 8px" }}>
+                You can start your store now and add GST details later when required.
+              </p>
+              <p style={{ fontSize: 13, color: "#374151", lineHeight: 1.6, margin: 0 }}>
+                Voluntary registration lets you claim tax credits and appear more
+                credible to larger buyers.
+              </p>
+            </div>
+
+            <a
+              href="https://www.gst.gov.in"
+              target="_blank" rel="noopener noreferrer"
+              style={{
+                display: "block", textAlign: "center",
+                padding: 12, borderRadius: 10,
+                background: "#6366f1", color: "#fff",
+                textDecoration: "none", fontSize: 14,
+                fontWeight: 600, marginBottom: 12,
+              }}
+            >
+              Register on GST Portal →
+            </a>
+
+            <p style={{ fontSize: 11, color: "#9CA3AF", textAlign: "center", lineHeight: 1.5, margin: 0 }}>
+              General information only, not legal advice.
+              Verify at gst.gov.in for your specific case.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

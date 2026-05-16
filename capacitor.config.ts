@@ -4,12 +4,27 @@ const config: CapacitorConfig = {
   appId: 'com.charaivati.store',
   appName: 'Charaivati Store',
 
-  webDir: 'public',
-
   server: {
     url: 'https://charaivati.com/app/home',
     cleartext: false,
     androidScheme: 'https',
+    allowNavigation: [
+      'charaivati.com',
+      '*.charaivati.com',
+    ],
+  },
+
+  android: {
+    backgroundColor: '#000000',
+    allowMixedContent: true,
+  },
+
+  plugins: {
+    StatusBar: {
+      style: 'DARK',
+      overlaysWebView: false,
+      backgroundColor: '#000000',
+    },
   },
 };
 
