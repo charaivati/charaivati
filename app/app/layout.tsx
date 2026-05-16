@@ -187,34 +187,19 @@ export default function AppShellLayout({
                       </div>
 
                       {isGuest ? (
-                        <>
-                          <a
-                            href={`/login?redirect=${encodeURIComponent(pathname ?? "/app/home")}`}
-                            style={{
-                              display: "block",
-                              padding: "10px 16px",
-                              fontSize: 13,
-                              fontWeight: 600,
-                              color: A.accent,
-                              textDecoration: "none",
-                              borderBottom: `1px solid ${A.border}`,
-                            }}
-                          >
-                            Sign in
-                          </a>
-                          <a
-                            href={`/register?redirect=${encodeURIComponent(pathname ?? "/app/home")}`}
-                            style={{
-                              display: "block",
-                              padding: "10px 16px",
-                              fontSize: 13,
-                              color: A.text,
-                              textDecoration: "none",
-                            }}
-                          >
-                            Create account
-                          </a>
-                        </>
+                        <a
+                          href={`/login?redirect=${encodeURIComponent(pathname ?? "/app/home")}`}
+                          style={{
+                            display: "block",
+                            padding: "10px 16px",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            color: A.accent,
+                            textDecoration: "none",
+                          }}
+                        >
+                          Sign in / Sign up
+                        </a>
                       ) : (
                         <>
                           <a

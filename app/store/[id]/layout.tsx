@@ -90,35 +90,20 @@ function MobileProfileMenu() {
           </button>
 
           {isGuest ? (
-            <>
-              <a
-                href={`/login?redirect=${encodeURIComponent(pathname ?? "/")}`}
-                style={{
-                  display: "block",
-                  padding: "10px 16px",
-                  fontSize: 13,
-                  color: "#6366f1",
-                  textDecoration: "none",
-                  borderBottom: "1px solid #f0f0f0",
-                  fontWeight: 600,
-                }}
-              >
-                🔑 Sign in
-              </a>
-              <a
-                href={`/register?redirect=${encodeURIComponent(pathname ?? "/")}`}
-                style={{
-                  display: "block",
-                  padding: "10px 16px",
-                  fontSize: 13,
-                  color: "#0F1111",
-                  textDecoration: "none",
-                  borderBottom: "1px solid #f0f0f0",
-                }}
-              >
-                ✨ Create account
-              </a>
-            </>
+            <a
+              href={`/login?redirect=${encodeURIComponent(pathname ?? "/")}`}
+              style={{
+                display: "block",
+                padding: "10px 16px",
+                fontSize: 13,
+                color: "#6366f1",
+                textDecoration: "none",
+                borderBottom: "1px solid #f0f0f0",
+                fontWeight: 600,
+              }}
+            >
+              🔑 Sign in / Sign up
+            </a>
           ) : (
             <a
               href="/store/account"
