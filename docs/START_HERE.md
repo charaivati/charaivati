@@ -151,6 +151,16 @@ The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. Th
 
 Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (`/api/auth/otp/`). Both ultimately set the same session cookie.
 
+### Guest-to-real merge (fires automatically on login and email verification)
+1. Guest browses as a `User` with `status: "guest"` and no email
+2. On **register**, the guest session cookie is read and `guestId` is embedded in `MagicLink.meta`
+3. On **email verification** click (`GET /api/user/magic`): `mergeGuestToReal(guestId, realId)` runs — prefers `meta.guestId`, falls back to live cookie
+4. On **login** (`POST /api/user/login`): same merge fires after session token is created
+5. Merge is a single Prisma transaction: cart (quantities summed), wishlist, pinned stores, page follows (initiatives), addresses, orders, owned Pages, owned Stores → guest user deleted
+6. Calling merge twice is safe — duplicates are skipped and a deleted guest is a no-op
+7. Manual path: `POST /api/user/claim-guest` with `{ guestId }` for retroactive recovery
+8. Guest UI: store nav and app shell detect `user.status === "guest"` from `/api/user/me` and show "Sign in / Sign up" instead of account links
+
 ### Main User Journey (Web)
 1. Land on `/` → redirect to `/login` if unauthenticated
 2. After login → `/onboarding` (first time) or `/self` (returning)

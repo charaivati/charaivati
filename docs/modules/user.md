@@ -86,17 +86,19 @@ Manages user accounts, profiles, and identity from registration through deletion
 
 ### Guest account
 1. Client POSTs to `POST /api/user/guest`
-2. API creates a temporary `User` with no email, limited access
-3. Returns session cookie
-4. TODO: Confirm guest account TTL and cleanup
+2. API creates a `User` with `status: "guest"` and no email, issues a session cookie
+3. Guest can browse stores, add to cart, place orders, follow initiatives, and save products
+4. On sign-in or email verification, `mergeGuestToReal(guestId, realId)` (in `lib/mergeGuest.ts`) atomically transfers all guest data to the real account — see [[auth.md]] for the full merge flow
+5. Manual recovery: `POST /api/user/claim-guest` with `{ guestId }` and a real-user session
 
 ## Key API Routes
 
 | Method | Route | Action |
 |---|---|---|
-| POST | /api/user/register | Create account |
+| POST | /api/user/register | Create account (embeds guestId in magic link meta if guest session present) |
 | POST | /api/user/guest | Create guest session |
-| GET | /api/user/me | Current user (id, email, name, avatarUrl) |
+| GET | /api/user/me | Current user (id, email, name, avatarUrl, **status**) |
+| POST | /api/user/claim-guest | Merge a guest account into the current real user; body: `{ guestId }` |
 | GET | /api/user/profile | Full profile |
 | PATCH | /api/user/profile | Update profile |
 | POST | /api/user/avatar | Save avatar URL |

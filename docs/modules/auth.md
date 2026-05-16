@@ -94,7 +94,16 @@ Handles all authentication and session lifecycle: credential verification, sessi
 1. Client POSTs email to `POST /api/auth/send-magic-link`
 2. Server generates a signed token (15-min expiry), stores hash in `MagicLink` table
 3. Sends link via `sendEmail()`
-4. User clicks link → `GET /api/user/magic` verifies token, issues session cookie
+4. User clicks link → `GET /api/user/magic` verifies token, marks email verified, auto-merges any guest session (see below), redirects to `/login`
+
+### Guest-to-real account merge
+Guests have a real `User` row (`status: "guest"`, no email). On authentication all guest data is moved to the real account atomically.
+
+1. At **registration** (`POST /api/user/register`): the current cookie is read; if it is a guest session the `guestId` is stored in `MagicLink.meta` JSON — this survives the user opening the verification email in a different browser or app.
+2. At **email verification** (`GET /api/user/magic`): `meta.guestId` is preferred; live cookie is the fallback. `mergeGuestToReal(guestId, realId)` is called before the redirect to `/login`.
+3. At **password login** (`POST /api/user/login`): after `createSessionToken`, the existing cookie is checked and merged if it contains a guest session.
+4. `mergeGuestToReal` (in `lib/mergeGuest.ts`) runs a single Prisma transaction: cart items (quantities summed), wishlist, pinned stores, page follows, addresses, orders, owned Pages (initiatives/courses/health businesses), owned Stores — then deletes the guest user. Duplicate records are skipped; calling twice is a no-op.
+5. `POST /api/user/claim-guest` — manual merge endpoint; accepts `{ guestId }` with a real-user session. For retroactive recovery.
 
 ### OTP
 1. Client POSTs phone to `POST /api/auth/otp/request`
