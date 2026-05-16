@@ -115,6 +115,18 @@ export async function mergeGuestToReal(
       data: { userId: realId },
     });
 
+    // Pages owned by guest (initiatives, courses, health businesses) — move all
+    await tx.page.updateMany({
+      where: { ownerId: guestId },
+      data: { ownerId: realId },
+    });
+
+    // Stores owned by guest — move all
+    await tx.store.updateMany({
+      where: { ownerId: guestId },
+      data: { ownerId: realId },
+    });
+
     // Delete the guest user record
     await tx.user.delete({ where: { id: guestId } });
   });
