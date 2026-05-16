@@ -16,6 +16,12 @@ function MobileProfileMenu() {
   const [open, setOpen] = useState(false);
   const [businessMenuOpen, setBusinessMenuOpen] = useState(false);
 
+  async function handleSignOut() {
+    try { sessionStorage.removeItem("charaivati.redirect"); } catch {}
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    window.location.href = "/login";
+  }
+
   return (
     <div style={{ position: "relative", flexShrink: 0 }}>
       <button
@@ -208,6 +214,26 @@ function MobileProfileMenu() {
                 </div>
               )}
             </div>
+          )}
+
+          {!isGuest && (
+            <button
+              onClick={handleSignOut}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                padding: "10px 16px",
+                fontSize: 13,
+                color: "#EF4444",
+                background: "none",
+                border: "none",
+                borderTop: "1px solid #f0f0f0",
+                cursor: "pointer",
+              }}
+            >
+              🚪 Sign out
+            </button>
           )}
         </div>
       )}
