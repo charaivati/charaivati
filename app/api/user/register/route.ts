@@ -126,7 +126,26 @@ export async function POST(req: Request) {
 
     // ← VALIDATE AND STORE REDIRECT
     const redirectPath = sanitizeRedirect(redirect);
-    
+
+    // Capture guest session so orders/cart survive email-link delay
+    let guestId: string | undefined;
+    try {
+      const { getTokenFromRequest, verifySessionToken } = await import("@/lib/session");
+      const guestToken = getTokenFromRequest(req);
+      if (guestToken) {
+        const payload = await verifySessionToken(guestToken);
+        if (payload?.userId && payload.userId !== user.id) {
+          const guestCheck = await prisma.user.findUnique({
+            where: { id: payload.userId },
+            select: { status: true, email: true },
+          });
+          if (guestCheck?.status === "guest" && guestCheck.email === null) {
+            guestId = payload.userId;
+          }
+        }
+      }
+    } catch {}
+
     await prisma.magicLink.create({
       data: {
         userId: user.id,
@@ -134,7 +153,7 @@ export async function POST(req: Request) {
         type: "verify-email",
         expiresAt,
         ip,
-        meta: { from: "register", redirect: redirectPath }, // ← STORE IN META
+        meta: { from: "register", redirect: redirectPath, ...(guestId ? { guestId } : {}) },
       },
     });
 

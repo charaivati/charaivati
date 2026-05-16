@@ -84,17 +84,28 @@ export async function GET(req: NextRequest) {
       }),
     ]);
 
-    // Auto-merge guest session if present
+    // Auto-merge guest session — prefer guestId baked into meta at register time
+    // (reliable across email clients that strip cookies), fall back to live cookie
     try {
       const { mergeGuestToReal } = await import("@/lib/mergeGuest");
-      const { verifySessionToken, getTokenFromRequest } = await import("@/lib/session");
-      const guestToken = getTokenFromRequest(req);
-      if (guestToken) {
-        const guestPayload = await verifySessionToken(guestToken);
-        if (guestPayload?.userId && guestPayload.userId !== record.userId) {
-          await mergeGuestToReal(guestPayload.userId, record.userId).catch((e) =>
-            console.error("[magic] guest merge failed, continuing:", e)
-          );
+      const metaGuestId =
+        record.meta && typeof record.meta === "object"
+          ? (record.meta as any).guestId
+          : null;
+      if (metaGuestId && metaGuestId !== record.userId) {
+        await mergeGuestToReal(metaGuestId, record.userId).catch((e) =>
+          console.error("[magic] meta guest merge failed, continuing:", e)
+        );
+      } else {
+        const { verifySessionToken, getTokenFromRequest } = await import("@/lib/session");
+        const guestToken = getTokenFromRequest(req);
+        if (guestToken) {
+          const guestPayload = await verifySessionToken(guestToken);
+          if (guestPayload?.userId && guestPayload.userId !== record.userId) {
+            await mergeGuestToReal(guestPayload.userId, record.userId).catch((e) =>
+              console.error("[magic] cookie guest merge failed, continuing:", e)
+            );
+          }
         }
       }
     } catch (e) {

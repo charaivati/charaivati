@@ -89,6 +89,12 @@ export async function mergeGuestToReal(
       data: { userId: realId },
     });
 
+    // Orders — move all (address rows already re-owned above)
+    await tx.order.updateMany({
+      where: { userId: guestId },
+      data: { userId: realId },
+    });
+
     // Delete the guest user record
     await tx.user.delete({ where: { id: guestId } });
   });
