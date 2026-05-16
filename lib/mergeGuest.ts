@@ -83,6 +83,26 @@ export async function mergeGuestToReal(
       }
     }
 
+    // Page follows (initiatives, stores, courses) — skip duplicates
+    const guestFollows = await tx.pageFollow.findMany({
+      where: { userId: guestId },
+    });
+    for (const item of guestFollows) {
+      const existing = await tx.pageFollow.findUnique({
+        where: {
+          userId_pageId: { userId: realId, pageId: item.pageId },
+        },
+      });
+      if (!existing) {
+        await tx.pageFollow.update({
+          where: { id: item.id },
+          data: { userId: realId },
+        });
+      } else {
+        await tx.pageFollow.delete({ where: { id: item.id } });
+      }
+    }
+
     // Addresses — move all
     await tx.address.updateMany({
       where: { userId: guestId },
