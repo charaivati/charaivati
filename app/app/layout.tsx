@@ -24,8 +24,9 @@ const A = {
 type User = {
   id: string;
   name: string | null;
-  email: string;
+  email: string | null;
   avatarUrl?: string | null;
+  status?: string | null;
 };
 
 export default function AppShellLayout({
@@ -38,6 +39,8 @@ export default function AppShellLayout({
   const [user, setUser] = useState<User | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  const isGuest = user?.status === "guest";
 
   useEffect(() => {
     fetch("/api/user/me", { credentials: "include" })
@@ -170,46 +173,81 @@ export default function AppShellLayout({
                           {user.name ?? "Account"}
                         </div>
 
-                        <div
-                          style={{
-                            fontSize: 11,
-                            color: A.textMuted,
-                            marginTop: 2,
-                          }}
-                        >
-                          {user.email}
-                        </div>
+                        {user.email && (
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: A.textMuted,
+                              marginTop: 2,
+                            }}
+                          >
+                            {user.email}
+                          </div>
+                        )}
                       </div>
 
-                      <a
-                        href="/store/account"
-                        style={{
-                          display: "block",
-                          padding: "10px 16px",
-                          fontSize: 13,
-                          color: A.text,
-                          textDecoration: "none",
-                        }}
-                      >
-                        My Account
-                      </a>
+                      {isGuest ? (
+                        <>
+                          <a
+                            href={`/login?redirect=${encodeURIComponent(pathname ?? "/app/home")}`}
+                            style={{
+                              display: "block",
+                              padding: "10px 16px",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: A.accent,
+                              textDecoration: "none",
+                              borderBottom: `1px solid ${A.border}`,
+                            }}
+                          >
+                            Sign in
+                          </a>
+                          <a
+                            href={`/register?redirect=${encodeURIComponent(pathname ?? "/app/home")}`}
+                            style={{
+                              display: "block",
+                              padding: "10px 16px",
+                              fontSize: 13,
+                              color: A.text,
+                              textDecoration: "none",
+                            }}
+                          >
+                            Create account
+                          </a>
+                        </>
+                      ) : (
+                        <>
+                          <a
+                            href="/store/account"
+                            style={{
+                              display: "block",
+                              padding: "10px 16px",
+                              fontSize: 13,
+                              color: A.text,
+                              textDecoration: "none",
+                            }}
+                          >
+                            My Account
+                          </a>
 
-                      <button
-                        onClick={handleSignOut}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "10px 16px",
-                          fontSize: 13,
-                          color: "#EF4444",
-                          background: "none",
-                          border: "none",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Sign out
-                      </button>
+                          <button
+                            onClick={handleSignOut}
+                            style={{
+                              display: "block",
+                              width: "100%",
+                              textAlign: "left",
+                              padding: "10px 16px",
+                              fontSize: 13,
+                              color: "#EF4444",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Sign out
+                          </button>
+                        </>
+                      )}
                     </div>
                   </>
                 )}
