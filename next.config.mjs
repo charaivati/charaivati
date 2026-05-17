@@ -69,7 +69,7 @@ const nextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' https://accounts.google.com https://unpkg.com",
               "style-src 'self' 'unsafe-inline' https://unpkg.com",
-              "img-src 'self' data: blob: https://lh3.googleusercontent.com https://drive.google.com https://*.googleapis.com https://res.cloudinary.com https://*.tile.openstreetmap.org https://unpkg.com",
+              "img-src 'self' data: blob: https://lh3.googleusercontent.com https://drive.google.com https://*.googleapis.com https://res.cloudinary.com https://*.tile.openstreetmap.org https://unpkg.com https://images.unsplash.com",
               "media-src 'self' blob: https://res.cloudinary.com",
               "font-src 'self'",
               "connect-src 'self' https://accounts.google.com https://*.googleapis.com https://api.cloudinary.com https://*.tile.openstreetmap.org",

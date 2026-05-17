@@ -37,6 +37,14 @@ export async function GET(
     });
   }
 
-  const slugs = await getStoreSlugs([store.id]);
-  return NextResponse.json({ storeId: store.id, storeSlug: slugs[store.id] ?? null });
+  const [slugs, sectionCount] = await Promise.all([
+    getStoreSlugs([store.id]),
+    prisma.storeSection.count({ where: { storeId: store.id } }),
+  ]);
+
+  return NextResponse.json({
+    storeId: store.id,
+    storeSlug: slugs[store.id] ?? null,
+    isNew: sectionCount === 0,
+  });
 }
