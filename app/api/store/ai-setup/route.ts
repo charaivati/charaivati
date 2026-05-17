@@ -1,27 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import getServerUser from "@/lib/serverAuth";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
+import { fetchImages } from "@/lib/imageSearch";
 
 const MODEL = process.env.STORE_SETUP_AI_MODEL ?? process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
-
-const UNSPLASH_ACCESS_KEY =
-  process.env.UNSPLASH_ACCESS_KEY ??
-  process.env.NEXT_PUBLIC_UNSPLASH_ACCESS_KEY ??
-  "";
-
-async function fetchUnsplashImage(query: string): Promise<string | null> {
-  if (!UNSPLASH_ACCESS_KEY) return null;
-  try {
-    const res = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
-      { headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` } }
-    );
-    const data = await res.json();
-    return data?.results?.[0]?.urls?.small ?? null;
-  } catch {
-    return null;
-  }
-}
 
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
@@ -96,12 +78,14 @@ Filters should match Indian buying contexts for this product type.`;
       return NextResponse.json({ error: "AI returned invalid JSON" }, { status: 500 });
     }
 
-    const sectionsWithImages = await Promise.all(
-      (structure.sections ?? []).map(async (section: any) => {
-        const imageUrl = await fetchUnsplashImage(section.unsplashQuery ?? section.title);
-        return { ...section, imageUrl };
-      })
-    );
+    const sections = structure.sections ?? [];
+    const queries = sections.map((s: any) => s.unsplashQuery ?? s.title);
+    const images = await fetchImages(queries);
+
+    const sectionsWithImages = sections.map((section: any, i: number) => ({
+      ...section,
+      imageUrl: images[i] ?? null,
+    }));
 
     return NextResponse.json({
       ok: true,
