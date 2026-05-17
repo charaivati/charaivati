@@ -42,6 +42,12 @@ export async function GET(
     prisma.storeSection.count({ where: { storeId: store.id } }),
   ]);
 
+  console.log("[for-page] pageId:", pageId);
+  console.log("[for-page] store found/created:", store.id, store.name);
+  console.log("[for-page] sectionCount:", sectionCount);
+  console.log("[for-page] isNew:", sectionCount === 0);
+  console.log("[for-page] returning storeId:", store.id);
+
   return NextResponse.json({
     storeId: store.id,
     storeSlug: slugs[store.id] ?? null,
