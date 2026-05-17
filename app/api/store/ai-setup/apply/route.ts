@@ -106,6 +106,19 @@ export async function POST(req: NextRequest) {
         createdSections.push(createdSection);
       }
 
+      // Global banner — use the first section image so the store top is never blank
+      const firstImage = sections.find((s: any) => s.imageUrl)?.imageUrl ?? null;
+      if (firstImage) {
+        await tx.storeBanner.create({
+          data: {
+            storeId,
+            isGlobal: true,
+            imageUrl: firstImage,
+            heading: store.name,
+          },
+        });
+      }
+
       return createdSections;
     }, { timeout: 30000 });
 
