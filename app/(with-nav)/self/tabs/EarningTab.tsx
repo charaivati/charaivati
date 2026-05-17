@@ -265,6 +265,12 @@ export default function EarningTab() {
       const res = await fetch(`/api/store/for-page/${pageId}`, { credentials: "include" });
       if (res.ok) {
         const { storeId, storeSlug, isNew } = await res.json();
+        console.log("[openStore] storeId:", storeId,
+          "isNew:", isNew,
+          "navigating to:", isNew
+            ? `/store/${storeId}/setup`
+            : `/store/${storeSlug ?? storeId}`
+        );
         if (isNew) {
           window.location.href = `/store/${storeId}/setup`;
         } else {
