@@ -17,7 +17,7 @@ async function fetchUnsplashImage(query: string): Promise<string | null> {
       { headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` } }
     );
     const data = await res.json();
-    return data?.results?.[0]?.urls?.regular ?? null;
+    return data?.results?.[0]?.urls?.small ?? null;
   } catch {
     return null;
   }

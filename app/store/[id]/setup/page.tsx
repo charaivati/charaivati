@@ -30,7 +30,7 @@ export default function StoreSetupPage() {
 
   function skipToStore() {
     sessionStorage.setItem(`setup_skipped_${id}`, "1");
-    skipToStore();
+    router.push(`/store/${id}`);
   }
 
   const [step, setStep] = useState<"input" | "preview" | "applying" | "done">("input");
