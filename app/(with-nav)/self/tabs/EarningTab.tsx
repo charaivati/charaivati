@@ -263,8 +263,11 @@ export default function EarningTab() {
     setOpeningStore(pageId);
     try {
       const res = await fetch(`/api/store/for-page/${pageId}`, { credentials: "include" });
+      const json = await res.json();
+      console.log("[openStore] pageId:", pageId, "response:", json);
       if (res.ok) {
-        const { storeId, storeSlug, isNew } = await res.json();
+        const { storeId, storeSlug, isNew } = json;
+        console.log("[openStore] isNew:", isNew, "→ routing to:", isNew ? `/store/${storeId}/setup` : `/store/${storeSlug ?? storeId}`);
         if (isNew) {
           router.push(`/store/${storeId}/setup`);
         } else {
