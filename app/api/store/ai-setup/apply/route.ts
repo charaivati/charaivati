@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       }
 
       return createdSections;
-    });
+    }, { timeout: 30000 });
 
     return NextResponse.json({ ok: true, sectionsCreated: results.length });
   } catch (err) {
