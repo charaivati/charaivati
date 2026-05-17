@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useStoreShell } from "../StoreShellContext";
 
 const A = {
   bg: "#F3F4F6", nav: "#131921", border: "#E5E7EB",
@@ -20,6 +21,12 @@ type SetupData = { filters: string[]; sections: Section[] };
 export default function StoreSetupPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { setShowNav } = useStoreShell();
+
+  useEffect(() => {
+    setShowNav(false);
+    return () => setShowNav(true);
+  }, []);
 
   const [step, setStep] = useState<"input" | "preview" | "applying" | "done">("input");
   const [description, setDescription] = useState("");
