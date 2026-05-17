@@ -1078,6 +1078,15 @@ export default function StorePage() {
           router.replace(`/store/${data.slug}`);
           return;
         }
+        // New-store redirect: owner with 0 sections → setup wizard
+        if (data.isOwner && (data.sections ?? []).length === 0) {
+          const skipped = typeof window !== "undefined"
+            && sessionStorage.getItem(`setup_skipped_${data.id}`);
+          if (!skipped) {
+            window.location.replace(`/store/${data.id}/setup`);
+            return;
+          }
+        }
         setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null);
         fetch(`/api/store/cart/${data.id}`, { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setCartItems(items)).catch(() => {});
         fetch("/api/store/wishlist", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setWishlist(new Set(items.map((i: any) => i.blockId)))).catch(() => {});

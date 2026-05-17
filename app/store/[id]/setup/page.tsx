@@ -28,6 +28,11 @@ export default function StoreSetupPage() {
     return () => setShowNav(true);
   }, []);
 
+  function skipToStore() {
+    sessionStorage.setItem(`setup_skipped_${id}`, "1");
+    skipToStore();
+  }
+
   const [step, setStep] = useState<"input" | "preview" | "applying" | "done">("input");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
@@ -69,7 +74,7 @@ export default function StoreSetupPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed");
       setStep("done");
-      setTimeout(() => router.push(`/store/${id}`), 1500);
+      setTimeout(() => skipToStore(), 1500);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : "Failed to apply");
       setStep("preview");
@@ -110,7 +115,7 @@ export default function StoreSetupPage() {
     <div style={{ minHeight: "100vh", background: A.bg, fontFamily: "system-ui, sans-serif" }}>
       <div style={{ background: A.nav, padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <span style={{ color: "#fff", fontFamily: "monospace", fontSize: 14 }}>charaivati</span>
-        <button onClick={() => router.push(`/store/${id}`)}
+        <button onClick={() => skipToStore()}
           style={{ color: "#9CA3AF", background: "none", border: "1px solid #374151", borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 13 }}>
           Skip →
         </button>
@@ -163,7 +168,7 @@ export default function StoreSetupPage() {
             </div>
 
             <button
-              onClick={() => router.push(`/store/${id}`)}
+              onClick={() => skipToStore()}
               style={{
                 width: "100%", padding: "12px", marginTop: 12,
                 borderRadius: 12, background: "transparent",
@@ -334,7 +339,7 @@ export default function StoreSetupPage() {
             </div>
 
             <button
-              onClick={() => router.push(`/store/${id}`)}
+              onClick={() => skipToStore()}
               style={{
                 width: "100%", padding: "12px", marginTop: 12,
                 borderRadius: 12, background: "transparent",
