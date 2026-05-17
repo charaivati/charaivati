@@ -1297,6 +1297,20 @@ export default function StorePage() {
               <p className="text-sm" style={{ color: A.textMuted }}>
                 {activeFilterId ? "No sections in this filter." : (store.isOwner ? "No sections yet. Click Edit to get started." : "This store has no content yet.")}
               </p>
+              {store.isOwner && !activeFilterId && (
+                <a
+                  href={`/store/${store.id}/setup`}
+                  onClick={() => sessionStorage.removeItem(`setup_skipped_${store.id}`)}
+                  style={{
+                    marginTop: 8, display: "inline-block",
+                    padding: "8px 20px", borderRadius: 10,
+                    background: "#6366f1", color: "#fff",
+                    fontSize: 13, fontWeight: 600, textDecoration: "none",
+                  }}
+                >
+                  ✨ Set up with AI
+                </a>
+              )}
             </div>
           )}
 
