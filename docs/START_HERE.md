@@ -182,13 +182,13 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 4. If `isNew: true` → `window.location.href = /store/${storeId}/setup` (hard nav — `router.push` drops cross-layout-root navigations)
 5. **Fallback**: if user reaches `/store/[id]` any other way and still has 0 sections + `isOwner`, `fetchStore` calls `window.location.replace(/store/${id}/setup)` unless `sessionStorage.setup_skipped_${id}` is set
 6. Wizard step 1: owner describes their business in plain English
-7. `POST /api/store/ai-setup` → one `chatComplete` call → JSON structure + Unsplash `small` images fetched in parallel
+7. `POST /api/store/ai-setup` → one `chatComplete` call → JSON structure + images batch-fetched via `lib/imageSearch.ts` `fetchImages()` in parallel (Unsplash → Pexels → Pixabay rotating, Picsum guaranteed fallback)
 8. Wizard step 2: owner edits titles/prices inline, removes unwanted sections
 9. `POST /api/store/ai-setup/apply` → single Prisma transaction (30 s timeout): filters → sections → tiles → per-filter banners → blocks → one global `StoreBanner`
 10. On success: wizard redirects to `/store/${storeId}`; `fetchStore` sees `sections.length > 0` so no redirect loop
 11. Skip at any step → `skipToStore()` sets `sessionStorage.setup_skipped_${storeId}` then navigates to the store directly
 
-Env var required: `UNSPLASH_ACCESS_KEY` — without it, banner images are `null` (wizard still works, sections just have no images).
+Image env vars (all optional — `lib/imageSearch.ts` skips missing providers): `UNSPLASH_ACCESS_KEY`, `PEXELS_KEY`, `PIXABAY_KEY`. Picsum is the guaranteed no-key fallback so images are never `null`.
 
 ### Store Purchase Flow — Cart (standard)
 1. User browses `/store/[id]` — sections and blocks fetched

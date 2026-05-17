@@ -148,19 +148,19 @@ Entry points that use this pipeline:
 1. Owner clicks **"Your Store"** in EarningTab → `GET /api/store/for-page/[pageId]` finds/creates the `Store` and returns `isNew: true` when `storeSection.count === 0`
 2. `EarningTab.openStore()` uses `window.location.href` (not `router.push`) to navigate to `/store/[id]/setup` — hard nav required because `router.push` silently drops navigations across different Next.js layout roots
 3. **Fallback redirect**: `app/store/[id]/page.tsx` `fetchStore` also redirects to `/setup` if `isOwner && sections.length === 0` and `sessionStorage.setup_skipped_[id]` is not set
-4. Owner types a plain-English business description → `POST /api/store/ai-setup` calls `chatComplete` once, strips markdown, parses JSON, fetches Unsplash `small` images in parallel; returns `{ filters, sections[] }` with `imageUrl` on each section
+4. Owner types a plain-English business description → `POST /api/store/ai-setup` calls `chatComplete` once, strips markdown, parses JSON, batch-fetches images via `lib/imageSearch.ts` `fetchImages()` (rotates Unsplash/Pexels/Pixabay, Picsum fallback); returns `{ filters, sections[] }` with `imageUrl` on each section
 5. Owner edits inline (section titles, product titles, prices) and removes unwanted sections
 6. Owner clicks "Create my store →" → `POST /api/store/ai-setup/apply` runs a single Prisma transaction (`timeout: 30000 ms`): filters → sections → tiles → per-filter banners (`isGlobal: false`) → product blocks → one global banner (`isGlobal: true`, first section image, heading = store name)
 7. On success: wizard navigates to `/store/[id]`; `fetchStore` sees `sections.length > 0` so the setup redirect never re-fires
 8. Skip buttons call `skipToStore()` which sets `sessionStorage.setup_skipped_[id]` before navigating to prevent the `fetchStore` redirect from looping
 
-**Required env var**: `UNSPLASH_ACCESS_KEY` — images are silently `null` without it; the wizard still works.
+**Image env vars** (all optional): `UNSPLASH_ACCESS_KEY`, `PEXELS_KEY`, `PIXABAY_KEY`. `lib/imageSearch.ts` skips any provider whose key is absent and falls back through the chain. Picsum is the no-key guaranteed fallback — images are never `null`.
 
 ## Key API Routes
 
 | Method | Route | Action |
 |---|---|---|
-| POST | /api/store/ai-setup | AI wizard: generate store structure from description; fetches Unsplash images |
+| POST | /api/store/ai-setup | AI wizard: generate store structure from description; fetches images via `lib/imageSearch.ts` (multi-provider) |
 | POST | /api/store/ai-setup/apply | AI wizard: apply confirmed structure — creates filters, sections, tiles, banners, blocks in one transaction |
 | GET | /api/store/for-page/[pageId] | Find/create store for a Page; returns `{ storeId, storeSlug, isNew }` |
 | POST | /api/store | Create store |
