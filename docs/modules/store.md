@@ -138,16 +138,31 @@ Entry points that use this pipeline:
 - `BannerEditForm` (`components/store/BannerEditForm.tsx`) — banner image upload
 - `AddTileModal` (`app/store/[id]/page.tsx`) — tile image upload
 
-### Store creation
+### Store creation — manual
 1. User creates a `Page` with `pageType: 'store'`
 2. API creates linked `Store` record
 3. User adds sections, blocks, filters, and banners via separate API calls
 4. Each section can have a `type` (grid, etc.) and `columns`/`rows` layout metadata
 
+### Store creation — AI Setup Wizard
+1. Owner clicks **"Your Store"** in EarningTab → `GET /api/store/for-page/[pageId]` finds/creates the `Store` and returns `isNew: true` when `storeSection.count === 0`
+2. `EarningTab.openStore()` uses `window.location.href` (not `router.push`) to navigate to `/store/[id]/setup` — hard nav required because `router.push` silently drops navigations across different Next.js layout roots
+3. **Fallback redirect**: `app/store/[id]/page.tsx` `fetchStore` also redirects to `/setup` if `isOwner && sections.length === 0` and `sessionStorage.setup_skipped_[id]` is not set
+4. Owner types a plain-English business description → `POST /api/store/ai-setup` calls `chatComplete` once, strips markdown, parses JSON, fetches Unsplash `small` images in parallel; returns `{ filters, sections[] }` with `imageUrl` on each section
+5. Owner edits inline (section titles, product titles, prices) and removes unwanted sections
+6. Owner clicks "Create my store →" → `POST /api/store/ai-setup/apply` runs a single Prisma transaction (`timeout: 30000 ms`): filters → sections → tiles → per-filter banners (`isGlobal: false`) → product blocks → one global banner (`isGlobal: true`, first section image, heading = store name)
+7. On success: wizard navigates to `/store/[id]`; `fetchStore` sees `sections.length > 0` so the setup redirect never re-fires
+8. Skip buttons call `skipToStore()` which sets `sessionStorage.setup_skipped_[id]` before navigating to prevent the `fetchStore` redirect from looping
+
+**Required env var**: `UNSPLASH_ACCESS_KEY` — images are silently `null` without it; the wizard still works.
+
 ## Key API Routes
 
 | Method | Route | Action |
 |---|---|---|
+| POST | /api/store/ai-setup | AI wizard: generate store structure from description; fetches Unsplash images |
+| POST | /api/store/ai-setup/apply | AI wizard: apply confirmed structure — creates filters, sections, tiles, banners, blocks in one transaction |
+| GET | /api/store/for-page/[pageId] | Find/create store for a Page; returns `{ storeId, storeSlug, isNew }` |
 | POST | /api/store | Create store |
 | GET | /api/store/[id] | Get store with sections/blocks |
 | PATCH | /api/store/[id] | Update store metadata |
@@ -181,7 +196,8 @@ Entry points that use this pipeline:
 
 | Page | Purpose |
 |---|---|
-| `app/store/[id]/page.tsx` | Main store page — browsing, cart, checkout, image library; redirects cuid URLs → slug URL |
+| `app/store/[id]/setup/page.tsx` | AI setup wizard — 3-step onboarding (describe → preview/edit → apply); shown automatically on first visit when 0 sections |
+| `app/store/[id]/page.tsx` | Main store page — browsing, cart, checkout, image library; redirects cuid URLs → slug URL; redirects owner to `/setup` when 0 sections |
 | `app/store/[id]/section/[sectionId]/page.tsx` | Section product grid; inline qty stepper; star ratings (batch-fetched); "Buy Now" opens QuickOrderModal; redirects cuid URLs → slug URL |
 | `app/store/account/page.tsx` | Buyer: addresses, purchases, billing profiles. Owner: per-store and "All Orders" aggregate order view |
 | `app/store/[id]/orders/page.tsx` | Per-store active order list with status-update controls; "Delivered Orders →" link in header |
@@ -228,6 +244,9 @@ Entry points that use this pipeline:
 - `BillingProfile.linkedStoreId` is optional and not validated at the DB level. A profile can technically be linked to a store the user no longer owns if ownership changes after profile creation.
 - TODO: No payment integration found. Unclear whether orders are fulfilled manually or via a yet-to-be-integrated gateway.
 - TODO: Confirm whether `StoreFilter.bannerId` links to a `StoreBanner` or is a different concept.
+- **`StoreHero` `bannerUrl`/`avatarUrl` are dead fields** — the `Store` DB model has neither column. The frontend `Store` type declares them optional, so they silently render nothing. The live banner is `StoreBanner` (`isGlobal: true`) → `globalBanner` in the API response → rendered by `BannerZone`. `avatarUrl` exists only on `User` and `Page`.
+- **AI setup transaction timeout** — `prisma.$transaction` default is 5 s; apply route sets `{ timeout: 30000 }`. Any new transaction with many sequential `await` calls must set an explicit timeout or it will expire mid-way (Prisma P2028).
+- **`for-page` now returns `isNew`** — consumers of `GET /api/store/for-page/[pageId]` must handle the new `isNew: boolean` field. Existing callers that only destructure `storeId` and `storeSlug` are unaffected.
 - **`StoreImage` field rename footgun**: old fields `name`, `imageUrl`, `imageKey`, `createdAt` no longer exist in the DB. Any code still referencing them will read `undefined` silently. Current fields: `url`, `fileHash`, `cloudinaryId`, `fileName`, `uploadedAt`.
 - **Dedup only within a store**: `@@unique([storeId, fileHash])` is per-store, not global. The same file uploaded to two different stores creates two `StoreImage` rows and two Cloudinary assets (same `public_id` per store, Cloudinary deduplicates across uploads with the same `public_id`).
 - **Image upload pipeline dependency**: if Cloudinary is unavailable, `uploadStoreImage` throws after the hash check step. The DB record is never created. The UI shows an alert. There is no retry queue.

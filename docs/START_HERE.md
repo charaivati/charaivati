@@ -175,6 +175,21 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 3. Bottom tabs: Home, Initiatives, Explore, Account
 4. Auth state fetched from `/api/user/me` on layout mount
 
+### AI Store Setup Wizard (new store onboarding)
+1. Owner creates a `Page` with `pageType: 'store'` and clicks **"Your Store"** in EarningTab
+2. `EarningTab.openStore(pageId)` → `GET /api/store/for-page/${pageId}` → finds/creates `Store`, counts `StoreSection` rows
+3. Response: `{ storeId, storeSlug, isNew: sectionCount === 0 }`
+4. If `isNew: true` → `window.location.href = /store/${storeId}/setup` (hard nav — `router.push` drops cross-layout-root navigations)
+5. **Fallback**: if user reaches `/store/[id]` any other way and still has 0 sections + `isOwner`, `fetchStore` calls `window.location.replace(/store/${id}/setup)` unless `sessionStorage.setup_skipped_${id}` is set
+6. Wizard step 1: owner describes their business in plain English
+7. `POST /api/store/ai-setup` → one `chatComplete` call → JSON structure + Unsplash `small` images fetched in parallel
+8. Wizard step 2: owner edits titles/prices inline, removes unwanted sections
+9. `POST /api/store/ai-setup/apply` → single Prisma transaction (30 s timeout): filters → sections → tiles → per-filter banners → blocks → one global `StoreBanner`
+10. On success: wizard redirects to `/store/${storeId}`; `fetchStore` sees `sections.length > 0` so no redirect loop
+11. Skip at any step → `skipToStore()` sets `sessionStorage.setup_skipped_${storeId}` then navigates to the store directly
+
+Env var required: `UNSPLASH_ACCESS_KEY` — without it, banner images are `null` (wizard still works, sections just have no images).
+
 ### Store Purchase Flow — Cart (standard)
 1. User browses `/store/[id]` — sections and blocks fetched
 2. `POST /api/store/cart/[storeId]` — add block to cart; "Add to Cart" button flashes "✓ Added" for 2 seconds
