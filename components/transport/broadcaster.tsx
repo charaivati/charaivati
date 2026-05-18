@@ -3,6 +3,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { VehicleType } from "@/lib/types";
+import { useGeolocation } from "@/hooks/useGeolocation";
 
 const VEHICLE_TYPES: VehicleType[] = ["Bus", "Auto", "Taxi", "Metro", "Other"];
 const VEHICLE_EMOJI: Record<VehicleType, string> = {
@@ -11,9 +12,10 @@ const VEHICLE_EMOJI: Record<VehicleType, string> = {
 
 interface BroadcasterProps {
   onPositionUpdate?: (lat: number, lng: number) => void;
+  onVehicleCreated?: (vehicleId: string) => void;
 }
 
-export default function Broadcaster({ onPositionUpdate }: BroadcasterProps) {
+export default function Broadcaster({ onPositionUpdate, onVehicleCreated }: BroadcasterProps) {
   const [busNumber, setBusNumber]     = useState("");
   const [route, setRoute]             = useState("");
   const [vehicleType, setVehicleType] = useState<VehicleType>("Bus");
@@ -21,7 +23,7 @@ export default function Broadcaster({ onPositionUpdate }: BroadcasterProps) {
   const [statusMsg, setStatusMsg]     = useState("Enter your vehicle details and start broadcasting.");
   const [accuracy, setAccuracy]       = useState<number | null>(null);
 
-  const watchRef      = useRef<number | null>(null);
+  const { startWatch, stopWatch } = useGeolocation();
   const vehicleIdRef  = useRef<string | null>(null);
 
   const broadcast = useCallback(
@@ -40,13 +42,17 @@ export default function Broadcaster({ onPositionUpdate }: BroadcasterProps) {
           }),
         });
         const data = await res.json();
-        if (data.id) vehicleIdRef.current = data.id;
+        if (data.id) {
+          const isNew = vehicleIdRef.current === null;
+          vehicleIdRef.current = data.id;
+          if (isNew) onVehicleCreated?.(data.id);
+        }
         onPositionUpdate?.(lat, lng);
       } catch {
         setStatusMsg("Network error — retrying...");
       }
     },
-    [busNumber, route, vehicleType, onPositionUpdate]
+    [busNumber, route, vehicleType, onPositionUpdate, onVehicleCreated]
   );
 
   const start = () => {
@@ -57,26 +63,21 @@ export default function Broadcaster({ onPositionUpdate }: BroadcasterProps) {
     setStatus("active");
     setStatusMsg("Waiting for GPS...");
 
-    watchRef.current = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy: acc } = pos.coords;
+    startWatch(
+      (lat, lng, acc) => {
         setAccuracy(Math.round(acc));
         setStatusMsg(`Live · ${busNumber} · ±${Math.round(acc)}m · ${new Date().toLocaleTimeString()}`);
-        broadcast(latitude, longitude, acc);
+        broadcast(lat, lng, acc);
       },
-      (err) => {
+      (msg) => {
         setStatus("error");
-        setStatusMsg("GPS error: " + err.message);
-      },
-      { enableHighAccuracy: true, maximumAge: 5000 }
+        setStatusMsg("GPS error: " + msg);
+      }
     );
   };
 
   const stop = async () => {
-    if (watchRef.current !== null) {
-      navigator.geolocation.clearWatch(watchRef.current);
-      watchRef.current = null;
-    }
+    await stopWatch();
     if (vehicleIdRef.current) {
       await fetch(`/api/transport/broadcast?id=${vehicleIdRef.current}`, { method: "DELETE" });
       vehicleIdRef.current = null;

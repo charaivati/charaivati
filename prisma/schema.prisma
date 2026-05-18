@@ -34,45 +34,46 @@ model User {
   shortBio                String?
   title                   String?
   preferredLanguage       String?              @default("en")
+  addresses               Address[]
+  aiGoals                 AiGoal[]
+  billingProfiles         BillingProfile[]
   businessIdeas           BusinessIdea[]       @relation("UserBusinessIdeas")
   businessPlans           BusinessPlan[]       @relation("UserBusinessPlans")
+  cartItems               CartItem[]
+  chatConvsA              ChatConversation[]   @relation("ChatConvA")
+  chatConvsB              ChatConversation[]   @relation("ChatConvB")
+  sentMessages            ChatMessage[]        @relation("ChatSender")
+  msgBackups              ChatMessageBackup[]  @relation("UserMsgBackups")
+  courseProgress          CourseProgress[]
   customTabs              CustomTab[]          @relation("UserCustomTabs")
   embeddings              Embedding[]          @relation("UserEmbeddings")
   events                  Event[]              @relation("UserEvents")
+  expertSubscriptions     ExpertSubscription[]
+  circles                 FriendCircle[]       @relation("UserCircles")
+  circleMemberships       FriendCircleMember[] @relation("CircleMemberships")
   requestsReceived        FriendRequest[]      @relation("req_receiver")
   requestsSent            FriendRequest[]      @relation("req_sender")
   friendshipsA            Friendship[]         @relation("friendA")
   friendshipsB            Friendship[]         @relation("friendB")
   magicLinks              MagicLink[]
+  orders                  Order[]
   pages                   Page[]               @relation("UserPages")
   pageFollows             PageFollow[]
+  pinnedStores            PinnedStore[]
+  posts                   Post[]               @relation("UserPosts")
+  productRatings          ProductRating[]
   profile                 Profile?
+  projectTimelines        ProjectTimeline[]
   proposals               Proposal[]           @relation("UserProposals")
   reviews                 Review[]             @relation("UserReviews")
+  savedTagSets            SavedTagSet[]
+  stores                  Store[]
+  publicKey               UserPublicKey?
   userTabs                UserTab[]            @relation("UserUserTabs")
   verificationTokens      VerificationToken[]
   votes                   Vote[]               @relation("UserVotes")
-  posts                   Post[]               @relation("UserPosts")
-  circles                 FriendCircle[]       @relation("UserCircles")
-  circleMemberships       FriendCircleMember[] @relation("CircleMemberships")
-  stores                  Store[]
-  expertSubscriptions     ExpertSubscription[]
-  courseProgress          CourseProgress[]
-  savedTagSets            SavedTagSet[]
-  publicKey               UserPublicKey?
-  chatConvsA              ChatConversation[]   @relation("ChatConvA")
-  chatConvsB              ChatConversation[]   @relation("ChatConvB")
-  sentMessages            ChatMessage[]        @relation("ChatSender")
-  msgBackups              ChatMessageBackup[]  @relation("UserMsgBackups")
-  projectTimelines        ProjectTimeline[]
-  aiGoals                 AiGoal[]
-  addresses       Address[]
-  cartItems       CartItem[]
-  orders          Order[]
-  wishlistItems   WishlistItem[]
-  pinnedStores    PinnedStore[]
-  billingProfiles BillingProfile[]
-  productRatings  ProductRating[]
+  wishlistItems           WishlistItem[]
+
   @@index([email])
   @@index([phone])
 }
@@ -143,51 +144,49 @@ model FriendCircleMember {
 /// *
 /// * User profile / health
 model Profile {
-  id                     String  @id @default(cuid())
-  userId                 String  @unique
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
   heightCm               Int?
   weightKg               Float?
-  stepsToday             Int?    @default(0)
+  stepsToday             Int?     @default(0)
   sleepHours             Float?
   waterLitres            Float?
   displayName            String?
   bio                    String?
   socialHandles          Json?
   topics                 Json?
-  streakDays             Int?    @default(0)
+  streakDays             Int?     @default(0)
   learningNotes          String?
   businesses             Json?
   weeklyEarningsEstimate Float?
-  desiredMonthlyIncome   Float?  @default(0)
+  desiredMonthlyIncome   Float?   @default(0)
   preferredPayment       String?
-
   /// SelfTab — purpose layer
   /// Legacy single drive (kept for backward compat)
-  drive              String?
-  /// Selected drives — DriveType[] e.g. ["learning", "building"]
-  drives             Json?
+  drive                  String?
   /// GoalEntry[] — flat array with driveId on each entry
   /// Shape: [{ id, driveId, statement, horizon, skills: [...], linkedBusinessIds, saved }]
-  goals              Json?
+  goals                  Json?
   /// HealthProfile — stored as JSON
   /// Shape: { food, exercise, sessionsPerWeek, heightCm, weightKg, age }
   /// Note: heightCm / weightKg here are string inputs from the form;
   /// the scalar heightCm / weightKg columns above are the validated numeric store.
-  health             Json?
-  /// General skills — SkillEntry[] — abilities that apply across all goals
-  generalSkills      Json?
+  health                 Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
   /// Cached AI roadmap — { phases: Phase[], suggestions: Suggestion[] }
-  aiPlan             Json?
-  /// WeekSchedule — { slots: TimeSlot[], tasks: Task[] }
-  weekSchedule       Json?
-  /// FundsProfile — income sources, monthly burn, runway target
-  fundsProfile       Json?
+  aiPlan                 Json?
+  /// Selected drives — DriveType[] e.g. ["learning", "building"]
+  drives                 Json?
+  /// General skills — SkillEntry[] — abilities that apply across all goals
+  generalSkills          Json?
   /// EnvironmentProfile — city, workspace, constraints, etc.
-  environmentProfile Json?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  environmentProfile     Json?
+  /// FundsProfile — income sources, monthly burn, runway target
+  fundsProfile           Json?
+  /// WeekSchedule — { slots: TimeSlot[], tasks: Task[] }
+  weekSchedule           Json?
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model MagicLink {
@@ -208,23 +207,25 @@ model MagicLink {
 }
 
 model Page {
-  id               String          @id @default(cuid())
-  ownerId          String?
-  title            String
-  description      String?
-  avatarUrl        String?
-  avatarStorageKey String?
-  status           String          @default("active")
-  type             String          @default("standard")
-  pageType         String          @default("store")
-  viewCount        Int             @default(0)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  id                String             @id @default(cuid())
+  ownerId           String?
+  title             String
+  description       String?
+  avatarUrl         String?
+  avatarStorageKey  String?
+  status            String             @default("active")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  type              String             @default("standard")
+  viewCount         Int                @default(0)
+  pageType          String             @default("store")
+  collaborationsIn  Collaboration[]    @relation("CollabReceiver")
+  collaborationsOut Collaboration[]    @relation("CollabRequester")
+  course            Course?
+  healthBusiness    HealthBusiness?
+  helpingInitiative HelpingInitiative?
   owner             User?              @relation("UserPages", fields: [ownerId], references: [id])
   followers         PageFollow[]
-  healthBusiness    HealthBusiness?
-  course            Course?
-  helpingInitiative HelpingInitiative?
 
   @@index([ownerId])
 }
@@ -232,47 +233,48 @@ model Page {
 model Course {
   id             String   @id @default(cuid())
   pageId         String   @unique
-  page           Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
   courseType     String   @default("skill")
   dominantAspect String   @default("mental")
-  aspectWeights  Json     @default("{\"physical\":33,\"mental\":34,\"emotional\":33}")
+  aspectWeights  Json     @default("{\"mental\": 34, \"physical\": 33, \"emotional\": 33}")
   aspectBenefits Json     @default("{}")
-  courseTags     String[] @default([])
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  courseTags     String[] @default([])
+  page           Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
 }
 
 /// Universal Store page models (products/videos/services)
 model Store {
-  id          String         @id @default(cuid())
-  name        String
-  slug        String?        @unique
-  description String?
-  ownerId     String
-  pageId      String?        @unique
-  createdAt   DateTime       @default(now())
-  owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  sections    StoreSection[]
-  filters     StoreFilter[]
-  banners     StoreBanner[]
+  id              String           @id @default(cuid())
+  name            String
+  description     String?
+  ownerId         String
+  createdAt       DateTime         @default(now())
+  pageId          String?          @unique
+  slug            String?          @unique
+  billingProfiles BillingProfile[]
   cartItems       CartItem[]
   orders          Order[]
-  wishlistItems   WishlistItem[]
   pinnedByUsers   PinnedStore[]
+  sections        StoreSection[]
+  owner           User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  banners         StoreBanner[]
+  filters         StoreFilter[]
   images          StoreImage[]
-  billingProfiles BillingProfile[]
+  wishlistItems   WishlistItem[]
+
   @@index([ownerId])
 }
 
 model StoreImage {
   id           String   @id @default(cuid())
   storeId      String
-  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  url          String
   cloudinaryId String?
   fileHash     String
   fileName     String?
   uploadedAt   DateTime @default(now())
+  url          String
+  store        Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@unique([storeId, fileHash])
   @@index([storeId])
@@ -284,17 +286,17 @@ model StoreSection {
   title       String
   order       Int                  @default(0)
   type        String               @default("grid")
+  createdAt   DateTime             @default(now())
+  prereqIds   String[]             @default([])
   sectionType String               @default("product")
   columns     Int                  @default(5)
   rows        Int                  @default(2)
   rowIndex    Int                  @default(0)
-  prereqIds   String[]             @default([])
-  createdAt   DateTime             @default(now())
-  store       Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
   blocks      StoreBlock[]
-  subsections StoreSubsection[]
-  filterLinks StoreSectionFilter[]
+  store       Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
   tiles       SectionTile[]
+  filterLinks StoreSectionFilter[]
+  subsections StoreSubsection[]
 
   @@index([storeId])
   @@index([order])
@@ -304,12 +306,12 @@ model StoreSection {
 model SectionTile {
   id        String       @id @default(cuid())
   sectionId String
-  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   imageUrl  String?
   imageKey  String?
   label     String
   order     Int          @default(0)
   createdAt DateTime     @default(now())
+  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@index([sectionId, order])
 }
@@ -321,8 +323,8 @@ model StoreFilter {
   order     Int                  @default(0)
   bannerId  String?
   createdAt DateTime             @default(now())
-  store     Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
   banner    StoreBanner?         @relation(fields: [bannerId], references: [id])
+  store     Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
   sections  StoreSectionFilter[]
 
   @@index([storeId, order])
@@ -347,8 +349,8 @@ model StoreBanner {
 model StoreSectionFilter {
   sectionId String
   filterId  String
-  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   filter    StoreFilter  @relation(fields: [filterId], references: [id], onDelete: Cascade)
+  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@id([sectionId, filterId])
   @@index([filterId])
@@ -360,8 +362,8 @@ model StoreSubsection {
   title     String
   order     Int          @default(0)
   createdAt DateTime     @default(now())
-  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   blocks    StoreBlock[]
+  section   StoreSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
 
   @@index([sectionId])
   @@index([order])
@@ -379,20 +381,20 @@ model StoreBlock {
   actionType     String           @default("view")
   price          Float?
   order          Int              @default(0)
+  createdAt      DateTime         @default(now())
   aspect         String?
-  lessonType     String?
   blockStatus    String           @default("locked")
+  lessonType     String?
   mastery        Int              @default(0)
   lessonTags     String[]         @default([])
   access         String           @default("free")
   linkedPostId   String?
-  createdAt      DateTime         @default(now())
   section        StoreSection?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subsection     StoreSubsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  cartItems      CartItem[]
   courseProgress CourseProgress[]
-  cartItems     CartItem[]
-  wishlistItems WishlistItem[]
-  ratings       ProductRating[]
+  ratings        ProductRating[]
+  wishlistItems  WishlistItem[]
 
   @@index([sectionId])
   @@index([subsectionId])
@@ -407,8 +409,8 @@ model CourseProgress {
   status    String     @default("unlocked")
   mastery   Int        @default(0)
   updatedAt DateTime   @updatedAt
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   block     StoreBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, blockId])
   @@index([userId])
@@ -734,12 +736,12 @@ model CustomTab {
 /// Small model for languages (seed uses this)
 model Language {
   name       String   @unique
-  nativeName String?
   enabled    Boolean  @default(true)
   createdAt  DateTime @default(now())
   id         Int      @id @default(autoincrement())
   updatedAt  DateTime @default(now()) @updatedAt
   code       String?  @unique
+  nativeName String?
 
   @@index([enabled])
   @@index([name])
@@ -857,37 +859,24 @@ model IdeaResponse {
 }
 
 model Post {
-  id      String  @id @default(cuid())
-  userId  String
-  pageId  String?
-  content String?
-
-  // Media - Google Drive file IDs (legacy)
-  imageFileIds String[] // Array of GDrive file IDs
-  videoFileId  String? // Single GDrive file ID
-
-  // Media - Cloudinary CDN URLs
-  imageUrls String[] @default([]) // Cloudinary https:// URLs
-  videoUrl  String? // Cloudinary https:// URL
-
-  youtubeLinks String[] // YouTube URLs
-
-  // Tagging
-  slugTags String[] // ["epfo-login", "hindi", "video"]
-
-  // Engagement - anonymous voting
-  likes    Int @default(0)
-  dislikes Int @default(0)
-
-  // Metadata
-  gdriveFolder String? // Parent folder ID
-  status       String  @default("active") // active, hidden
-  visibility   String  @default("public") // public, friends, private
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation("UserPosts", fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  userId       String
+  pageId       String?
+  content      String?
+  imageFileIds String[]
+  videoFileId  String?
+  youtubeLinks String[]
+  slugTags     String[]
+  likes        Int      @default(0)
+  dislikes     Int      @default(0)
+  gdriveFolder String?
+  status       String   @default("active")
+  visibility   String   @default("public")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  imageUrls    String[] @default([])
+  videoUrl     String?
+  user         User     @relation("UserPosts", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([pageId])
@@ -899,7 +888,7 @@ model Post {
 model UserPublicKey {
   id        String   @id @default(cuid())
   userId    String   @unique
-  publicKey String // JWK JSON string (ECDH P-256)
+  publicKey String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -908,8 +897,8 @@ model UserPublicKey {
 /// Direct message conversation between two users
 model ChatConversation {
   id            String        @id @default(cuid())
-  userAId       String // canonical: smaller id
-  userBId       String // canonical: larger id
+  userAId       String
+  userBId       String
   createdAt     DateTime      @default(now())
   lastMessageAt DateTime?
   userA         User          @relation("ChatConvA", fields: [userAId], references: [id], onDelete: Cascade)
@@ -927,8 +916,8 @@ model ChatMessage {
   id             String           @id @default(cuid())
   conversationId String
   senderId       String
-  ciphertext     String // base64 AES-GCM encrypted content
-  iv             String // base64 initialization vector
+  ciphertext     String
+  iv             String
   createdAt      DateTime         @default(now())
   conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User             @relation("ChatSender", fields: [senderId], references: [id], onDelete: Cascade)
@@ -943,12 +932,11 @@ model ChatMessage {
 model ChatMessageBackup {
   id        String   @id @default(cuid())
   userId    String
-  messageId String // ChatMessage.id — not a FK so deleting the message doesn't cascade
-  encrypted String // base64 AES-256-GCM ciphertext (server-side key)
-  iv        String // base64 IV
+  messageId String
+  encrypted String
+  iv        String
   createdAt DateTime @default(now())
-
-  user User @relation("UserMsgBackups", fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserMsgBackups", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, messageId])
   @@index([userId, messageId])
@@ -956,13 +944,13 @@ model ChatMessageBackup {
 
 model HelpLink {
   id        String   @id @default(cuid())
-  pageSlug  String? // optional canonical page slug (e.g. "epfo")
-  slugTags  String[] @default([]) // tag this link to one or more tab slugs (canonical Tab.slug)
-  country   String // e.g. "India", "All"
-  title     String // friendly title (page name)
+  pageSlug  String?
+  slugTags  String[] @default([])
+  country   String
+  title     String
   url       String
-  notes     String? // optional internal notes
-  createdBy String? // user id who created
+  notes     String?
+  createdBy String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -972,7 +960,7 @@ model HelpLink {
 
 /// Project timeline — converts a goal (stored in Profile.goals JSON) into a structured project
 model ProjectTimeline {
-  id          String    @id @default(cuid())
+  id          String          @id @default(cuid())
   userId      String
   /// References a goal id within Profile.goals JSON array (no FK — goals live in JSON)
   goalId      String?
@@ -982,22 +970,21 @@ model ProjectTimeline {
   domain      String
   /// slug of the template used, e.g. "product-development"
   templateId  String?
-  isLifelong  Boolean   @default(false)
+  isLifelong  Boolean         @default(false)
   startDate   DateTime?
   targetDate  DateTime?
   /// "active" | "paused" | "completed" | "archived"
-  status      String    @default("active")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  phases TimelinePhase[]
+  status      String          @default("active")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phases      TimelinePhase[]
 
   @@index([userId, status])
 }
 
 model TimelinePhase {
-  id          String    @id @default(cuid())
+  id          String           @id @default(cuid())
   timelineId  String
   title       String
   description String?
@@ -1005,51 +992,28 @@ model TimelinePhase {
   phaseKey    String
   order       Int
   /// "pending" | "in_progress" | "completed" | "skipped"
-  status      String    @default("pending")
+  status      String           @default("pending")
   startDate   DateTime?
   targetDate  DateTime?
   completedAt DateTime?
   notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  timeline   ProjectTimeline  @relation(fields: [timelineId], references: [id], onDelete: Cascade)
-  milestones PhaseMilestone[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  milestones  PhaseMilestone[]
+  timeline    ProjectTimeline  @relation(fields: [timelineId], references: [id], onDelete: Cascade)
 
   @@index([timelineId, order])
 }
 
 model PhaseMilestone {
-  id          String    @id @default(cuid())
+  id          String        @id @default(cuid())
   phaseId     String
   title       String
-  isCompleted Boolean   @default(false)
+  isCompleted Boolean       @default(false)
   dueDate     DateTime?
   completedAt DateTime?
-  createdAt   DateTime  @default(now())
-
-  phase TimelinePhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
-}
-
-// ─── Goal creation (AI-assisted) ─────────────────────────────────────────────
-
-enum GoalArchetype {
-  LEARN
-  BUILD
-  EXECUTE
-  CONNECT
-}
-
-enum GoalMode {
-  FOCUSED
-  ZOOMED_OUT
-}
-
-enum GoalStatus {
-  DRAFT
-  ACTIVE
-  ARCHIVED
-  COMPLETED
+  createdAt   DateTime      @default(now())
+  phase       TimelinePhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
 }
 
 model AiGoal {
@@ -1063,14 +1027,13 @@ model AiGoal {
   successSignal        String?
   riskFlags            Json?
   status               GoalStatus      @default(DRAFT)
-  executionPlan        Json?
-  currentPhaseIndex    Int             @default(0)
-  supportingArchetypes GoalArchetype[] @default([])
-  answers              AiGoalAnswer[]
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentPhaseIndex    Int             @default(0)
+  executionPlan        Json?
+  supportingArchetypes GoalArchetype[] @default([])
+  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers              AiGoalAnswer[]
 
   @@index([userId, status])
 }
@@ -1080,54 +1043,49 @@ model AiGoalAnswer {
   goalId       String
   questionKey  String
   questionText String
-  answer       String  @db.Text
-  reflection   String? @db.Text
+  answer       String
+  reflection   String?
   tags         Json?
   order        Int
-
-  goal AiGoal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  goal         AiGoal  @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
   @@index([goalId, order])
 }
 
-// ─── Health Business ──────────────────────────────────────────────────────────
-
 model HealthBusiness {
-  id                 String               @id @default(cuid())
-  pageId             String               @unique
-  specialty          String
-  credentials        String?
-  consultationMode   String               @default("manual")
-  tiers              Json?
-  agentConfig        Json?
-  searchTags         String[]
-  createdAt          DateTime             @default(now())
-  page               Page                 @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  subscriptions      ExpertSubscription[]
-  adviceLog          ExpertAdviceLog[]
+  id               String               @id @default(cuid())
+  pageId           String               @unique
+  specialty        String
+  credentials      String?
+  consultationMode String               @default("manual")
+  tiers            Json?
+  agentConfig      Json?
+  searchTags       String[]
+  createdAt        DateTime             @default(now())
+  adviceLog        ExpertAdviceLog[]
+  subscriptions    ExpertSubscription[]
+  page             Page                 @relation(fields: [pageId], references: [id], onDelete: Cascade)
 
   @@index([specialty])
 }
 
 model ExpertSubscription {
-  id                 String          @id @default(cuid())
-  userId             String
-  healthBusinessId   String
-  tier               String
-  status             String          @default("active")
-  consentGranted     Boolean         @default(false)
-  consentTimestamp   DateTime?
-  consentFields      Json?
-  subscribedAt       DateTime        @default(now())
-  user               User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  healthBusiness     HealthBusiness  @relation(fields: [healthBusinessId], references: [id], onDelete: Cascade)
+  id               String         @id @default(cuid())
+  userId           String
+  healthBusinessId String
+  tier             String
+  status           String         @default("active")
+  consentGranted   Boolean        @default(false)
+  consentTimestamp DateTime?
+  consentFields    Json?
+  subscribedAt     DateTime       @default(now())
+  healthBusiness   HealthBusiness @relation(fields: [healthBusinessId], references: [id], onDelete: Cascade)
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, healthBusinessId])
   @@index([userId])
   @@index([healthBusinessId])
 }
-
-// ─── Helping Initiative ───────────────────────────────────────────────────────
 
 model HelpingInitiative {
   id              String             @id @default(cuid())
@@ -1141,8 +1099,8 @@ model HelpingInitiative {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   page            Page               @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  objectives      HelpingObjective[]
   metrics         HelpingMetric[]
+  objectives      HelpingObjective[]
 }
 
 model HelpingObjective {
@@ -1151,8 +1109,8 @@ model HelpingObjective {
   title        String
   order        Int               @default(0)
   createdAt    DateTime          @default(now())
-  initiative   HelpingInitiative @relation(fields: [initiativeId], references: [id], onDelete: Cascade)
   actions      HelpingAction[]
+  initiative   HelpingInitiative @relation(fields: [initiativeId], references: [id], onDelete: Cascade)
 
   @@index([initiativeId, order])
 }
@@ -1181,18 +1139,39 @@ model HelpingMetric {
   @@index([initiativeId])
 }
 
+model Collaboration {
+  id          String   @id @default(cuid())
+  requesterId String
+  receiverId  String
+  /// "delivery_partner" | "supplier" | "employee" | "marketing" | "other"
+  role        String
+  /// "pending" | "accepted" | "rejected" | "cancelled"
+  status      String   @default("pending")
+  message     String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  receiver    Page     @relation("CollabReceiver", fields: [receiverId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  requester   Page     @relation("CollabRequester", fields: [requesterId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([requesterId, receiverId, role])
+  @@index([requesterId])
+  @@index([receiverId])
+  @@index([status])
+}
+
 model ExpertAdviceLog {
-  id                  String          @id @default(cuid())
-  healthBusinessId    String
-  userId              String
-  userStateSnapshot   Json
-  advice              String
-  adviceType          String
-  deliveredBy         String          @default("manual")
-  outcomeSnapshot     Json?
-  outcomeTrackedAt    DateTime?
-  createdAt           DateTime        @default(now())
-  healthBusiness      HealthBusiness  @relation(fields: [healthBusinessId], references: [id], onDelete: Cascade)
+  id                String         @id @default(cuid())
+  healthBusinessId  String
+  userId            String
+  userStateSnapshot Json
+  advice            String
+  adviceType        String
+  deliveredBy       String         @default("manual")
+  outcomeSnapshot   Json?
+  outcomeTrackedAt  DateTime?
+  createdAt         DateTime       @default(now())
+  healthBusiness    HealthBusiness @relation(fields: [healthBusinessId], references: [id], onDelete: Cascade)
 
   @@index([healthBusinessId])
   @@index([userId])
@@ -1211,8 +1190,6 @@ model Vehicle {
 
   @@map("vehicles")
 }
-
-// ─── E-commerce: Cart, Orders, Wishlist, Address ─────────────────────────────
 
 /// Customer delivery address
 model Address {
@@ -1240,9 +1217,9 @@ model CartItem {
   blockId   String
   quantity  Int        @default(1)
   createdAt DateTime   @default(now())
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   block     StoreBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, blockId])
   @@index([userId, storeId])
@@ -1251,28 +1228,36 @@ model CartItem {
 
 /// Order — placed when customer confirms checkout (Cash on Delivery)
 model Order {
-  id        String   @id @default(cuid())
-  userId    String
-  storeId   String
-  addressId String
+  id               String    @id @default(cuid())
+  userId           String
+  storeId          String
+  addressId        String
   /// "pending" | "confirmed" | "shipped" | "delivered" | "cancelled"
-  status    String   @default("pending")
-  total     Float
+  status           String    @default("pending")
+  total            Float
   /// Snapshot of items: [{ blockId, title, price, quantity, imageUrl }]
-  items       Json
+  items            Json
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   /// Inline invoice: { legalName, addressLine, city, state, pinCode } — set when user selects Personal or provides ad-hoc details
-  invoiceData   Json?
-  invoiceNumber     String?
-  invoiceUrl        String?
-  invoiceType       String?
-  invoiceGenAt      DateTime?
-  invoiceSignedUrl  String?
-  invoiceSignedAt   DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id])
-  store     Store    @relation(fields: [storeId], references: [id])
-  address   Address  @relation(fields: [addressId], references: [id])
+  invoiceData      Json?
+  invoiceGenAt     DateTime?
+  invoiceNumber    String?
+  invoiceType      String?
+  invoiceUrl       String?
+  invoiceSignedAt  DateTime?
+  invoiceSignedUrl String?
+  /// "pending" | "confirmed" | "processing" | "out_for_delivery" | "delivered" | "cancelled"
+  deliveryStatus   String    @default("pending")
+  /// Collaboration.id — the partner or employee assigned for delivery; null = owner handles delivery themselves
+  assignedToId     String?
+  /// Optional note from owner to delivery person
+  deliveryNote     String?
+  /// Vehicle.id of the assigned broadcaster — set by the delivery partner when GPS starts
+  vehicleId        String?
+  address          Address   @relation(fields: [addressId], references: [id])
+  store            Store     @relation(fields: [storeId], references: [id])
+  user             User      @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([storeId])
@@ -1286,9 +1271,9 @@ model WishlistItem {
   blockId   String
   storeId   String
   createdAt DateTime   @default(now())
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   block     StoreBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
   store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, blockId])
   @@index([userId])
@@ -1300,8 +1285,8 @@ model PinnedStore {
   userId    String
   storeId   String
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, storeId])
   @@index([userId])
@@ -1312,18 +1297,18 @@ model BillingProfile {
   userId         String
   legalName      String
   companyName    String?
-  gstRegistered  Boolean  @default(false)
-  gstin          String?
-  gstState       String?
-  annualTurnover String?
   addressLine    String?
   city           String?
   state          String?
   pinCode        String?
   linkedStoreId  String?
   createdAt      DateTime @default(now())
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  annualTurnover String?
+  gstRegistered  Boolean  @default(false)
+  gstState       String?
+  gstin          String?
   linkedStore    Store?   @relation(fields: [linkedStoreId], references: [id])
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -1340,4 +1325,23 @@ model ProductRating {
   @@unique([productId, userId])
   @@index([productId])
   @@index([userId])
+}
+
+enum GoalArchetype {
+  LEARN
+  BUILD
+  EXECUTE
+  CONNECT
+}
+
+enum GoalMode {
+  FOCUSED
+  ZOOMED_OUT
+}
+
+enum GoalStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+  COMPLETED
 }

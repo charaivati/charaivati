@@ -73,6 +73,7 @@ app/              Next.js App Router — pages, layouts, API routes
   (earth)/        Environmental/global view
   (universe)/     Universe-level view
   app/            Capacitor mobile shell (bottom nav layout)
+  earn/           Initiative Hub — owner pages at /earn/initiative/[pageId]
   api/            All REST endpoints (~150+)
 
 components/       Shared UI components (no pages here)
@@ -127,7 +128,9 @@ The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. Th
 
 ## 5. Database Model Relationships (Critical)
 
-`Page` is a **polymorphic container**. One `Page` row backs a Store, Course, HealthBusiness, or HelpingInitiative. The `pageType` field determines which sub-model exists.
+`Page` is a **polymorphic container**. One `Page` row backs a Store, Course, HealthBusiness, or HelpingInitiative. The `pageType` field determines which sub-model exists. `Page` also has `collaborationsIn` and `collaborationsOut` relations to the `Collaboration` model — Page-to-Page partnership links.
+
+`Collaboration` connects two `Page` records with a `role` (`delivery_partner | supplier | employee | marketing | other`) and `status` (`pending | accepted | rejected | cancelled`). Unique on `[requesterId, receiverId, role]`. Both FK sides cascade-delete when the Page is deleted.
 
 `StoreBlock` is **dual-purpose**: it is a product in a store and a lesson in a course. `actionType` determines behavior; `access: free | paid` controls gating.
 
@@ -174,6 +177,22 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 2. Layout is `app/app/layout.tsx` — bottom nav drives navigation
 3. Bottom tabs: Home, Initiatives, Explore, Account
 4. Auth state fetched from `/api/user/me` on layout mount
+
+### Initiative Hub (owner management page)
+1. Owner clicks "Open →" on an initiative card in `/app/initiatives` or the EarningTab
+2. Navigates to `/earn/initiative/[pageId]` — a server component page
+3. Server reads session cookie via `cookies()` + `verifySessionToken()` (not middleware, not `getServerUser`)
+4. Fetches Page (with course, helpingInitiative, collaborationsIn/Out), linked Store, and all pages owned by the user
+5. Renders page title + type badge + `InitiativeTabs` client component
+6. Tabs: **Overview** (links to existing manage/evaluate flows), **Store** (link or set-up CTA), **Partners** (`PartnersTab`)
+
+### Collaboration (Partners tab)
+1. `PartnersTab` mounts → 3 parallel fetches: `in+accepted`, `out+accepted`, `in+pending`
+2. Active partners (merged in+out, deduplicated) shown with Revoke button (DELETE)
+3. Incoming pending requests shown with Accept/Reject buttons (PATCH)
+4. Invite form: search stores by name → `GET /api/store/search?q=` (debounced 300ms) → pick from dropdown → select role → send (POST)
+5. `POST /api/collaboration` resolves Store IDs and slugs to their linked Page automatically
+6. PATCH response must include `requester`/`receiver` page fields — frontend reads `.title` for optimistic state update
 
 ### AI Store Setup Wizard (new store onboarding)
 1. Owner creates a `Page` with `pageType: 'store'` and clicks **"Your Store"** in EarningTab
@@ -356,6 +375,8 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 | **Archetype** | AiGoal classification: `LEARN`, `BUILD`, `EXECUTE`, `CONNECT` |
 | **Circle** | A named group of friends owned by a user (`FriendCircle`) |
 | **Helping Initiative** | An NGO/charity-style page with objectives, actions, metrics |
+| **Collaboration** | A `Collaboration` DB record linking two `Page` records with a role and status — the Partners system |
+| **Initiative Hub** | The owner-only page at `/earn/initiative/[pageId]` with Overview / Store / Partners tabs |
 | **Store** | A product/service marketplace page owned by a user |
 | **Block access** | `free` or `paid` — controls whether a Block requires purchase |
 | **Canonical ordering** | The `userAId < userBId` constraint on `Friendship` and `ChatConversation` |

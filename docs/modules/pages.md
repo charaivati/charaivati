@@ -78,12 +78,13 @@ status: active
 | GET | /api/user/pages | Pages owned by current user |
 
 ## Database Models Used
-- `Page` — root record: ownerId, title, description, avatarUrl, status, pageType, viewCount
+- `Page` — root record: ownerId, title, description, avatarUrl, status, type, pageType, viewCount
 - `Store` — linked 1:1 when `pageType: 'store'`
 - `Course` — linked 1:1 when `pageType: 'course'`
-- `HealthBusiness` — linked 1:1 when `pageType: 'health-business'`
-- `HelpingInitiative` — linked 1:1 when `pageType: 'helping-initiative'`
+- `HealthBusiness` — linked 1:1 when `pageType: 'health-business'` (`type: 'health'`)
+- `HelpingInitiative` — linked 1:1 when `pageType: 'helping'`
 - `ExpertSubscription` — user ↔ health business subscription
+- `Collaboration` — Page-to-Page partnership; `Page` has `collaborationsOut @relation("CollabRequester")` and `collaborationsIn @relation("CollabReceiver")`
 
 ## Risks & Fragile Areas
 - The polymorphic pattern means every query for a page must know its type to include the right sub-model. Fetching a page without knowing its type requires including all four sub-models and picking the non-null one — expensive and fragile.
@@ -97,4 +98,5 @@ status: active
 - [[store.md]] — Store as a Page sub-model
 - [[health.md]] — HealthBusiness as a Page sub-model
 - [[helping-initiative.md]] — HelpingInitiative as a Page sub-model
+- [[collaboration.md]] — Collaboration as a Page relation (partners system)
 - [[media.md]] — avatar upload for page profiles

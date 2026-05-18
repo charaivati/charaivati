@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const A = {
   bg: "#F3F4F6",
@@ -115,14 +114,11 @@ const INPUT = {
 };
 
 export default function InitiativesPage() {
-  const router = useRouter();
-
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [pages, setPages] = useState<PageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<PendingDelete | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [openingStore, setOpeningStore] = useState<string | null>(null);
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
@@ -151,19 +147,6 @@ export default function InitiativesPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
-
-  const openStore = useCallback(async (pageId: string) => {
-    setOpeningStore(pageId);
-    try {
-      const res = await fetch(`/api/store/for-page/${pageId}`, { credentials: "include" });
-      if (res.ok) {
-        const { storeId, storeSlug } = await res.json();
-        router.push(`/store/${storeSlug ?? storeId}`);
-      }
-    } finally {
-      setOpeningStore(null);
-    }
-  }, [router]);
 
   function resetCreateForm() {
     setNewTitle(""); setNewDesc(""); setSelectedType("store"); setCourseType("skill");
@@ -500,7 +483,6 @@ export default function InitiativesPage() {
 
           {pages.map((page) => {
             const meta = kindMeta(page);
-            const isHelping = page.pageType === "helping";
             return (
               <div key={page.id} style={{
                 background: A.surface, borderRadius: 14,
@@ -519,41 +501,12 @@ export default function InitiativesPage() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {isHelping ? (
-                    <>
-                      <a href={`/business/helping/${page.id}`} style={{
-                        flex: 1, minWidth: 80, textAlign: "center",
-                        padding: "8px 12px", borderRadius: 8,
-                        background: "#0d9488", color: "#fff",
-                        fontSize: 12, fontWeight: 600, textDecoration: "none",
-                      }}>Manage</a>
-                      <a href={`/helping/${page.id}`} target="_blank" rel="noopener noreferrer" style={{
-                        flex: 1, minWidth: 80, textAlign: "center",
-                        padding: "8px 12px", borderRadius: 8,
-                        background: A.surface, color: "#0d9488",
-                        border: "1px solid rgba(13,148,136,0.35)",
-                        fontSize: 12, fontWeight: 600, textDecoration: "none",
-                      }}>View Public ↗</a>
-                    </>
-                  ) : (
-                    <>
-                      <a href="/business" style={{
-                        flex: 1, minWidth: 80, textAlign: "center",
-                        padding: "8px 12px", borderRadius: 8,
-                        background: A.surface, color: A.accent,
-                        border: `1px solid ${A.accent}`,
-                        fontSize: 12, fontWeight: 600, textDecoration: "none",
-                      }}>Evaluate &amp; Plan</a>
-                      <button onClick={() => openStore(page.id)} disabled={openingStore === page.id} style={{
-                        flex: 1, minWidth: 80, textAlign: "center",
-                        padding: "8px 12px", borderRadius: 8,
-                        background: A.accent, color: "#fff", border: "none",
-                        fontSize: 12, fontWeight: 600,
-                        cursor: openingStore === page.id ? "not-allowed" : "pointer",
-                        opacity: openingStore === page.id ? 0.6 : 1,
-                      }}>{openingStore === page.id ? "Opening…" : "Your Store"}</button>
-                    </>
-                  )}
+                  <a href={`/earn/initiative/${page.id}`} style={{
+                    flex: 1, minWidth: 80, textAlign: "center",
+                    padding: "8px 12px", borderRadius: 8,
+                    background: A.accent, color: "#fff",
+                    fontSize: 12, fontWeight: 600, textDecoration: "none",
+                  }}>Open →</a>
 
                   <button onClick={() => setPending({ id: page.id, name: page.title })} disabled={deleting} style={{
                     flex: 1, minWidth: 80, textAlign: "center",

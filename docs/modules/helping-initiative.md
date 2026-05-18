@@ -87,8 +87,12 @@ Enables users and organizations to publish cause-driven pages (NGO/charity-style
 - The mobile "Initiatives" tab is a key discovery surface. Performance of `GET /api/helping-initiative` is important — confirm it is paginated and not returning the full table.
 - TODO: Confirm whether initiatives have a published/draft status and whether unpublished initiatives are excluded from the feed.
 
+## Owner Entry Point
+Initiative pages are managed through the **Initiative Hub** at `/earn/initiative/[pageId]`. The "Open →" button on each card in `app/app/initiatives/page.tsx` and `EarningTab.tsx` navigates there. Inside the Hub, the **Overview tab** links to `/business/helping/[pageId]` (the existing HelpingInitiativeStudio for objectives/metrics/awareness) and `/helping/[pageId]` (public view).
+
 ## Backlinks
 - [[pages.md]] — HelpingInitiative as a Page sub-model
 - [[database.md]] — model definitions
 - [[auth.md]] — session required for creation
 - [[mobile-shell.md]] — Initiatives tab in bottom nav
+- [[collaboration.md]] — Partners tab available on all initiative pages via the Initiative Hub

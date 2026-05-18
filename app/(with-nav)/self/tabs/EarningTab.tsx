@@ -1,8 +1,7 @@
 // app/(with-nav)/self/tabs/EarningTab.tsx
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Camera,
   Video,
@@ -57,7 +56,6 @@ function extractYouTubeId(url: string): string | null {
 }
 
 export default function EarningTab() {
-  const router = useRouter();
   const cloudinary = useCloudinaryUpload();
 
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -257,30 +255,6 @@ export default function EarningTab() {
     }
   }
 
-  const [openingStore, setOpeningStore] = useState<string | null>(null);
-
-  const openStore = useCallback(async (pageId: string) => {
-    setOpeningStore(pageId);
-    try {
-      const res = await fetch(`/api/store/for-page/${pageId}`, { credentials: "include" });
-      if (res.ok) {
-        const { storeId, storeSlug, isNew } = await res.json();
-        console.log("[openStore] storeId:", storeId,
-          "isNew:", isNew,
-          "navigating to:", isNew
-            ? `/store/${storeId}/setup`
-            : `/store/${storeSlug ?? storeId}`
-        );
-        if (isNew) {
-          window.location.href = `/store/${storeId}/setup`;
-        } else {
-          router.push(`/store/${storeSlug ?? storeId}`);
-        }
-      }
-    } finally {
-      setOpeningStore(null);
-    }
-  }, [router]);
 
   async function deletePage(id: string) {
     if (!confirm("Are you sure you want to delete this initiative?")) return;
@@ -657,40 +631,12 @@ export default function EarningTab() {
                       <p className="text-xs text-gray-600 mt-2">Created {new Date(page.createdAt).toLocaleDateString()}</p>
                     </div>
                     <div className="flex flex-col gap-1.5 shrink-0">
-                      {page.pageType === "helping" ? (
-                        <>
-                          <a
-                            href={`/business/helping/${page.id}`}
-                            className="px-3 py-1 rounded-lg text-xs bg-teal-700/80 hover:bg-teal-600 text-white transition-colors text-center"
-                          >
-                            Manage Initiative
-                          </a>
-                          <a
-                            href={`/helping/${page.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="px-3 py-1 rounded-lg text-xs bg-gray-700/80 hover:bg-gray-600 text-white transition-colors text-center"
-                          >
-                            View Public ↗
-                          </a>
-                        </>
-                      ) : (
-                        <>
-                          <a
-                            href="/business"
-                            className="px-3 py-1 rounded-lg text-xs bg-blue-600/80 hover:bg-blue-600 text-white transition-colors text-center"
-                          >
-                            Evaluate & Plan
-                          </a>
-                          <button
-                            onClick={() => openStore(page.id)}
-                            disabled={openingStore === page.id}
-                            className="px-3 py-1 rounded-lg text-xs bg-emerald-600/70 hover:bg-emerald-600 text-white transition-colors text-center disabled:opacity-50"
-                          >
-                            {openingStore === page.id ? "Opening…" : "Your Store"}
-                          </button>
-                        </>
-                      )}
+                      <a
+                        href={`/earn/initiative/${page.id}`}
+                        className="px-3 py-1 rounded-lg text-xs bg-indigo-600/80 hover:bg-indigo-600 text-white transition-colors text-center"
+                      >
+                        Open →
+                      </a>
                       <button
                         onClick={() => deletePage(page.id)}
                         disabled={deleting === page.id}

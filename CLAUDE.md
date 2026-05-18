@@ -45,6 +45,8 @@ The `app/` directory uses Next.js route groups to co-locate layouts:
 | `(locality)` | Country selection, local area |
 | `(state)` | State-level view |
 | `app/` | **Mobile shell** — Capacitor-wrapped layout with sticky header + bottom nav |
+| `earn/` | Initiative Hub — owner-only pages at `/earn/initiative/[pageId]`; partner delivery dashboard at `/earn/deliveries` (server components, cookie auth) |
+| `order/` | Customer-facing order pages: `/order/[id]/track` (client component, live GPS tracking) |
 
 The platform uses a 6-layer conceptual model: **Self → Society → State → Nation → Earth → Universe**, each with tabs for different analyses.
 
@@ -79,6 +81,9 @@ All API routes live under `app/api/`. Key areas:
 - `app/api/business/` — idea scoring, plan generation/analysis
 - `app/api/store/` — store management, blocks, sections, cart, orders
 - `app/api/friends/` — friend requests, accept/decline/remove
+- `app/api/collaboration/` — Page-to-Page partnership requests (send, list, accept/reject/cancel, delete)
+- `app/api/order/[id]/delivery/` — delivery tracking for a single order; `PATCH` updates `deliveryStatus` / `assignedToId` / `deliveryNote`; `GET` returns full delivery view (see below)
+- `app/api/store/search` — `GET ?q=` case-insensitive store name search; returns `{ id, name, slug, pageId }[]`
 
 #### Store orders GET params
 `GET /api/store/orders` supports three modes:
@@ -153,6 +158,70 @@ Key facts:
 - The number is directly editable (click → input, blur/Enter commits, validates 1–99)
 - The selected qty is passed to both `onAddToCart(qty)` and `onBuyNow(qty)` — the cart API increments by `qty`, and `QuickOrderModal` opens with `quantity: qty` pre-loaded
 
+### Initiative Hub (`/earn/initiative/[pageId]`)
+Owner-only page that replaces the old scattered "Evaluate & Plan" / "Your Store" / "Manage Initiative" buttons with a single tabbed interface.
+
+- **Entry point**: "Open →" button on each initiative card in `app/app/initiatives/page.tsx` and `EarningTab.tsx`
+- **Server component** — auth via `cookies()` from `next/headers` + `verifySessionToken()` from `lib/session.ts`. Does NOT use `getServerUser(req)` (that requires a Request object for API routes). Redirects to `/earn` if unauthenticated or not the page owner.
+- **Data fetched server-side**: Page (with `course`, `helpingInitiative`, `collaborationsIn`, `collaborationsOut`), linked Store, all pages owned by the user (`ownerPages`)
+- **Client shell**: `components/earn/InitiativeTabs.tsx` — manages `activeTab` state, renders Overview / Store / Partners
+- **Partners tab**: `components/earn/PartnersTab.tsx` — active partners, incoming requests, invite form with store-name autocomplete
+
+### Delivery Tracking
+
+The `Order` model has three new scalar fields (added via `db push`, no migration file):
+
+| Field | Type | Default | Purpose |
+|---|---|---|---|
+| `deliveryStatus` | `String` | `"pending"` | Delivery pipeline: `pending → confirmed → processing → out_for_delivery → delivered` (or `cancelled` at any point) |
+| `assignedToId` | `String?` | `null` | `Collaboration.id` of the partner assigned to deliver — **not a FK**, stored as a plain string. `null` = owner delivers themselves |
+| `deliveryNote` | `String?` | `null` | Free-text instructions from owner to delivery person |
+| `vehicleId` | `String?` | `null` | `Vehicle.id` of the partner's active GPS broadcast — set automatically when the partner clicks "Start GPS" in the deliveries dashboard; cleared to null when unlinked |
+
+**`PATCH /api/order/[id]/delivery`**
+- Store owner: can update all three fields. Assignment validates the Collaboration is `accepted` and involves the store's `pageId`.
+- Assigned delivery partner: can only update `deliveryStatus` (403 on any other field).
+- Buyer: no PATCH access.
+
+**`GET /api/order/[id]/delivery`**
+- Allowed for: store owner, assigned delivery partner (via Collaboration lookup), or the order's buyer.
+- Returns: `id, deliveryStatus, assignedToId, deliveryNote, items, total, createdAt, address` + `assignedCollab` (partner page titles + role, or null).
+- Does NOT expose `store.ownerId`, `store.pageId`, or the buyer's `userId` to callers.
+
+**Partner auth logic**: `assignedToId` is a `Collaboration.id`. The API fetches the Collaboration, determines which page is the store's page (via `store.pageId`), and treats the other page as the partner page. Auth passes if `partnerPage.ownerId === session.userId`.
+
+**Owner order management UI** (`app/store/[id]/orders/page.tsx`):
+- Delivery stepper (5 steps, clickable, Cancel side-exit) — updates `deliveryStatus` via PATCH.
+- Assignment dropdown (visible from `confirmed` onward) — lists accepted outbound collaboration partners fetched from `GET /api/collaboration?direction=out&status=accepted`. Value is `Collaboration.id`.
+- Delivery note textarea with explicit Save button.
+
+**Partner delivery dashboard** (`app/earn/deliveries/page.tsx`):
+- Server component with cookie auth (same pattern as initiative page).
+- Finds all accepted collaborations where session user's pages are the **receiver**.
+- Queries orders with `assignedToId IN (collabIds) AND deliveryStatus = 'out_for_delivery'` via raw SQL.
+- Renders `DeliveriesClient` (`components/earn/DeliveriesClient.tsx`) — Mark Delivered button + GPS modal with Broadcaster.
+
+**Customer tracking page** (`app/order/[id]/track/page.tsx`):
+- Client component; fetches `GET /api/order/[id]/delivery` (buyer is allowed).
+- Read-only stepper + partner name + delivery note + order summary.
+- When `deliveryStatus === "out_for_delivery"` AND `Order.vehicleId` is set: polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s, shows that exact vehicle on `TransportMap`. If `vehicleId` is null, shows "Delivery partner hasn't started GPS yet." instead of the map.
+
+### Collaboration / Partners
+Page-to-Page partnership system. Both sides of a collaboration are `Page` records (not Users). The `Collaboration` model links two Pages with a role and status.
+
+- **Model**: `Collaboration` — `requesterId` (Page), `receiverId` (Page), `role` (string enum: `delivery_partner | supplier | employee | marketing | other`), `status` (`pending | accepted | rejected | cancelled`), optional `message` and `metadata`. Unique on `[requesterId, receiverId, role]`. Both FKs cascade-delete.
+- **`Page` model now has** `collaborationsOut` (`@relation("CollabRequester")`) and `collaborationsIn` (`@relation("CollabReceiver")`)
+- **Auth**: requester ownership checked on POST (requester page must be owned by session user); receiver ownership checked for accept/reject; requester ownership for cancel; either side for DELETE.
+- **Receiver resolution**: `POST /api/collaboration` accepts a Store ID, store slug, or Page ID as `receiverId` — it resolves store → its linked `pageId` automatically. Returns 404 if no Page can be found. This means stores with `pageId: null` cannot participate.
+- **PATCH must include page relations**: `prisma.collaboration.update` must include `requester`/`receiver` in the response or the frontend will crash reading `.title` off `undefined`.
+
+| Method | Route | Auth check |
+|---|---|---|
+| POST | /api/collaboration | requesterId page owned by session user |
+| GET | /api/collaboration?pageId=&direction=in\|out&status= | pageId owned by session user |
+| PATCH | /api/collaboration/[id] | receiver owns for accept/reject; requester owns for cancel |
+| DELETE | /api/collaboration/[id] | session user owns either page |
+
 ### AI Store Setup Wizard
 One-shot AI flow that creates a complete store structure from a plain-English description.
 
@@ -184,6 +253,7 @@ All store image uploads go through a two-layer dedup pipeline — **never call C
 - `components/earth/` — signal board, impact lens
 - `components/health/` — health profile modals
 - `components/transport/` — live vehicle tracking map
+- `components/earn/` — Initiative Hub shell (`InitiativeTabs.tsx`) and Partners tab (`PartnersTab.tsx`)
 
 ### Key Libraries
 - `lib/featureFlags.ts` — feature flag system (check before adding major features)
@@ -233,3 +303,10 @@ Start every session by reading /docs/START_HERE.md.
 - **Invoice download never exposes Cloudinary URLs** — invoices are stored as `type: "authenticated"` on Cloudinary. The raw `invoiceUrl` / `invoiceSignedUrl` stored on `Order` are private URLs that return 401 without a signed token. Always route downloads through `GET /api/orders/[orderId]/invoice/download`, which generates a 60-second signed URL server-side.
 - **`StoreHero` `bannerUrl`/`avatarUrl` are dead** — the `Store` DB model has neither field; they exist only on `User` (line 23) and `Page` (line 215) in the schema. `StoreHero` declares them as optional on the frontend type so they silently render nothing. The live banner system is `StoreBanner` (`isGlobal: true`) → returned as `globalBanner` from `GET /api/store/[id]` → rendered by `BannerZone`. Do not add `bannerUrl`/`avatarUrl` to the Store model without a migration.
 - **AI setup transaction timeout** — `prisma.$transaction` default is 5 s. The apply route uses `{ timeout: 30000 }`. Any new sequential-await transaction creating multiple rows must also set an explicit timeout or it will expire mid-way with P2028.
+- **Server component auth uses `cookies()`, not `getServerUser(req)`** — `getServerUser` requires a `Request` object and is only usable in API routes. Server components (pages, layouts) must read the session via `cookies()` from `next/headers` + `verifySessionToken()` directly. See `app/earn/initiative/[pageId]/page.tsx` and `app/(with-nav)/layout.tsx` as canonical examples.
+- **`Order.deliveryStatus` / `assignedToId` / `deliveryNote` were added via `db push`, not a migration file** — there is no migration SQL for these columns. If the DB is ever reset from migrations, these columns will be missing. Use `db push` again or add them manually.
+- **`Order.assignedToId` and `Order.vehicleId` are NOT Prisma relations** — both are plain `String?` fields. `assignedToId` stores a `Collaboration.id`; `vehicleId` stores a `Vehicle.id`. Resolve them manually; do not use Prisma `include` or `connect` on them.
+- **`Order.vehicleId` is NOT cleared when the vehicle broadcast stops** — the partner's `stop()` call deletes the `Vehicle` row but leaves `Order.vehicleId` set. The tracking page handles this correctly because the vehicles API filters by `updatedAt >= 2 min ago`, so a deleted vehicle returns no rows and the map shows no marker.
+- **Delivery partner PATCH is restricted** — partners can only change `deliveryStatus`. Any attempt to send `assignedToId` or `deliveryNote` from the partner returns 403. The owner UI must not expose those fields to partners.
+- **`Collaboration` PATCH must include page relations in the response** — `prisma.collaboration.update` without an `include` returns only flat fields. The frontend reads `updated.requester.title` / `updated.receiver.title` to optimistically add the accepted partner to the active list. Omitting the include causes a `Cannot read properties of undefined (reading 'title')` crash.
+- **`Collaboration.receiverId` must be a `Page.id`** — the API resolves Store IDs and store slugs to their linked `pageId` automatically, but stores with `pageId: null` cannot participate. Pages created outside the normal `openStore()` flow may have no linked store pageId.

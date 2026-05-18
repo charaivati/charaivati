@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
   try {
+    const idFilter    = req.nextUrl.searchParams.get("id")?.trim()    ?? "";
     const busFilter   = req.nextUrl.searchParams.get("bus")?.trim()   ?? "";
     const routeFilter = req.nextUrl.searchParams.get("route")?.trim() ?? "";
 
@@ -13,13 +14,13 @@ export async function GET(req: NextRequest) {
     const vehicles = await db.vehicle.findMany({
       where: {
         updatedAt: { gte: twoMinutesAgo },
+        ...(idFilter    && { id: idFilter }),
         ...(busFilter   && { busNumber: { contains: busFilter,   mode: "insensitive" } }),
         ...(routeFilter && { route:     { contains: routeFilter, mode: "insensitive" } }),
       },
       orderBy: { updatedAt: "desc" },
     });
 
-    // Map camelCase Prisma fields back to snake_case so the frontend stays unchanged
     const response = vehicles.map((v) => ({
       id:           v.id,
       bus_number:   v.busNumber,
