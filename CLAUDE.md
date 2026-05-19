@@ -28,7 +28,7 @@ ESLint and TypeScript errors are ignored during builds (`ignoreDuringBuilds: tru
 - **Cloudinary** for images/video, **AWS S3** for file storage, **Google Drive** integration
 - **SendGrid** (email), **Twilio** (SMS via `lib/sendSms.ts`)
 - **Leaflet** for maps, **Three.js** / `@react-three/fiber` for 3D, **D3** for geo/charts
-- **Capacitor 8** for iOS/Android native shell — the app points to `https://charaivati.com/app/home`
+- **Capacitor 8** for iOS/Android native shell — the app points to `https://charaivati.com/app/home`; installed plugins: `@capacitor/app`, `@capacitor/geolocation`, `@capacitor/keyboard`, `@capacitor/splash-screen`, `@capacitor/status-bar`
 
 ### Route Groups
 The `app/` directory uses Next.js route groups to co-locate layouts:
@@ -44,7 +44,7 @@ The `app/` directory uses Next.js route groups to co-locate layouts:
 | `(User)` | User profile and editing |
 | `(locality)` | Country selection, local area |
 | `(state)` | State-level view |
-| `app/` | **Mobile shell** — Capacitor-wrapped layout with sticky header + bottom nav |
+| `app/` | **Mobile shell** — Capacitor-wrapped layout with sticky header + **4-tab** bottom nav: Home / Initiatives / Explore / Orders |
 | `earn/` | Initiative Hub — owner-only pages at `/earn/initiative/[pageId]`; partner delivery dashboard at `/earn/deliveries` (server components, cookie auth) |
 | `order/` | Customer-facing order pages: `/order/[id]/track` (client component, live GPS tracking) |
 
@@ -117,6 +117,12 @@ Every store has a `slug String? @unique` field. Slugs are generated from the sto
 - `/store/orders/all` — full view of all orders across every store the user owns; store name shown as chip
 - `/store/[storeSlug]/orders` — per-store active orders with status-update controls; "Delivered Orders →" button in header
 - `/store/[storeSlug]/orders/delivered` — read-only archive of delivered orders for one store; "← Active Orders" back link
+
+### Mobile Orders Page (`/app/orders`)
+Client component in the mobile shell. Three internal tabs:
+- **My Orders** — fetches `GET /api/store/orders` (buyer view, no params); shows store name, items summary, status badge; "Track 📍" button appears when `deliveryStatus === "out_for_delivery"`
+- **Store Orders** — fetches `GET /api/store/orders?all=true` (seller view); each card links to `/store/[slug]/orders` (or `/store/orders/all` if no slug); "Manage all orders →" shortcut in header
+- **Tracking** — filters buyer orders where `deliveryStatus === "out_for_delivery"`; each renders `TransportMap` (dynamic import, ssr:false) polling `GET /api/transport/vehicles?id={vehicleId}` every 5 s; badge on tab shows count of active tracking orders
 
 ### Buy Now / Quick Order UX
 - "Buy Now" button on product cards opens `QuickOrderModal` (ephemeral React state — never touches cart)
@@ -252,8 +258,8 @@ All store image uploads go through a two-layer dedup pipeline — **never call C
 - `components/business/` — question cards, scoring dashboard
 - `components/earth/` — signal board, impact lens
 - `components/health/` — health profile modals
-- `components/transport/` — live vehicle tracking map
-- `components/earn/` — Initiative Hub shell (`InitiativeTabs.tsx`) and Partners tab (`PartnersTab.tsx`)
+- `components/transport/` — live vehicle tracking map; `Broadcaster` uses `useGeolocation` hook (not `navigator.geolocation` directly)
+- `components/earn/` — Initiative Hub shell (`InitiativeTabs.tsx`), Partners tab (`PartnersTab.tsx`), delivery dashboard client (`DeliveriesClient.tsx` — Mark Delivered button + GPS modal with Broadcaster)
 
 ### Key Libraries
 - `lib/featureFlags.ts` — feature flag system (check before adding major features)
@@ -269,6 +275,7 @@ All store image uploads go through a two-layer dedup pipeline — **never call C
 - `lib/store/getStoreSlugs.ts` — `getStoreSlugs(ids[])`: batch raw-SQL slug lookup; used by all store-listing APIs to add slug to responses without depending on the Prisma typed client
 - `lib/invoice/generateInvoiceNumber.ts` — `generateInvoiceNumber()`: sequential `INV-YYYY-NNNNN` counter; queries `Order.count({ where: { invoiceNumber: { not: null } } })`
 - `lib/invoice/InvoiceDocument.tsx` — `@react-pdf/renderer` Document component; renders TAX INVOICE or BILL OF SUPPLY layout with seller/buyer blocks, items table, GST totals
+- `hooks/useGeolocation.ts` — `useGeolocation()`: GPS abstraction hook; tries `@capacitor/geolocation` first (requests permission, then `watchPosition`), falls back to `navigator.geolocation.watchPosition` in browser. Returns `{ startWatch, stopWatch }`. Always use this hook for any new GPS feature — never call `navigator.geolocation` directly.
 
 ### Security Notes
 - CSP headers are configured in `next.config.mjs` — update them when adding new external scripts, styles, or media sources
@@ -310,3 +317,4 @@ Start every session by reading /docs/START_HERE.md.
 - **Delivery partner PATCH is restricted** — partners can only change `deliveryStatus`. Any attempt to send `assignedToId` or `deliveryNote` from the partner returns 403. The owner UI must not expose those fields to partners.
 - **`Collaboration` PATCH must include page relations in the response** — `prisma.collaboration.update` without an `include` returns only flat fields. The frontend reads `updated.requester.title` / `updated.receiver.title` to optimistically add the accepted partner to the active list. Omitting the include causes a `Cannot read properties of undefined (reading 'title')` crash.
 - **`Collaboration.receiverId` must be a `Page.id`** — the API resolves Store IDs and store slugs to their linked `pageId` automatically, but stores with `pageId: null` cannot participate. Pages created outside the normal `openStore()` flow may have no linked store pageId.
+- **Never call `navigator.geolocation` directly in new code** — always use `useGeolocation()` from `hooks/useGeolocation.ts`. The hook tries Capacitor first (works in the Android/iOS native shell) and falls back to the browser API automatically. Direct `navigator.geolocation` calls will silently fail on Android when the Capacitor plugin is expected. `TransportMap.tsx` still uses the browser API for its one-shot centering call — that is the only permitted exception.

@@ -8,9 +8,8 @@ import { useEffect, useState } from "react";
 const tabs = [
   { label: "Home", icon: "🏠", href: "/app/home" },
   { label: "Initiatives", icon: "🌱", href: "/app/initiatives" },
-  { label: "Explore", icon: "❤️", href: "/app/saved" },
-  { label: "Deliveries", icon: "🛵", href: "/earn/deliveries" },
-  { label: "Account", icon: "👤", href: "/store/account" },
+  { label: "Explore", icon: "🔍", href: "/app/saved" },
+  { label: "Orders", icon: "🛍️", href: "/app/orders" },
 ];
 
 const A = {

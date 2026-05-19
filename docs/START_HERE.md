@@ -122,7 +122,7 @@ Batched/deferred write queue for non-critical DB writes. Used to avoid blocking 
 Owns all HTTP security headers including CSP, HSTS, `X-Frame-Options: DENY`, and `Permissions-Policy`. **Any new external domain** (CDN, font, API) must be added here or it will be blocked in production.
 
 ### `app/app/layout.tsx`
-The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. This is a client component. The four tabs are: Home (`/app/home`), Initiatives (`/app/initiatives`), Explore (`/app/saved`), Account (`/store/account`).
+The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. This is a client component. The four tabs are: Home (`/app/home`), Initiatives (`/app/initiatives`), Explore (`/app/saved`), Orders (`/app/orders`). The Account tab was removed — the M avatar in the top bar opens the account dropdown instead.
 
 ---
 
@@ -175,7 +175,7 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 ### Main User Journey (Mobile / Capacitor)
 1. App opens → loads `https://charaivati.com/app/home`
 2. Layout is `app/app/layout.tsx` — bottom nav drives navigation
-3. Bottom tabs: Home, Initiatives, Explore, Account
+3. Bottom tabs: Home, Initiatives, Explore, Orders (`/app/orders`)
 4. Auth state fetched from `/api/user/me` on layout mount
 
 ### Initiative Hub (owner management page)
@@ -193,6 +193,14 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 4. Invite form: search stores by name → `GET /api/store/search?q=` (debounced 300ms) → pick from dropdown → select role → send (POST)
 5. `POST /api/collaboration` resolves Store IDs and slugs to their linked Page automatically
 6. PATCH response must include `requester`/`receiver` page fields — frontend reads `.title` for optimistic state update
+
+### Delivery Tracking (order fulfillment with live GPS)
+1. Owner selects an accepted Collaboration partner in the order management UI (`/store/[id]/orders`) — `PATCH /api/order/[id]/delivery { assignedToId: collabId }`
+2. Owner advances `deliveryStatus` through a 5-step stepper: `pending → confirmed → processing → out_for_delivery → delivered` (or `cancelled` at any point)
+3. Partner sees assigned orders in `/earn/deliveries` (server component, cookie auth) — only `out_for_delivery` orders appear
+4. Partner clicks "Start GPS" in `DeliveriesClient.tsx` → `useGeolocation()` hook → `POST /api/transport/broadcast` on an interval; `Order.vehicleId` is set to the new `Vehicle` row ID
+5. Buyer at `/order/[id]/track` polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s and shows the partner on `TransportMap`. If `vehicleId` is null, shows "Delivery partner hasn't started GPS yet."
+6. Partner clicks "Mark Delivered" → `PATCH /api/order/[id]/delivery { status: "delivered" }` → Broadcaster stops → `Vehicle` row deleted. `Order.vehicleId` is **not** cleared; the tracking page handles stale IDs because the vehicles API filters by `updatedAt >= 2 min ago`.
 
 ### AI Store Setup Wizard (new store onboarding)
 1. Owner creates a `Page` with `pageType: 'store'` and clicks **"Your Store"** in EarningTab

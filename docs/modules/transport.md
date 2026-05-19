@@ -1,9 +1,9 @@
 ---
 module: transport
 type: api + component
-source: app/api/transport/, components/transport/
-depends_on: [database, auth]
-used_by: [navigation-tabs]
+source: app/api/transport/, components/transport/, hooks/useGeolocation.ts
+depends_on: [database, auth, collaboration]
+used_by: [earn/deliveries, order/track]
 stability: evolving
 status: active
 ---
@@ -11,79 +11,94 @@ status: active
 # Module: Transport
 
 ## Purpose
-Real-time vehicle location tracking and display. Vehicles broadcast their GPS coordinates to the server; clients display all active vehicles on a Leaflet map. Supports buses, autos, taxis, metros, and other types.
+Real-time vehicle GPS broadcast and display. Originally a public transit tracker; now also powers the **delivery partner live-location** feature — delivery partners broadcast their coordinates via the same API, and buyers watch on the order tracking page.
 
 ## Responsibilities
-- Accept and persist vehicle location broadcasts (lat, lng, accuracy)
-- Serve current positions of all vehicles
-- Render vehicles on a Leaflet map
-- List vehicles in a sidebar
+- Accept and upsert vehicle location broadcasts (lat, lng, accuracy)
+- Serve current positions — all vehicles or a single vehicle by ID
+- Render vehicles on a Leaflet map (`TransportMap`)
+- Provide a Capacitor-aware GPS abstraction (`useGeolocation` hook)
+
+## The `useGeolocation` Hook (canonical GPS entry point)
+
+`hooks/useGeolocation.ts` exports `useGeolocation()` → `{ startWatch, stopWatch }`.
+
+- **Tries `@capacitor/geolocation` first** — requests permission, then `watchPosition`. Works in the Android/iOS native shell.
+- **Falls back to `navigator.geolocation.watchPosition`** in browser.
+- **Never call `navigator.geolocation` directly** in new code — it silently fails inside the Capacitor shell where the plugin is expected.
+- The only permitted direct `navigator.geolocation` call is the one-shot centering in `TransportMap.tsx` (pre-existing, not delivery-critical).
 
 ## Inputs & Outputs
 
 | Direction | Value |
 |---|---|
-| In | Vehicle broadcast: busNumber, route, vehicleType, lat, lng, accuracy |
-| Out | All current vehicle positions |
-| Out | Rendered Leaflet map with vehicle markers |
+| In | Vehicle broadcast: `id`, `busNumber`, route, vehicleType, lat, lng, accuracy |
+| Out | Current position(s) of all or one vehicle |
+| Out | Rendered Leaflet map with vehicle marker(s) |
 
 ## Dependencies
-- **auth** — TODO: confirm whether broadcast endpoint requires authentication or is open
+- **auth** — broadcast endpoint is authenticated (delivery partner must be logged in)
 - **database** — `Vehicle` model
-- **Leaflet** — map rendering library loaded client-side
+- **collaboration** — `Order.vehicleId` stores the `Vehicle.id` of the broadcasting delivery partner
+- **Leaflet** — client-only map library; always use dynamic import guard
 
-## Reverse Dependencies (what breaks if this changes)
-- `Vehicle` rows are updated (not appended) on each broadcast — each vehicle has one row. If the update key (presumably `busNumber` or similar) changes, stale rows accumulate indefinitely.
-- The Leaflet map loads tile URLs from OpenStreetMap (`*.tile.openstreetmap.org`). This domain is in the CSP `img-src`. Removing it breaks the map entirely.
+## Delivery Partner Flow
+
+1. Partner opens `/earn/deliveries` → sees assigned out-for-delivery orders
+2. Partner clicks "Start GPS" in `DeliveriesClient.tsx`
+3. `useGeolocation()` → `startWatch()` → repeated calls to `POST /api/transport/broadcast`
+4. Server upserts `Vehicle` row (keyed by `id` — a client-generated or Collaboration-derived ID); saves `Order.vehicleId`
+5. Buyer at `/order/[id]/track` polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s
+6. Partner clicks "Stop" or "Mark Delivered" → `stopWatch()` → `Vehicle` row is deleted
+7. `Order.vehicleId` is **not** cleared on stop. Tracking page detects the stale state because the vehicles API returns empty when `updatedAt < 2 min ago`.
 
 ## Runtime Flow
 
 ### Broadcasting location
-1. A vehicle operator (or automated client) POSTs to `POST /api/transport/broadcast`
-2. Payload: `{ busNumber, route, vehicleType, lat, lng, accuracy }`
-3. API upserts `Vehicle` row keyed by `busNumber` (TODO: confirm upsert key)
-4. Sets `updatedAt` to current timestamp
+1. `DeliveriesClient.tsx` calls `useGeolocation().startWatch(callback)`
+2. Callback POSTs to `POST /api/transport/broadcast`: `{ id, busNumber, vehicleType, lat, lng, accuracy }`
+3. API upserts `Vehicle` row by `id`; sets `updatedAt`
+4. `PATCH /api/order/[id]/delivery { vehicleId }` stores the vehicle reference on the Order
 
-### Displaying the map
-1. Client fetches `GET /api/transport/vehicles`
-2. API returns all `Vehicle` rows
-3. `components/transport/TransportMap.tsx` renders a Leaflet map
-4. Each vehicle is placed as a marker at its `lat`, `lng`
-5. `components/transport/VehicleList.tsx` renders a sidebar list
+### Displaying the map (delivery tracking page)
+1. `app/order/[id]/track` polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s
+2. API filters: only returns the row if `updatedAt >= now - 2 min` (staleness guard)
+3. `TransportMap.tsx` renders a single vehicle marker
 
-### Broadcasting from component
-1. `components/transport/broadcaster.tsx` runs in-browser
-2. Reads device GPS via browser Geolocation API
-3. POSTs coordinates to broadcast endpoint on an interval
-4. TODO: Confirm broadcast interval and whether there is a heartbeat/stop mechanism
+### Displaying all vehicles (public transit view)
+1. Client fetches `GET /api/transport/vehicles` (no id param)
+2. Returns all `Vehicle` rows (no staleness filter on this path)
+3. `TransportMap.tsx` and `VehicleList.tsx` render all markers
 
 ## Key API Routes
 
 | Method | Route | Action |
 |---|---|---|
-| POST | /api/transport/broadcast | Upsert vehicle location |
-| GET | /api/transport/vehicles | Fetch all current vehicle positions |
+| POST | /api/transport/broadcast | Upsert vehicle location (authenticated) |
+| GET | /api/transport/vehicles | All current vehicle positions |
+| GET | /api/transport/vehicles?id= | Single vehicle by ID (staleness-filtered) |
 
 ## Key Components
 
 | Component | Role |
 |---|---|
-| `components/transport/TransportMap.tsx` | Leaflet map with vehicle markers |
-| `components/transport/VehicleList.tsx` | Sidebar list of vehicles |
-| `components/transport/broadcaster.tsx` | Browser GPS broadcaster |
-| `components/transport/vehicles/broadcaster.tsx` | Vehicle-specific broadcast variant |
+| `components/transport/TransportMap.tsx` | Leaflet map — renders vehicle marker(s) |
+| `components/transport/VehicleList.tsx` | Sidebar list of all vehicles |
+| `components/earn/DeliveriesClient.tsx` | Delivery partner UI — includes Start GPS modal with Broadcaster |
+| `hooks/useGeolocation.ts` | Capacitor-aware GPS watch abstraction |
 
 ## Database Models Used
-- `Vehicle` — busNumber, route, vehicleType (`Bus | Auto | Taxi | Metro | Other`), lat, lng, accuracy, updatedAt
+- `Vehicle` — `id`, `busNumber` (mapped `bus_number`), `route`, `vehicleType` (mapped `vehicle_type`), `lat`, `lng`, `accuracy`, `updatedAt` (mapped `updated_at`). Table mapped to `vehicles`.
+- `Order.vehicleId` — plain `String?` field (not a Prisma relation) storing the `Vehicle.id` of the active broadcast
 
 ## Risks & Fragile Areas
-- `Vehicle` rows are never deleted. Vehicles that stop broadcasting remain in the table as stale positions. There is no TTL or staleness check. Clients display positions that may be hours or days old.
-- Geolocation permission is restricted to `self` and `https://charaivati.com` in the `Permissions-Policy` header. If the broadcaster runs on a different origin or subdomain, the browser will deny GPS access.
-- TODO: Confirm whether the broadcast endpoint is authenticated. An open broadcast endpoint allows anyone to spoof any vehicle's position.
-- Two broadcaster components exist (`broadcaster.tsx` and `vehicles/broadcaster.tsx`). Their difference in responsibility is unclear. TODO: Confirm if one is deprecated.
-- Leaflet requires `window` — it is a client-only library. If `TransportMap.tsx` is rendered server-side without a dynamic import guard, it will throw.
+- **`Order.vehicleId` is never cleared automatically** — stop/delete of the `Vehicle` row does not touch the Order. The tracking page must defensively handle a non-null `vehicleId` that returns no vehicle from the API (correct behavior — shows "GPS not available" instead of map).
+- **`Vehicle` rows accumulate for public transit** — the all-vehicles endpoint has no staleness filter. Stale positions from hours ago appear for public transit. The delivery tracking endpoint (with `?id=`) does filter by 2 min.
+- **Two old broadcaster components** (`broadcaster.tsx` and `vehicles/broadcaster.tsx`) predate `useGeolocation`. Their status is unclear — delivery features now use `DeliveriesClient.tsx` + `useGeolocation`. Do not add new GPS features using the old components.
+- **Leaflet is client-only** — always wrap `TransportMap` with `dynamic(() => import(...), { ssr: false })`. Server-side rendering will throw.
+- **Geolocation permission policy** — `geolocation` is restricted to `self` and `https://charaivati.com` in `Permissions-Policy`. The broadcaster will be denied on any other origin.
 
 ## Backlinks
 - [[database.md]] — Vehicle model
-- [[START_HERE.md]] — Leaflet listed in tech stack
-- [[navigation-tabs.md]] — transport rendered within a layer tab
+- [[collaboration.md]] — delivery partner assignment via Collaboration
+- [[START_HERE.md]] — Delivery Tracking flow
