@@ -60,12 +60,68 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
-  const { deliveryStatus, assignedToId, deliveryNote, vehicleId } = body;
+  const { deliveryStatus, assignedToId, deliveryNote, vehicleId, partnerAction } = body;
 
   if (deliveryStatus !== undefined && !DELIVERY_STATUSES.includes(deliveryStatus))
     return NextResponse.json({ error: "Invalid deliveryStatus" }, { status: 400 });
 
-  // Validate vehicleId exists when being set to a non-null value.
+  // ── Partner actions ────────────────────────────────────────────────────────
+  if (isPartner && !isOwner) {
+    // Accept / Reject assignment
+    if (partnerAction === "accept") {
+      const updated = await (prisma.order as any).update({
+        where: { id },
+        data: { partnerStatus: "accepted" },
+      });
+      return NextResponse.json(updated);
+    }
+
+    if (partnerAction === "reject") {
+      const updated = await (prisma.order as any).update({
+        where: { id },
+        data: { partnerStatus: "rejected", assignedToId: null },
+      });
+      return NextResponse.json(updated);
+    }
+
+    // deliveryStatus and vehicleId updates
+    const hasAllowedField = deliveryStatus !== undefined || "vehicleId" in body;
+    if (!hasAllowedField)
+      return NextResponse.json(
+        { error: "Partners can only update deliveryStatus, vehicleId, or partnerAction" },
+        { status: 400 }
+      );
+
+    // Validate vehicleId exists when being set.
+    if (vehicleId != null) {
+      const vehicle = await (prisma as any).vehicle.findUnique({
+        where: { id: vehicleId },
+        select: { id: true },
+      });
+      if (!vehicle)
+        return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
+    }
+
+    const data: Record<string, unknown> = {};
+    if (deliveryStatus !== undefined) data.deliveryStatus = deliveryStatus;
+    if ("vehicleId" in body) data.vehicleId = vehicleId ?? null;
+
+    // Auto-set partnerStatus on terminal states
+    if (deliveryStatus === "delivered") {
+      data.vehicleId = null;
+      data.partnerStatus = "completed";
+    } else if (deliveryStatus === "cancelled") {
+      data.vehicleId = null;
+      data.partnerStatus = null;
+    }
+
+    const updated = await (prisma.order as any).update({ where: { id }, data });
+    return NextResponse.json(updated);
+  }
+
+  // ── Owner actions ──────────────────────────────────────────────────────────
+
+  // Validate vehicleId exists when being set.
   if (vehicleId != null) {
     const vehicle = await (prisma as any).vehicle.findUnique({
       where: { id: vehicleId },
@@ -75,23 +131,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
   }
 
-  // Partners can update deliveryStatus and link their vehicleId — nothing else.
-  if (isPartner && !isOwner) {
-    const hasAllowedField = deliveryStatus !== undefined || "vehicleId" in body;
-    if (!hasAllowedField)
-      return NextResponse.json(
-        { error: "Partners can only update deliveryStatus or vehicleId" },
-        { status: 400 }
-      );
-    const data: Record<string, unknown> = {};
-    if (deliveryStatus !== undefined) data.deliveryStatus = deliveryStatus;
-    if ("vehicleId" in body) data.vehicleId = vehicleId ?? null;
-    if (deliveryStatus === "delivered" || deliveryStatus === "cancelled") data.vehicleId = null;
-    const updated = await (prisma.order as any).update({ where: { id }, data });
-    return NextResponse.json(updated);
-  }
-
-  // Owner: validate assignedToId if being set.
+  // Validate assignedToId if being set.
   if (assignedToId != null) {
     const collab = await prisma.collaboration.findUnique({
       where: { id: assignedToId },
@@ -111,10 +151,21 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const data: Record<string, unknown> = {};
   if (deliveryStatus !== undefined) data.deliveryStatus = deliveryStatus;
-  if ("assignedToId" in body) data.assignedToId = assignedToId ?? null;
+
+  if ("assignedToId" in body) {
+    data.assignedToId = assignedToId ?? null;
+    // Setting a partner → mark as awaiting acceptance; clearing → reset
+    data.partnerStatus = assignedToId != null ? "assigned" : null;
+  }
+
   if ("deliveryNote" in body) data.deliveryNote = deliveryNote ?? null;
   if ("vehicleId" in body) data.vehicleId = vehicleId ?? null;
-  if (deliveryStatus === "delivered" || deliveryStatus === "cancelled") data.vehicleId = null;
+
+  // Cleanup on terminal delivery states
+  if (deliveryStatus === "delivered" || deliveryStatus === "cancelled") {
+    data.vehicleId = null;
+    data.partnerStatus = null;
+  }
 
   const updated = await (prisma.order as any).update({ where: { id }, data });
   return NextResponse.json(updated);
@@ -132,6 +183,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       id: true,
       userId: true,
       deliveryStatus: true,
+      partnerStatus: true,
       assignedToId: true,
       deliveryNote: true,
       vehicleId: true,

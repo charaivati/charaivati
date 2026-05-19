@@ -175,7 +175,7 @@ Owner-only page that replaces the old scattered "Evaluate & Plan" / "Your Store"
 
 ### Delivery Tracking
 
-The `Order` model has three new scalar fields (added via `db push`, no migration file):
+The `Order` model has five delivery scalar fields (added via `db push`, no migration file):
 
 | Field | Type | Default | Purpose |
 |---|---|---|---|
@@ -183,15 +183,24 @@ The `Order` model has three new scalar fields (added via `db push`, no migration
 | `assignedToId` | `String?` | `null` | `Collaboration.id` of the partner assigned to deliver — **not a FK**, stored as a plain string. `null` = owner delivers themselves |
 | `deliveryNote` | `String?` | `null` | Free-text instructions from owner to delivery person |
 | `vehicleId` | `String?` | `null` | `Vehicle.id` of the partner's active GPS broadcast — set automatically when the partner clicks "Start GPS" in the deliveries dashboard; cleared to null when unlinked |
+| `partnerStatus` | `String?` | `null` | Partner acceptance state: `null` = unassigned, `"assigned"` = owner assigned (awaiting partner acceptance), `"accepted"` = partner accepted, `"rejected"` = partner declined (owner must reassign), `"completed"` = partner delivered |
+
+**Partner acceptance flow** (new):
+1. Owner assigns a partner via the dropdown → API auto-sets `partnerStatus = "assigned"`
+2. Partner sees the order in `/earn/deliveries` with an amber "New Assignment" badge
+3. Partner clicks **Accept Delivery** → `PATCH { partnerAction: "accept" }` → `partnerStatus = "accepted"`
+4. OR clicks **Reject** → `PATCH { partnerAction: "reject" }` → `partnerStatus = "rejected"`, `assignedToId = null` (order disappears from partner dashboard; owner must reassign)
+5. Accepted partner waits for `deliveryStatus = "out_for_delivery"`, then can start GPS
+6. Partner marks delivered → `PATCH { deliveryStatus: "delivered" }` → server sets `partnerStatus = "completed"`, `vehicleId = null`
 
 **`PATCH /api/order/[id]/delivery`**
-- Store owner: can update all three fields. Assignment validates the Collaboration is `accepted` and involves the store's `pageId`.
-- Assigned delivery partner: can only update `deliveryStatus` (403 on any other field).
+- Store owner: can update `deliveryStatus`, `assignedToId`, `deliveryNote`, `vehicleId`. Setting `assignedToId` → API auto-sets `partnerStatus = "assigned"`. Clearing it → `partnerStatus = null`. Terminal `deliveryStatus` (delivered/cancelled) also clears `vehicleId` and `partnerStatus`.
+- Assigned delivery partner: can send `{ partnerAction: "accept" | "reject" }` or update `deliveryStatus` / `vehicleId`. Reject also clears `assignedToId`. Marking delivered auto-sets `partnerStatus = "completed"`.
 - Buyer: no PATCH access.
 
 **`GET /api/order/[id]/delivery`**
 - Allowed for: store owner, assigned delivery partner (via Collaboration lookup), or the order's buyer.
-- Returns: `id, deliveryStatus, assignedToId, deliveryNote, items, total, createdAt, address` + `assignedCollab` (partner page titles + role, or null).
+- Returns: `id, deliveryStatus, partnerStatus, assignedToId, deliveryNote, vehicleId, items, total, createdAt, address` + `assignedCollab` (partner page titles + role, or null).
 - Does NOT expose `store.ownerId`, `store.pageId`, or the buyer's `userId` to callers.
 
 **Partner auth logic**: `assignedToId` is a `Collaboration.id`. The API fetches the Collaboration, determines which page is the store's page (via `store.pageId`), and treats the other page as the partner page. Auth passes if `partnerPage.ownerId === session.userId`.
@@ -199,13 +208,15 @@ The `Order` model has three new scalar fields (added via `db push`, no migration
 **Owner order management UI** (`app/store/[id]/orders/page.tsx`):
 - Delivery stepper (5 steps, clickable, Cancel side-exit) — updates `deliveryStatus` via PATCH.
 - Assignment dropdown (visible from `confirmed` onward) — lists accepted outbound collaboration partners fetched from `GET /api/collaboration?direction=out&status=accepted`. Value is `Collaboration.id`.
+- `partnerStatus` badge shown read-only below the assignment dropdown: grey Unassigned / amber Pending acceptance / green Partner accepted ✓ / red Partner rejected — reassign / blue Delivered by partner.
+- `partnerStatuses` state is initialised from order data and synced from the PATCH response (server derives it, not the payload).
 - Delivery note textarea with explicit Save button.
 
 **Partner delivery dashboard** (`app/earn/deliveries/page.tsx`):
 - Server component with cookie auth (same pattern as initiative page).
 - Finds all accepted collaborations where session user's pages are the **receiver**.
-- Queries orders with `assignedToId IN (collabIds) AND deliveryStatus = 'out_for_delivery'` via raw SQL.
-- Renders `DeliveriesClient` (`components/earn/DeliveriesClient.tsx`) — Mark Delivered button + GPS modal with Broadcaster.
+- Queries orders with `assignedToId IN (collabIds) AND partnerStatus IN ('assigned', 'accepted')` via raw SQL (changed from old `deliveryStatus = 'out_for_delivery'` filter — now shows orders before dispatch too).
+- Renders `DeliveriesClient` (`components/earn/DeliveriesClient.tsx`) — cards differ by `partnerStatus`: amber Accept/Reject UI for `"assigned"`, green GPS/Mark-Delivered UI for `"accepted"`.
 
 **Customer tracking page** (`app/order/[id]/track/page.tsx`):
 - Client component; fetches `GET /api/order/[id]/delivery` (buyer is allowed).
@@ -311,10 +322,11 @@ Start every session by reading /docs/START_HERE.md.
 - **`StoreHero` `bannerUrl`/`avatarUrl` are dead** — the `Store` DB model has neither field; they exist only on `User` (line 23) and `Page` (line 215) in the schema. `StoreHero` declares them as optional on the frontend type so they silently render nothing. The live banner system is `StoreBanner` (`isGlobal: true`) → returned as `globalBanner` from `GET /api/store/[id]` → rendered by `BannerZone`. Do not add `bannerUrl`/`avatarUrl` to the Store model without a migration.
 - **AI setup transaction timeout** — `prisma.$transaction` default is 5 s. The apply route uses `{ timeout: 30000 }`. Any new sequential-await transaction creating multiple rows must also set an explicit timeout or it will expire mid-way with P2028.
 - **Server component auth uses `cookies()`, not `getServerUser(req)`** — `getServerUser` requires a `Request` object and is only usable in API routes. Server components (pages, layouts) must read the session via `cookies()` from `next/headers` + `verifySessionToken()` directly. See `app/earn/initiative/[pageId]/page.tsx` and `app/(with-nav)/layout.tsx` as canonical examples.
-- **`Order.deliveryStatus` / `assignedToId` / `deliveryNote` were added via `db push`, not a migration file** — there is no migration SQL for these columns. If the DB is ever reset from migrations, these columns will be missing. Use `db push` again or add them manually.
+- **`Order.deliveryStatus` / `assignedToId` / `deliveryNote` / `vehicleId` / `partnerStatus` were added via `db push`, not a migration file** — there is no migration SQL for these columns. If the DB is ever reset from migrations, these columns will be missing. Use `db push` again or add them manually.
 - **`Order.assignedToId` and `Order.vehicleId` are NOT Prisma relations** — both are plain `String?` fields. `assignedToId` stores a `Collaboration.id`; `vehicleId` stores a `Vehicle.id`. Resolve them manually; do not use Prisma `include` or `connect` on them.
 - **`Order.vehicleId` is NOT cleared when the vehicle broadcast stops** — the partner's `stop()` call deletes the `Vehicle` row but leaves `Order.vehicleId` set. The tracking page handles this correctly because the vehicles API filters by `updatedAt >= 2 min ago`, so a deleted vehicle returns no rows and the map shows no marker.
-- **Delivery partner PATCH is restricted** — partners can only change `deliveryStatus`. Any attempt to send `assignedToId` or `deliveryNote` from the partner returns 403. The owner UI must not expose those fields to partners.
+- **Delivery partner PATCH is restricted** — partners can only send `partnerAction`, `deliveryStatus`, or `vehicleId`. Any attempt to send `assignedToId` or `deliveryNote` from the partner returns 400. The owner UI must not expose those fields to partners.
+- **`partnerStatus` is always derived server-side** — never send `partnerStatus` directly from the owner UI. Set `assignedToId` and the API sets `partnerStatus = "assigned"` automatically. Partners use `partnerAction: "accept" | "reject"`. The only client-set `partnerStatus` value is `"completed"` (sent by `DeliveriesClient` on mark-delivered, but also auto-set by the API when `deliveryStatus = "delivered"`).
 - **`Collaboration` PATCH must include page relations in the response** — `prisma.collaboration.update` without an `include` returns only flat fields. The frontend reads `updated.requester.title` / `updated.receiver.title` to optimistically add the accepted partner to the active list. Omitting the include causes a `Cannot read properties of undefined (reading 'title')` crash.
 - **`Collaboration.receiverId` must be a `Page.id`** — the API resolves Store IDs and store slugs to their linked `pageId` automatically, but stores with `pageId: null` cannot participate. Pages created outside the normal `openStore()` flow may have no linked store pageId.
 - **Never call `navigator.geolocation` directly in new code** — always use `useGeolocation()` from `hooks/useGeolocation.ts`. The hook tries Capacitor first (works in the Android/iOS native shell) and falls back to the browser API automatically. Direct `navigator.geolocation` calls will silently fail on Android when the Capacitor plugin is expected. `TransportMap.tsx` still uses the browser API for its one-shot centering call — that is the only permitted exception.

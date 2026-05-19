@@ -7,6 +7,8 @@ import DeliveriesClient, { type DeliveryOrder } from "@/components/earn/Deliveri
 type RawOrder = {
   id: string;
   deliveryStatus: string;
+  partnerStatus: string | null;
+  vehicleId: string | null;
   assignedToId: string;
   deliveryNote: string | null;
   items: unknown;
@@ -60,12 +62,14 @@ export default async function DeliveriesPage() {
     collabMeta[c.id] = { role: c.role, requesterTitle: c.requester.title };
   }
 
-  // Orders assigned to these collaborations that are currently out for delivery.
-  // Raw SQL because assignedToId and deliveryStatus are new schema fields.
+  // All orders assigned to these collaborations with partnerStatus assigned or accepted.
+  // Raw SQL because these are new schema fields not yet in all generated clients.
   const rawOrders = await prisma.$queryRaw<RawOrder[]>`
     SELECT
       o.id,
       o."deliveryStatus",
+      o."partnerStatus",
+      o."vehicleId",
       o."assignedToId",
       o."deliveryNote",
       o.items,
@@ -82,7 +86,7 @@ export default async function DeliveriesPage() {
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
     WHERE o."assignedToId" = ANY(${collabIds}::text[])
-      AND o."deliveryStatus" = 'out_for_delivery'
+      AND o."partnerStatus" IN ('assigned', 'accepted')
     ORDER BY o."createdAt" DESC
   `;
 
@@ -90,8 +94,8 @@ export default async function DeliveriesPage() {
     ...o,
     items: o.items as DeliveryOrder["items"],
     createdAt: o.createdAt.toISOString(),
-    collabRole:      collabMeta[o.assignedToId]?.role           ?? "",
-    requesterTitle:  collabMeta[o.assignedToId]?.requesterTitle ?? "",
+    collabRole:     collabMeta[o.assignedToId]?.role           ?? "",
+    requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? "",
   }));
 
   return <Shell><DeliveriesClient orders={orders} /></Shell>;
@@ -109,7 +113,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         </a>
         <h1 className="text-2xl font-bold text-white mb-2">My Deliveries</h1>
         <p className="text-sm text-gray-400 mb-8">
-          Orders assigned to you that are out for delivery.
+          Orders assigned to you — accept, dispatch, and track deliveries.
         </p>
         {children}
       </div>

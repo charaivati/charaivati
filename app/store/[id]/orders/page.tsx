@@ -33,6 +33,7 @@ type Order = {
   deliveryStatus?: string | null;
   assignedToId?: string | null;
   deliveryNote?: string | null;
+  partnerStatus?: string | null;
 };
 
 type CollabPage = { id: string; title: string; pageType: string };
@@ -136,11 +137,22 @@ function InvoiceSection({ orderId, inv, onSignUpload }: {
 }
 
 // ── DeliverySection ───────────────────────────────────────────────────────────
+const PARTNER_STATUS_BADGE: Record<
+  string,
+  { label: string; bg: string; color: string; border: string }
+> = {
+  assigned:  { label: "Pending acceptance",  bg: "#FFFBEB", color: "#D97706", border: "#FCD34D" },
+  accepted:  { label: "Partner accepted ✓",  bg: "#F0FDF4", color: "#16A34A", border: "#86EFAC" },
+  rejected:  { label: "Partner rejected — reassign", bg: "#FEF2F2", color: "#DC2626", border: "#FECACA" },
+  completed: { label: "Delivered by partner", bg: "#EFF6FF", color: "#2563EB", border: "#BFDBFE" },
+};
+
 function DeliverySection({
   orderId,
   deliveryStatus,
   assignedToId,
   deliveryNote,
+  partnerStatus,
   partners,
   busy,
   onPatch,
@@ -149,6 +161,7 @@ function DeliverySection({
   deliveryStatus: string;
   assignedToId: string | null;
   deliveryNote: string;
+  partnerStatus: string | null;
   partners: Collab[];
   busy: boolean;
   onPatch: (payload: Record<string, unknown>) => void;
@@ -288,6 +301,21 @@ function DeliverySection({
                   </span>
                 ) : null;
               })()}
+              {assignedToId && (() => {
+                const badge = partnerStatus ? PARTNER_STATUS_BADGE[partnerStatus] : null;
+                if (!badge) return (
+                  <span className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: "#F9FAFB", color: "#6B7280", border: "1px solid #E5E7EB" }}>
+                    Unassigned
+                  </span>
+                );
+                return (
+                  <span className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
+                    {badge.label}
+                  </span>
+                );
+              })()}
             </div>
 
             {/* Delivery note */}
@@ -333,6 +361,7 @@ export default function StoreOrdersPage() {
   const [deliveryStatuses, setDeliveryStatuses] = useState<Record<string, string>>({});
   const [assignedTos, setAssignedTos] = useState<Record<string, string | null>>({});
   const [deliveryNotes, setDeliveryNotes] = useState<Record<string, string>>({});
+  const [partnerStatuses, setPartnerStatuses] = useState<Record<string, string | null>>({});
   const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
 
   // Collaboration partners for this store
@@ -360,14 +389,17 @@ export default function StoreOrdersPage() {
         const dsMap: Record<string, string> = {};
         const atMap: Record<string, string | null> = {};
         const dnMap: Record<string, string> = {};
+        const psMap: Record<string, string | null> = {};
         for (const o of data) {
           dsMap[o.id] = o.deliveryStatus ?? "pending";
           atMap[o.id] = o.assignedToId ?? null;
           dnMap[o.id] = o.deliveryNote ?? "";
+          psMap[o.id] = o.partnerStatus ?? null;
         }
         setDeliveryStatuses(dsMap);
         setAssignedTos(atMap);
         setDeliveryNotes(dnMap);
+        setPartnerStatuses(psMap);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -428,12 +460,16 @@ export default function StoreOrdersPage() {
       body: JSON.stringify(payload),
     });
     if (res.ok) {
+      const updated = await res.json();
       if ("deliveryStatus" in payload)
         setDeliveryStatuses((prev) => ({ ...prev, [orderId]: payload.deliveryStatus as string }));
       if ("assignedToId" in payload)
         setAssignedTos((prev) => ({ ...prev, [orderId]: (payload.assignedToId as string | null) ?? null }));
       if ("deliveryNote" in payload)
         setDeliveryNotes((prev) => ({ ...prev, [orderId]: (payload.deliveryNote as string) ?? "" }));
+      // Always sync partnerStatus from the API response (set server-side)
+      if (updated?.partnerStatus !== undefined)
+        setPartnerStatuses((prev) => ({ ...prev, [orderId]: updated.partnerStatus ?? null }));
     }
     setUpdatingDelivery(null);
   }
@@ -528,6 +564,7 @@ export default function StoreOrdersPage() {
                 deliveryStatus={deliveryStatuses[order.id] ?? "pending"}
                 assignedToId={assignedTos[order.id] ?? null}
                 deliveryNote={deliveryNotes[order.id] ?? ""}
+                partnerStatus={partnerStatuses[order.id] ?? null}
                 partners={partners}
                 busy={updatingDelivery === order.id}
                 onPatch={(payload) => patchDelivery(order.id, payload)}

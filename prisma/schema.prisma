@@ -1255,6 +1255,8 @@ model Order {
   deliveryNote     String?
   /// Vehicle.id of the assigned broadcaster — set by the delivery partner when GPS starts
   vehicleId        String?
+  /// null = unassigned | "assigned" = pending partner acceptance | "accepted" = partner ready | "rejected" = partner declined | "completed" = partner delivered
+  partnerStatus    String?
   address          Address   @relation(fields: [addressId], references: [id])
   store            Store     @relation(fields: [storeId], references: [id])
   user             User      @relation(fields: [userId], references: [id])
