@@ -145,8 +145,9 @@ Entry points that use this pipeline:
 4. Each section can have a `type` (grid, etc.) and `columns`/`rows` layout metadata
 
 ### Store creation — AI Setup Wizard
-1. Owner clicks **"Your Store"** in EarningTab → `GET /api/store/for-page/[pageId]` finds/creates the `Store` and returns `isNew: true` when `storeSection.count === 0`
-2. `EarningTab.openStore()` uses `window.location.href` (not `router.push`) to navigate to `/store/[id]/setup` — hard nav required because `router.push` silently drops navigations across different Next.js layout roots
+1. Owner navigates to the Initiative Hub (`/earn/initiative/[pageId]`) via `/app/initiatives` (mobile) or the desktop EarningTab summary list, then clicks **"Set up store"** in the Store tab
+2. `InitiativeTabs.handleOpenStore()` → `GET /api/store/for-page/[pageId]` finds/creates the `Store` and returns `isNew: true` when `storeSection.count === 0`
+3. `handleOpenStore()` uses `window.location.href` (not `router.push`) to navigate to `/store/[id]/setup` — hard nav required because `router.push` silently drops navigations across different Next.js layout roots
 3. **Fallback redirect**: `app/store/[id]/page.tsx` `fetchStore` also redirects to `/setup` if `isOwner && sections.length === 0` and `sessionStorage.setup_skipped_[id]` is not set
 4. Owner types a plain-English business description → `POST /api/store/ai-setup` calls `chatComplete` once, strips markdown, parses JSON, batch-fetches images via `lib/imageSearch.ts` `fetchImages()` (rotates Unsplash/Pexels/Pixabay, Picsum fallback); returns `{ filters, sections[] }` with `imageUrl` on each section
 5. Owner edits inline (section titles, product titles, prices) and removes unwanted sections

@@ -121,7 +121,7 @@ function MobileProfileMenu() {
           )}
 
           <a
-            href="/store/account?tab=orders"
+            href="/store/account?tab=purchases"
             style={{
               display: "block",
               padding: "10px 16px",
@@ -411,7 +411,7 @@ function StoreNav() {
             </a>
 
             <a
-              href="/store/account?tab=orders"
+              href="/store/account?tab=purchases"
               style={{ textDecoration: "none" }}
               className="leading-tight text-white text-xs hover:opacity-80"
             >

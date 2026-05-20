@@ -88,7 +88,11 @@ Enables users and organizations to publish cause-driven pages (NGO/charity-style
 - TODO: Confirm whether initiatives have a published/draft status and whether unpublished initiatives are excluded from the feed.
 
 ## Owner Entry Point
-Initiative pages are managed through the **Initiative Hub** at `/earn/initiative/[pageId]`. The "Open →" button on each card in `app/app/initiatives/page.tsx` and `EarningTab.tsx` navigates there. Inside the Hub, the **Overview tab** links to `/business/helping/[pageId]` (the existing HelpingInitiativeStudio for objectives/metrics/awareness) and `/helping/[pageId]` (public view).
+Initiative pages are managed through the **Initiative Hub** at `/earn/initiative/[pageId]`. The "Open →" button on each card in `app/app/initiatives/page.tsx` (mobile — primary management surface) and the desktop `EarningTab.tsx` summary list navigates there. Inside the Hub, the **Overview tab** links to `/business/helping/[pageId]` (the existing HelpingInitiativeStudio for objectives/metrics/awareness) and `/helping/[pageId]` (public view).
+
+Initiative **creation and deletion** lives exclusively in `app/app/initiatives/page.tsx`. The desktop EarningTab (`app/(with-nav)/self/tabs/EarningTab.tsx`) is read-only: post composer and initiative summary list only. Do not add creation or management UI to EarningTab.
+
+**Page type labels** — use `kindLabel(page)` from `lib/pages/kindLabel.ts` everywhere a human-readable page type label is needed. It handles all type/pageType combinations including the `type: "health"` edge case. Do not inline this logic.
 
 ## Backlinks
 - [[pages.md]] — HelpingInitiative as a Page sub-model

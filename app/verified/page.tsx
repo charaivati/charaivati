@@ -2,10 +2,22 @@
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
+function sanitizeRedirect(candidate: string | null): string | null {
+  if (!candidate || typeof candidate !== "string") return null;
+  if (!candidate.startsWith("/") || candidate.startsWith("//")) return null;
+  if (candidate.length > 2048) return null;
+  try {
+    const u = new URL(candidate, "http://example.invalid");
+    return u.pathname + (u.search || "") + (u.hash || "");
+  } catch {
+    return null;
+  }
+}
+
 function VerifiedContent() {
   const sp = useSearchParams();
   const email = sp?.get("email") ?? "";
-  const redirect = sp?.get("redirect") ?? "/self";
+  const safeRedirect = sanitizeRedirect(sp?.get("redirect")) ?? "/self";
 
   return (
     <div style={{
@@ -60,8 +72,7 @@ function VerifiedContent() {
           {" "}Sign in to continue.
         </p>
 
-        {/* Primary — App */}
-        <a href={`/login?email=${encodeURIComponent(email)}&redirect=/app/home`}
+        <a href={`/login?email=${encodeURIComponent(email)}&redirect=${encodeURIComponent(safeRedirect)}`}
           style={{
             display: "block",
             padding: "14px 24px",
@@ -71,25 +82,8 @@ function VerifiedContent() {
             textDecoration: "none",
             fontWeight: 600,
             fontSize: 15,
-            marginBottom: 12,
           }}>
-          Open App & Sign In
-        </a>
-
-        {/* Secondary — Website */}
-        <a href={`/login?email=${encodeURIComponent(email)}&redirect=${encodeURIComponent(redirect)}`}
-          style={{
-            display: "block",
-            padding: "14px 24px",
-            borderRadius: 12,
-            background: "transparent",
-            color: "#94A3B8",
-            textDecoration: "none",
-            fontWeight: 500,
-            fontSize: 14,
-            border: "1px solid #334155",
-          }}>
-          Go to Website
+          Sign in to continue →
         </a>
 
         <p style={{

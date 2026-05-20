@@ -4,12 +4,18 @@ import { getLogoutRedirect } from "@/lib/logout";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useTranslations } from "@/hooks/useTranslations";
 
-const tabs = [
-  { label: "Home", icon: "🏠", href: "/app/home" },
-  { label: "Initiatives", icon: "🌱", href: "/app/initiatives" },
-  { label: "Explore", icon: "🔍", href: "/app/saved" },
-  { label: "Orders", icon: "🛍️", href: "/app/orders" },
+const LAYOUT_SLUGS =
+  "app-layout-tab-home,app-layout-tab-initiatives,app-layout-tab-explore," +
+  "app-layout-tab-orders,app-layout-my-account,app-layout-sign-out," +
+  "app-layout-sign-in-up,app-layout-sign-in";
+
+const TAB_DEFS = [
+  { slug: "app-layout-tab-home",        fallback: "Home",        icon: "🏠", href: "/app/home" },
+  { slug: "app-layout-tab-initiatives", fallback: "Initiatives", icon: "🌱", href: "/app/initiatives" },
+  { slug: "app-layout-tab-explore",     fallback: "Explore",     icon: "🔍", href: "/app/saved" },
+  { slug: "app-layout-tab-orders",      fallback: "Orders",      icon: "🛍️", href: "/app/orders" },
 ];
 
 const A = {
@@ -35,6 +41,9 @@ export default function AppShellLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const t = useTranslations(LAYOUT_SLUGS);
+
+  const tabs = TAB_DEFS.map((tab) => ({ ...tab, label: t(tab.slug, tab.fallback) }));
 
   const [user, setUser] = useState<User | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
@@ -107,6 +116,28 @@ export default function AppShellLayout({
             charaivati
           </Link>
         </span>
+
+        {/* Desktop nav links — hidden on mobile */}
+        <div className="hidden md:flex gap-8 items-center absolute left-1/2 -translate-x-1/2">
+          {tabs.map((tab) => {
+            const active = pathname?.startsWith(tab.href) ?? false;
+            return (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                style={{
+                  color: active ? "#A5B4FC" : "rgba(255,255,255,0.65)",
+                  textDecoration: "none",
+                  fontSize: 13,
+                  fontWeight: active ? 700 : 400,
+                  letterSpacing: "0.01em",
+                }}
+              >
+                {tab.icon} {tab.label}
+              </Link>
+            );
+          })}
+        </div>
 
         <div style={{ position: "relative" }}>
           {!loadingUser &&
@@ -198,7 +229,7 @@ export default function AppShellLayout({
                             textDecoration: "none",
                           }}
                         >
-                          Sign in / Sign up
+                          {t("app-layout-sign-in-up", "Sign in / Sign up")}
                         </a>
                       ) : (
                         <>
@@ -212,7 +243,7 @@ export default function AppShellLayout({
                               textDecoration: "none",
                             }}
                           >
-                            My Account
+                            {t("app-layout-my-account", "My Account")}
                           </a>
 
                           <button
@@ -229,7 +260,7 @@ export default function AppShellLayout({
                               cursor: "pointer",
                             }}
                           >
-                            Sign out
+                            {t("app-layout-sign-out", "Sign out")}
                           </button>
                         </>
                       )}
@@ -250,19 +281,20 @@ export default function AppShellLayout({
                   borderRadius: 6,
                 }}
               >
-                Sign in
+                {t("app-layout-sign-in", "Sign in")}
               </a>
             ))}
         </div>
       </header>
 
       {/* Page content */}
-      <div style={{ paddingBottom: 56 }}>
+      <div className="pb-14 md:pb-0">
         {children}
       </div>
 
-      {/* Bottom navigation */}
+      {/* Bottom navigation — mobile only */}
       <nav
+        className="flex md:hidden"
         style={{
           position: "fixed",
           bottom: 0,
@@ -271,7 +303,6 @@ export default function AppShellLayout({
           height: 56,
           background: "#FFFFFF",
           borderTop: "1px solid #E5E7EB",
-          display: "flex",
           alignItems: "stretch",
           zIndex: 100,
           paddingBottom: "env(safe-area-inset-bottom)",

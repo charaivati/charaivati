@@ -617,7 +617,7 @@ function MobileMenu({ isOwner, editMode, onToggleEdit, userName, storeId, onAddr
           <a href="/store/account" style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
             👤 {userName ? `Hello, ${userName.split(" ")[0]}` : "Sign in"}
           </a>
-          <a href="/store/account?tab=orders" style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
+          <a href="/store/account?tab=purchases" style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
             📦 My Orders
           </a>
           {isOwner && (
@@ -683,7 +683,7 @@ function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCo
                 <div className="font-bold">My Account ▾</div>
               </a>
             )}
-            <a href="/store/account?tab=orders" style={{ textDecoration: "none" }} className="leading-tight text-white text-xs hover:opacity-80">
+            <a href="/store/account?tab=purchases" style={{ textDecoration: "none" }} className="leading-tight text-white text-xs hover:opacity-80">
               <div className="opacity-80">Returns &amp;</div>
               <div className="font-bold">Orders</div>
             </a>

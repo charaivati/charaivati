@@ -15,6 +15,14 @@ import { useLanguage } from "@/components/LanguageProvider";
 
 type Lang = { id: number; name: string; code?: string; nativeName?: string | null };
 
+function getLoginUrl(): string {
+  try {
+    const redirect = new URLSearchParams(window.location.search).get("redirect");
+    if (redirect) return `/login?redirect=${encodeURIComponent(redirect)}`;
+  } catch {}
+  return "/login";
+}
+
 function getBaseUrl(): string {
   if (typeof window !== "undefined") {
     return window.location.origin;
@@ -71,17 +79,16 @@ export default function LandingPage() {
           // no guest language -> show language picker
           setStatus("showPicker");
         } else {
-          // have guest language -> go to login
+          // have guest language -> go to login, forwarding any ?redirect= the middleware passed
           setStatus("redirect");
-          router.replace("/login");
+          router.replace(getLoginUrl());
         }
       } catch (err) {
         // Only log truly unexpected errors
         if (!alive) return;
         console.error("[Landing] Unexpected error:", err);
-        // On error, default to login page
         setStatus("redirect");
-        router.replace("/login");
+        router.replace(getLoginUrl());
       }
     })();
 
@@ -120,11 +127,8 @@ export default function LandingPage() {
   async function onChoose(lang: Lang) {
     const code = lang.code || "en";
     try {
-      try {
-        localStorage.setItem("app.language", code);
-      } catch {}
       await setLanguage(code);
-      router.replace("/login");
+      router.replace(getLoginUrl());
     } catch (e) {
       alert(`Failed to set language: ${e}`);
     }
@@ -154,11 +158,8 @@ export default function LandingPage() {
       const newLang: Lang = { id: json.data.id, name: json.data.name, code: json.data.code, nativeName: json.data.nativeName ?? null };
       setLangs((prev) => [...prev, newLang]);
       const newCode = newLang.code || "en";
-      try {
-        localStorage.setItem("app.language", newCode);
-      } catch {}
       await setLanguage(newCode);
-      router.replace("/login");
+      router.replace(getLoginUrl());
     } catch (e: any) {
       setAddError(String(e?.message ?? e));
       alert(`Failed to add language: ${e}`);

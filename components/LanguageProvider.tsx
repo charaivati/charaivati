@@ -13,13 +13,22 @@ type LangContextValue = {
 
 const LangContext = createContext<LangContextValue | null>(null);
 
+const LANG_COOKIE_RE = /(?:^|;\s*)lang=([^;]+)/;
+const LOCALE_CODE_RE = /^[a-z]{2,8}(-[a-zA-Z]{2,4})?$/;
+
 export default function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<string>(() => {
     try {
-      const stored = typeof window !== "undefined" ? localStorage.getItem("lang") : null;
-      // Only accept values that look like a locale code (e.g. "en", "hi", "zh-CN").
-      // Rejects display names like "English" that were saved by a previous bug.
-      if (stored && /^[a-z]{2,8}(-[a-zA-Z]{2,4})?$/.test(stored)) return stored;
+      if (typeof window === "undefined") return "en";
+      // Prefer localStorage (written first; survives cookie clearing).
+      const stored = localStorage.getItem("lang");
+      if (stored && LOCALE_CODE_RE.test(stored)) return stored;
+      // Fallback: read from cookie (set by setLang below; readable by middleware).
+      const match = document.cookie.match(LANG_COOKIE_RE);
+      if (match?.[1]) {
+        const fromCookie = decodeURIComponent(match[1]);
+        if (LOCALE_CODE_RE.test(fromCookie)) return fromCookie;
+      }
       return "en";
     } catch {
       return "en";
@@ -31,7 +40,12 @@ export default function LanguageProvider({ children }: { children: React.ReactNo
   function setLang(l: string) {
     setLangState(l);
     try {
-      if (typeof window !== "undefined") localStorage.setItem("lang", l);
+      if (typeof window === "undefined") return;
+      localStorage.setItem("lang", l);
+      // Mirror to a cookie so the edge middleware can gate on language selection
+      // without needing to access localStorage (which is unavailable at the edge).
+      const secure = location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `lang=${encodeURIComponent(l)}; path=/; max-age=31536000; SameSite=Lax${secure}`;
     } catch {}
   }
 

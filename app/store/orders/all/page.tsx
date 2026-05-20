@@ -11,6 +11,9 @@ type OrderItem = { blockId: string; title: string; price: number; quantity: numb
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
 type Order = {
   id: string; status: string; total: number; createdAt: string;
+  deliveryStatus?: string | null;
+  assignedToId?: string | null;
+  partnerStatus?: string | null;
   invoiceUrl?: string | null;
   invoiceSignedUrl?: string | null;
   items: OrderItem[];
@@ -27,9 +30,38 @@ type InvoiceState = {
   signError?: string;
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: "#F59E0B", confirmed: "#6366f1", shipped: "#3B82F6",
-  delivered: "#10B981", cancelled: "#EF4444",
+const DELIVERY_STEPS = ["pending", "confirmed", "processing", "out_for_delivery", "delivered"] as const;
+
+const DELIVERY_LABELS: Record<string, string> = {
+  pending: "Pending",
+  confirmed: "Confirmed",
+  processing: "Processing",
+  out_for_delivery: "Out for Delivery",
+  delivered: "Delivered",
+  cancelled: "Cancelled",
+};
+
+const DELIVERY_COLORS: Record<string, string> = {
+  pending: "#6B7280",
+  confirmed: "#2563EB",
+  processing: "#D97706",
+  out_for_delivery: "#7C3AED",
+  delivered: "#16A34A",
+  cancelled: "#DC2626",
+};
+
+const PARTNER_STATUS_LABELS: Record<string, string> = {
+  assigned: "Pending acceptance",
+  accepted: "Partner accepted ✓",
+  rejected: "Partner rejected — reassign",
+  completed: "Delivered by partner",
+};
+
+const PARTNER_STATUS_COLORS: Record<string, string> = {
+  assigned: "#D97706",
+  accepted: "#16A34A",
+  rejected: "#DC2626",
+  completed: "#2563EB",
 };
 
 function InvoiceSection({ orderId, inv, onSignUpload }: {
@@ -142,15 +174,15 @@ export default function AllOrdersPage() {
     setInvoiceStates((prev) => ({ ...prev, [orderId]: { ...prev[orderId], ...patch } }));
   }
 
-  async function updateStatus(orderId: string, status: string) {
+  async function updateDeliveryStatus(orderId: string, deliveryStatus: string) {
     setUpdating(orderId);
-    const res = await fetch(`/api/store/orders/${orderId}`, {
+    const res = await fetch(`/api/order/${orderId}/delivery`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      credentials: "include", body: JSON.stringify({ status }),
+      credentials: "include", body: JSON.stringify({ deliveryStatus }),
     });
     if (res.ok) {
-      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o));
-      if (status === "delivered") {
+      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, deliveryStatus } : o));
+      if (deliveryStatus === "delivered") {
         setInv(orderId, { genStatus: "loading", signStatus: "idle" });
         try {
           const r = await fetch(`/api/orders/${orderId}/invoice`, { method: "POST", credentials: "include" });
@@ -205,10 +237,25 @@ export default function AllOrdersPage() {
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-mono font-bold" style={{ color: A.text }}>#{order.id.slice(-8).toUpperCase()}</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ background: `${STATUS_COLORS[order.status]}20`, color: STATUS_COLORS[order.status] ?? A.textMuted }}>
-                      {order.status}
-                    </span>
+                    {(() => {
+                      const ds = order.deliveryStatus ?? "pending";
+                      const color = DELIVERY_COLORS[ds] ?? A.textMuted;
+                      return (
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ background: `${color}20`, color }}>
+                          {DELIVERY_LABELS[ds] ?? ds}
+                        </span>
+                      );
+                    })()}
+                    {order.assignedToId && order.partnerStatus && (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{
+                          background: `${PARTNER_STATUS_COLORS[order.partnerStatus] ?? "#6B7280"}15`,
+                          color: PARTNER_STATUS_COLORS[order.partnerStatus] ?? A.textMuted,
+                        }}>
+                        {PARTNER_STATUS_LABELS[order.partnerStatus] ?? order.partnerStatus}
+                      </span>
+                    )}
                     <a href={`/store/${order.store.slug ?? order.store.id}`}
                       className="text-xs px-2 py-0.5 rounded font-medium"
                       style={{ background: "#EEF2FF", color: A.accent, textDecoration: "none" }}>
@@ -251,7 +298,7 @@ export default function AllOrdersPage() {
                 </div>
               </div>
 
-              {order.status === "delivered" && inv && (
+              {order.deliveryStatus === "delivered" && inv && (
                 <div className="mt-4 pt-3 border-t" style={{ borderColor: "#f0f0f0" }}>
                   <InvoiceSection
                     orderId={order.id}
@@ -261,21 +308,42 @@ export default function AllOrdersPage() {
                 </div>
               )}
 
-              <div className="mt-4 pt-4 border-t flex items-center gap-2 flex-wrap" style={{ borderColor: "#f0f0f0" }}>
-                <span className="text-xs" style={{ color: A.textMuted }}>Update status:</span>
-                {["pending", "confirmed", "shipped", "delivered", "cancelled"].map((s) => (
-                  <button key={s} disabled={order.status === s || updating === order.id}
-                    onClick={() => updateStatus(order.id, s)}
-                    className="text-xs px-2 py-1 rounded capitalize"
+              <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <span className="text-xs" style={{ color: A.textMuted }}>Delivery pipeline:</span>
+                  {DELIVERY_STEPS.map((s) => {
+                    const current = order.deliveryStatus ?? "pending";
+                    const isActive = current === s;
+                    const color = DELIVERY_COLORS[s];
+                    return (
+                      <button key={s}
+                        disabled={isActive || updating === order.id || order.deliveryStatus === "cancelled"}
+                        onClick={() => updateDeliveryStatus(order.id, s)}
+                        className="text-xs px-2 py-1 rounded"
+                        style={{
+                          background: isActive ? `${color}20` : "#f9fafb",
+                          color: isActive ? color : A.textMuted,
+                          border: `1px solid ${isActive ? color : A.border}`,
+                          cursor: (isActive || order.deliveryStatus === "cancelled") ? "default" : "pointer",
+                          fontWeight: isActive ? 600 : 400,
+                        }}>
+                        {DELIVERY_LABELS[s]}
+                      </button>
+                    );
+                  })}
+                  <button
+                    disabled={order.deliveryStatus === "cancelled" || updating === order.id}
+                    onClick={() => updateDeliveryStatus(order.id, "cancelled")}
+                    className="text-xs px-2 py-1 rounded"
                     style={{
-                      background: order.status === s ? `${STATUS_COLORS[s]}20` : "#f9fafb",
-                      color: order.status === s ? STATUS_COLORS[s] : A.textMuted,
-                      border: `1px solid ${order.status === s ? STATUS_COLORS[s] : A.border}`,
-                      cursor: order.status === s ? "default" : "pointer",
+                      background: order.deliveryStatus === "cancelled" ? `${DELIVERY_COLORS.cancelled}20` : "#f9fafb",
+                      color: order.deliveryStatus === "cancelled" ? DELIVERY_COLORS.cancelled : "#DC2626",
+                      border: `1px solid ${order.deliveryStatus === "cancelled" ? DELIVERY_COLORS.cancelled : "rgba(220,38,38,0.3)"}`,
+                      cursor: order.deliveryStatus === "cancelled" ? "default" : "pointer",
                     }}>
-                    {s}
+                    Cancel
                   </button>
-                ))}
+                </div>
               </div>
             </div>
           );

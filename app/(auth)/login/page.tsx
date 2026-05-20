@@ -92,7 +92,7 @@ function AuthForm() {
   }, [redirectTo]);
 
   // State machine
-  const [step, setStep] = useState<"email" | "login" | "register">("email");
+  const [step, setStep] = useState<"email" | "login" | "register" | "verify-pending">("email");
   const [email, setEmail] = useState(prefillEmail);
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -265,9 +265,7 @@ function AuthForm() {
         return;
       }
 
-      setMessage("✅ " + t("auth-msg-account-ok", "Account created! Let's get you started..."));
-      await new Promise((r) => setTimeout(r, 800));
-      router.replace(redirectTo);
+      setStep("verify-pending");
     } finally {
       setIsSubmitting(false);
     }
@@ -662,6 +660,18 @@ function AuthForm() {
                 >
                   {t("auth-diff-email", "Use different email")}
                 </button>
+              </div>
+            )}
+
+            {/* Verify Pending Step */}
+            {step === "verify-pending" && (
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm text-center space-y-3">
+                <p className="text-sm text-gray-200 leading-relaxed">
+                  Account created! Check your inbox — we&apos;ve sent a verification link to{" "}
+                  <span className="text-white font-medium">{email}</span>. Click it to activate
+                  your account and continue.
+                </p>
+                <p className="text-xs text-gray-500">Already verified? Sign in above.</p>
               </div>
             )}
           </>

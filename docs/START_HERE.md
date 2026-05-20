@@ -154,10 +154,12 @@ The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. Th
 
 Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (`/api/auth/otp/`). Both ultimately set the same session cookie.
 
+**Registration flow** — `POST /api/user/register` sends a verification email and returns 200 without setting a session. The login page enters `verify-pending` state (no redirect). User clicks email link → `GET /api/user/magic` → `/verified` page → "Sign in to continue →" → `/login` (pre-filled) → password → session cookie set → redirect to original destination.
+
 ### Guest-to-real merge (fires automatically on login and email verification)
 1. Guest browses as a `User` with `status: "guest"` and no email
 2. On **register**, the guest session cookie is read and `guestId` is embedded in `MagicLink.meta`
-3. On **email verification** click (`GET /api/user/magic`): `mergeGuestToReal(guestId, realId)` runs — prefers `meta.guestId`, falls back to live cookie
+3. On **email verification** click (`GET /api/user/magic`): `mergeGuestToReal(guestId, realId)` runs — prefers `meta.guestId`, falls back to live cookie; then redirects to `/verified` (not `/login`)
 4. On **login** (`POST /api/user/login`): same merge fires after session token is created
 5. Merge is a single Prisma transaction: cart (quantities summed), wishlist, pinned stores, page follows (initiatives), addresses, orders, owned Pages, owned Stores → guest user deleted
 6. Calling merge twice is safe — duplicates are skipped and a deleted guest is a no-op
@@ -165,12 +167,16 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 8. Guest UI: store nav and app shell detect `user.status === "guest"` from `/api/user/me` and show "Sign in / Sign up" instead of account links
 
 ### Main User Journey (Web)
-1. Land on `/` → redirect to `/login` if unauthenticated
-2. After login → `/onboarding` (first time) or `/self` (returning)
-3. `/self` is the personal dashboard — goals, health, hobbies, analytics
-4. Layer nav (top) switches between Self / Society / Nation / Earth / Universe
-5. Each layer renders tabs from the `Tab` table (filtered by `levelId`)
-6. Tab content is dynamic — `tabToComponentMap.tsx` maps tab slugs to React components
+1. Any page request without a `"lang"` cookie and no valid session → **middleware language gate** redirects to `/?redirect=<path>`
+2. Land on `/` (`app/page.tsx` — middleware skips this route):
+   - Authenticated → redirect to `/self`
+   - Unauthenticated + `"lang"` key in localStorage → redirect to `/login` (forwarding `?redirect=` if middleware passed one)
+   - Unauthenticated + no saved language → show language picker; on selection `setLanguage()` writes localStorage + cookie then redirects to `/login?redirect=<path>`
+3. After login → `/self` (or the preserved `?redirect=` destination)
+4. `/self` is the personal dashboard — goals, health, hobbies, analytics
+5. Layer nav (top) switches between Self / Society / Nation / Earth / Universe
+6. Each layer renders tabs from the `Tab` table (filtered by `levelId`)
+7. Tab content is dynamic — `tabToComponentMap.tsx` maps tab slugs to React components
 
 ### Main User Journey (Mobile / Capacitor)
 1. App opens → loads `https://charaivati.com/app/home`
@@ -179,7 +185,7 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 4. Auth state fetched from `/api/user/me` on layout mount
 
 ### Initiative Hub (owner management page)
-1. Owner clicks "Open →" on an initiative card in `/app/initiatives` or the EarningTab
+1. Owner clicks "Open →" on an initiative card in `/app/initiatives` (mobile) or in the desktop EarningTab summary list
 2. Navigates to `/earn/initiative/[pageId]` — a server component page
 3. Server reads session cookie via `cookies()` + `verifySessionToken()` (not middleware, not `getServerUser`)
 4. Fetches Page (with course, helpingInitiative, collaborationsIn/Out), linked Store, and all pages owned by the user
@@ -203,8 +209,8 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 6. Partner clicks "Mark Delivered" → `PATCH /api/order/[id]/delivery { status: "delivered" }` → Broadcaster stops → `Vehicle` row deleted. `Order.vehicleId` is **not** cleared; the tracking page handles stale IDs because the vehicles API filters by `updatedAt >= 2 min ago`.
 
 ### AI Store Setup Wizard (new store onboarding)
-1. Owner creates a `Page` with `pageType: 'store'` and clicks **"Your Store"** in EarningTab
-2. `EarningTab.openStore(pageId)` → `GET /api/store/for-page/${pageId}` → finds/creates `Store`, counts `StoreSection` rows
+1. Owner creates a `Page` via `/app/initiatives` (mobile) and clicks "Open →" → Initiative Hub → Store tab → "Set up store"
+2. `InitiativeTabs.handleOpenStore()` → `GET /api/store/for-page/${pageId}` → finds/creates `Store`, counts `StoreSection` rows
 3. Response: `{ storeId, storeSlug, isNew: sectionCount === 0 }`
 4. If `isNew: true` → `window.location.href = /store/${storeId}/setup` (hard nav — `router.push` drops cross-layout-root navigations)
 5. **Fallback**: if user reaches `/store/[id]` any other way and still has 0 sections + `isOwner`, `fetchStore` calls `window.location.replace(/store/${id}/setup)` unless `sessionStorage.setup_skipped_${id}` is set

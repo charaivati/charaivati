@@ -67,8 +67,8 @@ export async function chatComplete({
 
 export type AIProvider = "ollama" | "openrouter" | "groq" | "vercel";
 
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    ?? "llama3.1:8b";
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
+const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    ?? "llama3:8b";
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
 const GROQ_MODEL      = process.env.GROQ_MODEL      ?? "llama-3.1-8b-instant";
 const VERCEL_MODEL    = process.env.VERCEL_MODEL    ?? "openai/gpt-4o-mini";

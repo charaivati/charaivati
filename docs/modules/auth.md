@@ -26,9 +26,10 @@ status: active
 
 > **NOTE — UNPROTECTED PAGE ROUTES**
 >
-> `middleware.ts` only covers `/self`, `/nation`, `/earth`, `/society`.
-> The routes `/state`, `/universe`, and all `/app/*` routes have **no server-side auth enforcement**.
-> They depend entirely on client-side redirects and per-component data-fetch 401 handling.
+> `middleware.ts` auth gate only covers `/self`, `/nation`, `/earth`, `/society`.
+> The routes `/state`, `/universe`, and all `/app/*` routes have **no server-side auth enforcement** and depend on client-side redirects and per-component 401 handling.
+>
+> `/app/*` routes ARE partially gated by the **language gate**: unauthenticated requests without a `"lang"` cookie are redirected to `/?redirect=<path>`. Authenticated users bypass the language gate and reach `/app/*` freely.
 
 ---
 
@@ -85,16 +86,33 @@ Handles all authentication and session lifecycle: credential verification, sessi
 4. If valid → uses `payload.userId` for all DB queries
 
 ### Edge protection (middleware)
-1. `middleware.ts` runs on every non-static, non-API request
-2. Checks if path starts with any protected prefix (`/self`, `/nation`, `/earth`, `/society`)
-3. Reads cookie, calls `verifySessionToken`
-4. If invalid → deletes cookie, redirects to `/login`
+Two sequential gates. Session is verified once and reused by both.
 
-### Magic link
+**Gate 1 — Language gate** (runs first)
+1. Skip if path is `/`, `/login`, `/register`, or ends in a static file extension
+2. Skip if the request has a valid session cookie (authenticated users always pass)
+3. Check for `req.cookies.get("lang")` — written by `LanguageProvider.setLang()` as a non-HttpOnly cookie
+4. If absent → redirect to `/?redirect=<original-path-and-query>` so the user goes through the language picker
+
+**Gate 2 — Auth gate** (runs second, for protected routes only)
+1. Checks if path starts with `/self`, `/nation`, `/earth`, or `/society`
+2. If no valid session → delete stale cookie, redirect to `/login`
+
+### Registration and email verification
+1. User fills in name/email/password on the login page (`step === "register"`) and clicks "Create Account"
+2. Client POSTs to `POST /api/user/register` with `{ email, password, name, redirect }`
+3. Server creates user (`emailVerified: false`), generates a 15-min magic link token, stores hash in `MagicLink.meta` (includes `redirect` path and `guestId` if present), sends verification email via `lib/sendEmail.ts` (Nodemailer/Gmail)
+4. On success response, login page sets `step = "verify-pending"` — stays on page, shows "check your inbox" message. **No redirect.**
+5. User clicks email link → `GET /api/user/magic?token=...&redirect=...`
+6. Server verifies token, marks user `emailVerified: true`, runs guest merge, redirects to `/verified?email=...&redirect=...`
+7. `/verified` page shows "Email Verified!" with a single "Sign in to continue →" link to `/login?email=...&redirect=...`
+8. User clicks → login page pre-fills email; `handleEmailSubmit` sees `emailVerified: true` → advances to password step → login → redirect to original destination
+
+### Magic link (general)
 1. Client POSTs email to `POST /api/auth/send-magic-link`
 2. Server generates a signed token (15-min expiry), stores hash in `MagicLink` table
 3. Sends link via `sendEmail()`
-4. User clicks link → `GET /api/user/magic` verifies token, marks email verified, auto-merges any guest session (see below), redirects to `/login`
+4. User clicks link → `GET /api/user/magic` verifies token, marks email verified, auto-merges any guest session, redirects to `/verified?email=...&redirect=...` (NOT to `/login`)
 
 ### Guest-to-real account merge
 Guests have a real `User` row (`status: "guest"`, no email). On authentication all guest data is moved to the real account atomically.
@@ -104,6 +122,17 @@ Guests have a real `User` row (`status: "guest"`, no email). On authentication a
 3. At **password login** (`POST /api/user/login`): after `createSessionToken`, the existing cookie is checked and merged if it contains a guest session.
 4. `mergeGuestToReal` (in `lib/mergeGuest.ts`) runs a single Prisma transaction: cart items (quantities summed), wishlist, pinned stores, page follows, addresses, orders, owned Pages (initiatives/courses/health businesses), owned Stores — then deletes the guest user. Duplicate records are skipped; calling twice is a no-op.
 5. `POST /api/user/claim-guest` — manual merge endpoint; accepts `{ guestId }` with a real-user session. For retroactive recovery.
+
+### Landing page / language selection
+1. User visits `/` (`app/page.tsx`) — middleware skips `/` entirely
+2. If a valid session exists → redirect to `/self`
+3. If no session: scan localStorage for the first non-empty value in `["lang", "app.language", "charaivati.lang", "language", "preferredLanguage"]`
+4. If any saved language is found → redirect to `/login`, forwarding any `?redirect=` param that middleware injected into the URL (via `getLoginUrl()` helper)
+5. Otherwise → show the language picker grid
+6. On selection, `setLanguage(code)` from `components/LanguageProvider.tsx` is called — this writes to **both** `localStorage` key `"lang"` AND a `document.cookie` entry named `"lang"` (path `/`, max-age 1 year, SameSite=Lax, Secure on HTTPS). React state is updated, then `router.replace(getLoginUrl())` fires — forwarding any `?redirect=` that middleware passed.
+7. `LanguageProvider` re-initialises on the login page reading `"lang"` from localStorage first, cookie second.
+
+**The `"lang"` cookie is what the edge middleware reads** — middleware cannot access localStorage. `setLanguage()` in `LanguageProvider` is the only correct writer for both the localStorage key and the cookie. Do not write to either from outside `LanguageProvider`, and do not remove the cookie write.
 
 ### OTP
 1. Client POSTs phone to `POST /api/auth/otp/request`

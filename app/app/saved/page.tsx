@@ -2,6 +2,15 @@
 
 import { useEffect, useState } from "react";
 import QuickOrderModal from "@/components/store/QuickOrderModal";
+import { useTranslations } from "@/hooks/useTranslations";
+
+const SAVED_SLUGS =
+  "app-saved-heading,app-saved-pinned-heading,app-saved-pinned-empty," +
+  "app-saved-unpin,app-saved-unpinning,app-saved-wishlist-heading," +
+  "app-saved-wishlist-empty,app-saved-free,app-saved-buy-now," +
+  "app-saved-unsave,app-saved-removing,app-saved-browse-heading," +
+  "app-saved-search-placeholder,app-saved-no-stores," +
+  "app-saved-pin,app-saved-pinned-label,app-saved-pinning,app-saved-visit";
 
 const A = {
   bg: "#F3F4F6",
@@ -45,7 +54,97 @@ type QuickItem = {
   storeId: string; storeName: string;
 };
 
+function PinnedSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {[0, 1].map((i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex", alignItems: "center", gap: 12,
+            background: A.surface, borderRadius: 12,
+            border: `1px solid ${A.border}`, overflow: "hidden",
+          }}
+        >
+          <div className="w-16 h-16 bg-gray-200 animate-pulse flex-shrink-0" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="h-3.5 bg-gray-200 rounded animate-pulse mb-1.5" style={{ width: "60%" }} />
+            <div className="h-3 bg-gray-200 rounded animate-pulse" style={{ width: "40%" }} />
+          </div>
+          <div className="h-7 w-14 bg-gray-200 rounded animate-pulse flex-shrink-0 mr-3" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WishlistSkeleton() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          style={{
+            background: A.surface, borderRadius: 10,
+            border: `1px solid ${A.border}`, overflow: "hidden",
+          }}
+        >
+          <div className="w-full bg-gray-200 animate-pulse" style={{ aspectRatio: "1/1" }} />
+          <div style={{ padding: "8px 10px" }}>
+            <div className="h-3 bg-gray-200 rounded animate-pulse mb-1" />
+            <div className="h-3 bg-gray-200 rounded animate-pulse mb-1" style={{ width: "75%" }} />
+            <div className="h-3 bg-gray-200 rounded animate-pulse mb-2.5" style={{ width: "50%" }} />
+            <div style={{ display: "flex", gap: 5 }}>
+              <div className="h-6 bg-gray-200 rounded animate-pulse flex-1" />
+              <div className="h-6 bg-gray-200 rounded animate-pulse flex-1" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BrowseSkeleton() {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          style={{
+            background: A.surface, borderRadius: 14,
+            border: `1px solid ${A.border}`,
+            display: "flex", alignItems: "center", gap: 12, padding: 12,
+          }}
+        >
+          <div className="w-20 h-20 bg-gray-200 rounded-lg animate-pulse flex-shrink-0" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="h-3.5 bg-gray-200 rounded animate-pulse mb-1.5" style={{ width: "55%" }} />
+            <div className="h-3 bg-gray-200 rounded animate-pulse mb-1" style={{ width: "80%" }} />
+            <div className="h-3 bg-gray-200 rounded animate-pulse mb-3" style={{ width: "65%" }} />
+            <div style={{ display: "flex", gap: 6 }}>
+              <div className="h-7 w-16 bg-gray-200 rounded animate-pulse" />
+              <div className="h-7 w-16 bg-gray-200 rounded animate-pulse" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ButtonSpinner() {
+  return (
+    <span
+      className="inline-block w-3 h-3 border-2 border-current rounded-full animate-spin"
+      style={{ borderTopColor: "transparent", flexShrink: 0 }}
+    />
+  );
+}
+
 export default function SavedPage() {
+  const t = useTranslations(SAVED_SLUGS);
+
   // Pinned stores & wishlist (top sections)
   const [pinned, setPinned] = useState<PinnedItem[]>([]);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
@@ -59,37 +158,41 @@ export default function SavedPage() {
   const [removingWishlist, setRemovingWishlist] = useState<string | null>(null);
   const [quickOrder, setQuickOrder] = useState<QuickItem | null>(null);
 
-  const [loading, setLoading] = useState(true);
+  const [loadingPinned, setLoadingPinned] = useState(true);
+  const [loadingWishlist, setLoadingWishlist] = useState(true);
+  const [loadingBrowse, setLoadingBrowse] = useState(true);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/store/pinned", { credentials: "include" }).then((r) =>
-        r.ok ? r.json() : { pinned: [] }
-      ),
-      fetch("/api/store/wishlist", { credentials: "include" }).then((r) =>
-        r.ok ? r.json() : []
-      ),
-      fetch("/api/store/all").then((r) =>
-        r.ok ? r.json() : { stores: [] }
-      ),
-      fetch("/api/store/my-stores", { credentials: "include" }).then((r) =>
-        r.ok ? r.json() : { stores: [] }
-      ),
-    ])
-      .then(([pinnedData, wishlistData, allData, myData]) => {
+    fetch("/api/store/pinned", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { pinned: [] })
+      .then((pinnedData) => {
         const pinnedList: PinnedItem[] = pinnedData.pinned ?? [];
         setPinned(pinnedList);
         setPinnedIds(new Set(pinnedList.map((p) => p.storeId)));
+      })
+      .catch(() => {})
+      .finally(() => setLoadingPinned(false));
 
+    fetch("/api/store/wishlist", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : [])
+      .then((wishlistData) => {
         setWishlist(Array.isArray(wishlistData) ? wishlistData : []);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingWishlist(false));
 
+    Promise.all([
+      fetch("/api/store/all").then((r) => r.ok ? r.json() : { stores: [] }),
+      fetch("/api/store/my-stores", { credentials: "include" }).then((r) => r.ok ? r.json() : { stores: [] }),
+    ])
+      .then(([allData, myData]) => {
         setStores(allData.stores ?? []);
         setMyStoreIds(
           new Set((myData.stores ?? []).map((s: Store) => s.id))
         );
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => setLoadingBrowse(false));
   }, []);
 
   async function togglePin(storeId: string) {
@@ -158,22 +261,6 @@ export default function SavedPage() {
       (search === "" || s.name.toLowerCase().includes(search.toLowerCase()))
   );
 
-  if (loading) {
-    return (
-      <div
-        style={{
-          background: A.bg,
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div style={{ background: A.bg, minHeight: "100vh" }}>
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "20px 16px" }}>
@@ -185,7 +272,7 @@ export default function SavedPage() {
             margin: "0 0 20px",
           }}
         >
-          Saved
+          {t("app-saved-heading", "Explore")}
         </h1>
 
         {/* ── Pinned Stores ── */}
@@ -198,12 +285,14 @@ export default function SavedPage() {
               margin: "0 0 10px",
             }}
           >
-            📌 Saved Stores
+            📌 {t("app-saved-pinned-heading", "Saved Stores")}
           </h2>
 
-          {pinned.length === 0 ? (
+          {loadingPinned ? (
+            <PinnedSkeleton />
+          ) : pinned.length === 0 ? (
             <p style={{ fontSize: 13, color: A.textMuted }}>
-              No saved stores yet.
+              {t("app-saved-pinned-empty", "No saved stores yet.")}
             </p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -258,12 +347,15 @@ export default function SavedPage() {
                         padding: "5px 10px", borderRadius: 6,
                         fontSize: 11, fontWeight: 600,
                         cursor: toggling ? "default" : "pointer",
-                        opacity: toggling ? 0.6 : 1,
+                        opacity: toggling ? 0.5 : 1,
                         border: `1px solid ${A.border}`,
                         background: A.surface, color: "#EF4444",
+                        display: "flex", alignItems: "center", gap: 4,
+                        transition: "opacity 0.15s",
                       }}
                     >
-                      {toggling ? "..." : "Unpin"}
+                      {toggling && <ButtonSpinner />}
+                      {toggling ? t("app-saved-unpinning", "Unpinning") : t("app-saved-unpin", "Unpin")}
                     </button>
                   </div>
                 );
@@ -282,12 +374,14 @@ export default function SavedPage() {
               margin: "0 0 12px",
             }}
           >
-            ❤️ Saved Products
+            ❤️ {t("app-saved-wishlist-heading", "Saved Products")}
           </h2>
 
-          {wishlist.length === 0 ? (
+          {loadingWishlist ? (
+            <WishlistSkeleton />
+          ) : wishlist.length === 0 ? (
             <p style={{ fontSize: 13, color: A.textMuted }}>
-              No saved products yet.
+              {t("app-saved-wishlist-empty", "No saved products yet.")}
             </p>
           ) : (
             <div
@@ -335,7 +429,7 @@ export default function SavedPage() {
                       <div style={{ fontSize: 11, color: A.textMuted, marginTop: 2 }}>
                         {item.block.price != null
                           ? `₹${item.block.price.toLocaleString("en-IN")}`
-                          : "Free"}
+                          : t("app-saved-free", "Free")}
                       </div>
                       <a
                         href={`/store/${storeHandle}`}
@@ -364,7 +458,7 @@ export default function SavedPage() {
                             background: "#FFA41C", border: "1px solid #FF8F00", color: "#111",
                           }}
                         >
-                          Buy Now
+                          {t("app-saved-buy-now", "Buy Now")}
                         </button>
                         <button
                           onClick={() => toggleWishlist(item.blockId, item.store.id)}
@@ -373,12 +467,15 @@ export default function SavedPage() {
                             flex: 1, padding: "5px 0", borderRadius: 6,
                             fontSize: 11, fontWeight: 600,
                             cursor: removing ? "default" : "pointer",
-                            opacity: removing ? 0.6 : 1,
+                            opacity: removing ? 0.5 : 1,
                             border: "1px solid rgba(239,68,68,0.3)",
                             background: A.surface, color: "#EF4444",
+                            display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+                            transition: "opacity 0.15s",
                           }}
                         >
-                          {removing ? "..." : "Unsave"}
+                          {removing && <ButtonSpinner />}
+                          {removing ? t("app-saved-removing", "Removing") : t("app-saved-unsave", "Unsave")}
                         </button>
                       </div>
                     </div>
@@ -399,13 +496,13 @@ export default function SavedPage() {
               margin: "0 0 12px",
             }}
           >
-            🏪 Browse Stores
+            🏪 {t("app-saved-browse-heading", "Browse Stores")}
           </h2>
 
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search stores..."
+            placeholder={t("app-saved-search-placeholder", "Search stores...")}
             style={{
               width: "100%",
               boxSizing: "border-box",
@@ -420,9 +517,11 @@ export default function SavedPage() {
             }}
           />
 
-          {filtered.length === 0 ? (
+          {loadingBrowse ? (
+            <BrowseSkeleton />
+          ) : filtered.length === 0 ? (
             <p style={{ fontSize: 13, color: A.textMuted }}>
-              {search ? `No stores match "${search}"` : "No stores yet."}
+              {search ? `No stores match "${search}"` : t("app-saved-no-stores", "No stores yet.")}
             </p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -523,13 +622,18 @@ export default function SavedPage() {
                               fontSize: 11,
                               fontWeight: 600,
                               cursor: toggling ? "default" : "pointer",
-                              opacity: toggling ? 0.6 : 1,
+                              opacity: toggling ? 0.5 : 1,
                               border: `1px solid ${isPinned ? A.accent : A.border}`,
                               background: isPinned ? "#EEF2FF" : A.surface,
                               color: isPinned ? A.accent : A.textMuted,
+                              display: "flex", alignItems: "center", gap: 4,
+                              transition: "opacity 0.15s",
                             }}
                           >
-                            {isPinned ? "📌 Pinned" : "🔖 Pin"}
+                            {toggling && <ButtonSpinner />}
+                            {toggling
+                              ? (isPinned ? t("app-saved-unpinning", "Unpinning") : t("app-saved-pinning", "Pinning"))
+                              : (isPinned ? `📌 ${t("app-saved-pinned-label", "Pinned")}` : `🔖 ${t("app-saved-pin", "Pin")}`)}
                           </button>
                         )}
 
@@ -546,7 +650,7 @@ export default function SavedPage() {
                             background: A.surface,
                           }}
                         >
-                          Visit →
+                          {t("app-saved-visit", "Visit →")}
                         </a>
                       </div>
                     </div>

@@ -209,37 +209,6 @@ function PurchaseOrderCard({ order }: { order: Order }) {
   );
 }
 
-function StoreOrderCard({ order, showStore }: { order: Order; showStore?: boolean }) {
-  const itemCount = order.items?.length ?? 0;
-  return (
-    <div className="p-3 rounded-lg" style={{ background: A.bg, border: `1px solid ${A.border}` }}>
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs font-mono font-bold shrink-0" style={{ color: A.text }}>
-            #{order.id.slice(-8).toUpperCase()}
-          </span>
-          {showStore && order.store && (
-            <span className="text-xs px-1.5 py-0.5 rounded font-medium shrink-0"
-              style={{ background: "#EEF2FF", color: A.accent }}>
-              {order.store.name}
-            </span>
-          )}
-          <span className="text-xs truncate" style={{ color: A.textMuted }}>
-            {order.user?.name ?? order.user?.email ?? "Customer"}
-          </span>
-        </div>
-        <StatusBadge status={order.status} />
-      </div>
-      <div className="flex justify-between text-xs" style={{ color: A.textMuted }}>
-        <span>{fmtDate(order.createdAt)} · {itemCount} item{itemCount !== 1 ? "s" : ""}</span>
-        <span className="font-semibold" style={{ color: A.text }}>
-          ₹{order.total.toLocaleString("en-IN")}
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main content ─────────────────────────────────────────────────
 function AccountPageContent() {
   const searchParams = useSearchParams();
@@ -268,9 +237,6 @@ function AccountPageContent() {
 
   // My Stores tab
   const [myStores, setMyStores] = useState<MyStore[]>([]);
-  const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
-  const [selectedStoreOrders, setSelectedStoreOrders] = useState<Order[]>([]);
-  const [loadingStoreOrders, setLoadingStoreOrders] = useState(false);
 
   // Invoice / Billing profiles tab
   const [billingProfiles, setBillingProfiles] = useState<BillingProfile[]>([]);
@@ -303,28 +269,11 @@ function AccountPageContent() {
     ]).then(([addrs, ordersData, storesData, bpData]) => {
       setAddresses(Array.isArray(addrs) ? addrs : []);
       setOrders(Array.isArray(ordersData) ? ordersData : ordersData.orders ?? []);
-      const stores: MyStore[] = storesData.stores ?? [];
-      setMyStores(stores);
-      if (stores.length > 0) setSelectedStoreId(stores[0].id);
+      setMyStores(storesData.stores ?? []);
       setBillingProfiles(Array.isArray(bpData) ? bpData : []);
     }).catch(() => {})
       .finally(() => setLoadingData(false));
   }, [user]);
-
-  // Fetch orders for selected store (or all stores)
-  useEffect(() => {
-    if (!selectedStoreId) return;
-    setLoadingStoreOrders(true);
-    setSelectedStoreOrders([]);
-    const url = selectedStoreId === "all"
-      ? "/api/store/orders?all=true"
-      : `/api/store/orders?storeId=${selectedStoreId}`;
-    fetch(url, { credentials: "include" })
-      .then((r) => r.ok ? r.json() : [])
-      .then((data) => setSelectedStoreOrders(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setLoadingStoreOrders(false));
-  }, [selectedStoreId]);
 
   // Address handlers
   function setAddrField(k: string, v: string) {
@@ -635,70 +584,45 @@ function AccountPageContent() {
 
         {/* ── Tab 2: My Stores ────────────────────────────────────── */}
         {activeTab === "stores" && (
-          <div>
-            {myStores.length >= 1 && (
-              <div className="flex flex-wrap gap-2 mb-5">
-                <button
-                  onClick={() => setSelectedStoreId("all")}
-                  className="text-sm px-4 py-1.5 rounded-full font-medium"
-                  style={selectedStoreId === "all"
-                    ? { background: A.accent, color: "#fff", border: `1px solid ${A.accent}` }
-                    : { background: A.surface, color: A.text, border: `1px solid ${A.border}`, cursor: "pointer" }}>
-                  All Orders
-                </button>
-                {myStores.map((s) => (
-                  <button key={s.id} onClick={() => setSelectedStoreId(s.slug ?? s.id)}
-                    className="text-sm px-4 py-1.5 rounded-full font-medium"
-                    style={selectedStoreId === s.id
-                      ? { background: A.accent, color: "#fff", border: `1px solid ${A.accent}` }
-                      : { background: A.surface, color: A.text, border: `1px solid ${A.border}`, cursor: "pointer" }}>
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {selectedStoreId && (
-              <>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-bold" style={{ color: A.text }}>
-                    {selectedStoreId === "all"
-                      ? "All Stores — Recent Orders"
-                      : `${myStores.find((s) => s.id === selectedStoreId)?.name} — Recent Orders`}
-                  </h2>
-                  <a
-                    href={selectedStoreId === "all" ? "/store/orders/all" : `/store/${selectedStoreId}/orders`}
-                    className="text-xs font-medium" style={{ color: A.accent, textDecoration: "none" }}>
-                    View all →
-                  </a>
-                </div>
-
-                {loadingStoreOrders ? (
-                  <div className="flex justify-center py-8"><Spinner /></div>
-                ) : selectedStoreOrders.length === 0 ? (
-                  <p className="text-sm text-center py-8" style={{ color: A.textMuted }}>
-                    {selectedStoreId === "all"
-                      ? "No orders across any store yet."
-                      : "No orders received yet for this store."}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {selectedStoreOrders.slice(0, 5).map((order) => (
-                      <StoreOrderCard key={order.id} order={order} showStore={selectedStoreId === "all"} />
-                    ))}
-                    {selectedStoreOrders.length > 5 && (
-                      <a
-                        href={selectedStoreId === "all" ? "/store/orders/all" : `/store/${selectedStoreId}/orders`}
-                        className="text-xs block text-center py-2"
-                        style={{ color: A.accent, textDecoration: "none" }}>
-                        +{selectedStoreOrders.length - 5} more orders →
+          <div className="space-y-3">
+            {loadingData ? (
+              <div className="flex justify-center py-8"><Spinner /></div>
+            ) : myStores.length === 0 ? (
+              <p className="text-sm text-center py-8" style={{ color: A.textMuted }}>
+                No stores yet. Create one from your initiatives.
+              </p>
+            ) : (
+              myStores.map((s) => {
+                const storeHandle = s.slug ?? s.id;
+                const storeTypeLabel = s.slug ? "Store" : "Store";
+                return (
+                  <div key={s.id} className="rounded-xl p-4 flex items-center justify-between gap-3"
+                    style={{ background: A.surface, border: `1px solid ${A.border}` }}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold" style={{ color: A.text }}>{s.name}</span>
+                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ background: "#EEF2FF", color: A.accent }}>
+                          {storeTypeLabel}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <a href={`/store/${storeHandle}`}
+                        className="text-xs px-3 py-1.5 rounded-md font-medium"
+                        style={{ border: `1px solid ${A.border}`, color: A.text, textDecoration: "none", background: A.surface }}>
+                        Visit store
                       </a>
-                    )}
+                      <a href={`/store/orders/all?storeId=${s.id}`}
+                        className="text-xs px-3 py-1.5 rounded-md font-medium"
+                        style={{ background: A.accent, color: "#fff", textDecoration: "none" }}>
+                        Manage orders
+                      </a>
+                    </div>
                   </div>
-                )}
-              </>
+                );
+              })
             )}
-
           </div>
         )}
 

@@ -3,13 +3,14 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
 import InitiativeTabs from "@/components/earn/InitiativeTabs";
+import { kindLabel } from "@/lib/pages/kindLabel";
 
-function pageBadge(type: string | null, pageType: string | null) {
-  if (type === "health")        return { label: "Health",   color: "#059669" };
-  if (pageType === "helping")   return { label: "Helping",  color: "#0d9488" };
-  if (pageType === "learning")  return { label: "Learning", color: "#7c3aed" };
-  if (pageType === "service")   return { label: "Service",  color: "#b45309" };
-  return                               { label: "Store",    color: "#6366f1" };
+function pageBadgeColor(type: string | null, pageType: string | null): string {
+  if (type === "health")       return "#059669";
+  if (pageType === "helping")  return "#0d9488";
+  if (pageType === "learning") return "#7c3aed";
+  if (pageType === "service")  return "#b45309";
+  return "#6366f1";
 }
 
 export default async function InitiativePage({
@@ -47,7 +48,10 @@ export default async function InitiativePage({
 
   if (!page || page.ownerId !== userId) redirect("/earn");
 
-  const badge = pageBadge(page.type, page.pageType);
+  const badge = {
+    label: kindLabel({ type: page.type, pageType: page.pageType }),
+    color: pageBadgeColor(page.type, page.pageType),
+  };
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">

@@ -16,8 +16,7 @@ type EmailOpts = { to: string; subject: string; text?: string; html?: string };
 
 export default async function sendEmail(opts: EmailOpts) {
   if (!transporter || !EMAIL_FROM) {
-    console.log("[sendEmail fallback - provider not configured]", opts);
-    return;
+    throw new Error("Email not configured: EMAIL_USER, EMAIL_PASS, and EMAIL_FROM must be set.");
   }
 
   await transporter.sendMail({

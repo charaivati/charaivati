@@ -160,20 +160,56 @@ export async function POST(req: Request) {
     const base = process.env.BASE_URL || `http://localhost:3000`;
     const link = `${base}/api/user/magic?token=${encodeURIComponent(rawToken)}&redirect=${encodeURIComponent(redirectPath)}`;
     
+    if (process.env.NODE_ENV === "development" && (!process.env.EMAIL_USER || !process.env.EMAIL_PASS || !process.env.EMAIL_FROM)) {
+      console.log("\n[register] ⚠️  Email not configured — verification link (dev only):\n" + link + "\n");
+    }
+
     try {
       if (user.email) {
         await sendEmail({
           to: user.email,
-          subject: "Verify your email",
-          text: `Click this link to verify your account: ${link}\nThis link expires in 15 minutes.`,
-          html: `<p>Click this link to verify your account:</p><p><a href="${link}">${link}</a></p><p>This link expires in 15 minutes.</p>`,
+          subject: "Verify your Charaivati account",
+          text: `Verify your Charaivati account\n\nClick the link below to activate your account. This link expires in 15 minutes.\n\n${link}\n\nIf you didn't create a Charaivati account, ignore this email.`,
+          html: `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:system-ui,-apple-system,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#ffffff;border-radius:12px;padding:32px;border:1px solid #e4e4e7;">
+        <tr><td style="padding-bottom:24px;text-align:center;">
+          <span style="font-size:13px;color:#71717a;letter-spacing:0.04em;">चरैवेति &middot; Charaivati</span>
+        </td></tr>
+        <tr><td style="padding-bottom:8px;">
+          <h1 style="margin:0;font-size:22px;font-weight:500;color:#18181b;">Verify your email</h1>
+        </td></tr>
+        <tr><td style="padding-bottom:28px;">
+          <p style="margin:0;font-size:15px;line-height:1.6;color:#52525b;">Click the button below to activate your account. This link expires in 15 minutes.</p>
+        </td></tr>
+        <tr><td style="padding-bottom:20px;">
+          <a href="${link}" style="display:inline-block;padding:13px 28px;background:#D85A30;color:#ffffff;text-decoration:none;border-radius:8px;font-size:15px;font-weight:600;">Verify my account &rarr;</a>
+        </td></tr>
+        <tr><td style="padding-bottom:28px;">
+          <p style="margin:0;font-size:12px;color:#a1a1aa;word-break:break-all;">${link}</p>
+        </td></tr>
+        <tr><td style="border-top:1px solid #f4f4f5;padding-top:20px;">
+          <p style="margin:0;font-size:12px;color:#a1a1aa;">If you didn&apos;t create a Charaivati account, ignore this email.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`,
         });
       } else {
         console.warn("[register] user created without email; skipping email send");
       }
     } catch (e) {
       console.error("[register] sendEmail failed:", e);
-      return NextResponse.json({ ok: true, note: "email_send_failed", name: user.name ?? displayName }, { status: 200 });
+      return NextResponse.json(
+        { error: "email_send_failed", message: "Account created but verification email could not be sent. Contact support." },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ ok: true, message: "User created. Verification email sent.", name: user.name ?? displayName });

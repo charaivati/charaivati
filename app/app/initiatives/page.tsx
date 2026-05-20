@@ -1,6 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "@/hooks/useTranslations";
+
+const INITIATIVES_SLUGS = [
+  "app-initiatives-heading","app-initiatives-subtitle","app-initiatives-empty","app-initiatives-add-btn",
+  "app-initiatives-open","app-initiatives-delete","app-initiatives-deleting",
+  "app-initiatives-delete-title","app-initiatives-delete-warning",
+  "app-initiatives-cancel","app-initiatives-confirm-delete",
+  "app-initiatives-form-title",
+  "app-initiatives-type-health","app-initiatives-type-health-sub",
+  "app-initiatives-type-store","app-initiatives-type-store-sub",
+  "app-initiatives-type-learning","app-initiatives-type-learning-sub",
+  "app-initiatives-type-service","app-initiatives-type-service-sub",
+  "app-initiatives-type-helping","app-initiatives-type-helping-sub",
+  "app-initiatives-course-type",
+  "app-initiatives-course-skill","app-initiatives-course-academic",
+  "app-initiatives-course-art","app-initiatives-course-growth",
+  "app-initiatives-name-placeholder","app-initiatives-desc-placeholder",
+  "app-initiatives-create-btn","app-initiatives-creating",
+  "app-initiatives-coming-soon",
+  "app-initiatives-sign-in-title","app-initiatives-sign-in-sub","app-initiatives-sign-in-btn",
+  "app-initiatives-kind-health","app-initiatives-kind-helping",
+  "app-initiatives-kind-learning","app-initiatives-kind-service","app-initiatives-kind-store",
+].join(",");
 
 const A = {
   bg: "#F3F4F6",
@@ -24,12 +47,27 @@ type PendingDelete = { id: string; name: string };
 type InitiativeType = "store" | "learning" | "service" | "health" | "helping";
 type CourseType = "skill" | "academic" | "art" | "growth";
 
-function kindMeta(page: PageItem) {
-  if (page.type === "health")          return { label: "Health",   color: "#059669", bg: "rgba(5,150,105,0.08)" };
-  if (page.pageType === "helping")     return { label: "Helping",  color: "#0d9488", bg: "rgba(13,148,136,0.08)" };
-  if (page.pageType === "learning")    return { label: "Learning", color: "#7c3aed", bg: "rgba(124,58,237,0.08)" };
-  if (page.pageType === "service")     return { label: "Service",  color: "#b45309", bg: "rgba(180,83,9,0.08)" };
-  return                                      { label: "Store",    color: A.accent,  bg: "rgba(99,102,241,0.08)" };
+function InitiativeCardSkeleton() {
+  return (
+    <div style={{
+      background: A.surface, borderRadius: 14,
+      border: `1px solid ${A.border}`,
+      boxShadow: "0 1px 4px rgba(0,0,0,0.05)", padding: 16,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <div className="w-10 h-10 bg-gray-200 rounded-lg animate-pulse flex-shrink-0" />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="h-4 bg-gray-200 rounded animate-pulse mb-1.5" style={{ width: "65%" }} />
+          <div className="h-3 bg-gray-200 rounded animate-pulse" style={{ width: "40%" }} />
+        </div>
+        <div className="h-5 w-14 bg-gray-200 rounded-full animate-pulse flex-shrink-0" />
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div className="h-8 bg-gray-200 rounded-lg animate-pulse flex-1" />
+        <div className="h-8 bg-gray-200 rounded-lg animate-pulse flex-1" />
+      </div>
+    </div>
+  );
 }
 
 function DeleteConfirmModal({
@@ -37,20 +75,23 @@ function DeleteConfirmModal({
   onCancel,
   onConfirm,
   loading,
+  t,
 }: {
   item: PendingDelete;
   onCancel: () => void;
   onConfirm: () => void;
   loading: boolean;
+  t: (slug: string, fallback: string) => string;
 }) {
   return (
     <div
-      onClick={onCancel}
+      onClick={loading ? undefined : onCancel}
       style={{
         position: "fixed", inset: 0, zIndex: 200,
         background: "rgba(0,0,0,0.45)",
         display: "flex", alignItems: "center", justifyContent: "center",
         padding: "0 20px",
+        pointerEvents: loading ? "none" : "auto",
       }}
     >
       <div
@@ -59,6 +100,7 @@ function DeleteConfirmModal({
           background: "#fff", borderRadius: 20,
           padding: "28px 24px 24px", maxWidth: 360, width: "100%",
           boxShadow: "0 20px 60px rgba(0,0,0,0.18)",
+          pointerEvents: "auto",
         }}
       >
         <div style={{
@@ -73,32 +115,49 @@ function DeleteConfirmModal({
           </svg>
         </div>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: A.text, textAlign: "center", margin: "0 0 8px" }}>
-          Delete initiative?
+          {t("app-initiatives-delete-title", "Delete initiative?")}
         </h2>
         <p style={{ fontSize: 14, color: A.textMuted, textAlign: "center", margin: "0 0 6px", lineHeight: 1.5 }}>
           <strong style={{ color: A.text }}>{item.name}</strong> will be permanently deleted.
         </p>
         <p style={{ fontSize: 13, color: "#EF4444", textAlign: "center", margin: "0 0 24px", lineHeight: 1.5 }}>
-          All data will be lost forever. This cannot be undone.
+          {t("app-initiatives-delete-warning", "All data will be lost forever. This cannot be undone.")}
         </p>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={onCancel} disabled={loading} style={{
-            flex: 1, padding: "11px 0", borderRadius: 10,
-            border: `1px solid ${A.border}`, background: A.surface, color: A.text,
-            fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", opacity: loading ? 0.5 : 1,
-          }}>Cancel</button>
-          <button onClick={onConfirm} disabled={loading} style={{
-            flex: 1, padding: "11px 0", borderRadius: 10, border: "none",
-            background: loading ? "#fca5a5" : "#EF4444", color: "#fff",
-            fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          }}>
-            {loading && <span style={{
-              width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)",
-              borderTopColor: "#fff", borderRadius: "50%", display: "inline-block",
-              animation: "spin 0.7s linear infinite",
-            }} />}
-            {loading ? "Deleting..." : "Yes, delete"}
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            style={{
+              flex: 1, padding: "11px 0", borderRadius: 10,
+              border: `1px solid ${A.border}`, background: A.surface, color: A.text,
+              fontSize: 14, fontWeight: 600,
+              cursor: loading ? "not-allowed" : "pointer",
+              opacity: loading ? 0.5 : 1,
+              transition: "opacity 0.15s",
+            }}
+          >
+            {t("app-initiatives-cancel", "Cancel")}
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            style={{
+              flex: 1, padding: "11px 0", borderRadius: 10, border: "none",
+              background: loading ? "#fca5a5" : "#EF4444", color: "#fff",
+              fontSize: 14, fontWeight: 600,
+              cursor: loading ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              transition: "background 0.15s",
+            }}
+          >
+            {loading && (
+              <span style={{
+                width: 14, height: 14, border: "2px solid rgba(255,255,255,0.4)",
+                borderTopColor: "#fff", borderRadius: "50%", display: "inline-block",
+                animation: "spin 0.7s linear infinite", flexShrink: 0,
+              }} />
+            )}
+            {loading ? t("app-initiatives-deleting", "Deleting...") : t("app-initiatives-confirm-delete", "Yes, delete")}
           </button>
         </div>
       </div>
@@ -114,11 +173,22 @@ const INPUT = {
 };
 
 export default function InitiativesPage() {
+  const t = useTranslations(INITIATIVES_SLUGS);
+
+  function kindMeta(page: PageItem) {
+    if (page.type === "health")       return { label: t("app-initiatives-kind-health",   "Health"),   color: "#059669", bg: "rgba(5,150,105,0.08)" };
+    if (page.pageType === "helping")  return { label: t("app-initiatives-kind-helping",  "Helping"),  color: "#0d9488", bg: "rgba(13,148,136,0.08)" };
+    if (page.pageType === "learning") return { label: t("app-initiatives-kind-learning", "Learning"), color: "#7c3aed", bg: "rgba(124,58,237,0.08)" };
+    if (page.pageType === "service")  return { label: t("app-initiatives-kind-service",  "Service"),  color: "#b45309", bg: "rgba(180,83,9,0.08)" };
+    return                                   { label: t("app-initiatives-kind-store",    "Store"),    color: A.accent,  bg: "rgba(99,102,241,0.08)" };
+  }
+
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [pages, setPages] = useState<PageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<PendingDelete | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // per-card delete tracking — null means no deletion in flight
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
@@ -225,17 +295,18 @@ export default function InitiativesPage() {
 
   async function confirmDelete() {
     if (!pending) return;
-    setDeleting(true);
+    const targetId = pending.id;
+    setDeletingId(targetId);
     try {
       const res = await fetch("/api/user/pages", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ id: pending.id }),
+        body: JSON.stringify({ id: targetId }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.ok) {
-        setPages((prev) => prev.filter((p) => p.id !== pending.id));
+        setPages((prev) => prev.filter((p) => p.id !== targetId));
         setPending(null);
       } else {
         alert(data?.error || "Failed to delete");
@@ -243,16 +314,8 @@ export default function InitiativesPage() {
     } catch {
       alert("Failed to delete");
     } finally {
-      setDeleting(false);
+      setDeletingId(null);
     }
-  }
-
-  if (loading) {
-    return (
-      <div style={{ background: A.bg, minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-      </div>
-    );
   }
 
   /* ── Create form ── */
@@ -264,7 +327,7 @@ export default function InitiativesPage() {
       padding: "18px 16px 16px",
     }}>
       <p style={{ fontSize: 14, fontWeight: 700, color: A.text, margin: "0 0 14px" }}>
-        Add an Initiative
+        {t("app-initiatives-form-title", "Add an Initiative")}
       </p>
 
       {/* Type grid */}
@@ -275,23 +338,27 @@ export default function InitiativesPage() {
           outline: selectedType === "health" ? "2px solid #059669" : `1px solid ${A.border}`,
           cursor: "pointer",
         }}>
-          <p style={{ fontSize: 12, fontWeight: 700, color: selectedType === "health" ? "#059669" : A.text, margin: 0 }}>Health &amp; Wellness</p>
-          <p style={{ fontSize: 11, color: A.textMuted, margin: "2px 0 0" }}>Coaching, nutrition, fitness</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: selectedType === "health" ? "#059669" : A.text, margin: 0 }}>
+            {t("app-initiatives-type-health", "Health & Wellness")}
+          </p>
+          <p style={{ fontSize: 11, color: A.textMuted, margin: "2px 0 0" }}>
+            {t("app-initiatives-type-health-sub", "Coaching, nutrition, fitness")}
+          </p>
         </button>
         {([
-          { value: "store",   label: "Store",              sub: "Sell products" },
-          { value: "learning",label: "Learning",           sub: "Teach a skill or subject" },
-          { value: "service", label: "Service",            sub: "Consulting or sessions" },
-          { value: "helping", label: "Helping Initiative", sub: "Community cause, volunteering" },
-        ] as { value: InitiativeType; label: string; sub: string }[]).map(({ value, label, sub }) => (
+          { value: "store",    slugL: "app-initiatives-type-store",    fallbackL: "Store",              slugS: "app-initiatives-type-store-sub",    fallbackS: "Sell products" },
+          { value: "learning", slugL: "app-initiatives-type-learning", fallbackL: "Learning",           slugS: "app-initiatives-type-learning-sub", fallbackS: "Teach a skill or subject" },
+          { value: "service",  slugL: "app-initiatives-type-service",  fallbackL: "Service",            slugS: "app-initiatives-type-service-sub",  fallbackS: "Consulting or sessions" },
+          { value: "helping",  slugL: "app-initiatives-type-helping",  fallbackL: "Helping Initiative", slugS: "app-initiatives-type-helping-sub",  fallbackS: "Community cause, volunteering" },
+        ] as { value: InitiativeType; slugL: string; fallbackL: string; slugS: string; fallbackS: string }[]).map(({ value, slugL, fallbackL, slugS, fallbackS }) => (
           <button key={value} type="button" onClick={() => setSelectedType(value)} disabled={adding} style={{
             padding: "10px 12px", borderRadius: 10, textAlign: "left", border: "none",
             background: selectedType === value ? "rgba(99,102,241,0.08)" : A.bg,
             outline: selectedType === value ? `2px solid ${A.accent}` : `1px solid ${A.border}`,
             cursor: "pointer",
           }}>
-            <p style={{ fontSize: 12, fontWeight: 700, color: selectedType === value ? A.accent : A.text, margin: 0 }}>{label}</p>
-            <p style={{ fontSize: 11, color: A.textMuted, margin: "2px 0 0" }}>{sub}</p>
+            <p style={{ fontSize: 12, fontWeight: 700, color: selectedType === value ? A.accent : A.text, margin: 0 }}>{t(slugL, fallbackL)}</p>
+            <p style={{ fontSize: 11, color: A.textMuted, margin: "2px 0 0" }}>{t(slugS, fallbackS)}</p>
           </button>
         ))}
       </div>
@@ -299,21 +366,23 @@ export default function InitiativesPage() {
       {/* Course type */}
       {selectedType === "learning" && (
         <div style={{ marginBottom: 12 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: A.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 8px" }}>Course Type</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: A.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 8px" }}>
+            {t("app-initiatives-course-type", "Course Type")}
+          </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {([
-              { value: "skill",    label: "Skill / Sport" },
-              { value: "academic", label: "Academic" },
-              { value: "art",      label: "Art" },
-              { value: "growth",   label: "Personal Growth" },
-            ] as { value: CourseType; label: string }[]).map(({ value, label }) => (
+              { value: "skill",    slug: "app-initiatives-course-skill",    fallback: "Skill / Sport" },
+              { value: "academic", slug: "app-initiatives-course-academic", fallback: "Academic" },
+              { value: "art",      slug: "app-initiatives-course-art",      fallback: "Art" },
+              { value: "growth",   slug: "app-initiatives-course-growth",   fallback: "Personal Growth" },
+            ] as { value: CourseType; slug: string; fallback: string }[]).map(({ value, slug, fallback }) => (
               <button key={value} type="button" onClick={() => setCourseType(value)} disabled={adding} style={{
                 padding: "5px 12px", borderRadius: 20, fontSize: 12, border: "none",
                 background: courseType === value ? "rgba(99,102,241,0.1)" : A.bg,
                 color: courseType === value ? A.accent : A.textMuted,
                 outline: courseType === value ? `1.5px solid ${A.accent}` : `1px solid ${A.border}`,
                 cursor: "pointer",
-              }}>{label}</button>
+              }}>{t(slug, fallback)}</button>
             ))}
           </div>
         </div>
@@ -321,10 +390,10 @@ export default function InitiativesPage() {
 
       {/* Title + description */}
       <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
-        placeholder="Initiative name" disabled={adding}
+        placeholder={t("app-initiatives-name-placeholder", "Initiative name")} disabled={adding}
         style={{ ...INPUT, marginBottom: 8 }} />
       <textarea value={newDesc} onChange={(e) => setNewDesc(e.target.value)}
-        placeholder="Description (optional)" disabled={adding} rows={3}
+        placeholder={t("app-initiatives-desc-placeholder", "Description (optional)")} disabled={adding} rows={3}
         style={{ ...INPUT, resize: "none", marginBottom: 12 }} />
 
       {/* Health sub-form */}
@@ -379,7 +448,7 @@ export default function InitiativesPage() {
                   <p style={{ fontSize: 13, fontWeight: 600, color: A.textMuted, margin: 0 }}>{label}</p>
                   <p style={{ fontSize: 11, color: A.textMuted, margin: 0 }}>{sub}</p>
                 </div>
-                <span style={{ fontSize: 10, color: A.textMuted, background: A.border, padding: "2px 8px", borderRadius: 20 }}>Coming soon</span>
+                <span style={{ fontSize: 10, color: A.textMuted, background: A.border, padding: "2px 8px", borderRadius: 20 }}>{t("app-initiatives-coming-soon", "Coming soon")}</span>
               </div>
             ))}
           </div>
@@ -432,22 +501,39 @@ export default function InitiativesPage() {
       {createError && <p style={{ fontSize: 12, color: "#EF4444", margin: "0 0 10px" }}>{createError}</p>}
 
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button onClick={() => { setShowCreate(false); resetCreateForm(); }} disabled={adding} style={{
-          padding: "9px 18px", borderRadius: 8, border: `1px solid ${A.border}`,
-          background: A.surface, color: A.text, fontSize: 13, fontWeight: 600, cursor: "pointer",
-        }}>Cancel</button>
-        <button onClick={createInitiative} disabled={adding} style={{
-          padding: "9px 18px", borderRadius: 8, border: "none",
-          background: adding ? "#a5b4fc" : A.accent, color: "#fff",
-          fontSize: 13, fontWeight: 600, cursor: adding ? "not-allowed" : "pointer",
-          display: "flex", alignItems: "center", gap: 6,
-        }}>
-          {adding && <span style={{
-            width: 12, height: 12, border: "2px solid rgba(255,255,255,0.4)",
-            borderTopColor: "#fff", borderRadius: "50%", display: "inline-block",
-            animation: "spin 0.7s linear infinite",
-          }} />}
-          {adding ? "Creating..." : "Create Initiative"}
+        <button
+          onClick={() => { setShowCreate(false); resetCreateForm(); }}
+          disabled={adding}
+          style={{
+            padding: "9px 18px", borderRadius: 8, border: `1px solid ${A.border}`,
+            background: A.surface, color: A.text, fontSize: 13, fontWeight: 600,
+            cursor: adding ? "not-allowed" : "pointer",
+            opacity: adding ? 0.5 : 1,
+            transition: "opacity 0.15s",
+          }}
+        >
+          {t("app-initiatives-cancel", "Cancel")}
+        </button>
+        <button
+          onClick={createInitiative}
+          disabled={adding}
+          style={{
+            padding: "9px 18px", borderRadius: 8, border: "none",
+            background: adding ? "#a5b4fc" : A.accent, color: "#fff",
+            fontSize: 13, fontWeight: 600,
+            cursor: adding ? "not-allowed" : "pointer",
+            display: "flex", alignItems: "center", gap: 6,
+            transition: "background 0.15s",
+          }}
+        >
+          {adding && (
+            <span style={{
+              width: 12, height: 12, border: "2px solid rgba(255,255,255,0.4)",
+              borderTopColor: "#fff", borderRadius: "50%", display: "inline-block",
+              animation: "spin 0.7s linear infinite", flexShrink: 0,
+            }} />
+          )}
+          {adding ? t("app-initiatives-creating", "Creating...") : t("app-initiatives-create-btn", "Create Initiative")}
         </button>
       </div>
     </div>
@@ -458,98 +544,129 @@ export default function InitiativesPage() {
       {pending && (
         <DeleteConfirmModal
           item={pending}
-          onCancel={() => !deleting && setPending(null)}
+          onCancel={() => !deletingId && setPending(null)}
           onConfirm={confirmDelete}
-          loading={deleting}
+          loading={deletingId !== null}
+          t={t}
         />
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "20px 16px" }}>
         <h1 style={{ fontSize: 20, fontWeight: 700, color: A.text, margin: "0 0 4px" }}>
-          Your Initiatives
+          {t("app-initiatives-heading", "Your Initiatives")}
         </h1>
         <p style={{ fontSize: 13, color: A.textMuted, margin: "0 0 20px" }}>
-          Manage your initiatives and public pages
+          {t("app-initiatives-subtitle", "Manage your initiatives and public pages")}
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {pages.length === 0 && !showCreate && (
-            <div style={{ textAlign: "center", padding: "32px 0 20px" }}>
-              <div style={{ fontSize: 40, marginBottom: 10 }}>🌱</div>
-              <p style={{ fontSize: 14, color: A.textMuted }}>No initiatives yet.</p>
-            </div>
+          {loading ? (
+            <>
+              <InitiativeCardSkeleton />
+              <InitiativeCardSkeleton />
+              <InitiativeCardSkeleton />
+            </>
+          ) : (
+            <>
+              {pages.length === 0 && !showCreate && (
+                <div style={{ textAlign: "center", padding: "32px 0 20px" }}>
+                  <div style={{ fontSize: 40, marginBottom: 10 }}>🌱</div>
+                  <p style={{ fontSize: 14, color: A.textMuted }}>{t("app-initiatives-empty", "No initiatives yet.")}</p>
+                </div>
+              )}
+
+              {pages.map((page) => {
+                const meta = kindMeta(page);
+                const isBeingDeleted = deletingId === page.id;
+                return (
+                  <div key={page.id} style={{
+                    background: A.surface, borderRadius: 14,
+                    border: `1px solid ${A.border}`,
+                    boxShadow: "0 1px 4px rgba(0,0,0,0.05)", padding: "16px",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: A.text, flex: 1 }}>
+                        {page.title}
+                      </span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+                        color: meta.color, background: meta.bg,
+                        textTransform: "uppercase", letterSpacing: "0.04em",
+                      }}>{meta.label}</span>
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <a href={`/earn/initiative/${page.id}`} style={{
+                        flex: 1, minWidth: 80, textAlign: "center",
+                        padding: "8px 12px", borderRadius: 8,
+                        background: A.accent, color: "#fff",
+                        fontSize: 12, fontWeight: 600, textDecoration: "none",
+                      }}>{t("app-initiatives-open", "Open →")}</a>
+
+                      <button
+                        onClick={() => setPending({ id: page.id, name: page.title })}
+                        disabled={deletingId !== null}
+                        style={{
+                          flex: 1, minWidth: 80, textAlign: "center",
+                          padding: "8px 12px", borderRadius: 8,
+                          background: A.surface, color: "#EF4444",
+                          border: "1px solid rgba(239,68,68,0.25)",
+                          fontSize: 12, fontWeight: 600,
+                          cursor: deletingId !== null ? "not-allowed" : "pointer",
+                          opacity: isBeingDeleted ? 0.5 : deletingId !== null ? 0.4 : 1,
+                          display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                          transition: "opacity 0.15s",
+                        }}
+                      >
+                        {isBeingDeleted && (
+                          <span style={{
+                            width: 11, height: 11,
+                            border: "2px solid rgba(239,68,68,0.3)",
+                            borderTopColor: "#EF4444",
+                            borderRadius: "50%", display: "inline-block",
+                            animation: "spin 0.7s linear infinite", flexShrink: 0,
+                          }} />
+                        )}
+                        {isBeingDeleted ? t("app-initiatives-deleting", "Deleting") : t("app-initiatives-delete", "Delete")}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
           )}
 
-          {pages.map((page) => {
-            const meta = kindMeta(page);
-            return (
-              <div key={page.id} style={{
-                background: A.surface, borderRadius: 14,
-                border: `1px solid ${A.border}`,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.05)", padding: "16px",
+          {!loading && (
+            showCreate ? (
+              isLoggedIn === false ? (
+                <div style={{ textAlign: "center", padding: 32 }}>
+                  <p style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 8 }}>
+                    {t("app-initiatives-sign-in-title", "Sign in to create your initiative")}
+                  </p>
+                  <p style={{ fontSize: 14, color: "#6B7280", marginBottom: 20 }}>
+                    {t("app-initiatives-sign-in-sub", "It only takes a minute. Free forever.")}
+                  </p>
+                  <a href="/login?redirect=/app/initiatives"
+                    style={{
+                      display: "inline-block", padding: "12px 32px", borderRadius: 12,
+                      background: "#6366f1", color: "#fff",
+                      textDecoration: "none", fontWeight: 600, fontSize: 15,
+                    }}>
+                    {t("app-initiatives-sign-in-btn", "Sign In →")}
+                  </a>
+                </div>
+              ) : createForm
+            ) : (
+              <button onClick={() => setShowCreate(true)} style={{
+                display: "block", width: "100%", textAlign: "center",
+                padding: "12px", borderRadius: 14,
+                border: `2px dashed ${A.border}`, color: A.accent,
+                fontSize: 13, fontWeight: 600, background: "none", cursor: "pointer", marginTop: 4,
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: A.text, flex: 1 }}>
-                    {page.title}
-                  </span>
-                  <span style={{
-                    fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
-                    color: meta.color, background: meta.bg,
-                    textTransform: "uppercase", letterSpacing: "0.04em",
-                  }}>{meta.label}</span>
-                </div>
-
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <a href={`/earn/initiative/${page.id}`} style={{
-                    flex: 1, minWidth: 80, textAlign: "center",
-                    padding: "8px 12px", borderRadius: 8,
-                    background: A.accent, color: "#fff",
-                    fontSize: 12, fontWeight: 600, textDecoration: "none",
-                  }}>Open →</a>
-
-                  <button onClick={() => setPending({ id: page.id, name: page.title })} disabled={deleting} style={{
-                    flex: 1, minWidth: 80, textAlign: "center",
-                    padding: "8px 12px", borderRadius: 8,
-                    background: A.surface, color: "#EF4444",
-                    border: "1px solid rgba(239,68,68,0.25)",
-                    fontSize: 12, fontWeight: 600,
-                    cursor: deleting ? "not-allowed" : "pointer",
-                    opacity: deleting ? 0.5 : 1,
-                  }}>Delete</button>
-                </div>
-              </div>
-            );
-          })}
-
-          {showCreate ? (
-            isLoggedIn === false ? (
-              <div style={{ textAlign: "center", padding: 32 }}>
-                <p style={{ fontSize: 16, fontWeight: 600, color: "#111827", marginBottom: 8 }}>
-                  Sign in to create your initiative
-                </p>
-                <p style={{ fontSize: 14, color: "#6B7280", marginBottom: 20 }}>
-                  It only takes a minute. Free forever.
-                </p>
-                <a href="/login?redirect=/app/initiatives"
-                  style={{
-                    display: "inline-block", padding: "12px 32px", borderRadius: 12,
-                    background: "#6366f1", color: "#fff",
-                    textDecoration: "none", fontWeight: 600, fontSize: 15,
-                  }}>
-                  Sign In →
-                </a>
-              </div>
-            ) : createForm
-          ) : (
-            <button onClick={() => setShowCreate(true)} style={{
-              display: "block", width: "100%", textAlign: "center",
-              padding: "12px", borderRadius: 14,
-              border: `2px dashed ${A.border}`, color: A.accent,
-              fontSize: 13, fontWeight: 600, background: "none", cursor: "pointer", marginTop: 4,
-            }}>
-              + Add Initiative
-            </button>
+                {t("app-initiatives-add-btn", "+ Add Initiative")}
+              </button>
+            )
           )}
         </div>
       </div>

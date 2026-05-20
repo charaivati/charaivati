@@ -87,6 +87,15 @@ Provides the native mobile app experience via Capacitor. The shell is a thin lay
 | Explore | ❤️ | /app/saved |
 | Account | 👤 | /store/account |
 
+## Home Page Intent (`/app/home`)
+
+`app/app/` is the mobile operating layer for the Earn system. The home page (`app/app/home/page.tsx`) has two distinct modes:
+
+- **Returning user (has store / active orders)** — live dashboard: pending order count, revenue today, quick links to `/store/[slug]/orders` and `/app/orders`. This is the primary use case.
+- **New user (no store / no history)** — a single clear CTA to create their first initiative, pointing to `/app/initiatives`.
+
+The home page is **not a marketing page** and should not contain static promotional copy, feature lists, or landing-page imagery. If it is not showing live data for returning users, something is wrong with the data-fetching layer, not the design.
+
 ## Risks & Fragile Areas
 - The layout is a `"use client"` component. Any error thrown during render will crash the entire mobile app. No error boundary is wrapping this layout.
 - User fetch (`/api/user/me`) on every layout mount adds a network round-trip on every page load within `/app/*`. There is no caching of the user state.

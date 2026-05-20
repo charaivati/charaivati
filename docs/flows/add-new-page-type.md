@@ -193,16 +193,19 @@ if it should appear in this feed:
 if (page.pageType === "your-type") return { label: "YourLabel", color: "#hexcode", bg: "rgba(...)" };
 ```
 
-**`app/(with-nav)/self/tabs/EarningTab.tsx`** (~line 191)
-Page creation UI. If your type should be selectable when a user creates a page, add it to the
-type selector and the `pageType` mapping logic here.
+**`app/app/initiatives/page.tsx`** — primary page creation UI (mobile)
+Initiative creation, deletion, and management lives here. If your type should be selectable
+when a user creates a page, add it to the type selector grid and the `pageType` mapping in
+`createInitiative()`.
+
+**`app/(with-nav)/self/tabs/EarningTab.tsx`** — desktop summary only (read-only)
+The desktop EarningTab no longer has a creation form. It shows a list of existing initiatives
+with "Open →" links and a "Manage initiatives" button pointing to `/app/initiatives`. Do NOT
+add creation UI here — it belongs in the mobile page above.
 
 **`app/store/[id]/page.tsx`** and **`app/(business)/business/store/[businessId]/page.tsx`**
 Both check `store.pageType === "learning"` to toggle between store and course UI. If your
 type renders in the same view, add a branch here.
-
-TODO: Confirm whether the EarningTab is the only page creation UI, or if there are other entry
-points (onboarding, admin, mobile) that also need updating.
 
 ---
 
@@ -271,8 +274,9 @@ with no server-side error.
         - Add include: { yourModel: true } if yes
 
 [ ] 6. Update pageType switches in the frontend
-        - app/app/initiatives/page.tsx (feed labels)
-        - app/(with-nav)/self/tabs/EarningTab.tsx (creation UI)
+        - app/app/initiatives/page.tsx (feed labels + creation form)
+        - app/(with-nav)/self/tabs/EarningTab.tsx (badge labels in summary list — kindLabel() from lib/pages/kindLabel.ts)
+        - app/earn/initiative/[pageId]/page.tsx (badge in initiative hub — pageBadge())
         - Any page that renders based on pageType
 
 [ ] 7. Add to tabToComponentMap.tsx only if introducing a new layer tab
