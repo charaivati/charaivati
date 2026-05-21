@@ -1,23 +1,23 @@
-// app/api/health-business/[businessId]/subscribers/route.ts
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
-type Ctx = { params: { businessId: string } };
-
-export async function GET(req: Request, { params }: Ctx) {
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ pageId: string }> }
+) {
   try {
     const user = await getServerUser(req);
     if (!user) {
       return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
     }
 
-    const { businessId } = params;
+    const { pageId } = await params;
 
     const hb = await prisma.healthBusiness.findUnique({
-      where: { id: businessId },
+      where: { id: pageId },
       select: { id: true, page: { select: { ownerId: true } } },
     });
     if (!hb) {
@@ -28,7 +28,7 @@ export async function GET(req: Request, { params }: Ctx) {
     }
 
     const subscriptions = await prisma.expertSubscription.findMany({
-      where: { healthBusinessId: businessId, status: "active" },
+      where: { healthBusinessId: hb.id, status: "active" },
       select: {
         id: true,
         userId: true,
@@ -48,9 +48,8 @@ export async function GET(req: Request, { params }: Ctx) {
       orderBy: { subscribedAt: "desc" },
     });
 
-    // Fetch all advice logs for this business, keep latest per userId
     const allAdvices = await prisma.expertAdviceLog.findMany({
-      where: { healthBusinessId: businessId },
+      where: { healthBusinessId: hb.id },
       select: { userId: true, createdAt: true },
       orderBy: { createdAt: "desc" },
     });

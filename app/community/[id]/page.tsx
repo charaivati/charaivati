@@ -1,0 +1,323 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+
+type BoardMember = {
+  id: string;
+  role: string | null;
+  user: { id: string; name: string | null; avatarUrl: string | null };
+};
+
+type MemberUser = { id: string; name: string | null; avatarUrl: string | null };
+type MemberGroup = { id: string; name: string; logoUrl: string | null; pageId: string };
+
+type Membership = {
+  id: string;
+  status: string;
+  requestedAt: string;
+  memberUser: MemberUser | null;
+  memberGroup: MemberGroup | null;
+};
+
+type Milestone = { id: string; title: string; status: string };
+type Meeting = { id: string; title: string; date: string; location: string | null; link: string | null };
+
+type Group = {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  objective: string | null;
+  boardMembers: BoardMember[];
+  memberships: Membership[];
+  milestones: Milestone[];
+  meetings: Meeting[];
+};
+
+type ViewerStatus = "guest" | "non_member" | "pending" | "member" | "admin";
+
+export default function CommunityGroupPublicPage() {
+  const { id } = useParams<{ id: string }>();
+  const [group, setGroup] = useState<Group | null>(null);
+  const [pendingMemberships, setPendingMemberships] = useState<Membership[]>([]);
+  const [viewerStatus, setViewerStatus] = useState<ViewerStatus>("guest");
+  const [loading, setLoading] = useState(true);
+  const [joining, setJoining] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/community-group/by-page/${id}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.ok) {
+          setGroup(d.group);
+          setViewerStatus(d.viewerStatus ?? "guest");
+          setPendingMemberships(d.pendingMemberships ?? []);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  async function requestJoin() {
+    if (!group) return;
+    setJoining(true);
+    try {
+      await fetch(`/api/community-group/${group.id}/membership/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      setViewerStatus("pending");
+    } finally {
+      setJoining(false);
+    }
+  }
+
+  async function approveMembership(membershipId: string) {
+    if (!group) return;
+    const res = await fetch(`/api/community-group/${group.id}/membership/${membershipId}/approve`, {
+      method: "POST", credentials: "include",
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const approved = pendingMemberships.find((m) => m.id === membershipId);
+      if (approved) {
+        setPendingMemberships((p) => p.filter((m) => m.id !== membershipId));
+        setGroup((g) => g ? { ...g, memberships: [...g.memberships, { ...approved, status: "approved" }] } : g);
+      }
+    }
+  }
+
+  async function rejectMembership(membershipId: string) {
+    if (!group) return;
+    await fetch(`/api/community-group/${group.id}/membership/${membershipId}`, { method: "DELETE", credentials: "include" });
+    setPendingMemberships((p) => p.filter((m) => m.id !== membershipId));
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <p className="text-gray-400 text-sm">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!group) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <p className="text-red-400 text-sm">Community group not found.</p>
+      </div>
+    );
+  }
+
+  const approvedUsers = group.memberships.filter((m) => m.memberUser);
+  const approvedGroups = group.memberships.filter((m) => m.memberGroup);
+  const upcomingMeetings = group.meetings.filter((m) => new Date(m.date) >= new Date());
+  const isAdmin = viewerStatus === "admin";
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      <div className="max-w-2xl mx-auto px-4 py-10 space-y-10">
+
+        {/* ── Header ── */}
+        <div className="flex items-start gap-5">
+          {group.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={group.logoUrl} alt="logo" className="w-20 h-20 rounded-2xl object-cover flex-shrink-0 border border-gray-700" />
+          ) : (
+            <div className="w-20 h-20 rounded-2xl bg-sky-900/40 border border-sky-700/50 flex items-center justify-center flex-shrink-0">
+              <span className="text-sky-300 text-3xl font-bold">{group.name[0]?.toUpperCase()}</span>
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold text-white leading-tight">{group.name}</h1>
+            {group.objective && <p className="text-sm text-gray-400 mt-1 leading-relaxed">{group.objective}</p>}
+
+            <div className="mt-3 flex gap-2 flex-wrap">
+              {viewerStatus === "guest" && (
+                <a
+                  href={`/login?redirect=/community/${id}`}
+                  className="px-4 py-2 rounded-lg border border-sky-600 text-sky-300 text-sm font-medium hover:bg-sky-900/30 transition-colors"
+                >
+                  Log in to join
+                </a>
+              )}
+              {viewerStatus === "non_member" && (
+                <button
+                  onClick={requestJoin}
+                  disabled={joining}
+                  className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {joining ? "Sending…" : "Request to join"}
+                </button>
+              )}
+              {viewerStatus === "pending" && (
+                <span className="px-4 py-2 rounded-lg bg-amber-900/30 border border-amber-700/50 text-amber-300 text-sm">
+                  Request pending
+                </span>
+              )}
+              {viewerStatus === "member" && (
+                <span className="px-4 py-2 rounded-lg bg-emerald-900/30 border border-emerald-700/50 text-emerald-300 text-sm">
+                  ✓ Member
+                </span>
+              )}
+              {isAdmin && (
+                <a
+                  href={`/earn/initiative/${id}`}
+                  className="px-4 py-2 rounded-lg bg-sky-800 hover:bg-sky-700 text-white text-sm font-medium transition-colors"
+                >
+                  Manage →
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Board Members ── */}
+        {group.boardMembers.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-base font-bold text-sky-300 border-b border-gray-800 pb-2">Board</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {group.boardMembers.map((bm) => (
+                <div key={bm.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-900 border border-gray-800">
+                  <div className="w-9 h-9 rounded-full bg-sky-900 flex items-center justify-center text-sky-300 text-xs font-bold flex-shrink-0 overflow-hidden">
+                    {bm.user.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={bm.user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      (bm.user.name?.[0] ?? "?").toUpperCase()
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{bm.user.name ?? "Unknown"}</p>
+                    {bm.role && <p className="text-xs text-gray-500">{bm.role}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── Members ── */}
+        <section className="space-y-3">
+          <h2 className="text-base font-bold text-sky-300 border-b border-gray-800 pb-2">
+            Members ({approvedUsers.length + approvedGroups.length})
+          </h2>
+
+          {approvedGroups.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-500 uppercase tracking-wide">Sub-groups ({approvedGroups.length})</p>
+              {approvedGroups.map((m) => (
+                <div key={m.id} className="flex items-center gap-2 py-1.5">
+                  {m.memberGroup!.logoUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.memberGroup!.logoUrl} alt="" className="w-6 h-6 rounded-md object-cover" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-md bg-sky-900/40 flex items-center justify-center text-sky-300 text-xs">
+                      {m.memberGroup!.name[0]?.toUpperCase()}
+                    </div>
+                  )}
+                  <a href={`/community/${m.memberGroup!.pageId}`} className="text-sm text-white hover:text-sky-300 transition-colors">
+                    {m.memberGroup!.name}
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {approvedUsers.length > 0 && (
+            <div className="space-y-1">
+              {approvedGroups.length > 0 && (
+                <p className="text-xs text-gray-500 uppercase tracking-wide mt-2">Individuals ({approvedUsers.length})</p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {approvedUsers.map((m) => (
+                  <span key={m.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-800 text-sm text-gray-300">
+                    {m.memberUser!.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={m.memberUser!.avatarUrl} alt="" className="w-4 h-4 rounded-full object-cover" />
+                    ) : (
+                      <span className="w-4 h-4 rounded-full bg-gray-600 flex items-center justify-center text-xs">
+                        {(m.memberUser!.name?.[0] ?? "?").toUpperCase()}
+                      </span>
+                    )}
+                    {m.memberUser!.name ?? "Unknown"}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {approvedUsers.length === 0 && approvedGroups.length === 0 && (
+            <p className="text-sm text-gray-500">No members yet.</p>
+          )}
+        </section>
+
+        {/* ── Milestones ── */}
+        {group.milestones.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-base font-bold text-sky-300 border-b border-gray-800 pb-2">Milestones</h2>
+            {group.milestones.map((ms) => (
+              <div key={ms.id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-900 border border-gray-800">
+                <div className={`w-4 h-4 rounded-full flex-shrink-0 ${ms.status === "achieved" ? "bg-emerald-500" : "border-2 border-gray-600"}`} />
+                <span className={`flex-1 text-sm ${ms.status === "achieved" ? "line-through text-gray-500" : "text-white"}`}>{ms.title}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${ms.status === "achieved" ? "bg-emerald-900/50 text-emerald-300" : "bg-gray-800 text-gray-400"}`}>
+                  {ms.status === "achieved" ? "Achieved" : "Pending"}
+                </span>
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* ── Upcoming Meetings ── */}
+        {upcomingMeetings.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-base font-bold text-sky-300 border-b border-gray-800 pb-2">Upcoming Meetings</h2>
+            {upcomingMeetings.map((mt) => (
+              <div key={mt.id} className="p-4 rounded-xl bg-gray-900 border border-gray-800 space-y-1">
+                <p className="font-medium text-white">{mt.title}</p>
+                <p className="text-xs text-gray-400">{new Date(mt.date).toLocaleString()}</p>
+                {mt.location && <p className="text-xs text-gray-500">📍 {mt.location}</p>}
+                {mt.link && (
+                  <a href={mt.link} target="_blank" rel="noopener noreferrer" className="text-xs text-sky-400 hover:underline block truncate">
+                    🔗 {mt.link}
+                  </a>
+                )}
+              </div>
+            ))}
+          </section>
+        )}
+
+        {/* Admin: pending membership requests */}
+        {isAdmin && pendingMemberships.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-base font-bold text-amber-300 border-b border-gray-800 pb-2">
+              Pending Requests ({pendingMemberships.length})
+            </h2>
+            {pendingMemberships.map((m) => (
+              <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl bg-amber-900/10 border border-amber-800/40">
+                <span className="flex-1 text-sm text-white">
+                  {m.memberUser?.name ?? m.memberGroup?.name ?? "Unknown"}
+                </span>
+                <button
+                  onClick={() => approveMembership(m.id)}
+                  className="px-3 py-1 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium transition-colors"
+                >
+                  Approve
+                </button>
+                <button
+                  onClick={() => rejectMembership(m.id)}
+                  className="px-3 py-1 rounded-md bg-gray-800 hover:bg-red-900 text-gray-300 text-xs font-medium transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
+            ))}
+          </section>
+        )}
+
+      </div>
+    </div>
+  );
+}

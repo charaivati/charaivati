@@ -1,8 +1,15 @@
 // app/api/users/search/route.ts
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db"; // adjust path if your alias differs
+import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 
 export async function GET(req: Request) {
+  const token = getTokenFromRequest(req);
+  const payload = await verifySessionToken(token);
+  if (!payload?.userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") ?? url.searchParams.get("query") ?? "").trim();

@@ -44,7 +44,7 @@ The `app/` directory uses Next.js route groups to co-locate layouts:
 | `(User)` | User profile and editing |
 | `(locality)` | Country selection, local area |
 | `(state)` | State-level view |
-| `app/` | **Mobile shell** — Capacitor-wrapped layout with sticky header + **4-tab** bottom nav: Home / Initiatives / Explore / Orders |
+| `app/` | **Mobile shell** — Capacitor-wrapped layout with sticky header + **4-tab** bottom nav: Home / Initiatives / Explore / Orders. Home page (`app/app/home/page.tsx`) has two render states: guest/new-user (marketing content) and returning user (live dashboard — stats, pending orders, initiatives). |
 | `earn/` | Initiative Hub — owner-only pages at `/earn/initiative/[pageId]`; partner delivery dashboard at `/earn/deliveries` (server components, cookie auth) |
 | `order/` | Customer-facing order pages: `/order/[id]/track` (client component, live GPS tracking) |
 
@@ -59,7 +59,7 @@ The platform uses a 6-layer conceptual model: **Self → Society → State → N
 - API routes read the session cookie via `getTokenFromRequest(req)` from `lib/session.ts`
 - Auth flows also support OTP (`/api/auth/otp/`), magic links (`/api/auth/send-magic-link`), and CSRF tokens (`/api/auth/csrf`)
 - **Registration flow** — after `POST /api/user/register` succeeds the login page enters a `verify-pending` state (stays on page, shows "check your inbox" message). There is NO redirect after signup. The user must click the verification email link → lands on `/verified` → clicks "Sign in to continue →" → `/login` (pre-filled email, preserved redirect)
-- **Verification email** — sent via `lib/sendEmail.ts` (Nodemailer/Gmail, env: `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_FROM`). Subject: "Verify your Charaivati account". Clicking the link hits `GET /api/user/magic` which redirects to `/verified?email=...&redirect=...`, NOT to `/login`.
+- **Verification email** — sent via `lib/sendEmail.ts` (Nodemailer/Gmail, env: `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_FROM`). Subject: "Verify your Charaivati account". Clicking the link hits `GET /api/user/magic` which redirects to `/verified?email=...&redirect=...`, NOT to `/login`. If `sendEmail` throws (e.g. env vars not set), the register route returns 500 with `"Account created but verification email could not be sent. Contact support."` — the login page displays this as an error. In development with missing email env vars, the verification link is printed to the server console so the flow can be tested without a real email setup.
 
 ### Guest Account Merge
 Guests get a real `User` row with `status: "guest"` and no email. On sign-in or email verification all guest data is atomically moved to the real account.
@@ -253,6 +253,16 @@ One-shot AI flow that creates a complete store structure from a plain-English de
 - **Trigger — direct store visit**: `fetchStore` in `app/store/[id]/page.tsx` checks `data.isOwner && data.sections.length === 0 && !sessionStorage.get(setup_skipped_${id})` → `window.location.replace(/store/${id}/setup)`. Catches any navigation path, not just the EarningTab button.
 - **CSP**: `https://images.unsplash.com` is added to `img-src` in `next.config.mjs`.
 
+### Charaivati AI Chatbot (floating guide widget)
+A floating chat widget powered by a locally-running Ollama model. Visible to logged-in users on every page.
+
+- **Widget**: `components/chat/ChatBot.tsx` — bottom-right floating bubble; opens a 380×520 dark panel. Props: `isLoggedIn: boolean` (gates rendering), `currentSection?: string` (passed to the API for context; defaults to `"Self"`).
+- **API route**: `POST /api/chat` — auth-gated (manual `getTokenFromRequest` + `verifySessionToken`). Loads `User.drives`, `Profile.goals`, `Profile.stepsToday`, `Profile.sleepHours`, and owned `Page` records server-side. Derives an `energyScore` (0–100) from step count + sleep hours. Builds a personalised system prompt, sends it along with `conversationHistory` (passed from client) to Ollama, returns `{ reply }`. Falls back to a canned message with `_fallback: true` if Ollama is unreachable (connection refused, timeout, non-200).
+- **Integration**: `ChatBot` is rendered directly in `app/layout.tsx` (root layout). The layout reads the session cookie server-side and passes `isLoggedIn` — no extra client fetch.
+- **Conversation history**: stored in `useState` only — not persisted to DB. Cleared by the "Clear chat" button in the panel header.
+- **Ollama call**: `POST {OLLAMA_URL}/api/chat` with `stream: false`. Messages: `[system, ...conversationHistory, { role: "user", content: message }]`. 30-second fetch timeout via `AbortSignal.timeout(30000)`.
+- **Environment**: `OLLAMA_URL` (default `http://localhost:11434`) and `OLLAMA_MODEL` (default `llama3.2`). Both optional — defaults kick in if not set.
+
 ### Store Image Pool
 All store image uploads go through a two-layer dedup pipeline — **never call Cloudinary directly** from store upload forms.
 
@@ -291,6 +301,8 @@ All store image uploads go through a two-layer dedup pipeline — **never call C
 - `lib/invoice/generateInvoiceNumber.ts` — `generateInvoiceNumber()`: sequential `INV-YYYY-NNNNN` counter; queries `Order.count({ where: { invoiceNumber: { not: null } } })`
 - `lib/invoice/InvoiceDocument.tsx` — `@react-pdf/renderer` Document component; renders TAX INVOICE or BILL OF SUPPLY layout with seller/buyer blocks, items table, GST totals
 - `hooks/useGeolocation.ts` — `useGeolocation()`: GPS abstraction hook; tries `@capacitor/geolocation` first (requests permission, then `watchPosition`), falls back to `navigator.geolocation.watchPosition` in browser. Returns `{ startWatch, stopWatch }`. Always use this hook for any new GPS feature — never call `navigator.geolocation` directly.
+- `lib/pages/kindLabel.ts` — `kindLabel(page)`: returns a human-readable page type string given `{ type, pageType }`. Handles the `type: "health"` edge case and all `pageType` values (`"store"`, `"helping"`, `"learning"`, `"service"`). Used by the home dashboard, EarningTab, Initiative Hub, and `add-new-page-type` flow. Do not inline this logic elsewhere.
+- `lib/sendEmail.ts` — `sendEmail({ to, subject, text?, html? })`: sends via Nodemailer/Gmail. **Throws** if `EMAIL_USER`/`EMAIL_PASS`/`EMAIL_FROM` are not set — callers must wrap in try/catch. In development with missing env vars the function still throws, but the register route logs the verification link to console before attempting the send.
 
 ### Security Notes
 - CSP headers are configured in `next.config.mjs` — update them when adding new external scripts, styles, or media sources
@@ -309,6 +321,10 @@ Image search (all optional — `lib/imageSearch.ts` skips missing providers and 
 - `UNSPLASH_ACCESS_KEY` — Unsplash API client ID
 - `PEXELS_KEY` — Pexels API key
 - `PIXABAY_KEY` — Pixabay API key
+
+Ollama / AI chatbot (both optional — defaults used if absent):
+- `OLLAMA_URL` — Base URL of the local Ollama server (default: `http://localhost:11434`)
+- `OLLAMA_MODEL` — Model name to use (default: `llama3.2`)
 
 ## Architecture Docs
 Before making any change, read the relevant doc in /docs.
@@ -343,3 +359,4 @@ Start every session by reading /docs/START_HERE.md.
 - **The `"lang"` cookie is the middleware language gate signal** — `middleware.ts` checks `req.cookies.get("lang")` for unauthenticated requests. If absent, the request is redirected to `/?redirect=<path>`. Authenticated users (valid session cookie) bypass the gate entirely. The gate is skipped for `/`, `/login`, `/register`, `_next/`, `api/`, and static file extensions.
 - **After registration, the login page stays on the page — it does NOT redirect** — `handleRegister()` sets `step = "verify-pending"` on a 200 response. There is no timeout-and-redirect behavior. If you see code that redirects after registration it is a regression.
 - **Email verification links land on `/verified`, not `/login`** — `GET /api/user/magic` redirects to `/verified?email=...&redirect=...`. `/verified` is a standalone page with a single "Sign in to continue →" CTA that carries the `redirect` param through to `/login`. Do not assume the magic link goes to `/login`.
+- **`sendEmail` throws if not configured — do not call it without a try/catch** — `lib/sendEmail.ts` throws `Error("Email not configured: ...")` when `EMAIL_USER`/`EMAIL_PASS`/`EMAIL_FROM` are absent. Any route that calls `sendEmail` and does not catch will return a 500 to the client. The register route catches this and returns a user-facing 500 with a support message. Do not add a silent fallback — the throw is intentional so misconfigured deploys fail loudly rather than silently losing emails.

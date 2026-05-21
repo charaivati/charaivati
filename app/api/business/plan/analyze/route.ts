@@ -1,5 +1,6 @@
 // app/api/business/plan/analyze/route.ts
 import { NextResponse } from "next/server";
+import getServerUser from "@/lib/serverAuth";
 
 function analyze(data: any) {
   const risks: string[] = [];
@@ -42,6 +43,9 @@ function analyze(data: any) {
 }
 
 export async function POST(req: Request) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const body = await req.json();
     const { ideaData } = body;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslations } from "@/hooks/useTranslations";
+import { kindLabel } from "@/lib/pages/kindLabel";
 
 const INITIATIVES_SLUGS = [
   "app-initiatives-heading","app-initiatives-subtitle","app-initiatives-empty","app-initiatives-add-btn",
@@ -23,6 +24,8 @@ const INITIATIVES_SLUGS = [
   "app-initiatives-sign-in-title","app-initiatives-sign-in-sub","app-initiatives-sign-in-btn",
   "app-initiatives-kind-health","app-initiatives-kind-helping",
   "app-initiatives-kind-learning","app-initiatives-kind-service","app-initiatives-kind-store",
+  "app-initiatives-type-community","app-initiatives-type-community-sub",
+  "app-initiatives-kind-community",
 ].join(",");
 
 const A = {
@@ -44,15 +47,15 @@ type PageItem = {
 };
 
 type PendingDelete = { id: string; name: string };
-type InitiativeType = "store" | "learning" | "service" | "health" | "helping";
+type InitiativeType = "store" | "learning" | "service" | "health" | "helping" | "community_group";
 type CourseType = "skill" | "academic" | "art" | "growth";
 
 function InitiativeCardSkeleton() {
   return (
     <div style={{
-      background: A.surface, borderRadius: 14,
-      border: `1px solid ${A.border}`,
-      boxShadow: "0 1px 4px rgba(0,0,0,0.05)", padding: 16,
+      background: "#fff", borderRadius: 12,
+      border: "0.5px solid #e2e8f0",
+      padding: 16,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <div className="w-10 h-10 bg-gray-200 rounded-lg animate-pulse flex-shrink-0" />
@@ -176,11 +179,12 @@ export default function InitiativesPage() {
   const t = useTranslations(INITIATIVES_SLUGS);
 
   function kindMeta(page: PageItem) {
-    if (page.type === "health")       return { label: t("app-initiatives-kind-health",   "Health"),   color: "#059669", bg: "rgba(5,150,105,0.08)" };
-    if (page.pageType === "helping")  return { label: t("app-initiatives-kind-helping",  "Helping"),  color: "#0d9488", bg: "rgba(13,148,136,0.08)" };
-    if (page.pageType === "learning") return { label: t("app-initiatives-kind-learning", "Learning"), color: "#7c3aed", bg: "rgba(124,58,237,0.08)" };
-    if (page.pageType === "service")  return { label: t("app-initiatives-kind-service",  "Service"),  color: "#b45309", bg: "rgba(180,83,9,0.08)" };
-    return                                   { label: t("app-initiatives-kind-store",    "Store"),    color: A.accent,  bg: "rgba(99,102,241,0.08)" };
+    if (page.type === "health")                  return { label: t("app-initiatives-kind-health",     "Health"),          color: "#7B5EA7", bg: "#F0EDF8" };
+    if (page.pageType === "helping")             return { label: t("app-initiatives-kind-helping",    "Helping"),         color: "#0F6E56", bg: "#E1F5EE" };
+    if (page.pageType === "learning")            return { label: t("app-initiatives-kind-learning",   "Learning"),        color: "#185FA5", bg: "#EBF2FA" };
+    if (page.pageType === "service")             return { label: t("app-initiatives-kind-service",    "Service"),         color: "#7B5EA7", bg: "#F0EDF8" };
+    if (page.pageType === "community_group")     return { label: t("app-initiatives-kind-community",  "Community Group"), color: "#0369A1", bg: "#E0F2FE" };
+    return                                              { label: t("app-initiatives-kind-store",      "Store"),           color: "#D85A30", bg: "#FDF0EB" };
   }
 
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
@@ -283,6 +287,15 @@ export default function InitiativesPage() {
         });
       }
 
+      if (selectedType === "community_group") {
+        await fetch("/api/community-group", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ pageId: created.id }),
+        });
+      }
+
       setPages((prev) => [created, ...prev]);
       resetCreateForm();
       setShowCreate(false);
@@ -346,10 +359,11 @@ export default function InitiativesPage() {
           </p>
         </button>
         {([
-          { value: "store",    slugL: "app-initiatives-type-store",    fallbackL: "Store",              slugS: "app-initiatives-type-store-sub",    fallbackS: "Sell products" },
-          { value: "learning", slugL: "app-initiatives-type-learning", fallbackL: "Learning",           slugS: "app-initiatives-type-learning-sub", fallbackS: "Teach a skill or subject" },
-          { value: "service",  slugL: "app-initiatives-type-service",  fallbackL: "Service",            slugS: "app-initiatives-type-service-sub",  fallbackS: "Consulting or sessions" },
-          { value: "helping",  slugL: "app-initiatives-type-helping",  fallbackL: "Helping Initiative", slugS: "app-initiatives-type-helping-sub",  fallbackS: "Community cause, volunteering" },
+          { value: "store",           slugL: "app-initiatives-type-store",     fallbackL: "Store",              slugS: "app-initiatives-type-store-sub",    fallbackS: "Sell products" },
+          { value: "learning",        slugL: "app-initiatives-type-learning",  fallbackL: "Learning",           slugS: "app-initiatives-type-learning-sub", fallbackS: "Teach a skill or subject" },
+          { value: "service",         slugL: "app-initiatives-type-service",   fallbackL: "Service",            slugS: "app-initiatives-type-service-sub",  fallbackS: "Consulting or sessions" },
+          { value: "helping",         slugL: "app-initiatives-type-helping",   fallbackL: "Helping Initiative", slugS: "app-initiatives-type-helping-sub",  fallbackS: "Community cause, volunteering" },
+          { value: "community_group", slugL: "app-initiatives-type-community", fallbackL: "Community Group",    slugS: "app-initiatives-type-community-sub", fallbackS: "Organize a community, manage branches and members" },
         ] as { value: InitiativeType; slugL: string; fallbackL: string; slugS: string; fallbackS: string }[]).map(({ value, slugL, fallbackL, slugS, fallbackS }) => (
           <button key={value} type="button" onClick={() => setSelectedType(value)} disabled={adding} style={{
             padding: "10px 12px", borderRadius: 10, textAlign: "left", border: "none",
@@ -540,7 +554,7 @@ export default function InitiativesPage() {
   );
 
   return (
-    <div style={{ background: A.bg, minHeight: "100vh" }}>
+    <div style={{ background: "#F8FAFC", minHeight: "100vh", fontFamily: "system-ui,-apple-system,sans-serif", paddingBottom: 80 }}>
       {pending && (
         <DeleteConfirmModal
           item={pending}
@@ -552,15 +566,15 @@ export default function InitiativesPage() {
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-      <div style={{ maxWidth: 480, margin: "0 auto", padding: "20px 16px" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: A.text, margin: "0 0 4px" }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", width: "100%", padding: "0 0 8px" }}>
+        <h1 style={{ fontSize: 18, fontWeight: 500, color: "#111827", margin: 0, padding: "16px 16px 4px" }}>
           {t("app-initiatives-heading", "Your Initiatives")}
         </h1>
-        <p style={{ fontSize: 13, color: A.textMuted, margin: "0 0 20px" }}>
+        <p style={{ fontSize: 13, color: "#64748B", margin: 0, padding: "0 16px 16px" }}>
           {t("app-initiatives-subtitle", "Manage your initiatives and public pages")}
         </p>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "0 16px" }}>
           {loading ? (
             <>
               <InitiativeCardSkeleton />
@@ -581,9 +595,9 @@ export default function InitiativesPage() {
                 const isBeingDeleted = deletingId === page.id;
                 return (
                   <div key={page.id} style={{
-                    background: A.surface, borderRadius: 14,
-                    border: `1px solid ${A.border}`,
-                    boxShadow: "0 1px 4px rgba(0,0,0,0.05)", padding: "16px",
+                    background: "#fff", borderRadius: 12,
+                    border: "0.5px solid #e2e8f0",
+                    padding: "14px 14px 12px",
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                       <span style={{ fontSize: 15, fontWeight: 700, color: A.text, flex: 1 }}>
@@ -592,16 +606,17 @@ export default function InitiativesPage() {
                       <span style={{
                         fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
                         color: meta.color, background: meta.bg,
-                        textTransform: "uppercase", letterSpacing: "0.04em",
+                        textTransform: "uppercase", letterSpacing: "0.08em",
                       }}>{meta.label}</span>
                     </div>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <a href={`/earn/initiative/${page.id}`} style={{
                         flex: 1, minWidth: 80, textAlign: "center",
-                        padding: "8px 12px", borderRadius: 8,
-                        background: A.accent, color: "#fff",
-                        fontSize: 12, fontWeight: 600, textDecoration: "none",
+                        padding: "8px 16px", borderRadius: 8,
+                        background: "#D85A30", color: "#fff",
+                        fontSize: 13, fontWeight: 500, textDecoration: "none",
+                        border: "none",
                       }}>{t("app-initiatives-open", "Open →")}</a>
 
                       <button
@@ -610,9 +625,9 @@ export default function InitiativesPage() {
                         style={{
                           flex: 1, minWidth: 80, textAlign: "center",
                           padding: "8px 12px", borderRadius: 8,
-                          background: A.surface, color: "#EF4444",
-                          border: "1px solid rgba(239,68,68,0.25)",
-                          fontSize: 12, fontWeight: 600,
+                          background: "none", color: "#DC2626",
+                          border: "none",
+                          fontSize: 13, fontWeight: 500,
                           cursor: deletingId !== null ? "not-allowed" : "pointer",
                           opacity: isBeingDeleted ? 0.5 : deletingId !== null ? 0.4 : 1,
                           display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
@@ -660,8 +675,8 @@ export default function InitiativesPage() {
             ) : (
               <button onClick={() => setShowCreate(true)} style={{
                 display: "block", width: "100%", textAlign: "center",
-                padding: "12px", borderRadius: 14,
-                border: `2px dashed ${A.border}`, color: A.accent,
+                padding: "12px", borderRadius: 12,
+                border: "2px dashed #e2e8f0", color: "#D85A30",
                 fontSize: 13, fontWeight: 600, background: "none", cursor: "pointer", marginTop: 4,
               }}>
                 {t("app-initiatives-add-btn", "+ Add Initiative")}

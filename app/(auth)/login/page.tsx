@@ -176,6 +176,14 @@ function AuthForm() {
 
       const userData = res && res.ok ? await res.json().catch(() => ({})) : {};
 
+      if (!res.ok) {
+        setMessage("⚠️ " + t(
+          "auth-msg-server-unavailable",
+          "Service temporarily unavailable. Please try again in a moment."
+        ));
+        return;
+      }
+
       if (userData.exists && userData.emailVerified) {
         setStep("login");
         setMessage("");
@@ -261,7 +269,7 @@ function AuthForm() {
       if (!res.ok) {
         setAttempts((n) => n + 1);
         if (attempts + 1 >= 3) setCooldown(60);
-        setMessage("❌ " + (data.error || t("auth-msg-reg-fail", "Registration failed")));
+        setMessage("❌ " + (data.message || t("auth-msg-reg-fail", "Registration failed. Please try again.")));
         return;
       }
 

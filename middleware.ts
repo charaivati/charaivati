@@ -5,7 +5,7 @@ const PROTECTED_ROUTES = ["/self", "/nation", "/earth", "/society"];
 
 // Paths where neither the language gate nor auth gate should fire.
 // /api/* and /_next/* are excluded at the matcher level (see config below).
-const SKIP_PATHS = new Set(["/", "/login", "/register"]);
+const SKIP_PATHS = new Set(["/", "/login", "/register", "/journey"]);
 
 // Static file extensions that should never trigger a redirect.
 const STATIC_EXT = /\.(?:ico|png|jpe?g|svg|webp|js|css|woff2?)$/i;
@@ -23,7 +23,10 @@ export async function middleware(req: NextRequest) {
   // the "lang" cookie set (written by LanguageProvider on language selection).
   // If absent, redirect to / so the user goes through the language picker.
   // Authenticated users skip this gate — they already picked a language.
-  const isSkipPath = SKIP_PATHS.has(pathname) || STATIC_EXT.test(pathname);
+  const isSkipPath =
+    SKIP_PATHS.has(pathname) ||
+    pathname.startsWith("/journey") ||
+    STATIC_EXT.test(pathname);
   if (!isSkipPath && !payload) {
     const langCookie = req.cookies.get("lang")?.value;
     if (!langCookie) {

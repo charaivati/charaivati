@@ -3,13 +3,15 @@ import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
 import InitiativeTabs from "@/components/earn/InitiativeTabs";
+import HealthInitiativePage from "@/components/earn/health/HealthInitiativePage";
 import { kindLabel } from "@/lib/pages/kindLabel";
 
 function pageBadgeColor(type: string | null, pageType: string | null): string {
-  if (type === "health")       return "#059669";
-  if (pageType === "helping")  return "#0d9488";
-  if (pageType === "learning") return "#7c3aed";
-  if (pageType === "service")  return "#b45309";
+  if (type === "health")                 return "#059669";
+  if (pageType === "helping")            return "#0d9488";
+  if (pageType === "learning")           return "#7c3aed";
+  if (pageType === "service")            return "#b45309";
+  if (pageType === "community_group")    return "#0369a1";
   return "#6366f1";
 }
 
@@ -34,6 +36,7 @@ export default async function InitiativePage({
       include: {
         course: true,
         helpingInitiative: true,
+        healthBusiness: true,
         collaborationsIn: { include: { requester: true } },
         collaborationsOut: { include: { receiver: true } },
       },
@@ -73,14 +76,33 @@ export default async function InitiativePage({
           </span>
         </div>
 
-        <InitiativeTabs
-          pageId={pageId}
-          pageType={page.pageType ?? "store"}
-          storeName={store?.name ?? null}
-          storeSlug={store?.slug ?? null}
-          storeId={store?.id ?? null}
-          ownerPages={ownerPages}
-        />
+        {page.type === "health" ? (
+          <HealthInitiativePage
+            pageId={pageId}
+            pageTitle={page.title}
+            pageDescription={page.description ?? null}
+            isOwner={true}
+            healthBusiness={page.healthBusiness ?? null}
+          />
+        ) : page.pageType === "community_group" ? (
+          <InitiativeTabs
+            pageId={pageId}
+            pageType="community_group"
+            storeName={null}
+            storeSlug={null}
+            storeId={null}
+            ownerPages={ownerPages}
+          />
+        ) : (
+          <InitiativeTabs
+            pageId={pageId}
+            pageType={page.pageType ?? "store"}
+            storeName={store?.name ?? null}
+            storeSlug={store?.slug ?? null}
+            storeId={store?.id ?? null}
+            ownerPages={ownerPages}
+          />
+        )}
       </div>
     </div>
   );

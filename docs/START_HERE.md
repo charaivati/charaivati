@@ -375,7 +375,25 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 ---
 
-## 10. Glossary
+## 10. Security
+
+A full static security audit is at [docs/SECURITY_AUDIT.md](SECURITY_AUDIT.md).
+
+**Critical issues that must be fixed before further public launch:**
+
+| Priority | File | Issue |
+|---|---|---|
+| 1 | `app/api/debug-db/route.ts` | **No auth — returns DATABASE_URL.** Delete this file. |
+| 2 | `app/api/user/register-temp/route.ts` | **No auth — overwrites any user's password.** Delete this file. |
+| 3 | `app/api/users/search/route.ts` | **No auth — returns email + phone for all users.** Add session auth. |
+| 4 | `app/api/transport/broadcast/route.ts` | **No auth — GPS spoofing.** Add session auth + partner ownership check. |
+| 5 | `app/api/tests/ai`, `goal-ai/refine`, `goal-ai/summary`, `goal-ai/reflect`, `ai/suggest-actions` | **No auth — free AI API abuse + prompt injection.** Add session auth + rate limiting. |
+
+See `docs/SECURITY_AUDIT.md` for the full 28-finding report with file references, exploit descriptions, and recommended fixes.
+
+---
+
+## 11. Glossary
 
 | Term | Meaning |
 |---|---|

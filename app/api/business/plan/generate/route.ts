@@ -1,5 +1,6 @@
 // app/api/business/plan/generate/route.ts
 import { NextResponse } from "next/server";
+import getServerUser from "@/lib/serverAuth";
 
 function buildBMC(ideaData: any) {
   return {
@@ -69,6 +70,9 @@ function buildPhases(ideaData: any) {
 }
 
 export async function POST(req: Request) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const body = await req.json();
     const { ideaData, analysis } = body;

@@ -262,14 +262,15 @@ export default function SavedPage() {
   );
 
   return (
-    <div style={{ background: A.bg, minHeight: "100vh" }}>
-      <div style={{ maxWidth: 480, margin: "0 auto", padding: "20px 16px" }}>
+    <div style={{ background: "#F8FAFC", minHeight: "100vh", fontFamily: "system-ui,-apple-system,sans-serif", paddingBottom: 80 }}>
+      <div style={{ maxWidth: 480, margin: "0 auto", width: "100%", padding: "0 16px 16px" }}>
         <h1
           style={{
-            fontSize: 20,
-            fontWeight: 700,
-            color: A.text,
-            margin: "0 0 20px",
+            fontSize: 18,
+            fontWeight: 500,
+            color: "#111827",
+            margin: 0,
+            padding: "16px 0 16px",
           }}
         >
           {t("app-saved-heading", "Explore")}
@@ -279,13 +280,15 @@ export default function SavedPage() {
         <section style={{ marginBottom: 28 }}>
           <h2
             style={{
-              fontSize: 14,
-              fontWeight: 700,
-              color: A.text,
-              margin: "0 0 10px",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#64748B",
+              margin: "0 0 8px",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
             }}
           >
-            📌 {t("app-saved-pinned-heading", "Saved Stores")}
+            {t("app-saved-pinned-heading", "Saved Stores")}
           </h2>
 
           {loadingPinned ? (
@@ -305,9 +308,9 @@ export default function SavedPage() {
                       display: "flex",
                       alignItems: "center",
                       gap: 12,
-                      background: A.surface,
+                      background: "#fff",
                       borderRadius: 12,
-                      border: `1px solid ${A.border}`,
+                      border: "0.5px solid #e2e8f0",
                       overflow: "hidden",
                     }}
                   >
@@ -368,13 +371,15 @@ export default function SavedPage() {
         <section style={{ marginBottom: 34 }}>
           <h2
             style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: A.text,
-              margin: "0 0 12px",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#64748B",
+              margin: "0 0 8px",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
             }}
           >
-            ❤️ {t("app-saved-wishlist-heading", "Saved Products")}
+            {t("app-saved-wishlist-heading", "Saved Products")}
           </h2>
 
           {loadingWishlist ? (
@@ -398,9 +403,9 @@ export default function SavedPage() {
                   <div
                     key={item.blockId}
                     style={{
-                      background: A.surface,
+                      background: "#fff",
                       borderRadius: 10,
-                      border: `1px solid ${A.border}`,
+                      border: "0.5px solid #e2e8f0",
                       overflow: "hidden",
                     }}
                   >
@@ -490,13 +495,15 @@ export default function SavedPage() {
         <section>
           <h2
             style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: A.text,
-              margin: "0 0 12px",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "#64748B",
+              margin: "0 0 8px",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
             }}
           >
-            🏪 {t("app-saved-browse-heading", "Browse Stores")}
+            {t("app-saved-browse-heading", "Browse Stores")}
           </h2>
 
           <input
@@ -534,10 +541,9 @@ export default function SavedPage() {
                   <div
                     key={store.id}
                     style={{
-                      background: A.surface,
-                      borderRadius: 14,
-                      border: `1px solid ${A.border}`,
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                      background: "#fff",
+                      borderRadius: 12,
+                      border: "0.5px solid #e2e8f0",
                       display: "flex",
                       alignItems: "center",
                       gap: 12,

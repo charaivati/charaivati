@@ -3,8 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chatComplete, safeJsonParse } from '@/app/api/aiClient';
 import { buildSummaryPrompt } from '@/lib/ai/goalPrompts';
 import type { GoalSummary } from '@/app/(with-nav)/self/tabs/goal-creation/flow-config/types';
+import getServerUser from '@/lib/serverAuth';
 
 export async function POST(req: NextRequest) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { archetype, mode, answers, detectedFlags } = await req.json();
 
   try {

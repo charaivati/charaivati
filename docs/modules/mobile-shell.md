@@ -91,8 +91,18 @@ Provides the native mobile app experience via Capacitor. The shell is a thin lay
 
 `app/app/` is the mobile operating layer for the Earn system. The home page (`app/app/home/page.tsx`) has two distinct modes:
 
-- **Returning user (has store / active orders)** — live dashboard: pending order count, revenue today, quick links to `/store/[slug]/orders` and `/app/orders`. This is the primary use case.
-- **New user (no store / no history)** — a single clear CTA to create their first initiative, pointing to `/app/initiatives`.
+The home page has two render states based on auth:
+- **Guest/new user** — static marketing content (existing JSX, unchanged): dedication section, network visual, hero text, two feature cards, CTA button, GST modal.
+- **Returning user** — live dashboard: topbar with greeting (good morning/afternoon/evening + first name + avatar initials), stats row (orders today + revenue today with yesterday delta), pending orders list (up to 3 non-delivered orders with customer name, store, amount, status pill), initiatives list (all pages owned by the user via `kindLabel()`).
+
+Data sources fetched in parallel on mount:
+- `GET /api/user/me` — auth check and user name
+- `GET /api/store/orders?all=true` — all seller orders; today/yesterday filtered client-side for stats; non-terminal orders shown in pending list
+- `GET /api/user/pages` — user's initiatives for the initiatives section
+
+If any fetch fails, stats show `"—"` rather than crashing. Guest users (`user.status === "guest"`) fall through to the guest/new-user state.
+
+**Per-initiative order count is not yet on the home dashboard** — `Store.pageId` has no reverse relation in Prisma, so there is no efficient way to join pages → stores → orders in a single query. When needed, add `GET /api/store/orders/summary` returning `[{ pageId, pendingCount, totalToday }]`.
 
 The home page is **not a marketing page** and should not contain static promotional copy, feature lists, or landing-page imagery. If it is not showing live data for returning users, something is wrong with the data-fetching layer, not the design.
 

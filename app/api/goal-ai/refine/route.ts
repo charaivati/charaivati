@@ -2,8 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatComplete, safeJsonParse } from '@/app/api/aiClient';
 import { buildRefinePrompt } from '@/lib/ai/goalPrompts';
+import getServerUser from '@/lib/serverAuth';
 
 export async function POST(req: NextRequest) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { archetype, mode, questionText, answer, hasAlreadyRefined } = await req.json();
 
   // Only refine once per question — never loop

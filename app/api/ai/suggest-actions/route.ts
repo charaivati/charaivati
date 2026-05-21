@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { callAI, safeJsonParse } from "@/app/api/aiClient";
 import type { GoalEntry, Suggestion, SuggestionType, Priority } from "@/app/api/ai/types.ts";
+import getServerUser from "@/lib/serverAuth";
 
 type EnergyContext = {
   overall: number;
@@ -52,6 +53,9 @@ function buildFallback(body: Body): Suggestion[] {
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   const body          = (await req.json().catch(() => ({}))) as Body;
   const energy        = body.energy ?? null;
   const goals         = Array.isArray(body.goals)         ? body.goals         : [];

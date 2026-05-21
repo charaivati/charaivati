@@ -6,16 +6,7 @@ import { useTranslations } from "@/hooks/useTranslations";
 import { kindLabel } from "@/lib/pages/kindLabel";
 
 const HOME_SLUGS = [
-  "app-home-dedication-1","app-home-dedication-2","app-home-dedication-3",
-  "app-home-dedication-4","app-home-dedication-5",
-  "app-home-tag","app-home-headline","app-home-tap-start",
-  "app-home-card-initiatives",
-  "app-home-card-initiative-1","app-home-card-initiative-2",
-  "app-home-card-initiative-3","app-home-card-initiative-4",
-  "app-home-card-explore",
-  "app-home-card-explore-1","app-home-card-explore-2",
-  "app-home-card-explore-3","app-home-card-explore-4",
-  "app-home-cta-tagline","app-home-cta-btn",
+  "app-home-cta-btn",
   "app-home-no-gst","app-home-see-details",
   "app-home-gst-modal-title","app-home-gst-no-need","app-home-gst-need",
   "app-home-gst-good-to-know","app-home-gst-register-btn","app-home-gst-disclaimer",
@@ -223,6 +214,7 @@ export default function HomePage() {
         fontFamily: "system-ui,-apple-system,sans-serif",
         paddingBottom: 80,
       }}>
+        <div style={{ maxWidth: 480, margin: "0 auto", width: "100%" }}>
 
         {/* 1. Topbar */}
         <header style={{
@@ -413,179 +405,85 @@ export default function HomePage() {
             })
           )}
         </div>
+        </div>
       </div>
     );
   }
 
-  // ── Guest / new user state (unchanged) ───────────────────────────────────
+  // ── Guest / new user state ───────────────────────────────────────────────
   return (
-    <div
-      className="mx-auto max-w-[390px] md:max-w-[900px]"
-      style={{
-        background: "#0F172A", minHeight: "100vh",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-      }}
-    >
+    <div style={{
+      background: "#F8FAFC", minHeight: "100vh",
+      fontFamily: "system-ui,-apple-system,sans-serif",
+      paddingBottom: 80,
+    }}>
 
-      {/* Dedication */}
-      <section style={{ background: "#fff", padding: "20px 20px 28px" }}>
-        <p style={{
-          fontSize: 17, fontWeight: 800, lineHeight: 1.5,
-          color: "#0F172A", textAlign: "center", margin: 0,
-          textTransform: "uppercase", letterSpacing: "0.02em",
-        }}>
-          <span style={{ color: "#6366f1" }}>{t("app-home-dedication-1", "To my younger self")}</span>,{" "}
-          {t("app-home-dedication-2", "who wanted to start a business.")}{" "}
-          <span style={{ color: "#6366f1" }}>{t("app-home-dedication-3", "To my friend")}</span>,{" "}
-          {t("app-home-dedication-4", "whose father's clothing store needed help.")}{" "}
-          {t("app-home-dedication-5", "To everyone who stopped because of")}{" "}
-          <span style={{ color: "#6366f1" }}>paperwork.</span>
-        </p>
-      </section>
-
-      {/* Network visual */}
-      <section style={{
-        background: "linear-gradient(160deg, #1E1B4B 0%, #312E81 40%, #1E3A5F 70%, #0F172A 100%)",
-        minHeight: 180, position: "relative", overflow: "hidden",
-        display: "flex", alignItems: "center", justifyContent: "center",
+      {/* 1. Topbar */}
+      <header style={{
+        background: "#fff",
+        borderBottom: "0.5px solid #e2e8f0",
+        padding: "12px 16px",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        position: "sticky", top: 56, zIndex: 20,
       }}>
-        <div style={{
-          position: "absolute", inset: 0,
-          backgroundImage: "radial-gradient(circle, rgba(99,102,241,0.3) 1.5px, transparent 1.5px)",
-          backgroundSize: "28px 28px",
-        }} />
-        <div style={{
-          position: "absolute",
-          width: 220, height: 220, borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(99,102,241,0.12) 0%, transparent 70%)",
-          top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-        }} />
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
-          <line x1="28%" y1="50%" x2="50%" y2="50%" stroke="rgba(99,102,241,0.35)" strokeWidth="1" strokeDasharray="5 4" />
-          <line x1="50%" y1="50%" x2="72%" y2="50%" stroke="rgba(99,102,241,0.35)" strokeWidth="1" strokeDasharray="5 4" />
-          <line x1="50%" y1="20%" x2="50%" y2="50%" stroke="rgba(99,102,241,0.25)" strokeWidth="1" strokeDasharray="4 4" />
-          <line x1="50%" y1="50%" x2="50%" y2="80%" stroke="rgba(99,102,241,0.25)" strokeWidth="1" strokeDasharray="4 4" />
-        </svg>
-        <div style={{ position: "relative", zIndex: 1, display: "flex", gap: 28, alignItems: "center" }}>
-          {[{ icon: "🛍️", size: 44 }, { icon: "🌐", size: 64 }, { icon: "🤝", size: 44 }].map(({ icon, size }, i) => (
-            <div key={i} style={{
-              width: size, height: size, borderRadius: "50%",
-              background: "rgba(99,102,241,0.18)",
-              border: `${i === 1 ? 2 : 1}px solid rgba(99,102,241,${i === 1 ? 0.7 : 0.4})`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: i === 1 ? 28 : 20,
-              boxShadow: i === 1 ? "0 0 24px rgba(99,102,241,0.3)" : "none",
-            }}>
-              {icon}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Hero text + two-column cards */}
-      <section style={{ background: "#0F172A", padding: "20px 16px 0" }}>
-
-        {/* Tag */}
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-          <span style={{
-            border: "1px solid rgba(99,102,241,0.5)",
-            color: "#A5B4FC", fontSize: 10, fontWeight: 700,
-            letterSpacing: "0.15em", padding: "5px 14px",
-            textTransform: "uppercase",
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: "50%", flexShrink: 0,
+            background: "#F1F5F9", color: "#64748B",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 13, fontWeight: 700,
           }}>
-            {t("app-home-tag", "Igniting Ideas, Empowering Dreams")}
-          </span>
-        </div>
-
-        {/* Headline */}
-        <h1 style={{
-          fontSize: 26, fontWeight: 900, lineHeight: 1.2,
-          color: "#fff", margin: "0 0 10px",
-          textTransform: "uppercase", textAlign: "center",
-        }}>
-          {t("app-home-headline", "Start, Build and Share the Initiative You Always Wanted.")}
-        </h1>
-
-        <p style={{ textAlign: "center", color: "#64748B", fontSize: 13, margin: "0 0 20px" }}>
-          {t("app-home-tap-start", "Tap to get started")}
-        </p>
-
-        {/* Two columns on mobile, four on desktop */}
-        <div className="grid grid-cols-2 md:grid-cols-4" style={{ gap: 10, marginBottom: 20 }}>
-          <div style={{ background: "#fff", borderRadius: 14, padding: "14px 12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-              <span style={{ fontSize: 20 }}>🚀</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>
-                {t("app-home-card-initiatives", "My Initiatives")}
-              </span>
-            </div>
-            {[
-              t("app-home-card-initiative-1", "Create a Store"),
-              t("app-home-card-initiative-2", "Run a Service"),
-              t("app-home-card-initiative-3", "Share a Cause"),
-              t("app-home-card-initiative-4", "Build a Community"),
-            ].map((item) => (
-              <p key={item} style={{ fontSize: 12, color: "#374151", margin: "0 0 5px", lineHeight: 1.4 }}>
-                {item}
-              </p>
-            ))}
+            G
           </div>
-
-          <div style={{ background: "#fff", borderRadius: 14, padding: "14px 12px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-              <span style={{ fontSize: 20 }}>🌍</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>
-                {t("app-home-card-explore", "Explore & Buy")}
-              </span>
-            </div>
-            {[
-              t("app-home-card-explore-1", "Browse Stores"),
-              t("app-home-card-explore-2", "Save Products"),
-              t("app-home-card-explore-3", "Support Initiatives"),
-              t("app-home-card-explore-4", "Connect & Collaborate"),
-            ].map((item) => (
-              <p key={item} style={{ fontSize: 12, color: "#374151", margin: "0 0 5px", lineHeight: 1.4 }}>
-                {item}
-              </p>
-            ))}
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#111827", lineHeight: 1.3 }}>
+            Welcome
           </div>
         </div>
-      </section>
+        <button
+          aria-label="Notifications"
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 6, lineHeight: 0 }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+            <path d="M13.73 21a2 2 0 01-3.46 0" />
+          </svg>
+        </button>
+      </header>
 
-      {/* Bottom CTA */}
-      <section style={{
-        background: "#060B18",
-        borderTop: "1px solid #1E293B",
-        padding: "20px 16px 36px",
-      }}>
+      {/* 2. Empty state */}
+      <div style={{ textAlign: "center", padding: "40px 24px" }}>
+        <div style={{ fontSize: 32, marginBottom: 16 }}>🚀</div>
+        <div style={{ fontSize: 16, fontWeight: 500, color: "#111827", marginBottom: 10 }}>
+          Start your first initiative
+        </div>
         <p style={{
-          textAlign: "center", fontSize: 11, fontWeight: 700,
-          color: "#475569", letterSpacing: "0.12em",
-          textTransform: "uppercase", margin: "0 0 14px",
+          fontSize: 13, color: "#64748B", lineHeight: 1.6,
+          maxWidth: 280, margin: "0 auto",
         }}>
-          {t("app-home-cta-tagline", "Just start. The rest follows.")}
+          Create a store, offer a service, teach a skill, or run a cause. Your initiative lives here.
         </p>
+      </div>
 
+      {/* 3. CTA */}
+      <div style={{ padding: "0 16px 24px" }}>
         <Link
           href="/app/initiatives"
           style={{
             display: "block", textAlign: "center",
-            background: "#6366f1", color: "#fff",
-            padding: "18px 24px", borderRadius: 12,
-            fontSize: 18, fontWeight: 800,
-            textTransform: "uppercase", letterSpacing: "0.04em",
+            background: "#D85A30", color: "#fff",
+            padding: "16px 24px", borderRadius: 12,
+            fontSize: 16, fontWeight: 700,
             textDecoration: "none",
           }}
         >
           {t("app-home-cta-btn", "Begin Your Initiative")}
         </Link>
-
-        <p style={{ fontSize: 11, color: "#475569", textAlign: "center", margin: "16px 0 0" }}>
+        <p style={{ fontSize: 11, color: "#94A3B8", textAlign: "center", margin: "12px 0 0" }}>
           {t("app-home-no-gst", "No GST needed to start.")}{" "}
           <button
             onClick={() => setGstModalOpen(true)}
             style={{
-              fontSize: 11, color: "#818CF8",
+              fontSize: 11, color: "#185FA5",
               background: "none", border: "none",
               cursor: "pointer", padding: 0,
               textDecoration: "underline",
@@ -594,7 +492,70 @@ export default function HomePage() {
             {t("app-home-see-details", "See full details")}
           </button>
         </p>
-      </section>
+      </div>
+
+      {/* 4. Explore section */}
+      <div style={{
+        fontSize: 11, fontWeight: 500, letterSpacing: "0.06em",
+        color: "#64748B", textTransform: "uppercase" as const,
+        margin: "0 16px 8px",
+      }}>
+        EXPLORE WHAT OTHERS HAVE BUILT
+      </div>
+
+      <div style={{
+        background: "#fff", border: "0.5px solid #e2e8f0",
+        borderRadius: 12, margin: "0 16px",
+      }}>
+        <Link
+          href="/app/saved"
+          style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "12px 14px", textDecoration: "none",
+          }}
+        >
+          <div style={{
+            width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+            background: "#FDF0EB",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 15,
+          }}>
+            🛍️
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>Browse stores</div>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>Find products & services nearby</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </Link>
+
+        <Link
+          href="/app/saved"
+          style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "12px 14px", textDecoration: "none",
+            borderTop: "0.5px solid #f1f5f9",
+          }}
+        >
+          <div style={{
+            width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+            background: "#EBF2FA",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 15,
+          }}>
+            👥
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "#111827" }}>Hire services</div>
+            <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>Connect with local service providers</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </Link>
+      </div>
 
       {/* GST Modal */}
       {gstModalOpen && (

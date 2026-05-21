@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import PartnersTab from "./PartnersTab";
+
+const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
 
 type Tab = "overview" | "store" | "partners";
 
@@ -14,6 +17,29 @@ interface InitiativeTabsProps {
   ownerPages: { id: string; title: string; pageType: string }[];
 }
 
+function CommunityGroupTabs({ pageId, ownerPages }: { pageId: string; ownerPages: { id: string; title: string; pageType: string }[] }) {
+  const [activeTab, setActiveTab] = useState<"community" | "partners">("community");
+  return (
+    <div>
+      <div className="flex gap-1 p-1 rounded-xl bg-gray-900 border border-gray-800 mb-6">
+        {(["community", "partners"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === tab ? "bg-indigo-600 text-white" : "text-gray-400 hover:text-white"
+            }`}
+          >
+            {tab === "community" ? "Group" : "Partners"}
+          </button>
+        ))}
+      </div>
+      {activeTab === "community" && <CommunityGroupStudio pageId={pageId} />}
+      {activeTab === "partners" && <PartnersTab pageId={pageId} ownerPages={ownerPages} />}
+    </div>
+  );
+}
+
 export default function InitiativeTabs({
   pageId,
   pageType,
@@ -22,6 +48,10 @@ export default function InitiativeTabs({
   storeId,
   ownerPages,
 }: InitiativeTabsProps) {
+  if (pageType === "community_group") {
+    return <CommunityGroupTabs pageId={pageId} ownerPages={ownerPages} />;
+  }
+
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [openingStore, setOpeningStore] = useState(false);
 

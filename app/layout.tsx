@@ -3,6 +3,8 @@ import "./globals.css";
 import React from "react";
 import { headers, cookies } from "next/headers";
 import ClientProviders from "@/components/ClientProviders";
+import ChatBot from "@/components/chat/ChatBot";
+import { COOKIE_NAME, verifySessionToken } from "@/lib/session";
 
 export const metadata = {
   title: "Charaivati",
@@ -17,6 +19,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const ck = await cookies();
   const rawTheme = ck.get("charaivati.theme")?.value ?? "dark";
   const serverTheme = rawTheme === "light" ? "light" : "dark";
+
+  const sessionToken = ck.get(COOKIE_NAME)?.value;
+  const sessionPayload = sessionToken ? await verifySessionToken(sessionToken) : null;
+  const isLoggedIn = !!sessionPayload?.userId;
 
   const bodyClass = `bg-black text-white min-h-screen antialiased${serverTheme === "dark" ? " dark" : ""}`;
 
@@ -60,6 +66,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           dangerouslySetInnerHTML={{ __html: inlineScript }}
         />
         <ClientProviders>{children}</ClientProviders>
+        <ChatBot isLoggedIn={isLoggedIn} />
       </body>
     </html>
   );

@@ -2,8 +2,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { VehicleType } from "@/lib/types";
+import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
+  const token = getTokenFromRequest(req);
+  const payload = await verifySessionToken(token);
+  if (!payload?.userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const body = await req.json();
 
@@ -63,6 +70,12 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/transport/broadcast?id=ac-47 — stop broadcasting, remove row
 export async function DELETE(req: NextRequest) {
+  const token = getTokenFromRequest(req);
+  const payload = await verifySessionToken(token);
+  if (!payload?.userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const id = req.nextUrl.searchParams.get("id");
     if (!id) {

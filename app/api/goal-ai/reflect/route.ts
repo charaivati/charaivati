@@ -2,8 +2,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatComplete } from '@/app/api/aiClient';
 import { buildReflectPrompt } from '@/lib/ai/goalPrompts';
+import getServerUser from '@/lib/serverAuth';
 
 export async function POST(req: NextRequest) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { archetype, mode, questionText, answer, priorAnswers, nextQuestionText } = await req.json();
 
   try {

@@ -1,6 +1,7 @@
 // app/api/business/idea/score/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import getServerUser from "@/lib/serverAuth";
 
 interface Option {
   value: string;

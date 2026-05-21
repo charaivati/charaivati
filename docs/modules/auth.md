@@ -101,8 +101,8 @@ Two sequential gates. Session is verified once and reused by both.
 ### Registration and email verification
 1. User fills in name/email/password on the login page (`step === "register"`) and clicks "Create Account"
 2. Client POSTs to `POST /api/user/register` with `{ email, password, name, redirect }`
-3. Server creates user (`emailVerified: false`), generates a 15-min magic link token, stores hash in `MagicLink.meta` (includes `redirect` path and `guestId` if present), sends verification email via `lib/sendEmail.ts` (Nodemailer/Gmail)
-4. On success response, login page sets `step = "verify-pending"` — stays on page, shows "check your inbox" message. **No redirect.**
+3. Server creates user (`emailVerified: false`), generates a 15-min magic link token, stores hash in `MagicLink.meta` (includes `redirect` path and `guestId` if present). In dev with missing email env vars, logs the verification link to console. Calls `sendEmail()` — **throws** if `EMAIL_USER`/`EMAIL_PASS`/`EMAIL_FROM` are absent; route catches and returns 500 with a user-facing support message.
+4. On 200 response, login page sets `step = "verify-pending"` — stays on page, shows "check your inbox" message. **No redirect.** On non-200 (email failure), login page displays the error message instead.
 5. User clicks email link → `GET /api/user/magic?token=...&redirect=...`
 6. Server verifies token, marks user `emailVerified: true`, runs guest merge, redirects to `/verified?email=...&redirect=...`
 7. `/verified` page shows "Email Verified!" with a single "Sign in to continue →" link to `/login?email=...&redirect=...`
