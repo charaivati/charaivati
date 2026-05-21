@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "backfill:section-types": "ts-node scripts/backfill-section-types.ts",
-    "vercel-build": "npx prisma generate && next build",
+    "vercel-build": "npx prisma migrate deploy && npx prisma generate && next build",
     "postinstall": "prisma generate"
   },
   "dependencies": {
