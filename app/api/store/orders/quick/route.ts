@@ -36,7 +36,11 @@ export async function POST(req: NextRequest) {
     imageUrl: i.imageUrl ?? null,
   }));
 
-  const total = orderItems.reduce((s, i) => s + i.price * i.quantity, 0);
+  const itemsTotal = orderItems.reduce((s, i) => s + i.price * i.quantity, 0);
+  const fee = (store as any).deliveryFee ?? null;
+  const freeAbove = (store as any).freeDeliveryAbove ?? null;
+  const deliveryFeeApplied = fee != null && (freeAbove == null || itemsTotal < freeAbove) ? fee : 0;
+  const total = itemsTotal + deliveryFeeApplied;
 
   const orderData: Record<string, unknown> = {
     userId: user.id,

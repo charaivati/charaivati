@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { name, phone, line1, city, state, pincode, isDefault } = await req.json();
+  const { name, phone, line1, city, state, pincode, isDefault, lat, lng } = await req.json();
   if (!name || !phone || !line1 || !city || !state || !pincode) {
     return NextResponse.json({ error: "All address fields required" }, { status: 400 });
   }
@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
       state: state.trim(),
       pincode: pincode.trim(),
       isDefault: isDefault ?? false,
+      ...(typeof lat === "number" && { lat }),
+      ...(typeof lng === "number" && { lng }),
     },
   });
 

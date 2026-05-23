@@ -801,6 +801,8 @@ export default function SectionPage() {
   const [storeId, setStoreId] = useState("");
   const [storeSlug, setStoreSlug] = useState<string | null>(null);
   const [isOwner, setIsOwner] = useState(false);
+  const [storeDeliveryFee, setStoreDeliveryFee] = useState<number | null>(null);
+  const [storeFreeDeliveryAbove, setStoreFreeDeliveryAbove] = useState<number | null>(null);
   const [sectionTitle, setSectionTitle] = useState("");
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [loading, setLoading] = useState(true);
@@ -830,6 +832,8 @@ export default function SectionPage() {
         setStoreId(data.id ?? id);
         setStoreSlug(data.slug ?? null);
         setIsOwner(!!data.isOwner);
+        setStoreDeliveryFee(data.deliveryFee ?? null);
+        setStoreFreeDeliveryAbove(data.freeDeliveryAbove ?? null);
         const found = (data.sections ?? []).find((s: any) => s.id === sectionId);
         if (found) {
           setSectionTitle(found.title);
@@ -1039,6 +1043,8 @@ export default function SectionPage() {
           storeId={storeId}
           storeName={storeName}
           initialItem={quickOrderItem}
+          deliveryFee={storeDeliveryFee}
+          freeDeliveryAbove={storeFreeDeliveryAbove}
         />
       )}
     </div>

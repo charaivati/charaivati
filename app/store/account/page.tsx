@@ -2,6 +2,7 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import AddressForm, { type AddressFormData } from "@/components/shared/AddressForm";
 
 const A = {
   bg: "#E3E6E6",
@@ -301,27 +302,19 @@ function AccountPageContent() {
     setAddresses((prev) => prev.filter((a) => a.id !== id));
   }
 
-  async function handleSaveAddr() {
-    const { name, phone, line1, city, state, pincode } = addForm;
-    if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
-      setAddFormError("Please fill all address fields");
-      return;
-    }
+  async function handleSaveAddr(data: AddressFormData) {
     setSavingAddr(true);
-    setAddFormError("");
     try {
       const r = await fetch("/api/store/address", {
         method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
         body: JSON.stringify({
-          name: name.trim(), phone: phone.trim(), line1: line1.trim(),
-          city: city.trim(), state: state.trim(), pincode: pincode.trim(),
-          isDefault: addresses.length === 0,
+          ...data,
+          isDefault: data.isDefault || addresses.length === 0,
         }),
       });
       if (r.ok) {
         const a = await r.json();
         setAddresses((prev) => [a, ...prev]);
-        setAddForm(ADDR_EMPTY);
         setShowAddForm(false);
       }
     } finally { setSavingAddr(false); }
@@ -506,47 +499,13 @@ function AccountPageContent() {
                   ))}
 
                   {showAddForm ? (
-                    <div className="rounded-xl p-4 space-y-3" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
-                      <h3 className="text-sm font-semibold" style={{ color: A.text }}>New address</h3>
-                      <div className="grid grid-cols-2 gap-2">
-                        <input value={addForm.name} onChange={(e) => setAddrField("name", e.target.value)}
-                          placeholder="Full name" className={iCls} style={iStyle} />
-                        <input value={addForm.phone} onChange={(e) => setAddrField("phone", e.target.value)}
-                          placeholder="Phone" inputMode="tel" className={iCls} style={iStyle} />
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <div className="relative">
-                          <input value={addForm.pincode}
-                            onChange={(e) => {
-                              const v = e.target.value.replace(/\D/g, "").slice(0, 6);
-                              setAddrField("pincode", v);
-                              if (v.length === 6) handleAddrPinLookup(v);
-                            }}
-                            placeholder="Pincode" inputMode="numeric" className={iCls} style={iStyle} />
-                          {addrPinLoading && (
-                            <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", fontSize: 9, color: A.textMuted }}>⏳</span>
-                          )}
-                        </div>
-                        <input value={addForm.city} onChange={(e) => setAddrField("city", e.target.value)}
-                          placeholder="City" className={iCls} style={iStyle} />
-                        <input value={addForm.state} onChange={(e) => setAddrField("state", e.target.value)}
-                          placeholder="State" className={iCls} style={iStyle} />
-                      </div>
-                      <input value={addForm.line1} onChange={(e) => setAddrField("line1", e.target.value)}
-                        placeholder="Address line (house, street, area)" className={iCls} style={iStyle} />
-                      {addFormError && <p className="text-xs" style={{ color: "#EF4444" }}>{addFormError}</p>}
-                      <div className="flex gap-2">
-                        <button onClick={handleSaveAddr} disabled={savingAddr}
-                          className="text-sm px-4 py-2 rounded-md font-medium"
-                          style={{ background: A.accent, color: "#fff", opacity: savingAddr ? 0.6 : 1, cursor: savingAddr ? "default" : "pointer" }}>
-                          {savingAddr ? "Saving…" : "Save address"}
-                        </button>
-                        <button onClick={() => { setShowAddForm(false); setAddForm(ADDR_EMPTY); setAddFormError(""); }}
-                          className="text-sm px-4 py-2 rounded-md"
-                          style={{ border: `1px solid ${A.border}`, color: A.textMuted, background: A.surface, cursor: "pointer" }}>
-                          Cancel
-                        </button>
-                      </div>
+                    <div className="rounded-xl p-4" style={{ background: A.surface, border: `1px solid ${A.border}` }}>
+                      <h3 className="text-sm font-semibold mb-3" style={{ color: A.text }}>New address</h3>
+                      <AddressForm
+                        onSave={handleSaveAddr}
+                        onCancel={() => setShowAddForm(false)}
+                        saving={savingAddr}
+                      />
                     </div>
                   ) : (
                     <button onClick={() => setShowAddForm(true)}

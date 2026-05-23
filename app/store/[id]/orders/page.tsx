@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 
 const A = {
@@ -23,6 +23,10 @@ const STEP_LABEL: Record<string, string> = {
 // ── Types ─────────────────────────────────────────────────────────────────────
 type OrderItem = { blockId: string; title: string; price: number; quantity: number };
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
+type QuoteEntry  = { id: string; stepId: string; partyName: string; amount: number | null; status: string };
+type ActiveStep  = { stepId: string; stepName: string; assigneeName: string | null; quoteRequired: boolean };
+type StepStatus  = { stepId: string; stepName: string; sequence: number; quoteRequired: boolean; ospStatus: string };
+type QueueStep   = { stepId: string; stepName: string };
 type Order = {
   id: string; status: string; total: number; createdAt: string;
   invoiceUrl?: string | null;
@@ -34,6 +38,13 @@ type Order = {
   assignedToId?: string | null;
   deliveryNote?: string | null;
   partnerStatus?: string | null;
+  requiresAttention?: boolean;
+  agreedAmount?: number | null;
+  activeStep?: ActiveStep | null;
+  quotes?: QuoteEntry[];
+  initiativeId?: string | null;
+  subOrders?: { id: string; subOrderType: string | null; agreedAmount: number | null; userId: string }[];
+  allSteps?:  StepStatus[];
 };
 
 type CollabPage = { id: string; title: string; pageType: string };
@@ -136,7 +147,412 @@ function InvoiceSection({ orderId, inv, onSignUpload }: {
   return null;
 }
 
-// ── DeliverySection ───────────────────────────────────────────────────────────
+// ── CountdownBar ──────────────────────────────────────────────────────────────
+function CountdownBar({
+  stepName,
+  remaining,
+  index,
+  total,
+  onCancel,
+}: {
+  stepName: string;
+  remaining: number;
+  index: number;
+  total: number;
+  onCancel: () => void;
+}) {
+  const pct = Math.round(((5 - remaining) / 5) * 100);
+  return (
+    <div className="p-3 rounded-lg" style={{ background: "#EEF2FF", border: "1px solid #6366f1" }}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold" style={{ color: "#6366f1" }}>
+            Confirming: <em style={{ fontStyle: "normal" }}>{stepName}</em>
+          </span>
+          {total > 1 && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full"
+              style={{ background: "#C7D2FE", color: "#4338CA", fontSize: 10 }}>
+              {index + 1} / {total}
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 22, fontWeight: 800, color: "#6366f1", lineHeight: 1, minWidth: 28, textAlign: "right" }}>
+          {remaining}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div style={{ flex: 1, height: 5, background: "#C7D2FE", borderRadius: 99, overflow: "hidden" }}>
+          <div style={{
+            width: `${pct}%`, height: "100%", background: "#6366f1",
+            borderRadius: 99, transition: "width 0.95s linear",
+          }} />
+        </div>
+        <button
+          onClick={onCancel}
+          className="text-xs px-3 py-1 rounded-md font-semibold shrink-0"
+          style={{ background: "#fff", border: "1px solid #6366f1", color: "#6366f1", cursor: "pointer" }}>
+          Cancel
+        </button>
+      </div>
+      {total > 1 && index + 1 < total && (
+        <p className="text-xs mt-1.5" style={{ color: "#818CF8" }}>
+          Cancelling here stops the entire sequence.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── WorkflowSection ──────────────────────────────────────────────────────────
+function WorkflowSection({
+  orderId,
+  orderStatus,
+  initiativeId,
+  requiresAttention,
+  agreedAmount,
+  activeStep,
+  allSteps,
+  quotes,
+  partnerStatus,
+  assignedToId,
+  partners,
+  onReload,
+}: {
+  orderId: string;
+  orderStatus: string;
+  initiativeId: string | null;
+  requiresAttention: boolean;
+  agreedAmount: number | null;
+  activeStep: ActiveStep | null;
+  allSteps: StepStatus[];
+  quotes: QuoteEntry[];
+  partnerStatus: string | null;
+  assignedToId: string | null;
+  partners: Collab[];
+  onReload: () => void;
+}) {
+  const [localQuotes,   setLocalQuotes]   = useState<QuoteEntry[]>(quotes);
+  const [accepting,     setAccepting]     = useState<string | null>(null);
+  const [retryAssignee, setRetryAssignee] = useState("");
+  const [retrying,      setRetrying]      = useState(false);
+  const [executing,     setExecuting]     = useState(false); // API call in flight after countdown
+
+  // ── Countdown state ───────────────────────────────────────────────────────
+  const [countdown, setCountdown] = useState<{
+    queue: QueueStep[];
+    index: number;
+    remaining: number;
+  } | null>(null);
+
+  const countdownRef = useRef(countdown);
+  useEffect(() => { countdownRef.current = countdown; }, [countdown]);
+
+  const onReloadRef = useRef(onReload);
+  useEffect(() => { onReloadRef.current = onReload; }, [onReload]);
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  function stopTimer() {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+  }
+  useEffect(() => () => stopTimer(), []);
+
+  const startQueue = useCallback((queue: QueueStep[], index = 0) => {
+    stopTimer();
+    if (index >= queue.length) { onReloadRef.current(); return; }
+    setCountdown({ queue, index, remaining: 5 });
+
+    timerRef.current = setInterval(() => {
+      const cur = countdownRef.current;
+      if (!cur) { stopTimer(); return; }
+
+      if (cur.remaining > 1) {
+        setCountdown({ ...cur, remaining: cur.remaining - 1 });
+        return;
+      }
+
+      // Countdown reached zero — fire the confirm API
+      stopTimer();
+      setCountdown(null);
+      setExecuting(true);
+      fetch(`/api/order/${orderId}/step/${cur.queue[cur.index].stepId}/confirm`, {
+        method: "PATCH", credentials: "include",
+      }).then((r) => {
+        setExecuting(false);
+        if (!r.ok) return;
+        const nextIdx = cur.index + 1;
+        if (nextIdx < cur.queue.length) {
+          startQueue(cur.queue, nextIdx);
+        } else {
+          onReloadRef.current();
+        }
+      }).catch(() => setExecuting(false));
+    }, 1000);
+  }, [orderId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function cancelCountdown() { stopTimer(); setCountdown(null); }
+
+  // Build single-step confirm queue
+  function startConfirmStep() {
+    if (!activeStep) return;
+    startQueue([{ stepId: activeStep.stepId, stepName: activeStep.stepName }]);
+  }
+
+  // Build fast-track queue: all pending/active non-quote steps in sequence
+  function startFastTrack() {
+    const queue = allSteps
+      .filter((s) => !s.quoteRequired && (s.ospStatus === "active" || s.ospStatus === "pending"))
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((s) => ({ stepId: s.stepId, stepName: s.stepName }));
+    if (queue.length > 0) startQueue(queue);
+  }
+
+  // How many non-quote steps remain (active + pending)
+  const remainingNonQuoteSteps = allSteps.filter(
+    (s) => !s.quoteRequired && (s.ospStatus === "active" || s.ospStatus === "pending")
+  ).length;
+
+  useEffect(() => { setLocalQuotes(quotes); }, [quotes]);
+
+  async function handleRetry() {
+    if (!activeStep) return;
+    setRetrying(true);
+    const body: Record<string, unknown> = {};
+    if (retryAssignee) body.assigneeId = retryAssignee;
+    const res = await fetch(`/api/order/${orderId}/step/${activeStep.stepId}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) onReload();
+    setRetrying(false);
+  }
+
+  async function handleAccept(quoteId: string) {
+    setAccepting(quoteId);
+    const res = await fetch(`/api/order/${orderId}/quote/${quoteId}/accept`, {
+      method: "POST", credentials: "include",
+    });
+    if (res.ok) onReload();
+    setAccepting(null);
+  }
+
+  function move(idx: number, dir: -1 | 1) {
+    const next = [...localQuotes];
+    const target = idx + dir;
+    if (target < 0 || target >= next.length) return;
+    [next[idx], next[target]] = [next[target], next[idx]];
+    setLocalQuotes(next);
+    fetch(`/api/order/${orderId}/quote-order`, {
+      method: "PATCH", credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        summary: next.map((q) => ({ quoteId: q.id, partyName: q.partyName, amount: q.amount, status: q.status })),
+      }),
+    }).catch(() => {});
+  }
+
+  const showRejection = partnerStatus === "rejected" && activeStep;
+
+  // ── State A: no initiative linked ────────────────────────────────────────
+  if (!initiativeId) {
+    return (
+      <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+        <p className="text-xs font-semibold mb-1" style={{ color: A.textMuted }}>WORKFLOW</p>
+        <p className="text-xs" style={{ color: A.textMuted }}>
+          No workflow set up.{" "}
+          <a href={`/earn/initiative/${initiativeId}`} style={{ color: A.accent, textDecoration: "underline" }}>
+            Go to your Initiative → Workflow tab
+          </a>{" "}
+          to configure steps.
+        </p>
+      </div>
+    );
+  }
+
+  // ── State B: initiative exists but order pending (workflow not yet activated) ──
+  if (!activeStep && orderStatus === "pending" && !requiresAttention && quotes.length === 0) {
+    return (
+      <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+        <p className="text-xs font-semibold mb-1" style={{ color: A.textMuted }}>WORKFLOW</p>
+        <p className="text-xs" style={{ color: A.textMuted }}>
+          Confirm the order to activate the workflow.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Nothing to show (workflow complete or no steps configured yet) ────────
+  if (!requiresAttention && !activeStep && quotes.length === 0 && !showRejection) return null;
+
+  // ── States C & D ──────────────────────────────────────────────────────────
+  return (
+    <div className="mt-4 pt-4 border-t space-y-3" style={{ borderColor: "#f0f0f0" }}>
+      <p className="text-xs font-semibold" style={{ color: A.textMuted }}>WORKFLOW</p>
+
+      {/* Attention banner */}
+      {requiresAttention && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg"
+          style={{ background: "#FEF2F2", border: "1px solid #FECACA" }}>
+          <span style={{ fontSize: 14 }}>⚠</span>
+          <span className="text-xs font-semibold" style={{ color: "#EF4444" }}>
+            Action required — a step failed or a quote timed out
+          </span>
+        </div>
+      )}
+
+      {/* State D — Rejection notice + reassign */}
+      {showRejection && (
+        <div className="p-3 rounded-lg" style={{ background: "#FEF2F2", border: "1px solid #FECACA" }}>
+          <p className="text-xs font-semibold mb-2" style={{ color: "#EF4444" }}>
+            ⚠ Delivery partner rejected — reassign or mark failed
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={retryAssignee}
+              onChange={(e) => setRetryAssignee(e.target.value)}
+              className="text-xs rounded-md px-2 py-1.5"
+              style={{ border: "1px solid #DDDDDD", color: "#0F1111", background: "#fff" }}
+            >
+              <option value="">Re-notify same partner</option>
+              {partners.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.receiver.title} · {p.role.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            <button
+              disabled={retrying}
+              onClick={handleRetry}
+              className="text-xs px-3 py-1.5 rounded-md font-medium"
+              style={{ background: "#6366f1", color: "#fff", cursor: "pointer", opacity: retrying ? 0.6 : 1 }}
+            >
+              {retrying ? "…" : "Retry Step"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Countdown bar (replaces normal controls while active) ── */}
+      {countdown && (
+        <CountdownBar
+          stepName={countdown.queue[countdown.index].stepName}
+          remaining={countdown.remaining}
+          index={countdown.index}
+          total={countdown.queue.length}
+          onCancel={cancelCountdown}
+        />
+      )}
+
+      {/* ── API executing spinner (between countdown end and API response) ── */}
+      {executing && !countdown && (
+        <div className="flex items-center gap-2 text-xs" style={{ color: A.textMuted }}>
+          <span className="w-3 h-3 rounded-full border border-indigo-400 border-t-transparent animate-spin inline-block" />
+          Confirming…
+        </div>
+      )}
+
+      {/* State C — Active step info (hidden while countdown is running) */}
+      {activeStep && !showRejection && !countdown && !executing && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold" style={{ color: A.textMuted }}>CURRENT STEP</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs px-2.5 py-1 rounded-full font-medium"
+              style={{ background: "#EEF2FF", color: A.accent, border: `1px solid ${A.accent}` }}>
+              {activeStep.stepName}
+            </span>
+            {activeStep.assigneeName && (
+              <span className="text-xs" style={{ color: A.textMuted }}>→ {activeStep.assigneeName}</span>
+            )}
+          </div>
+          {agreedAmount != null && agreedAmount > 0 && (
+            <p className="text-xs" style={{ color: A.textMuted }}>
+              Estimated delivery cost: ₹{agreedAmount.toLocaleString("en-IN")}
+            </p>
+          )}
+
+          {/* Confirm / Fast-track buttons */}
+          <div className="flex items-center gap-2 flex-wrap pt-0.5">
+            {!activeStep.quoteRequired && (
+              <button
+                onClick={startConfirmStep}
+                className="text-xs px-3 py-1.5 rounded-md font-medium"
+                style={{ background: "#10B981", color: "#fff", cursor: "pointer" }}
+              >
+                Confirm Step ✓
+              </button>
+            )}
+            {remainingNonQuoteSteps > 1 && (
+              <button
+                onClick={startFastTrack}
+                className="text-xs px-3 py-1.5 rounded-md font-medium"
+                style={{ background: "#1D4ED8", color: "#fff", cursor: "pointer" }}
+                title={`Auto-confirm ${remainingNonQuoteSteps} pending steps (5s cancel window each)`}
+              >
+                ⚡ Complete All ({remainingNonQuoteSteps})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Quotes — shown when step requires quotes */}
+      {localQuotes.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>
+            QUOTES ({localQuotes.filter((q) => q.status === "submitted").length} received)
+          </p>
+          <div className="space-y-1.5">
+            {localQuotes.map((q, idx) => (
+              <div key={q.id} className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}>
+                <div className="flex flex-col gap-0.5 shrink-0">
+                  <button onClick={() => move(idx, -1)} disabled={idx === 0}
+                    className="text-gray-400 hover:text-gray-700 disabled:opacity-20 leading-none text-xs">▲</button>
+                  <button onClick={() => move(idx, 1)} disabled={idx === localQuotes.length - 1}
+                    className="text-gray-400 hover:text-gray-700 disabled:opacity-20 leading-none text-xs">▼</button>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs font-medium" style={{ color: A.text }}>{q.partyName}</span>
+                  {q.amount != null && (
+                    <span className="text-xs ml-2" style={{ color: A.accent }}>
+                      ₹{q.amount.toLocaleString("en-IN")}
+                    </span>
+                  )}
+                </div>
+                {q.status === "pending" && (
+                  <span className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: "#FFFBEB", color: "#D97706", border: "1px solid #FCD34D" }}>
+                    Awaiting
+                  </span>
+                )}
+                {q.status === "submitted" && (
+                  <button
+                    disabled={!!accepting}
+                    onClick={() => handleAccept(q.id)}
+                    className="text-xs px-3 py-1 rounded-md font-medium"
+                    style={{ background: "#10B981", color: "#fff", cursor: "pointer", opacity: accepting ? 0.6 : 1 }}>
+                    {accepting === q.id ? "…" : "Accept"}
+                  </button>
+                )}
+                {q.status === "accepted" && (
+                  <span className="text-xs font-semibold" style={{ color: "#10B981" }}>✓ Accepted</span>
+                )}
+                {q.status === "rejected" && (
+                  <span className="text-xs" style={{ color: "#9CA3AF" }}>Rejected</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DeliveryStatusBar ─────────────────────────────────────────────────────────
+// Read-only delivery pipeline status — only Cancel remains actionable.
+// Assignment dropdown and delivery note are kept for manual override.
 const PARTNER_STATUS_BADGE: Record<
   string,
   { label: string; bg: string; color: string; border: string }
@@ -195,41 +611,21 @@ function DeliverySection({
           </button>
         </div>
       ) : (
+        /* Read-only stepper — step pills are display only; only Cancel is actionable */
         <div className="flex items-center gap-0 overflow-x-auto pb-1">
           {DELIVERY_STEPS.map((step, idx) => {
             const isCompleted = currentIdx > idx;
-            const isActive = currentIdx === idx;
-            const isNext = idx === currentIdx + 1;
-            const isClickable = !busy && (isNext || (!isActive && idx <= currentIdx + 1));
-
-            const circleColor = isCompleted
-              ? "#10B981"
-              : isActive
-              ? A.accent
-              : "#D1D5DB";
-
-            const labelColor = isActive ? A.accent : isCompleted ? "#10B981" : A.textMuted;
-
+            const isActive    = currentIdx === idx;
+            const circleColor = isCompleted ? "#10B981" : isActive ? A.accent : "#D1D5DB";
+            const labelColor  = isActive ? A.accent : isCompleted ? "#10B981" : A.textMuted;
             return (
               <div key={step} className="flex items-center">
-                {/* Step pill */}
-                <button
-                  disabled={!isClickable}
-                  onClick={() => isClickable && onPatch({ deliveryStatus: step })}
-                  title={isClickable ? `Move to ${STEP_LABEL[step]}` : undefined}
-                  style={{
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                    cursor: isClickable ? "pointer" : "default",
-                    opacity: busy ? 0.6 : 1,
-                    minWidth: 72,
-                  }}>
-                  {/* Circle */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 72 }}>
                   <div style={{
                     width: 28, height: 28, borderRadius: "50%",
                     background: isCompleted || isActive ? circleColor : "#F3F4F6",
                     border: `2px solid ${circleColor}`,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    transition: "all 0.15s",
                   }}>
                     {isCompleted ? (
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -241,25 +637,17 @@ function DeliverySection({
                       </span>
                     )}
                   </div>
-                  {/* Label */}
                   <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400, color: labelColor, textAlign: "center", lineHeight: 1.2 }}>
                     {STEP_LABEL[step]}
                   </span>
-                </button>
-
-                {/* Connector line (not after last step) */}
+                </div>
                 {idx < DELIVERY_STEPS.length - 1 && (
-                  <div style={{
-                    width: 20, height: 2, flexShrink: 0, marginBottom: 18,
-                    background: currentIdx > idx ? "#10B981" : "#E5E7EB",
-                    transition: "background 0.15s",
-                  }} />
+                  <div style={{ width: 20, height: 2, flexShrink: 0, marginBottom: 18, background: currentIdx > idx ? "#10B981" : "#E5E7EB" }} />
                 )}
               </div>
             );
           })}
-
-          {/* Cancel side-exit */}
+          {/* Cancel — only remaining clickable action */}
           <button
             disabled={busy}
             onClick={() => onPatch({ deliveryStatus: "cancelled" })}
@@ -366,10 +754,11 @@ export default function StoreOrdersPage() {
 
   // Collaboration partners for this store
   const [partners, setPartners] = useState<Collab[]>([]);
+  // Initiative (page) linked to this store — used for workflow state A link
+  const [initiativeId, setInitiativeId] = useState<string | null>(null);
 
-  // Load orders
-  useEffect(() => {
-    fetch(`/api/store/orders?storeId=${id}`, { credentials: "include" })
+  function loadOrders() {
+    return fetch(`/api/store/orders?storeId=${id}`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : [])
       .then((data: Order[]) => {
         setOrders(data);
@@ -403,13 +792,17 @@ export default function StoreOrdersPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [id]);
+  }
 
-  // Load store pageId → accepted outbound partners
+  // Load orders on mount
+  useEffect(() => { loadOrders(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load store pageId → accepted outbound partners + capture initiativeId
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((store) => {
+        if (store?.pageId) setInitiativeId(store.pageId);
         if (!store?.pageId) return;
         return fetch(
           `/api/collaboration?pageId=${store.pageId}&direction=out&status=accepted`,
@@ -488,14 +881,20 @@ export default function StoreOrdersPage() {
             <h1 className="text-lg font-bold" style={{ color: A.text }}>Orders</h1>
             <p className="text-xs" style={{ color: A.textMuted }}>{orders.length} total orders</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {initiativeId && (
+              <a href={`/earn/initiative/${initiativeId}`} className="text-xs px-3 py-1.5 rounded-md font-medium"
+                style={{ background: "#EEF2FF", color: "#6366f1", border: "1px solid #C7D2FE" }}>
+                Initiative & Workflow →
+              </a>
+            )}
             <a href={`/store/${id}/orders/delivered`} className="text-xs px-3 py-1.5 rounded-md font-medium"
               style={{ background: "#F0FDF4", color: "#10B981", border: "1px solid #A7F3D0" }}>
               Delivered Orders →
             </a>
-            <a href={`/store/${id}`} className="text-xs px-3 py-1.5 rounded-md"
+            <a href="/store/orders/all" className="text-xs px-3 py-1.5 rounded-md"
               style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
-              ← Back to store
+              ← All Orders
             </a>
           </div>
         </div>
@@ -558,7 +957,7 @@ export default function StoreOrdersPage() {
                 </div>
               </div>
 
-              {/* ── Delivery tracking section ── */}
+              {/* ── Delivery status bar (read-only pipeline display + Cancel + assignment) ── */}
               <DeliverySection
                 orderId={order.id}
                 deliveryStatus={deliveryStatuses[order.id] ?? "pending"}
@@ -568,6 +967,22 @@ export default function StoreOrdersPage() {
                 partners={partners}
                 busy={updatingDelivery === order.id}
                 onPatch={(payload) => patchDelivery(order.id, payload)}
+              />
+
+              {/* ── Workflow section (states A/B/C/D) ── */}
+              <WorkflowSection
+                orderId={order.id}
+                orderStatus={order.status}
+                initiativeId={order.initiativeId ?? initiativeId}
+                requiresAttention={order.requiresAttention ?? false}
+                agreedAmount={order.agreedAmount ?? null}
+                activeStep={order.activeStep ?? null}
+                allSteps={order.allSteps ?? []}
+                quotes={order.quotes ?? []}
+                partnerStatus={partnerStatuses[order.id] ?? null}
+                assignedToId={assignedTos[order.id] ?? null}
+                partners={partners}
+                onReload={loadOrders}
               />
 
               {/* ── Invoice section — only for delivered orders ── */}

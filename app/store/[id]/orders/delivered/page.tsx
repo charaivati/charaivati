@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 const A = {
@@ -12,9 +12,19 @@ type OrderItem = { blockId: string; title: string; price: number; quantity: numb
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
 type Order = {
   id: string; status: string; total: number; createdAt: string;
+  invoiceUrl?: string | null;
+  invoiceSignedUrl?: string | null;
   items: OrderItem[];
   address: Address;
   user: { name: string | null; email: string | null };
+};
+
+type InvoiceState = {
+  genStatus: "idle" | "loading" | "done" | "error";
+  url?: string;
+  signedUrl?: string;
+  signStatus: "idle" | "uploading" | "done" | "error";
+  signError?: string;
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -22,18 +32,117 @@ const STATUS_COLORS: Record<string, string> = {
   delivered: "#10B981", cancelled: "#EF4444",
 };
 
+function InvoiceSection({ orderId, inv, onSignUpload }: {
+  orderId: string;
+  inv: InvoiceState;
+  onSignUpload: (url: string) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function handleSignUpload(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/orders/${orderId}/invoice/sign`, {
+      method: "POST", credentials: "include", body: fd,
+    });
+    if (res.ok) {
+      const data = await res.json();
+      onSignUpload(data.invoiceSignedUrl);
+    } else {
+      throw new Error("Upload failed");
+    }
+  }
+
+  if (inv.genStatus === "loading") return (
+    <div className="flex items-center gap-1.5 text-xs" style={{ color: A.textMuted }}>
+      <span className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin inline-block" />
+      Generating invoice…
+    </div>
+  );
+
+  if (inv.genStatus === "error") return (
+    <span className="text-xs" style={{ color: "#EF4444" }}>Invoice generation failed.</span>
+  );
+
+  if (inv.signedUrl || inv.signStatus === "done") return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-medium" style={{ color: "#10B981" }}>✓ Signed invoice ready for buyer</span>
+      <a href={`/api/orders/${orderId}/invoice/download`} download={`invoice-${orderId}.pdf`}
+        className="text-xs px-3 py-1 rounded-md font-medium w-fit"
+        style={{ background: "#F0FDF4", color: "#10B981", border: "1px solid #A7F3D0", textDecoration: "none" }}>
+        ⬇ Download Signed Copy
+      </a>
+    </div>
+  );
+
+  if (inv.genStatus === "done" && inv.url) return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <a href={`/api/orders/${orderId}/invoice/download`} download={`invoice-${orderId}.pdf`}
+          className="text-xs px-3 py-1 rounded-md font-medium"
+          style={{ background: "#EEF2FF", color: A.accent, border: `1px solid ${A.accent}`, textDecoration: "none" }}>
+          ⬇ Download Invoice (unsigned)
+        </a>
+      </div>
+      <div className="text-xs" style={{ color: A.textMuted, borderTop: `1px dashed ${A.border}`, paddingTop: 6, marginTop: 4 }}>
+        <span className="font-medium">Sign & Re-upload</span> — Download, sign, then upload the signed copy for the buyer.
+      </div>
+      {inv.signStatus === "uploading" ? (
+        <div className="flex items-center gap-1.5 text-xs" style={{ color: A.textMuted }}>
+          <span className="w-3 h-3 rounded-full border border-indigo-500 border-t-transparent animate-spin inline-block" />
+          Uploading…
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <input ref={fileRef} type="file" accept=".pdf" className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try { await handleSignUpload(file); } catch { /* shown via signError */ }
+              if (fileRef.current) fileRef.current.value = "";
+            }} />
+          <button onClick={() => fileRef.current?.click()}
+            className="text-xs px-3 py-1.5 rounded-md font-medium"
+            style={{ background: A.accent, color: "#fff", cursor: "pointer" }}>
+            Upload Signed Invoice
+          </button>
+          {inv.signError && <span className="text-xs" style={{ color: "#EF4444" }}>{inv.signError}</span>}
+        </div>
+      )}
+    </div>
+  );
+
+  return null;
+}
+
 export default function DeliveredOrdersPage() {
   const { id } = useParams<{ id: string }>();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
 
   useEffect(() => {
     fetch(`/api/store/orders?storeId=${id}&status=delivered`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : [])
-      .then(setOrders)
+      .then((data: Order[]) => {
+        setOrders(data);
+        const init: Record<string, InvoiceState> = {};
+        for (const o of data) {
+          if (o.invoiceSignedUrl) {
+            init[o.id] = { genStatus: "done", url: o.invoiceUrl ?? undefined, signedUrl: o.invoiceSignedUrl, signStatus: "done" };
+          } else if (o.invoiceUrl) {
+            init[o.id] = { genStatus: "done", url: o.invoiceUrl, signStatus: "idle" };
+          }
+        }
+        setInvoiceStates(init);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
+
+  function setInv(orderId: string, patch: Partial<InvoiceState>) {
+    setInvoiceStates((prev) => ({ ...prev, [orderId]: { ...prev[orderId], ...patch } }));
+  }
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
@@ -65,58 +174,72 @@ export default function DeliveredOrdersPage() {
             <p className="text-sm" style={{ color: A.textMuted }}>No delivered orders yet.</p>
           </div>
         ) : (
-          orders.map((order) => (
-            <div key={order.id} className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${A.border}` }}>
-              <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold" style={{ color: A.text }}>
-                      #{order.id.slice(-8).toUpperCase()}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ background: `${STATUS_COLORS[order.status]}20`, color: STATUS_COLORS[order.status] ?? A.textMuted }}>
-                      {order.status}
-                    </span>
+          orders.map((order) => {
+            const inv = invoiceStates[order.id];
+            return (
+              <div key={order.id} className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${A.border}` }}>
+                <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold" style={{ color: A.text }}>
+                        #{order.id.slice(-8).toUpperCase()}
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{ background: `${STATUS_COLORS[order.status]}20`, color: STATUS_COLORS[order.status] ?? A.textMuted }}>
+                        {order.status}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: A.textMuted }}>
+                      {new Date(order.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                    </p>
                   </div>
-                  <p className="text-xs mt-0.5" style={{ color: A.textMuted }}>
-                    {new Date(order.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <div className="font-bold" style={{ color: A.text }}>₹{order.total.toLocaleString("en-IN")}</div>
-                  <div className="text-xs" style={{ color: A.textMuted }}>Cash on Delivery</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="md:col-span-1">
-                  <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>ITEMS</p>
-                  <div className="space-y-1">
-                    {(order.items as OrderItem[]).map((item, i) => (
-                      <div key={i} className="flex justify-between text-xs">
-                        <span style={{ color: A.text }}>{item.title} ×{item.quantity}</span>
-                        <span style={{ color: A.textMuted }}>₹{(item.price * item.quantity).toLocaleString("en-IN")}</span>
-                      </div>
-                    ))}
+                  <div className="text-right">
+                    <div className="font-bold" style={{ color: A.text }}>₹{order.total.toLocaleString("en-IN")}</div>
+                    <div className="text-xs" style={{ color: A.textMuted }}>Cash on Delivery</div>
                   </div>
                 </div>
 
-                <div>
-                  <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>CUSTOMER</p>
-                  <p className="text-xs" style={{ color: A.text }}>{order.user.name ?? "—"}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>{order.user.email ?? "—"}</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-1">
+                    <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>ITEMS</p>
+                    <div className="space-y-1">
+                      {(order.items as OrderItem[]).map((item, i) => (
+                        <div key={i} className="flex justify-between text-xs">
+                          <span style={{ color: A.text }}>{item.title} ×{item.quantity}</span>
+                          <span style={{ color: A.textMuted }}>₹{(item.price * item.quantity).toLocaleString("en-IN")}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>CUSTOMER</p>
+                    <p className="text-xs" style={{ color: A.text }}>{order.user.name ?? "—"}</p>
+                    <p className="text-xs" style={{ color: A.textMuted }}>{order.user.email ?? "—"}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>DELIVERY</p>
+                    <p className="text-xs" style={{ color: A.text }}>{order.address.name}</p>
+                    <p className="text-xs" style={{ color: A.textMuted }}>{order.address.line1}</p>
+                    <p className="text-xs" style={{ color: A.textMuted }}>{order.address.city}, {order.address.state} {order.address.pincode}</p>
+                    <p className="text-xs" style={{ color: A.textMuted }}>📞 {order.address.phone}</p>
+                  </div>
                 </div>
 
-                <div>
-                  <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>DELIVERY</p>
-                  <p className="text-xs" style={{ color: A.text }}>{order.address.name}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>{order.address.line1}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>{order.address.city}, {order.address.state} {order.address.pincode}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>📞 {order.address.phone}</p>
-                </div>
+                {/* Invoice section */}
+                {inv && (
+                  <div className="mt-4 pt-3 border-t" style={{ borderColor: "#f0f0f0" }}>
+                    <InvoiceSection
+                      orderId={order.id}
+                      inv={inv}
+                      onSignUpload={(url) => setInv(order.id, { signedUrl: url, signStatus: "done" })}
+                    />
+                  </div>
+                )}
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </main>
     </div>

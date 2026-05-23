@@ -38,7 +38,14 @@ export async function POST(req: NextRequest) {
     imageUrl: ci.block.mediaUrl ?? null,
   }));
 
-  const total = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const itemsTotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  const cartStoreRow = await prisma.$queryRaw<{ deliveryFee: number | null; freeDeliveryAbove: number | null }[]>`
+    SELECT "deliveryFee", "freeDeliveryAbove" FROM "Store" WHERE id = ${storeId} LIMIT 1
+  `;
+  const cartFee = cartStoreRow[0]?.deliveryFee ?? null;
+  const cartFreeAbove = cartStoreRow[0]?.freeDeliveryAbove ?? null;
+  const cartDeliveryFee = cartFee != null && (cartFreeAbove == null || itemsTotal < cartFreeAbove) ? cartFee : 0;
+  const total = itemsTotal + cartDeliveryFee;
 
   const invoicePayload: Record<string, unknown> = {};
   if (invoiceData && typeof invoiceData === "object") {
@@ -128,13 +135,34 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
     const slugs = await getStoreSlugs(storeIds);
+    const allOrderIds = orders.map((o) => o.id);
     const signedRowsAll = await prisma.$queryRaw<{ id: string; "invoiceSignedUrl": string | null }[]>`
       SELECT id, "invoiceSignedUrl" FROM "Order" WHERE "storeId" = ANY(${storeIds}::text[])
     `;
     const signedMapAll: Record<string, string | null> = {};
     for (const r of signedRowsAll) signedMapAll[r.id] = r["invoiceSignedUrl"] ?? null;
+
+    // Workflow enrichment for all-orders summary view
+    const wfRowsAll = allOrderIds.length > 0 ? await prisma.$queryRaw<
+      { id: string; requiresAttention: boolean }[]
+    >`SELECT id, "requiresAttention" FROM "Order" WHERE id = ANY(${allOrderIds}::text[])` : [];
+    const wfMapAll: Record<string, boolean> = {};
+    for (const r of wfRowsAll) wfMapAll[r.id] = r.requiresAttention;
+
+    const activeOSPsAll = allOrderIds.length > 0 ? await prisma.orderStepProgress.findMany({
+      where: { orderId: { in: allOrderIds }, status: "active" },
+      include: { step: { select: { name: true } } },
+    }) : [];
+    const activeStepMapAll = new Map(activeOSPsAll.map((osp) => [osp.orderId, osp.step.name]));
+
     return NextResponse.json(
-      orders.map((o) => ({ ...o, store: { ...o.store, slug: slugs[o.store.id] ?? null }, invoiceSignedUrl: signedMapAll[o.id] ?? null }))
+      orders.map((o) => ({
+        ...o,
+        store:             { ...o.store, slug: slugs[o.store.id] ?? null },
+        invoiceSignedUrl:  signedMapAll[o.id] ?? null,
+        requiresAttention: wfMapAll[o.id] ?? false,
+        activeStep:        activeStepMapAll.has(o.id) ? { stepName: activeStepMapAll.get(o.id) } : null,
+      }))
     );
   }
 
@@ -166,7 +194,113 @@ export async function GET(req: NextRequest) {
     `;
     const signedMapStore: Record<string, string | null> = {};
     for (const r of signedRowsStore) signedMapStore[r.id] = r["invoiceSignedUrl"] ?? null;
-    return NextResponse.json(orders.map((o) => ({ ...o, invoiceSignedUrl: signedMapStore[o.id] ?? null })));
+
+    // ── Workflow enrichment ──────────────────────────────────────────────────
+    const orderIds = orders.map((o) => o.id);
+    const storePageId = store.pageId ?? null;
+
+    // All step progress rows (needed for fast-track queue + active step display)
+    const allOSPs = orderIds.length > 0 ? await prisma.orderStepProgress.findMany({
+      where: { orderId: { in: orderIds } },
+      include: { step: { select: { id: true, name: true, assigneeId: true, quoteRequired: true, sequence: true } } },
+    }) : [];
+    const activeOSPs    = allOSPs.filter((osp) => osp.status === "active");
+    const ospByOrder    = new Map(activeOSPs.map((osp) => [osp.orderId, osp]));
+    const allOSPsByOrder = new Map<string, typeof allOSPs>();
+    for (const osp of allOSPs) {
+      if (!allOSPsByOrder.has(osp.orderId)) allOSPsByOrder.set(osp.orderId, []);
+      allOSPsByOrder.get(osp.orderId)!.push(osp);
+    }
+
+    // Quotes for active steps
+    const activeStepIds = activeOSPs.map((o) => o.stepId);
+    const quotes = activeStepIds.length > 0 ? await prisma.quote.findMany({
+      where: { orderId: { in: orderIds }, stepId: { in: activeStepIds } },
+      select: { id: true, orderId: true, stepId: true, requestedPartyId: true, amount: true, status: true },
+    }) : [];
+    const quotesByOrder: Record<string, typeof quotes> = {};
+    for (const q of quotes) {
+      if (!quotesByOrder[q.orderId]) quotesByOrder[q.orderId] = [];
+      quotesByOrder[q.orderId].push(q);
+    }
+
+    // Party names for assignees + quote parties
+    const allCollabIds = [...new Set([
+      ...activeOSPs.map((o) => o.step.assigneeId).filter(Boolean) as string[],
+      ...quotes.map((q) => q.requestedPartyId),
+    ])];
+    const partyCodes = allCollabIds.length > 0 ? await prisma.collaboration.findMany({
+      where: { id: { in: allCollabIds } },
+      select: { id: true, requesterId: true, requester: { select: { title: true } }, receiver: { select: { title: true } } },
+    }) : [];
+    const partyMap = new Map(partyCodes.map((c) => [c.id, c]));
+
+    function partyName(collabId: string): string {
+      const c = partyMap.get(collabId);
+      if (!c) return "Unknown";
+      return storePageId && c.requesterId === storePageId ? c.receiver.title : c.requester.title;
+    }
+
+    // requiresAttention + quoteSummary + agreedAmount (new columns — raw SQL)
+    const wfRows = orderIds.length > 0 ? await prisma.$queryRaw<
+      { id: string; requiresAttention: boolean; quoteSummary: unknown; agreedAmount: number | null }[]
+    >`SELECT id, "requiresAttention", "quoteSummary", "agreedAmount" FROM "Order" WHERE id = ANY(${orderIds}::text[])` : [];
+    const wfMap: Record<string, { requiresAttention: boolean; quoteSummary: unknown; agreedAmount: number | null }> = {};
+    for (const r of wfRows) wfMap[r.id] = { requiresAttention: r.requiresAttention, quoteSummary: r.quoteSummary, agreedAmount: r.agreedAmount ?? null };
+
+    // Sub-orders (new columns — raw SQL)
+    const subOrderRows = orderIds.length > 0 ? await prisma.$queryRaw<
+      { id: string; parentOrderId: string; subOrderType: string | null; agreedAmount: number | null; userId: string }[]
+    >`SELECT id, "parentOrderId", "subOrderType", "agreedAmount", "userId" FROM "Order" WHERE "parentOrderId" = ANY(${orderIds}::text[])` : [];
+    const subOrdersByParent: Record<string, typeof subOrderRows> = {};
+    for (const r of subOrderRows) {
+      if (!subOrdersByParent[r.parentOrderId]) subOrdersByParent[r.parentOrderId] = [];
+      subOrdersByParent[r.parentOrderId].push(r);
+    }
+
+    return NextResponse.json(orders.map((o) => {
+      const osp = ospByOrder.get(o.id);
+      // Sort quotes by amount asc (nulls last) so the cheapest option is shown first
+      const orderQuotes = (quotesByOrder[o.id] ?? [])
+        .slice()
+        .sort((a, b) => (a.amount ?? Infinity) - (b.amount ?? Infinity));
+      return {
+        ...o,
+        invoiceSignedUrl:  signedMapStore[o.id] ?? null,
+        requiresAttention: wfMap[o.id]?.requiresAttention ?? false,
+        quoteSummary:      wfMap[o.id]?.quoteSummary ?? null,
+        agreedAmount:      wfMap[o.id]?.agreedAmount ?? null,
+        initiativeId:      storePageId,
+        activeStep: osp ? {
+          stepId:        osp.stepId,
+          stepName:      osp.step.name,
+          assigneeName:  osp.step.assigneeId ? partyName(osp.step.assigneeId) : null,
+          quoteRequired: osp.step.quoteRequired,
+        } : null,
+        quotes: orderQuotes.map((q) => ({
+          id:        q.id,
+          stepId:    q.stepId,
+          partyName: partyName(q.requestedPartyId),
+          amount:    q.amount,
+          status:    q.status,
+        })),
+        allSteps: (allOSPsByOrder.get(o.id) ?? [])
+          .sort((a, b) => a.step.sequence - b.step.sequence)
+          .map((osp) => ({
+            stepId:        osp.stepId,
+            stepName:      osp.step.name,
+            sequence:      osp.step.sequence,
+            quoteRequired: osp.step.quoteRequired,
+            ospStatus:     osp.status,
+          })),
+        subOrders: (subOrdersByParent[o.id] ?? []).map((s) => ({
+          id:           s.id,
+          subOrderType: s.subOrderType,
+          agreedAmount: s.agreedAmount,
+          userId:       s.userId,
+        })),
+      };
+    }));
   }
 
   const orders = await prisma.order.findMany({
@@ -177,18 +311,28 @@ export async function GET(req: NextRequest) {
   const buyerStoreIds = [...new Set(orders.map((o) => o.storeId))];
   const slugs = await getStoreSlugs(buyerStoreIds);
 
-  // Fetch signed invoice URLs via raw SQL (new columns may not be in stale client)
-  const signedRows = await prisma.$queryRaw<{ id: string; "invoiceSignedUrl": string | null }[]>`
-    SELECT id, "invoiceSignedUrl" FROM "Order" WHERE "userId" = ${user.id}
+  // Fetch new/stale-client columns via raw SQL
+  const extraRows = await prisma.$queryRaw<{
+    id: string;
+    "invoiceSignedUrl": string | null;
+    "parentOrderId": string | null;
+    "subOrderType": string | null;
+    "agreedAmount": number | null;
+  }[]>`
+    SELECT id, "invoiceSignedUrl", "parentOrderId", "subOrderType", "agreedAmount"
+    FROM "Order" WHERE "userId" = ${user.id}
   `;
-  const signedMap: Record<string, string | null> = {};
-  for (const r of signedRows) signedMap[r.id] = r["invoiceSignedUrl"] ?? null;
+  const extraMap: Record<string, typeof extraRows[0]> = {};
+  for (const r of extraRows) extraMap[r.id] = r;
 
   return NextResponse.json(
     orders.map((o) => ({
       ...o,
-      store: o.store ? { ...o.store, slug: slugs[o.store.id] ?? null } : o.store,
-      invoiceSignedUrl: signedMap[o.id] ?? null,
+      store:           o.store ? { ...o.store, slug: slugs[o.store.id] ?? null } : o.store,
+      invoiceSignedUrl: extraMap[o.id]?.["invoiceSignedUrl"] ?? null,
+      parentOrderId:    extraMap[o.id]?.["parentOrderId"]    ?? null,
+      subOrderType:     extraMap[o.id]?.["subOrderType"]     ?? null,
+      agreedAmount:     extraMap[o.id]?.["agreedAmount"]     ?? null,
     }))
   );
 }

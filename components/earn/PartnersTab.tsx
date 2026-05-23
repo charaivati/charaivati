@@ -13,8 +13,19 @@ type Collab = {
   message: string | null;
   requester: CollabPage;
   receiver: CollabPage;
+  costPerOrder?: number | null;
+  costPerKg?: number | null;
+  costPerKgPerKm?: number | null;
+  costPerItemPerKm?: number | null;
 };
 type ActiveCollab = Collab & { direction: "in" | "out" };
+
+type PricingDraft = {
+  costPerOrder: string;
+  costPerKg: string;
+  costPerKgPerKm: string;
+  costPerItemPerKm: string;
+};
 
 const ROLES = [
   { value: "delivery_partner", label: "Delivery Partner", emoji: "🛵" },
@@ -29,6 +40,10 @@ function roleEmoji(role: string) {
 }
 function roleLabel(role: string) {
   return ROLES.find((r) => r.value === role)?.label ?? role;
+}
+
+function toStr(v: number | null | undefined): string {
+  return v == null ? "" : String(v);
 }
 
 function Flash({ msg, ok }: { msg: string; ok: boolean }) {
@@ -62,6 +77,12 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
   const [pendingIn, setPendingIn] = useState<Collab[]>([]);
   const [actioning, setActioning] = useState<Set<string>>(new Set());
   const [flash, setFlash] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  // Pricing state
+  const [pricingOpen, setPricingOpen] = useState<Set<string>>(new Set());
+  const [pricingDraft, setPricingDraft] = useState<Record<string, PricingDraft>>({});
+  const [pricingSaved, setPricingSaved] = useState<Set<string>>(new Set());
+  const [pricingSaving, setPricingSaving] = useState<Set<string>>(new Set());
 
   // Invite form
   const defaultFrom = ownerPages.find((p) => p.id === pageId)?.id ?? ownerPages[0]?.id ?? pageId;
@@ -115,6 +136,23 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
     });
   }
 
+  function initPricingDraft(collabs: ActiveCollab[]) {
+    setPricingDraft((prev) => {
+      const next = { ...prev };
+      for (const c of collabs) {
+        if (!next[c.id]) {
+          next[c.id] = {
+            costPerOrder:    toStr(c.costPerOrder),
+            costPerKg:       toStr(c.costPerKg),
+            costPerKgPerKm:  toStr(c.costPerKgPerKm),
+            costPerItemPerKm: toStr(c.costPerItemPerKm),
+          };
+        }
+      }
+      return next;
+    });
+  }
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -130,14 +168,16 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
         ...(Array.isArray(outAcc) ? (outAcc as Collab[]).map((c) => ({ ...c, direction: "out" as const })) : []),
       ];
       const seen = new Set<string>();
-      setActivePartners(raw.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; }));
+      const deduped = raw.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+      setActivePartners(deduped);
+      initPricingDraft(deduped);
       setPendingIn(Array.isArray(inPend) ? (inPend as Collab[]) : []);
     } catch {
       showFlash("Failed to load partners", false);
     } finally {
       setLoading(false);
     }
-  }, [pageId]);
+  }, [pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { load(); }, [load]);
 
@@ -172,7 +212,9 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
         const updated = (await res.json()) as Collab;
         setPendingIn((prev) => prev.filter((c) => c.id !== id));
         if (status === "accepted") {
-          setActivePartners((prev) => [...prev, { ...updated, direction: "in" }]);
+          const ac: ActiveCollab = { ...updated, direction: "in" };
+          setActivePartners((prev) => [...prev, ac]);
+          initPricingDraft([ac]);
           showFlash("Partner accepted", true);
         } else {
           showFlash("Request rejected", true);
@@ -221,6 +263,51 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
     }
   }
 
+  function togglePricing(id: string) {
+    setPricingOpen((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function updateDraft(id: string, field: keyof PricingDraft, val: string) {
+    setPricingDraft((prev) => ({
+      ...prev,
+      [id]: { ...(prev[id] ?? { costPerOrder: "", costPerKg: "", costPerKgPerKm: "", costPerItemPerKm: "" }), [field]: val },
+    }));
+  }
+
+  async function savePricing(collabId: string) {
+    const draft = pricingDraft[collabId];
+    if (!draft) return;
+    setPricingSaving((prev) => new Set(prev).add(collabId));
+    try {
+      const parse = (v: string) => v.trim() === "" ? null : Number(v);
+      await fetch(`/api/collaboration/${collabId}/pricing`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          costPerOrder:    parse(draft.costPerOrder),
+          costPerKg:       parse(draft.costPerKg),
+          costPerKgPerKm:  parse(draft.costPerKgPerKm),
+          costPerItemPerKm: parse(draft.costPerItemPerKm),
+        }),
+      });
+      setPricingSaved((prev) => {
+        const next = new Set(prev);
+        next.add(collabId);
+        setTimeout(() => setPricingSaved((p) => { const n = new Set(p); n.delete(collabId); return n; }), 2000);
+        return next;
+      });
+    } catch {
+      // silent — user can retry on next blur
+    } finally {
+      setPricingSaving((prev) => { const next = new Set(prev); next.delete(collabId); return next; });
+    }
+  }
+
   function partnerPage(c: ActiveCollab): CollabPage {
     return c.direction === "in" ? c.requester : c.receiver;
   }
@@ -246,31 +333,80 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
           <div className="space-y-2">
             {activePartners.map((c) => {
               const partner = partnerPage(c);
+              const draft = pricingDraft[c.id] ?? { costPerOrder: "", costPerKg: "", costPerKgPerKm: "", costPerItemPerKm: "" };
+              const isPricingOpen = pricingOpen.has(c.id);
+              const isSaving = pricingSaving.has(c.id);
+              const justSaved = pricingSaved.has(c.id);
+
               return (
                 <div
                   key={c.id}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-gray-800 bg-gray-900/50"
+                  className="rounded-xl border border-gray-800 bg-gray-900/50 overflow-hidden"
                 >
-                  <span className="text-xl shrink-0">{roleEmoji(c.role)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{partner.title}</p>
-                    <div className="flex gap-1.5 mt-1 flex-wrap">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-900/50 text-indigo-300 border border-indigo-800/40">
-                        {roleLabel(c.role)}
-                      </span>
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700/50">
-                        {partner.pageType}
-                      </span>
+                  {/* Partner row */}
+                  <div className="flex items-center gap-3 p-3">
+                    <span className="text-xl shrink-0">{roleEmoji(c.role)}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{partner.title}</p>
+                      <div className="flex gap-1.5 mt-1 flex-wrap items-center">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-900/50 text-indigo-300 border border-indigo-800/40">
+                          {roleLabel(c.role)}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-400 border border-gray-700/50">
+                          {partner.pageType}
+                        </span>
+                        <button
+                          onClick={() => togglePricing(c.id)}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                        >
+                          Set pricing {isPricingOpen ? "▴" : "▾"}
+                        </button>
+                        {justSaved && (
+                          <span className="text-xs text-emerald-400">Saved ✓</span>
+                        )}
+                        {isSaving && <Spinner />}
+                      </div>
                     </div>
+                    <button
+                      onClick={() => handleRevoke(c.id)}
+                      disabled={actioning.has(c.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-900/40 hover:bg-red-900/20 transition-colors disabled:opacity-50 shrink-0"
+                    >
+                      {actioning.has(c.id) && <Spinner />}
+                      Revoke
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleRevoke(c.id)}
-                    disabled={actioning.has(c.id)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-red-400 border border-red-900/40 hover:bg-red-900/20 transition-colors disabled:opacity-50 shrink-0"
-                  >
-                    {actioning.has(c.id) && <Spinner />}
-                    Revoke
-                  </button>
+
+                  {/* Expandable pricing section */}
+                  {isPricingOpen && (
+                    <div className="border-t border-gray-800 p-3 space-y-2">
+                      <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">Delivery Pricing</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(
+                          [
+                            { field: "costPerOrder",    label: "Cost per order (₹)" },
+                            { field: "costPerKg",       label: "Cost per kg (₹)" },
+                            { field: "costPerKgPerKm",  label: "Cost per kg/km (₹)" },
+                            { field: "costPerItemPerKm", label: "Cost per item/km (₹)" },
+                          ] as { field: keyof PricingDraft; label: string }[]
+                        ).map(({ field, label }) => (
+                          <div key={field}>
+                            <label className="block text-xs text-gray-500 mb-1">{label}</label>
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.01"
+                              placeholder="—"
+                              value={draft[field]}
+                              onChange={(e) => updateDraft(c.id, field, e.target.value)}
+                              onBlur={() => savePricing(c.id)}
+                              className="w-full px-2 py-1.5 rounded-lg bg-gray-950 border border-gray-700 text-xs text-white outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { activateWorkflow } from "@/lib/workflow/activateWorkflow";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 export async function PATCH(
   req: NextRequest,
@@ -27,6 +29,21 @@ export async function PATCH(
     where: { id: orderId },
     data: { status },
   });
+
+  if (status === "confirmed") {
+    // Activate workflow steps
+    activateWorkflow(orderId).catch((e) =>
+      console.error("activateWorkflow error:", e)
+    );
+    // Notify the store owner that the order has been confirmed
+    createNotification({
+      userId: user.id,
+      type: "order_confirmed",
+      title: "New order received",
+      body: `Order #${orderId.slice(-8).toUpperCase()} has been placed`,
+      link: "/store/orders/all",
+    }).catch(() => {});
+  }
 
   return NextResponse.json(updated);
 }

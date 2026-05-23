@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 const A = {
   bg: "#E3E6E6", nav: "#131921", border: "#DDDDDD",
@@ -20,6 +21,8 @@ type Order = {
   address: Address;
   user: { name: string | null; email: string | null };
   store: { id: string; slug?: string | null; name: string };
+  requiresAttention?: boolean;
+  activeStep?: { stepName: string } | null;
 };
 
 type InvoiceState = {
@@ -146,13 +149,19 @@ function InvoiceSection({ orderId, inv, onSignUpload }: {
 }
 
 export default function AllOrdersPage() {
+  const searchParams = useSearchParams();
+  const storeId = searchParams?.get("storeId") ?? null;
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
 
   useEffect(() => {
-    fetch("/api/store/orders?all=true", { credentials: "include" })
+    const url = storeId
+      ? `/api/store/orders?storeId=${encodeURIComponent(storeId)}`
+      : "/api/store/orders?all=true";
+    fetch(url, { credentials: "include" })
       .then((r) => r.ok ? r.json() : [])
       .then((data: Order[]) => {
         setOrders(data);
@@ -168,7 +177,7 @@ export default function AllOrdersPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [storeId]);
 
   function setInv(orderId: string, patch: Partial<InvoiceState>) {
     setInvoiceStates((prev) => ({ ...prev, [orderId]: { ...prev[orderId], ...patch } }));
@@ -213,12 +222,13 @@ export default function AllOrdersPage() {
           <div>
             <h1 className="text-lg font-bold" style={{ color: A.text }}>All Orders</h1>
             <p className="text-xs" style={{ color: A.textMuted }}>
-              {orders.length} total order{orders.length !== 1 ? "s" : ""} across all stores
+              {orders.length} total order{orders.length !== 1 ? "s" : ""}
+              {storeId ? " for this store" : " across all stores"}
             </p>
           </div>
-          <a href="/store/account?tab=stores" className="text-xs px-3 py-1.5 rounded-md"
+          <a href="/store/account" className="text-xs px-3 py-1.5 rounded-md"
             style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
-            ← My Stores
+            ← My Account
           </a>
         </div>
       </div>
@@ -237,6 +247,13 @@ export default function AllOrdersPage() {
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-mono font-bold" style={{ color: A.text }}>#{order.id.slice(-8).toUpperCase()}</span>
+                    {/* requiresAttention red dot */}
+                    {order.requiresAttention && (
+                      <span title="Action required" style={{
+                        display: "inline-block", width: 8, height: 8,
+                        borderRadius: "50%", background: "#EF4444", flexShrink: 0,
+                      }} />
+                    )}
                     {(() => {
                       const ds = order.deliveryStatus ?? "pending";
                       const color = DELIVERY_COLORS[ds] ?? A.textMuted;
@@ -254,6 +271,13 @@ export default function AllOrdersPage() {
                           color: PARTNER_STATUS_COLORS[order.partnerStatus] ?? A.textMuted,
                         }}>
                         {PARTNER_STATUS_LABELS[order.partnerStatus] ?? order.partnerStatus}
+                      </span>
+                    )}
+                    {/* Active workflow step chip */}
+                    {order.activeStep && (
+                      <span className="text-xs px-2 py-0.5 rounded font-medium"
+                        style={{ background: "#F1F5F9", color: "#64748B", border: "1px solid #E2E8F0" }}>
+                        {order.activeStep.stepName}
                       </span>
                     )}
                     <a href={`/store/${order.store.slug ?? order.store.id}`}
@@ -308,41 +332,58 @@ export default function AllOrdersPage() {
                 </div>
               )}
 
-              <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
-                <div className="flex items-center gap-2 flex-wrap mb-2">
-                  <span className="text-xs" style={{ color: A.textMuted }}>Delivery pipeline:</span>
-                  {DELIVERY_STEPS.map((s) => {
+              {/* ── Status bar + actions ── */}
+              <div className="mt-4 pt-4 border-t flex items-center justify-between flex-wrap gap-3" style={{ borderColor: "#f0f0f0" }}>
+                {/* Read-only pipeline — step pills are display only */}
+                <div className="flex items-center gap-1 flex-wrap">
+                  {DELIVERY_STEPS.map((s, idx) => {
                     const current = order.deliveryStatus ?? "pending";
-                    const isActive = current === s;
-                    const color = DELIVERY_COLORS[s];
+                    const currentIdx = DELIVERY_STEPS.indexOf(current as typeof DELIVERY_STEPS[number]);
+                    const isCompleted = currentIdx > idx;
+                    const isActive    = current === s;
+                    const color       = DELIVERY_COLORS[s];
                     return (
-                      <button key={s}
-                        disabled={isActive || updating === order.id || order.deliveryStatus === "cancelled"}
-                        onClick={() => updateDeliveryStatus(order.id, s)}
-                        className="text-xs px-2 py-1 rounded"
-                        style={{
-                          background: isActive ? `${color}20` : "#f9fafb",
-                          color: isActive ? color : A.textMuted,
-                          border: `1px solid ${isActive ? color : A.border}`,
-                          cursor: (isActive || order.deliveryStatus === "cancelled") ? "default" : "pointer",
-                          fontWeight: isActive ? 600 : 400,
-                        }}>
-                        {DELIVERY_LABELS[s]}
-                      </button>
+                      <span key={s} className="flex items-center gap-1">
+                        {idx > 0 && (
+                          <span style={{ color: isCompleted ? DELIVERY_COLORS.delivered : A.border, fontSize: 10 }}>›</span>
+                        )}
+                        <span className="text-xs px-2 py-0.5 rounded"
+                          style={{
+                            background: isActive ? `${color}20` : isCompleted ? `${DELIVERY_COLORS.delivered}10` : "#f9fafb",
+                            color:      isActive ? color : isCompleted ? DELIVERY_COLORS.delivered : A.textMuted,
+                            fontWeight: isActive ? 600 : 400,
+                            border:     `1px solid ${isActive ? color : "transparent"}`,
+                          }}>
+                          {isCompleted ? "✓ " : ""}{DELIVERY_LABELS[s]}
+                        </span>
+                      </span>
                     );
                   })}
-                  <button
-                    disabled={order.deliveryStatus === "cancelled" || updating === order.id}
-                    onClick={() => updateDeliveryStatus(order.id, "cancelled")}
-                    className="text-xs px-2 py-1 rounded"
-                    style={{
-                      background: order.deliveryStatus === "cancelled" ? `${DELIVERY_COLORS.cancelled}20` : "#f9fafb",
-                      color: order.deliveryStatus === "cancelled" ? DELIVERY_COLORS.cancelled : "#DC2626",
-                      border: `1px solid ${order.deliveryStatus === "cancelled" ? DELIVERY_COLORS.cancelled : "rgba(220,38,38,0.3)"}`,
-                      cursor: order.deliveryStatus === "cancelled" ? "default" : "pointer",
-                    }}>
-                    Cancel
-                  </button>
+                  {order.deliveryStatus === "cancelled" && (
+                    <span className="text-xs px-2 py-0.5 rounded font-medium"
+                      style={{ background: `${DELIVERY_COLORS.cancelled}20`, color: DELIVERY_COLORS.cancelled }}>
+                      Cancelled
+                    </span>
+                  )}
+                </div>
+
+                {/* Actions: Cancel + Manage (workflow controls live on per-store page) */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {order.deliveryStatus !== "cancelled" && order.deliveryStatus !== "delivered" && (
+                    <button
+                      disabled={updating === order.id}
+                      onClick={() => updateDeliveryStatus(order.id, "cancelled")}
+                      className="text-xs px-2.5 py-1 rounded"
+                      style={{ border: "1px solid #FECACA", color: "#EF4444", background: "#fff", cursor: "pointer" }}>
+                      Cancel
+                    </button>
+                  )}
+                  <a
+                    href={`/store/${order.store.slug ?? order.store.id}/orders`}
+                    className="text-xs px-3 py-1 rounded font-medium"
+                    style={{ background: "#EEF2FF", color: A.accent, border: `1px solid ${A.accent}`, textDecoration: "none" }}>
+                    Manage →
+                  </a>
                 </div>
               </div>
             </div>

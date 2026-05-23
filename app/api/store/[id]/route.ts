@@ -107,15 +107,19 @@ export async function PATCH(
   if (!store) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (store.ownerId !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const { name, description } = await req.json();
+  const body = await req.json();
+  const { name, description, deliveryFee, freeDeliveryAbove } = body;
+
+  const data: Record<string, unknown> = {};
+  if (name?.trim()) data.name = name.trim();
+  if (description !== undefined) data.description = description?.trim() || null;
+  if ("deliveryFee" in body) data.deliveryFee = deliveryFee != null ? Number(deliveryFee) : null;
+  if ("freeDeliveryAbove" in body) data.freeDeliveryAbove = freeDeliveryAbove != null ? Number(freeDeliveryAbove) : null;
 
   const updated = await prisma.store.update({
     where: { id },
-    data: {
-      ...(name?.trim() && { name: name.trim() }),
-      ...(description !== undefined && { description: description?.trim() || null }),
-    },
-    select: { id: true, name: true, description: true, slug: true },
+    data,
+    select: { id: true, name: true, description: true, slug: true, deliveryFee: true, freeDeliveryAbove: true },
   });
 
   return NextResponse.json(updated);

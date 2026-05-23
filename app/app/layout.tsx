@@ -4,6 +4,8 @@ import { getLogoutRedirect } from "@/lib/logout";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Truck } from "lucide-react";
+import NotificationBell from "@/components/notifications/NotificationBell";
 import { useTranslations } from "@/hooks/useTranslations";
 
 const LAYOUT_SLUGS =
@@ -12,10 +14,11 @@ const LAYOUT_SLUGS =
   "app-layout-sign-in-up,app-layout-sign-in";
 
 const TAB_DEFS = [
-  { slug: "app-layout-tab-home",        fallback: "Home",        icon: "🏠", href: "/app/home" },
-  { slug: "app-layout-tab-initiatives", fallback: "Initiatives", icon: "🌱", href: "/app/initiatives" },
-  { slug: "app-layout-tab-explore",     fallback: "Explore",     icon: "🔍", href: "/app/saved" },
-  { slug: "app-layout-tab-orders",      fallback: "Orders",      icon: "🛍️", href: "/app/orders" },
+  { slug: "app-layout-tab-home",        fallback: "Home",        icon: "🏠" as string | null, href: "/app/home",        requiresLogin: false },
+  { slug: "app-layout-tab-initiatives", fallback: "Initiatives", icon: "🌱" as string | null, href: "/app/initiatives", requiresLogin: false },
+  { slug: "app-layout-tab-explore",     fallback: "Explore",     icon: "🔍" as string | null, href: "/app/saved",       requiresLogin: false },
+  { slug: "app-layout-tab-orders",      fallback: "Orders",      icon: "🛍️" as string | null, href: "/app/orders",      requiresLogin: false },
+  { slug: "app-layout-tab-deliveries",  fallback: "Deliveries",  icon: null,                  href: "/earn/deliveries", requiresLogin: true  },
 ];
 
 const A = {
@@ -43,11 +46,12 @@ export default function AppShellLayout({
   const pathname = usePathname();
   const t = useTranslations(LAYOUT_SLUGS);
 
-  const tabs = TAB_DEFS.map((tab) => ({ ...tab, label: t(tab.slug, tab.fallback) }));
-
   const [user, setUser] = useState<User | null>(null);
   const [loadingUser, setLoadingUser] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  const allTabs = TAB_DEFS.map((tab) => ({ ...tab, label: t(tab.slug, tab.fallback) }));
+  const tabs = allTabs.filter((tab) => !tab.requiresLogin || !!user);
 
   const isGuest = user?.status === "guest";
 
@@ -133,13 +137,16 @@ export default function AppShellLayout({
                   letterSpacing: "0.01em",
                 }}
               >
-                {tab.icon} {tab.label}
+                {tab.icon ?? <Truck size={14} style={{ display: "inline", verticalAlign: "middle" }} />} {tab.label}
               </Link>
             );
           })}
         </div>
 
-        <div style={{ position: "relative" }}>
+        {/* Right-side controls: bell + avatar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {!loadingUser && user && <NotificationBell />}
+          <div style={{ position: "relative" }}>
           {!loadingUser &&
             (user ? (
               <>
@@ -284,6 +291,7 @@ export default function AppShellLayout({
                 {t("app-layout-sign-in", "Sign in")}
               </a>
             ))}
+          </div>
         </div>
       </header>
 
@@ -327,8 +335,8 @@ export default function AppShellLayout({
                 transition: "color 0.15s",
               }}
             >
-              <span style={{ fontSize: 20, lineHeight: 1 }}>
-                {tab.icon}
+              <span style={{ fontSize: 20, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {tab.icon ? tab.icon : <Truck size={20} />}
               </span>
 
               <span

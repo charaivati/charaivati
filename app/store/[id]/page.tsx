@@ -80,6 +80,8 @@ type Store = {
   pageType?: string;
   isOwner: boolean;
   sections: Section[];
+  deliveryFee?: number | null;
+  freeDeliveryAbove?: number | null;
 };
 
 
@@ -712,6 +714,12 @@ function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
   store: Store; totalBlocks: number;
   isPinned: boolean; onPin: () => void; isOwner: boolean;
 }) {
+  const deliveryLabel = store.deliveryFee != null
+    ? store.freeDeliveryAbove != null
+      ? `₹${store.deliveryFee} delivery · Free above ₹${store.freeDeliveryAbove}`
+      : `₹${store.deliveryFee} delivery`
+    : null;
+
   return (
     <div className="w-full" style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
       {store.bannerUrl && <img src={store.bannerUrl} alt="banner" className="w-full h-40 sm:h-56 object-cover" />}
@@ -726,6 +734,11 @@ function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
               <span className="text-xs font-mono" style={{ color: A.textMuted }}>@{store.slug}</span>
             )}
             <p className="text-sm" style={{ color: A.textMuted }}>{store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}</p>
+            {deliveryLabel && (
+              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", fontWeight: 500 }}>
+                🚚 {deliveryLabel}
+              </span>
+            )}
           </div>
         </div>
         <div className="ml-auto hidden md:flex items-center gap-2">
@@ -1032,6 +1045,10 @@ export default function StorePage() {
   const [loading, setLoading] = useState(true);
   const [screenW, setScreenW] = useState(1334);
   const [editMode, setEditMode] = useState(false);
+  const [showDeliveryFeeEdit, setShowDeliveryFeeEdit] = useState(false);
+  const [deliveryFeeInput, setDeliveryFeeInput] = useState("");
+  const [freeDeliveryAboveInput, setFreeDeliveryAboveInput] = useState("");
+  const [savingFee, setSavingFee] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
   const [addBlockForSection, setAddBlockForSection] = useState<string | null>(null);
   const [addingTile, setAddingTile] = useState<string | null>(null);
@@ -1183,6 +1200,24 @@ export default function StorePage() {
     setStore({ ...store, sections: store.sections.map((s) => s.id === sectionId ? { ...s, title: newTitle } : s) });
   }
 
+
+  async function handleSaveDeliveryFee() {
+    if (!store) return;
+    setSavingFee(true);
+    const fee = deliveryFeeInput === "" ? null : parseFloat(deliveryFeeInput);
+    const freeAbove = freeDeliveryAboveInput === "" ? null : parseFloat(freeDeliveryAboveInput);
+    const res = await fetch(`/api/store/${store.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ deliveryFee: fee, freeDeliveryAbove: freeAbove }),
+    });
+    if (res.ok) {
+      setStore((prev) => prev ? { ...prev, deliveryFee: fee, freeDeliveryAbove: freeAbove } : prev);
+      setShowDeliveryFeeEdit(false);
+    }
+    setSavingFee(false);
+  }
 
   async function handleAddToCart(block: Block, storeId: string) {
     if (!store) return;
@@ -1406,11 +1441,18 @@ export default function StorePage() {
       {!isLearning && store.isOwner && (
         <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 50, display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
           {editMode && (
-            <button
-              onClick={() => setShowBulkUpload(true)}
-              style={{ padding: "9px 18px", borderRadius: 24, background: "#fff", color: "#6366f1", border: "1px solid #6366f1", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              📸 Bulk image upload
-            </button>
+            <>
+              <button
+                onClick={() => setShowBulkUpload(true)}
+                style={{ padding: "9px 18px", borderRadius: 24, background: "#fff", color: "#6366f1", border: "1px solid #6366f1", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                📸 Bulk image upload
+              </button>
+              <button
+                onClick={() => { setDeliveryFeeInput(store.deliveryFee != null ? String(store.deliveryFee) : ""); setFreeDeliveryAboveInput(store.freeDeliveryAbove != null ? String(store.freeDeliveryAbove) : ""); setShowDeliveryFeeEdit(true); }}
+                style={{ padding: "9px 18px", borderRadius: 24, background: "#fff", color: "#15803D", border: "1px solid #BBF7D0", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                🚚 Delivery Fee
+              </button>
+            </>
           )}
           <button
             onClick={() => setEditMode((e) => !e)}
@@ -1419,11 +1461,53 @@ export default function StorePage() {
           </button>
         </div>
       )}
+      {showDeliveryFeeEdit && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}
+          onClick={(e) => e.target === e.currentTarget && setShowDeliveryFeeEdit(false)}>
+          <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", border: `1px solid ${A.border}` }}>
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 4px" }}>Delivery Fee</h3>
+            <p style={{ fontSize: 12, color: A.textMuted, margin: "0 0 18px" }}>Set the default delivery charge for this store.</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <label style={{ fontSize: 13, color: A.text, fontWeight: 600 }}>
+                Default delivery charge (₹)
+                <input
+                  type="number" min="0" placeholder="e.g. 50"
+                  value={deliveryFeeInput}
+                  onChange={(e) => setDeliveryFeeInput(e.target.value)}
+                  style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", borderRadius: 8, border: `1px solid ${A.border}`, fontSize: 14, color: A.text, outline: "none", boxSizing: "border-box" }}
+                />
+              </label>
+              <label style={{ fontSize: 13, color: A.text, fontWeight: 600 }}>
+                Free delivery above (₹) <span style={{ fontWeight: 400, color: A.textMuted }}>optional</span>
+                <input
+                  type="number" min="0" placeholder="e.g. 500"
+                  value={freeDeliveryAboveInput}
+                  onChange={(e) => setFreeDeliveryAboveInput(e.target.value)}
+                  style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", borderRadius: 8, border: `1px solid ${A.border}`, fontSize: 14, color: A.text, outline: "none", boxSizing: "border-box" }}
+                />
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button
+                disabled={savingFee}
+                onClick={handleSaveDeliveryFee}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: savingFee ? 0.6 : 1 }}>
+                {savingFee ? "Saving…" : "Save"}
+              </button>
+              <button
+                onClick={() => setShowDeliveryFeeEdit(false)}
+                style={{ padding: "10px 16px", borderRadius: 8, background: "#fff", color: A.text, border: `1px solid ${A.border}`, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {showBulkUpload && store && (
         <BulkImageUploadModal storeId={store.id} onClose={() => setShowBulkUpload(false)} />
       )}
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} items={cartItems} onRemove={handleRemoveFromCart} storeId={store.id} storeName={store.name} onCheckout={() => setCheckoutOpen(true)} />
-      <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0)} storeId={store.id} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />
+      <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={(() => { const sub = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0); const fee = store.deliveryFee; const freeA = store.freeDeliveryAbove; return sub + (fee != null && (freeA == null || sub < freeA) ? fee : 0); })()} storeId={store.id} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />
       <AddressModal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} onSelected={(addr) => setDefaultAddress(addr)} />
       {showManageFilters && store && (
         <ManageFiltersPanel storeId={store.id} filters={storeFilters} sections={store.sections.map((s) => ({ id: s.id, title: s.title }))} globalBanner={globalBanner}

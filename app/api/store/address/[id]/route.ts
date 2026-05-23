@@ -15,7 +15,7 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { name, phone, line1, city, state, pincode, isDefault } = await req.json();
+  const { name, phone, line1, city, state, pincode, isDefault, lat, lng } = await req.json();
 
   if (isDefault) {
     await prisma.address.updateMany({
@@ -34,6 +34,8 @@ export async function PATCH(
       ...(state && { state: state.trim() }),
       ...(pincode && { pincode: pincode.trim() }),
       ...(typeof isDefault === "boolean" && { isDefault }),
+      ...(typeof lat === "number" && { lat }),
+      ...(typeof lng === "number" && { lng }),
     },
   });
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AddressForm, { type AddressFormData } from "@/components/shared/AddressForm";
 
 const A = {
   bg: "#E3E6E6",
@@ -59,13 +60,15 @@ interface QuickOrderModalProps {
   storeId: string;
   storeName: string;
   initialItem: QuickItem;
+  deliveryFee?: number | null;
+  freeDeliveryAbove?: number | null;
 }
 
 function Spinner() {
   return <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />;
 }
 
-export default function QuickOrderModal({ open, onClose, storeId, storeName, initialItem }: QuickOrderModalProps) {
+export default function QuickOrderModal({ open, onClose, storeId, storeName, initialItem, deliveryFee, freeDeliveryAbove }: QuickOrderModalProps) {
   const [step, setStep] = useState<Step>(1);
   const [items, setItems] = useState<QuickItem[]>([]);
 
@@ -73,9 +76,8 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [selectedAddrId, setSelectedAddrId] = useState("");
   const [addingAddr, setAddingAddr] = useState(false);
-  const [addrForm, setAddrForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
-  const [addrFormError, setAddrFormError] = useState("");
   const [savingAddr, setSavingAddr] = useState(false);
+  const [addrFormError, setAddrFormError] = useState<string | null>(null);
 
   // Invoice
   const [billingProfiles, setBillingProfiles] = useState<BillingProfile[]>([]);
@@ -94,8 +96,6 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
     setItems([{ ...initialItem }]);
     setSelectedAddrId("");
     setAddingAddr(false);
-    setAddrForm({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
-    setAddrFormError("");
     setSelectedProfileId(PERSONAL_ID);
     setPlacing(false);
     setOrderId(null);
@@ -127,7 +127,9 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
     }).catch(() => {});
   }, [open, step]);
 
-  const total = items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const itemsTotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const appliedDeliveryFee = deliveryFee != null && (freeDeliveryAbove == null || itemsTotal < freeDeliveryAbove) ? deliveryFee : 0;
+  const total = itemsTotal + appliedDeliveryFee;
   const selectedAddr = addresses.find((a) => a.id === selectedAddrId);
 
   function updateQty(blockId: string, delta: number) {
@@ -140,27 +142,30 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
     setItems((prev) => prev.filter((i) => i.blockId !== blockId));
   }
 
-  async function saveNewAddress() {
-    const { name, phone, line1, city, state, pincode } = addrForm;
-    if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
-      setAddrFormError("Please fill all address fields");
-      return;
-    }
+  async function saveNewAddress(data: AddressFormData) {
     setSavingAddr(true);
-    setAddrFormError("");
     try {
       const r = await fetch("/api/store/address", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name: name.trim(), phone: phone.trim(), line1: line1.trim(), city: city.trim(), state: state.trim(), pincode: pincode.trim(), isDefault: false }),
+        body: JSON.stringify({
+          name: data.name,
+          phone: data.phone,
+          line1: data.line1,
+          city: data.city,
+          state: data.state,
+          pincode: data.pincode,
+          isDefault: false,
+          lat: data.lat,
+          lng: data.lng,
+        }),
       });
       if (r.ok) {
         const a = await r.json();
         setAddresses((prev) => [...prev, a]);
         setSelectedAddrId(a.id);
         setAddingAddr(false);
-        setAddrForm({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
       }
     } finally { setSavingAddr(false); }
   }
@@ -265,6 +270,17 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
                   </div>
                 </div>
               ))}
+              {appliedDeliveryFee > 0 && (
+                <div className="flex justify-between text-xs pt-1" style={{ color: A.textMuted }}>
+                  <span>Delivery fee</span>
+                  <span>₹{appliedDeliveryFee.toLocaleString("en-IN")}</span>
+                </div>
+              )}
+              {appliedDeliveryFee === 0 && deliveryFee != null && freeDeliveryAbove != null && (
+                <div className="text-xs pt-1" style={{ color: "#15803D" }}>
+                  🚚 Free delivery applied (order above ₹{freeDeliveryAbove.toLocaleString("en-IN")})
+                </div>
+              )}
               <div className="flex justify-between text-sm font-semibold pt-1" style={{ color: A.text }}>
                 <span>Total</span>
                 <span>₹{total.toLocaleString("en-IN")}</span>
@@ -290,19 +306,12 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
                 {addingAddr ? "Cancel new address" : "+ Add new address"}
               </button>
               {addingAddr && (
-                <div className="space-y-2 p-3 rounded-lg" style={{ border: `1px solid ${A.border}` }}>
-                  {(["name", "phone", "line1", "city", "state", "pincode"] as const).map((k) => (
-                    <input key={k} value={addrForm[k]}
-                      onChange={(e) => { setAddrForm((f) => ({ ...f, [k]: e.target.value })); setAddrFormError(""); }}
-                      placeholder={k === "line1" ? "Address line" : k.charAt(0).toUpperCase() + k.slice(1)}
-                      className={iCls} style={iStyle} />
-                  ))}
-                  {addrFormError && <p className="text-xs" style={{ color: "#EF4444" }}>{addrFormError}</p>}
-                  <button onClick={saveNewAddress} disabled={savingAddr}
-                    className="text-xs px-4 py-1.5 rounded-md font-medium"
-                    style={{ background: A.accent, color: "#fff", opacity: savingAddr ? 0.6 : 1 }}>
-                    {savingAddr ? "Saving…" : "Save address"}
-                  </button>
+                <div className="p-3 rounded-lg" style={{ border: `1px solid ${A.border}` }}>
+                  <AddressForm
+                    onSave={saveNewAddress}
+                    onCancel={() => setAddingAddr(false)}
+                    saving={savingAddr}
+                  />
                 </div>
               )}
             </>
@@ -404,6 +413,18 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
             )}
             {step === 3 && (
               <div className="space-y-2">
+                {appliedDeliveryFee > 0 && (
+                  <div className="flex justify-between text-xs" style={{ color: A.textMuted }}>
+                    <span>Items</span>
+                    <span>₹{itemsTotal.toLocaleString("en-IN")}</span>
+                  </div>
+                )}
+                {appliedDeliveryFee > 0 && (
+                  <div className="flex justify-between text-xs" style={{ color: A.textMuted }}>
+                    <span>Delivery</span>
+                    <span>₹{appliedDeliveryFee.toLocaleString("en-IN")}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-xs mb-2" style={{ color: A.textMuted }}>
                   <span>Total</span>
                   <span className="font-bold" style={{ color: A.text }}>₹{total.toLocaleString("en-IN")}</span>

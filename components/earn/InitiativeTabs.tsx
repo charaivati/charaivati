@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import PartnersTab from "./PartnersTab";
 
 const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
+const WorkflowTab = dynamic(() => import("./WorkflowTab"), { ssr: false });
+const TeamTab     = dynamic(() => import("./TeamTab"),     { ssr: false });
 
-type Tab = "overview" | "store" | "partners";
+type Tab = "overview" | "store" | "team" | "partners" | "workflow";
 
 interface InitiativeTabsProps {
   pageId: string;
@@ -52,13 +54,29 @@ export default function InitiativeTabs({
     return <CommunityGroupTabs pageId={pageId} ownerPages={ownerPages} />;
   }
 
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [openingStore, setOpeningStore] = useState(false);
+  const [activeTab,   setActiveTab]   = useState<Tab>("overview");
+  const [openingStore,setOpeningStore] = useState(false);
+  const [canEdit,     setCanEdit]     = useState(true);
+
+  // Fetch team role to determine edit permissions (founder / co_founder = can edit)
+  useEffect(() => {
+    fetch(`/api/initiative/${pageId}/team`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data) return;
+        const role: string | null = data.userTeamRole ?? null;
+        // null = owner without explicit team record → full access
+        setCanEdit(role === null || role === "founder" || role === "co_founder");
+      })
+      .catch(() => { /* keep default canEdit=true on error */ });
+  }, [pageId]);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "overview", label: "Overview" },
-    { id: "store", label: "Store" },
+    { id: "store",    label: "Store" },
+    { id: "team",     label: "Team" },
     { id: "partners", label: "Partners" },
+    { id: "workflow", label: "Workflow" },
   ];
 
   async function handleOpenStore() {
@@ -169,9 +187,19 @@ export default function InitiativeTabs({
         </div>
       )}
 
+      {/* Team */}
+      {activeTab === "team" && (
+        <TeamTab pageId={pageId} canEdit={canEdit} />
+      )}
+
       {/* Partners */}
       {activeTab === "partners" && (
         <PartnersTab pageId={pageId} ownerPages={ownerPages} />
+      )}
+
+      {/* Workflow */}
+      {activeTab === "workflow" && (
+        <WorkflowTab pageId={pageId} canEdit={canEdit} />
       )}
     </div>
   );

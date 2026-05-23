@@ -10,7 +10,7 @@ const BORDER = "#DDDDDD";
 const ACCENT = "#6366f1";
 
 function MobileProfileMenu() {
-  const { isOwner, userName, onOpenAddress, deliveryLabel, isGuest } = useStoreShell();
+  const { isOwner, storeId, userName, onOpenAddress, deliveryLabel, isGuest } = useStoreShell();
   const pathname = usePathname();
 
   const [open, setOpen] = useState(false);
@@ -134,6 +134,23 @@ function MobileProfileMenu() {
             📦 My Orders
           </a>
 
+          {isOwner && storeId && (
+            <a
+              href={`/store/${storeId}/orders`}
+              style={{
+                display: "block",
+                padding: "10px 16px",
+                fontSize: 13,
+                color: "#6366f1",
+                textDecoration: "none",
+                fontWeight: 600,
+                borderBottom: "1px solid #f0f0f0",
+              }}
+            >
+              📋 Manage Orders →
+            </a>
+          )}
+
           {isOwner && (
             <div style={{ position: "relative" }}>
               <button
@@ -231,6 +248,8 @@ function StoreNav() {
     storeName,
     userName,
     isGuest,
+    isOwner,
+    storeId,
     cartCount,
     searchQuery,
     setSearchQuery,
@@ -418,6 +437,17 @@ function StoreNav() {
               <div className="opacity-80">Returns &amp;</div>
               <div className="font-bold">Orders</div>
             </a>
+
+            {isOwner && storeId && (
+              <a
+                href={`/store/${storeId}/orders`}
+                style={{ textDecoration: "none" }}
+                className="leading-tight text-white text-xs hover:opacity-80"
+              >
+                <div className="opacity-80">Owner</div>
+                <div className="font-bold">Manage Orders →</div>
+              </a>
+            )}
 
             <button
               onClick={onOpenCart}

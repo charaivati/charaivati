@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
-import DeliveriesClient, { type DeliveryOrder } from "@/components/earn/DeliveriesClient";
+import DeliveriesClient, { type DeliveryOrder, type CompletedDelivery } from "@/components/earn/DeliveriesClient";
 
 type RawOrder = {
   id: string;
@@ -14,8 +14,23 @@ type RawOrder = {
   items: unknown;
   total: number;
   createdAt: Date;
+  agreedAmount: number | null;
   addrName: string;
   addrPhone: string;
+  line1: string;
+  city: string;
+  state: string;
+  pincode: string;
+  storeName: string;
+  activeStepId: string | null;
+  cycleCount: number | null;
+};
+
+type RawCompleted = {
+  id: string;
+  createdAt: Date;
+  agreedAmount: number | null;
+  addrName: string;
   line1: string;
   city: string;
   state: string;
@@ -39,7 +54,7 @@ export default async function DeliveriesPage() {
   const pageIds = ownedPages.map((p) => p.id);
 
   if (pageIds.length === 0) {
-    return <Shell><DeliveriesClient orders={[]} /></Shell>;
+    return <Shell><DeliveriesClient orders={[]} completedOrders={[]} /></Shell>;
   }
 
   // Accepted collaborations where one of the user's pages is the receiver.
@@ -53,7 +68,7 @@ export default async function DeliveriesPage() {
   });
 
   if (collabs.length === 0) {
-    return <Shell><DeliveriesClient orders={[]} /></Shell>;
+    return <Shell><DeliveriesClient orders={[]} completedOrders={[]} /></Shell>;
   }
 
   const collabIds = collabs.map((c) => c.id);
@@ -75,13 +90,20 @@ export default async function DeliveriesPage() {
       o.items,
       o.total,
       o."createdAt",
+      o."agreedAmount",
       a.name      AS "addrName",
       a.phone     AS "addrPhone",
       a.line1,
       a.city,
       a.state,
       a.pincode,
-      s.name      AS "storeName"
+      s.name      AS "storeName",
+      (SELECT osp."stepId" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
+      (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
@@ -98,7 +120,33 @@ export default async function DeliveriesPage() {
     requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? "",
   }));
 
-  return <Shell><DeliveriesClient orders={orders} /></Shell>;
+  // Last 10 completed deliveries for this user
+  const rawCompleted = await prisma.$queryRaw<RawCompleted[]>`
+    SELECT
+      o.id,
+      o."createdAt",
+      o."agreedAmount",
+      a.name      AS "addrName",
+      a.line1,
+      a.city,
+      a.state,
+      a.pincode,
+      s.name      AS "storeName"
+    FROM "Order" o
+    JOIN "Address" a ON o."addressId" = a.id
+    JOIN "Store"   s ON o."storeId"   = s.id
+    WHERE o."assignedToId" = ANY(${collabIds}::text[])
+      AND o."partnerStatus" = 'completed'
+    ORDER BY o."createdAt" DESC
+    LIMIT 10
+  `;
+
+  const completedOrders: CompletedDelivery[] = rawCompleted.map((o) => ({
+    ...o,
+    createdAt: o.createdAt.toISOString(),
+  }));
+
+  return <Shell><DeliveriesClient orders={orders} completedOrders={completedOrders} /></Shell>;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {

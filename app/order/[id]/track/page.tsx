@@ -26,6 +26,7 @@ type OrderItem = { title: string; quantity: number; price: number };
 type OrderData = {
   id: string;
   deliveryStatus: string;
+  partnerStatus: string | null;
   assignedToId: string | null;
   vehicleId: string | null;
   deliveryNote: string | null;
@@ -50,22 +51,52 @@ export default function TrackOrderPage() {
   const { id } = useParams<{ id: string }>();
   const router  = useRouter();
 
-  const [order,      setOrder]      = useState<OrderData | null>(null);
-  const [loading,    setLoading]    = useState(true);
-  const [vehiclePos, setVehiclePos] = useState<VehiclePos | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [order,            setOrder]            = useState<OrderData | null>(null);
+  const [loading,          setLoading]          = useState(true);
+  const [vehiclePos,       setVehiclePos]       = useState<VehiclePos | null>(null);
+  const [customerConfirmed,setCustomerConfirmed]= useState(false);
+  const [confirming,       setConfirming]       = useState(false);
+  const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
+  const orderPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Fetch order
-  useEffect(() => {
-    fetch(`/api/order/${id}/delivery`, { credentials: "include" })
+  // Fetch order (called on mount and by the order status poll)
+  function fetchOrder() {
+    return fetch(`/api/order/${id}/delivery`, { credentials: "include" })
       .then((r) => {
         if (r.status === 401) { router.push(`/login?redirect=/order/${id}/track`); return null; }
         if (!r.ok) { router.push("/"); return null; }
         return r.json();
       })
-      .then((data) => { if (data) setOrder(data); })
-      .finally(() => setLoading(false));
-  }, [id, router]);
+      .then((data) => { if (data) setOrder(data); });
+  }
+
+  useEffect(() => {
+    fetchOrder().finally(() => setLoading(false));
+  }, [id, router]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Poll order status every 5 s while waiting for partner to confirm or customer to receive
+  useEffect(() => {
+    const isDone = order?.deliveryStatus === "delivered" || customerConfirmed;
+    if (isDone) {
+      if (orderPollRef.current) { clearInterval(orderPollRef.current); orderPollRef.current = null; }
+      return;
+    }
+    if (!order) return;
+    orderPollRef.current = setInterval(() => { fetchOrder(); }, 5000);
+    return () => { if (orderPollRef.current) { clearInterval(orderPollRef.current); orderPollRef.current = null; } };
+  }, [order?.deliveryStatus, order?.partnerStatus, customerConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleCustomerConfirm() {
+    setConfirming(true);
+    const res = await fetch(`/api/order/${id}/customer-confirm`, {
+      method: "POST", credentials: "include",
+    });
+    if (res.ok) {
+      setCustomerConfirmed(true);
+      setOrder((prev) => prev ? { ...prev, deliveryStatus: "delivered" } : prev);
+    }
+    setConfirming(false);
+  }
 
   // Live GPS poll — only when out_for_delivery AND vehicleId is linked
   useEffect(() => {
@@ -111,8 +142,20 @@ export default function TrackOrderPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
-        <h1 className="text-lg font-bold text-gray-900">Track Order</h1>
+      <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
+        <div className="flex items-center justify-between">
+          <a href="/app/orders?tab=my"
+            className="text-sm font-medium text-gray-500 hover:text-gray-800"
+            style={{ textDecoration: "none" }}>
+            ← My Orders
+          </a>
+          <a href="/app/home"
+            className="text-sm font-medium"
+            style={{ color: "#6366f1", textDecoration: "none" }}>
+            Home
+          </a>
+        </div>
+        <h1 className="text-lg font-bold text-gray-900 mt-1">Track Order</h1>
         <p className="text-xs text-gray-500 font-mono">#{order.id.slice(-8).toUpperCase()}</p>
       </div>
 
@@ -174,6 +217,30 @@ export default function TrackOrderPage() {
             </div>
           )}
         </div>
+
+        {/* ── Thank-you state ── */}
+        {(customerConfirmed || order.deliveryStatus === "delivered") && (
+          <div className="bg-emerald-50 rounded-xl p-5 shadow-sm border border-emerald-200 text-center">
+            <p className="text-3xl mb-2">✅</p>
+            <p className="text-sm font-semibold text-emerald-800">Order Received!</p>
+            <p className="text-xs text-emerald-600 mt-1">Thank you for confirming receipt.</p>
+          </div>
+        )}
+
+        {/* ── Customer confirmation prompt ── */}
+        {order.partnerStatus === "completed" && !customerConfirmed && order.deliveryStatus !== "delivered" && (
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-emerald-300">
+            <p className="text-sm font-semibold text-gray-900 mb-1">Confirm you received this order?</p>
+            <p className="text-xs text-gray-500 mb-4">Your delivery partner has marked this as delivered.</p>
+            <button
+              onClick={handleCustomerConfirm}
+              disabled={confirming}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {confirming ? "Confirming…" : "Yes, I received it"}
+            </button>
+          </div>
+        )}
 
         {/* ── Live map — only when out_for_delivery ── */}
         {isLive && (

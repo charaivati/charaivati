@@ -50,4 +50,6 @@ yarn-error.log*
 # editor settings
 .vscode/
 .idea/
-    
+
+# MCP config (contains bearer tokens — keep off git)
+.mcp.json

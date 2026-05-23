@@ -3,6 +3,18 @@
 import { useState } from "react";
 import Broadcaster from "@/components/transport/broadcaster";
 
+export type CompletedDelivery = {
+  id: string;
+  createdAt: string;
+  agreedAmount: number | null;
+  addrName: string;
+  line1: string;
+  city: string;
+  state: string;
+  pincode: string;
+  storeName: string;
+};
+
 export type DeliveryOrder = {
   id: string;
   deliveryStatus: string;
@@ -22,20 +34,30 @@ export type DeliveryOrder = {
   storeName: string;
   collabRole: string;
   requesterTitle: string;
+  activeStepId: string | null;
+  agreedAmount: number | null;
+  cycleCount: number | null;
 };
 
 // ── Order card ────────────────────────────────────────────────────────────────
 function OrderCard({
   order,
   isBusy,
+  isConfirmed,
+  isRejecting,
   onAction,
   onGps,
+  onConfirmDelivery,
 }: {
   order: DeliveryOrder;
   isBusy: boolean;
+  isConfirmed: boolean;
+  isRejecting: boolean;
   onAction: (body: Record<string, unknown>) => void;
   onGps: () => void;
+  onConfirmDelivery: () => void;
 }) {
+  const [pendingReject, setPendingReject] = useState(false);
   const isAssigned = order.partnerStatus === "assigned";
   const isAccepted = order.partnerStatus === "accepted";
 
@@ -69,6 +91,24 @@ function OrderCard({
           </span>
         </div>
       </div>
+
+      {/* Fee & adjustment — shown for assigned and accepted orders */}
+      {(isAssigned || isAccepted) && (
+        <div className="mb-4 flex items-center gap-2 flex-wrap">
+          {order.agreedAmount ? (
+            <span className="text-sm font-bold text-emerald-400">
+              ₹{order.agreedAmount.toLocaleString("en-IN")} delivery fee
+            </span>
+          ) : (
+            <span className="text-sm text-gray-500">Fee not set</span>
+          )}
+          {(order.cycleCount ?? 0) > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/40 text-amber-400 border border-amber-800">
+              +{(order.cycleCount ?? 0) * 5}% adjustment
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Deliver to */}
       <div className="mb-4">
@@ -108,59 +148,90 @@ function OrderCard({
 
       {/* Actions */}
       <div className="pt-4 border-t border-gray-800">
-        {isAssigned ? (
-          // ── New assignment: Accept or Reject ──
-          <div className="flex items-center gap-2">
-            <button
-              disabled={isBusy}
-              onClick={() => onAction({ partnerAction: "accept" })}
-              className="text-sm px-4 py-2 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-colors"
-            >
-              {isBusy ? "…" : "Accept Delivery"}
-            </button>
-            <button
-              disabled={isBusy}
-              onClick={() => onAction({ partnerAction: "reject" })}
-              className="text-sm px-4 py-2 rounded-lg font-medium border border-red-800 text-red-400 hover:border-red-600 disabled:opacity-50 transition-colors"
-            >
-              Reject
-            </button>
+        {isRejecting ? (
+          // ── Rejection in progress — card stays briefly then disappears ──
+          <div className="flex items-center gap-2 text-amber-400 text-sm font-medium">
+            <span>Rejected — moving to next partner</span>
           </div>
-        ) : isAccepted ? (
-          // ── Accepted: GPS + Mark Delivered ──
-          <div className="flex flex-col gap-3">
-            {order.deliveryStatus === "out_for_delivery" ? (
-              order.vehicleId ? (
-                <div className="flex items-center gap-2 text-sm text-emerald-400">
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                  </span>
-                  GPS Active
-                </div>
-              ) : (
+        ) : isConfirmed ? (
+          // ── Delivery confirmed ──
+          <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
+            <span>✅</span>
+            <span>Delivery complete</span>
+          </div>
+        ) : isAssigned ? (
+          // ── New assignment: Accept (with fee) or Reject (with confirmation) ──
+          pendingReject ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-300">
+                Are you sure? This will pass the order to the next partner.
+              </p>
+              <div className="flex items-center gap-2">
                 <button
                   disabled={isBusy}
-                  onClick={onGps}
-                  className="text-sm px-4 py-2 rounded-lg font-medium border border-gray-700 text-gray-300 hover:border-gray-500 disabled:opacity-50 transition-colors w-fit"
+                  onClick={() => { setPendingReject(false); onAction({ partnerAction: "reject" }); }}
+                  className="text-sm px-4 py-2 rounded-lg font-medium bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white transition-colors"
                 >
-                  📡 Start GPS
+                  {isBusy ? "…" : "Confirm Reject"}
                 </button>
-              )
+                <button
+                  disabled={isBusy}
+                  onClick={() => setPendingReject(false)}
+                  className="text-sm px-4 py-2 rounded-lg font-medium border border-gray-700 text-gray-300 hover:border-gray-500 disabled:opacity-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                disabled={isBusy}
+                onClick={() => onAction({ partnerAction: "accept" })}
+                className="text-sm px-4 py-2 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-colors"
+              >
+                {isBusy
+                  ? "…"
+                  : order.agreedAmount
+                  ? `✓ Accept ₹${order.agreedAmount.toLocaleString("en-IN")}`
+                  : "✓ Accept Delivery"}
+              </button>
+              <button
+                disabled={isBusy}
+                onClick={() => setPendingReject(true)}
+                className="text-sm px-4 py-2 rounded-lg font-medium border border-red-800 text-red-400 hover:border-red-600 disabled:opacity-50 transition-colors"
+              >
+                ✗ Reject
+              </button>
+            </div>
+          )
+        ) : isAccepted ? (
+          // ── Accepted: GPS + Confirm Delivery ──
+          <div className="flex flex-col gap-3">
+            {order.vehicleId ? (
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
+                </span>
+                GPS Active
+              </div>
             ) : (
-              <p className="text-xs text-gray-500 italic">
-                Waiting for owner to dispatch…
-              </p>
+              <button
+                disabled={isBusy}
+                onClick={onGps}
+                className="text-sm px-4 py-2 rounded-lg font-medium border border-gray-700 text-gray-300 hover:border-gray-500 disabled:opacity-50 transition-colors w-fit"
+              >
+                📡 Start GPS
+              </button>
             )}
 
             <button
               disabled={isBusy}
-              onClick={() =>
-                onAction({ deliveryStatus: "delivered", partnerStatus: "completed" })
-              }
+              onClick={onConfirmDelivery}
               className="text-sm px-4 py-2 rounded-lg font-medium bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white transition-colors w-fit"
             >
-              {isBusy ? "Marking…" : "✓ Mark Delivered"}
+              {isBusy ? "Confirming…" : "✓ Confirm Delivery"}
             </button>
           </div>
         ) : null}
@@ -172,12 +243,16 @@ function OrderCard({
 // ── Main client component ─────────────────────────────────────────────────────
 export default function DeliveriesClient({
   orders: initial,
+  completedOrders,
 }: {
   orders: DeliveryOrder[];
+  completedOrders: CompletedDelivery[];
 }) {
   const [orders, setOrders] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [gpsOrderId, setGpsOrderId] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
+  const [rejecting, setRejecting] = useState<Set<string>>(new Set());
 
   async function partnerPatch(orderId: string, body: Record<string, unknown>) {
     setBusy(orderId);
@@ -189,12 +264,12 @@ export default function DeliveriesClient({
     });
     if (res.ok) {
       const updated = await res.json();
-      // Remove from list on reject or after delivered
-      if (
-        body.partnerAction === "reject" ||
-        updated.deliveryStatus === "delivered"
-      ) {
-        setOrders((prev) => prev.filter((o) => o.id !== orderId));
+      if (body.partnerAction === "reject") {
+        setRejecting((prev) => new Set([...prev, orderId]));
+        setTimeout(() => {
+          setOrders((prev) => prev.filter((o) => o.id !== orderId));
+          setRejecting((prev) => { const s = new Set(prev); s.delete(orderId); return s; });
+        }, 2000);
       } else {
         setOrders((prev) =>
           prev.map((o) =>
@@ -220,7 +295,42 @@ export default function DeliveriesClient({
     setBusy(null);
   }
 
-  if (orders.length === 0) {
+  async function confirmDelivery(order: DeliveryOrder) {
+    setBusy(order.id);
+    try {
+      // 1. Confirm the workflow step (if one is active)
+      if (order.activeStepId) {
+        const res = await fetch(`/api/order/${order.id}/step/${order.activeStepId}/confirm`, {
+          method: "PATCH",
+          credentials: "include",
+        });
+        if (!res.ok) return;
+      }
+
+      // 2. Mark partner complete (no deliveryStatus change — customer confirms that)
+      await fetch(`/api/order/${order.id}/delivery`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ partnerAction: "complete" }),
+      });
+
+      // 3. Clean up GPS vehicle row if present
+      if (order.vehicleId) {
+        fetch(`/api/transport/broadcast?id=${order.vehicleId}`, { method: "DELETE" }).catch(() => {});
+      }
+
+      // 4. Show complete state briefly then remove
+      setConfirmed((prev) => new Set([...prev, order.id]));
+      setTimeout(() => {
+        setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      }, 2500);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (orders.length === 0 && completedOrders.length === 0) {
     return (
       <div className="text-center py-20">
         <p className="text-4xl mb-3">🚚</p>
@@ -236,17 +346,62 @@ export default function DeliveriesClient({
 
   return (
     <>
-      <div className="space-y-4">
-        {orders.map((order) => (
-          <OrderCard
-            key={order.id}
-            order={order}
-            isBusy={busy === order.id}
-            onAction={(body) => partnerPatch(order.id, body)}
-            onGps={() => setGpsOrderId(order.id)}
-          />
-        ))}
-      </div>
+      {orders.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-4xl mb-3">🚚</p>
+          <p className="text-gray-400 text-sm">No active deliveries right now.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {orders.map((order) => (
+            <OrderCard
+              key={order.id}
+              order={order}
+              isBusy={busy === order.id}
+              isConfirmed={confirmed.has(order.id)}
+              isRejecting={rejecting.has(order.id)}
+              onAction={(body) => partnerPatch(order.id, body)}
+              onGps={() => setGpsOrderId(order.id)}
+              onConfirmDelivery={() => confirmDelivery(order)}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Completed deliveries */}
+      {completedOrders.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wide">
+            Completed Deliveries
+          </h2>
+          <div className="space-y-3">
+            {completedOrders.map((o) => (
+              <div key={o.id} className="bg-gray-900 rounded-xl p-4 border border-gray-800">
+                <div className="flex items-start justify-between gap-3 mb-2">
+                  <div>
+                    <p className="text-white text-sm font-medium">{o.storeName}</p>
+                    <p className="text-xs text-gray-500 font-mono mt-0.5">#{o.id.slice(-8).toUpperCase()}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-900/40 text-emerald-400 border border-emerald-800">
+                      Completed ✓
+                    </span>
+                    {o.agreedAmount != null && (
+                      <p className="text-xs text-gray-400 mt-1">₹{o.agreedAmount.toLocaleString("en-IN")}</p>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400">
+                  {o.addrName} · {o.line1}, {o.city}, {o.state} {o.pincode}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  {new Date(o.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* GPS modal */}
       {gpsOrderId && (

@@ -375,6 +375,17 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 ---
 
+## 9a. Known Production Risks
+
+| Risk | Location | Action Required Before Launch |
+|---|---|---|
+| **Quote timeouts use in-process `setTimeout`** | `lib/workflow/triggerQuoteRequests.ts` | Replace with BullMQ or a durable job queue. A server restart silently drops all pending timeouts — quotes will never be rejected and `requiresAttention` will never be set. |
+| **Chat system messages stored as plaintext** | `lib/workflow/triggerQuoteRequests.ts` + any chat renderer | `ChatMessage` rows with `iv = "system"` contain plaintext in `ciphertext`. Renderers must check `iv === "system"` and skip decryption. See `CLAUDE.md` for the full note. |
+| **Prisma client stale for new columns** | `Order.parentOrderId/subOrderType/agreedAmount`, `Notification` model, `WorkflowStepAssignee` model, `OrderStepProgress.currentAssigneeId/cycleCount/lastFeeMultiplier` | These were added via Neon MCP migrations but `prisma generate` fails on Windows while the dev server runs (EPERM). All affected code uses `(prisma as any)`. Run `npx prisma generate` after stopping the dev server to restore type safety. |
+| **Sub-orders appear alongside parent orders** | `GET /api/store/orders?storeId=X` | The query does not filter by `parentOrderId IS NULL`. Sub-orders (with the same `storeId`) are returned as top-level items. Add the filter if the owner's order list becomes cluttered. |
+
+---
+
 ## 10. Security
 
 A full static security audit is at [docs/SECURITY_AUDIT.md](SECURITY_AUDIT.md).
