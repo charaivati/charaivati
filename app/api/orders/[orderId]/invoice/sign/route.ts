@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v2 as cloudinary } from "cloudinary";
 import { db } from "@/lib/db";
 import getServerUser from "@/lib/serverAuth";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 export async function POST(
   req: NextRequest,
@@ -60,6 +61,14 @@ export async function POST(
     UPDATE "Order" SET "invoiceSignedUrl" = ${invoiceSignedUrl}, "invoiceSignedAt" = NOW()
     WHERE id = ${orderId}
   `;
+
+  createNotification({
+    userId: order.userId,
+    type: "delivery_complete",
+    title: "Your invoice is ready",
+    body: `Order #${orderId.slice(-8).toUpperCase()} — signed invoice available to download.`,
+    link: `/order/${orderId}/track`,
+  }).catch(() => {});
 
   return NextResponse.json({ invoiceSignedUrl });
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
@@ -102,6 +103,15 @@ export async function POST(req: NextRequest) {
         total,
         addressLine,
       });
+    }
+    if (store) {
+      createNotification({
+        userId: store.ownerId,
+        type: "order_confirmed",
+        title: `New order on ${store.name}`,
+        body: `Order #${order.id.slice(-8).toUpperCase()} — ₹${total.toLocaleString("en-IN")}`,
+        link: `/store/${storeId}/orders`,
+      }).catch(() => {});
     }
   } catch (e) {
     console.error("Order email failed:", e);

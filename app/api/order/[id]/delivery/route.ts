@@ -325,6 +325,11 @@ export async function GET(req: NextRequest, { params }: Params) {
       }
     : null;
 
+  const invRow = await prisma.$queryRaw<{ invoiceSignedUrl: string | null }[]>`
+    SELECT "invoiceSignedUrl" FROM "Order" WHERE id = ${id} LIMIT 1
+  `;
+  const invoiceSignedUrl = invRow[0]?.invoiceSignedUrl ?? null;
+
   const { store: _s, userId: _u, ...orderData } = order;
-  return NextResponse.json({ ...orderData, assignedCollab });
+  return NextResponse.json({ ...orderData, invoiceSignedUrl, assignedCollab });
 }

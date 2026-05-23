@@ -5,9 +5,9 @@ import { useState, useRef, useCallback } from "react";
 import { VehicleType } from "@/lib/types";
 import { useGeolocation } from "@/hooks/useGeolocation";
 
-const VEHICLE_TYPES: VehicleType[] = ["Bus", "Auto", "Taxi", "Metro", "Other"];
+const VEHICLE_TYPES: VehicleType[] = ["Bike", "Auto", "Taxi", "Bus", "Metro", "Other"];
 const VEHICLE_EMOJI: Record<VehicleType, string> = {
-  Bus: "🚌", Auto: "🛺", Taxi: "🚕", Metro: "🚇", Other: "🚐",
+  Bus: "🚌", Auto: "🛺", Taxi: "🚕", Metro: "🚇", Other: "🚐", Bike: "🚲",
 };
 
 interface BroadcasterProps {
@@ -18,7 +18,7 @@ interface BroadcasterProps {
 export default function Broadcaster({ onPositionUpdate, onVehicleCreated }: BroadcasterProps) {
   const [busNumber, setBusNumber]     = useState("");
   const [route, setRoute]             = useState("");
-  const [vehicleType, setVehicleType] = useState<VehicleType>("Bus");
+  const [vehicleType, setVehicleType] = useState<VehicleType>("Bike");
   const [status, setStatus]           = useState<"idle" | "active" | "error">("idle");
   const [statusMsg, setStatusMsg]     = useState("Enter your vehicle details and start broadcasting.");
   const [accuracy, setAccuracy]       = useState<number | null>(null);
@@ -57,7 +57,7 @@ export default function Broadcaster({ onPositionUpdate, onVehicleCreated }: Broa
 
   const start = () => {
     if (!busNumber.trim()) {
-      alert("Please enter a bus / vehicle number.");
+      alert(vehicleType === "Bike" ? "Please enter your name." : "Please enter a vehicle number.");
       return;
     }
     setStatus("active");
@@ -93,20 +93,24 @@ export default function Broadcaster({ onPositionUpdate, onVehicleCreated }: Broa
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500 font-medium">Vehicle number *</label>
+          <label className="text-xs text-gray-500 font-medium">
+            {vehicleType === "Bike" ? "Rider name *" : "Vehicle number *"}
+          </label>
           <input
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-gray-900 placeholder-gray-400 disabled:bg-gray-100"
-            placeholder="e.g. AC-47, S-11"
+            placeholder={vehicleType === "Bike" ? "Your name" : "e.g. AC-47, S-11"}
             value={busNumber}
             onChange={(e) => setBusNumber(e.target.value)}
             disabled={isActive}
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs text-gray-500 font-medium">Route</label>
+          <label className="text-xs text-gray-500 font-medium">
+            {vehicleType === "Bike" ? "Phone" : "Route"}
+          </label>
           <input
             className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white text-gray-900 placeholder-gray-400 disabled:bg-gray-100"
-            placeholder="e.g. Esplanade → Salt Lake"
+            placeholder={vehicleType === "Bike" ? "Phone number" : "e.g. Esplanade → Salt Lake"}
             value={route}
             onChange={(e) => setRoute(e.target.value)}
             disabled={isActive}

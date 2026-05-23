@@ -67,6 +67,14 @@ const PARTNER_STATUS_COLORS: Record<string, string> = {
   completed: "#2563EB",
 };
 
+const FILTER_TABS = [
+  { key: "all", label: "All" },
+  { key: "pending", label: "Pending" },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "out_for_delivery", label: "Out for Delivery" },
+  { key: "delivered", label: "Delivered" },
+];
+
 function InvoiceSection({ orderId, inv, onSignUpload }: {
   orderId: string;
   inv: InvoiceState;
@@ -156,6 +164,8 @@ export default function AllOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
+  const [filter, setFilter] = useState("all");
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const url = storeId
@@ -209,6 +219,24 @@ export default function AllOrdersPage() {
     setUpdating(null);
   }
 
+  async function advanceStatus(orderId: string, newStatus: string) {
+    const prev = orders.find((o) => o.id === orderId)?.deliveryStatus ?? "pending";
+    setOrders((p) => p.map((o) => o.id === orderId ? { ...o, deliveryStatus: newStatus } : o));
+    const res = await fetch(`/api/order/${orderId}/delivery`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      credentials: "include", body: JSON.stringify({ deliveryStatus: newStatus }),
+    });
+    if (!res.ok) {
+      setOrders((p) => p.map((o) => o.id === orderId ? { ...o, deliveryStatus: prev } : o));
+      setErrors((p) => ({ ...p, [orderId]: "Status update failed — try again." }));
+      setTimeout(() => setErrors((p) => { const e = { ...p }; delete e[orderId]; return e; }), 3000);
+    }
+  }
+
+  const filteredOrders = filter === "all"
+    ? orders
+    : orders.filter((o) => (o.deliveryStatus ?? "pending") === filter);
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
       <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
@@ -218,18 +246,33 @@ export default function AllOrdersPage() {
   return (
     <div className="min-h-screen" style={{ background: A.bg }}>
       <div className="sticky top-0 z-10 px-6 py-4 border-b bg-white" style={{ borderColor: A.border }}>
-        <div className="max-w-5xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-bold" style={{ color: A.text }}>All Orders</h1>
-            <p className="text-xs" style={{ color: A.textMuted }}>
-              {orders.length} total order{orders.length !== 1 ? "s" : ""}
-              {storeId ? " for this store" : " across all stores"}
-            </p>
+        <div className="max-w-5xl mx-auto">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h1 className="text-lg font-bold" style={{ color: A.text }}>All Orders</h1>
+              <p className="text-xs" style={{ color: A.textMuted }}>
+                {filteredOrders.length}{filter !== "all" ? ` ${filter.replace(/_/g, " ")}` : ""} order{filteredOrders.length !== 1 ? "s" : ""}
+                {storeId ? " for this store" : " across all stores"}
+              </p>
+            </div>
+            <a href="/store/account" className="text-xs px-3 py-1.5 rounded-md"
+              style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
+              ← My Account
+            </a>
           </div>
-          <a href="/store/account" className="text-xs px-3 py-1.5 rounded-md"
-            style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
-            ← My Account
-          </a>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {FILTER_TABS.map((tab) => (
+              <button key={tab.key} onClick={() => setFilter(tab.key)}
+                className="text-xs px-3 py-1 rounded-full whitespace-nowrap"
+                style={{
+                  background: filter === tab.key ? A.accent : "#f3f4f6",
+                  color: filter === tab.key ? "#fff" : A.textMuted,
+                  border: `1px solid ${filter === tab.key ? A.accent : A.border}`,
+                }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -239,7 +282,11 @@ export default function AllOrdersPage() {
             <p className="text-2xl mb-2">📦</p>
             <p className="text-sm" style={{ color: A.textMuted }}>No orders yet across any store.</p>
           </div>
-        ) : orders.map((order) => {
+        ) : filteredOrders.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-sm" style={{ color: A.textMuted }}>No {filter.replace(/_/g, " ")} orders.</p>
+          </div>
+        ) : filteredOrders.map((order) => {
           const inv = invoiceStates[order.id];
           return (
             <div key={order.id} className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${A.border}` }}>
@@ -334,40 +381,59 @@ export default function AllOrdersPage() {
 
               {/* ── Status bar + actions ── */}
               <div className="mt-4 pt-4 border-t flex items-center justify-between flex-wrap gap-3" style={{ borderColor: "#f0f0f0" }}>
-                {/* Read-only pipeline — step pills are display only */}
-                <div className="flex items-center gap-1 flex-wrap">
-                  {DELIVERY_STEPS.map((s, idx) => {
-                    const current = order.deliveryStatus ?? "pending";
-                    const currentIdx = DELIVERY_STEPS.indexOf(current as typeof DELIVERY_STEPS[number]);
-                    const isCompleted = currentIdx > idx;
-                    const isActive    = current === s;
-                    const color       = DELIVERY_COLORS[s];
-                    return (
-                      <span key={s} className="flex items-center gap-1">
-                        {idx > 0 && (
-                          <span style={{ color: isCompleted ? DELIVERY_COLORS.delivered : A.border, fontSize: 10 }}>›</span>
-                        )}
-                        <span className="text-xs px-2 py-0.5 rounded"
-                          style={{
-                            background: isActive ? `${color}20` : isCompleted ? `${DELIVERY_COLORS.delivered}10` : "#f9fafb",
-                            color:      isActive ? color : isCompleted ? DELIVERY_COLORS.delivered : A.textMuted,
-                            fontWeight: isActive ? 600 : 400,
-                            border:     `1px solid ${isActive ? color : "transparent"}`,
-                          }}>
-                          {isCompleted ? "✓ " : ""}{DELIVERY_LABELS[s]}
+                {/* Status pipeline — next step pill is clickable to advance */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {DELIVERY_STEPS.map((s, idx) => {
+                      const current = order.deliveryStatus ?? "pending";
+                      const currentIdx = DELIVERY_STEPS.indexOf(current as typeof DELIVERY_STEPS[number]);
+                      const isCompleted = currentIdx > idx;
+                      const isActive    = current === s;
+                      const isNext      = currentIdx + 1 === idx && current !== "cancelled" && current !== "delivered";
+                      const color       = DELIVERY_COLORS[s];
+                      return (
+                        <span key={s} className="flex items-center gap-1">
+                          {idx > 0 && (
+                            <span style={{ color: isCompleted ? DELIVERY_COLORS.delivered : A.border, fontSize: 10 }}>›</span>
+                          )}
+                          {isNext ? (
+                            <button
+                              onClick={() => advanceStatus(order.id, s)}
+                              title={`Advance to ${DELIVERY_LABELS[s]}`}
+                              className="text-xs px-2 py-0.5 rounded"
+                              style={{
+                                background: `${color}15`, color, fontWeight: 500,
+                                border: `1px dashed ${color}`, cursor: "pointer",
+                              }}>
+                              {DELIVERY_LABELS[s]} +
+                            </button>
+                          ) : (
+                            <span className="text-xs px-2 py-0.5 rounded"
+                              style={{
+                                background: isActive ? `${color}20` : isCompleted ? `${DELIVERY_COLORS.delivered}10` : "#f9fafb",
+                                color:      isActive ? color : isCompleted ? DELIVERY_COLORS.delivered : A.textMuted,
+                                fontWeight: isActive ? 600 : 400,
+                                border:     `1px solid ${isActive ? color : "transparent"}`,
+                              }}>
+                              {isCompleted ? "✓ " : ""}{DELIVERY_LABELS[s]}
+                            </span>
+                          )}
                         </span>
+                      );
+                    })}
+                    {order.deliveryStatus === "cancelled" && (
+                      <span className="text-xs px-2 py-0.5 rounded font-medium"
+                        style={{ background: `${DELIVERY_COLORS.cancelled}20`, color: DELIVERY_COLORS.cancelled }}>
+                        Cancelled
                       </span>
-                    );
-                  })}
-                  {order.deliveryStatus === "cancelled" && (
-                    <span className="text-xs px-2 py-0.5 rounded font-medium"
-                      style={{ background: `${DELIVERY_COLORS.cancelled}20`, color: DELIVERY_COLORS.cancelled }}>
-                      Cancelled
-                    </span>
+                    )}
+                  </div>
+                  {errors[order.id] && (
+                    <p className="text-xs mt-0.5" style={{ color: "#EF4444" }}>{errors[order.id]}</p>
                   )}
                 </div>
 
-                {/* Actions: Cancel + Manage (workflow controls live on per-store page) */}
+                {/* Actions: Cancel only */}
                 <div className="flex items-center gap-2 shrink-0">
                   {order.deliveryStatus !== "cancelled" && order.deliveryStatus !== "delivered" && (
                     <button
@@ -378,12 +444,6 @@ export default function AllOrdersPage() {
                       Cancel
                     </button>
                   )}
-                  <a
-                    href={`/store/${order.store.slug ?? order.store.id}/orders`}
-                    className="text-xs px-3 py-1 rounded font-medium"
-                    style={{ background: "#EEF2FF", color: A.accent, border: `1px solid ${A.accent}`, textDecoration: "none" }}>
-                    Manage →
-                  </a>
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 // lib/types.ts
 
-export type VehicleType = "Bus" | "Auto" | "Taxi" | "Metro" | "Other";
+export type VehicleType = "Bus" | "Auto" | "Taxi" | "Metro" | "Other" | "Bike";
 
 export interface Vehicle {
   id: string;           // slugified bus_number

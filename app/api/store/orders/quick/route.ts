@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import getServerUser from "@/lib/serverAuth";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 type QuickItem = {
   blockId: string;
@@ -92,6 +93,15 @@ export async function POST(req: NextRequest) {
         subject: `New Order on ${store.name} — #${order.id.slice(-8).toUpperCase()}`,
         text: `Hi ${storeWithOwner.owner.name ?? "Store Owner"},\n\nNew order on ${store.name}!\n\nOrder ID: #${order.id.slice(-8).toUpperCase()}\nCustomer: ${user.name ?? "Customer"}\n\nItems:\n${itemLines}\n\nTotal: ₹${total.toLocaleString("en-IN")}\n\nDelivery Address:\n${addressLine}\n\nPayment: Cash on Delivery`.trim(),
       });
+    }
+    if (storeWithOwner) {
+      createNotification({
+        userId: storeWithOwner.ownerId,
+        type: "order_confirmed",
+        title: `New order on ${storeWithOwner.name}`,
+        body: `Order #${order.id.slice(-8).toUpperCase()} — ₹${total.toLocaleString("en-IN")}`,
+        link: `/store/${storeId}/orders`,
+      }).catch(() => {});
     }
   } catch (e) {
     console.error("Quick order email failed:", e);

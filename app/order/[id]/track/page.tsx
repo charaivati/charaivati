@@ -30,6 +30,7 @@ type OrderData = {
   assignedToId: string | null;
   vehicleId: string | null;
   deliveryNote: string | null;
+  invoiceSignedUrl: string | null;
   items: OrderItem[];
   total: number;
   createdAt: string;
@@ -308,6 +309,18 @@ export default function TrackOrderPage() {
           <p className="text-sm text-gray-500">{order.address.city}, {order.address.state} {order.address.pincode}</p>
           <p className="text-sm text-gray-500">📞 {order.address.phone}</p>
         </div>
+
+        {/* ── Signed invoice ── */}
+        {order.invoiceSignedUrl && (
+          <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-200">
+            <p className="text-xs font-semibold text-gray-400 mb-2">INVOICE</p>
+            <a href={`/api/orders/${order.id}/invoice/download`} download={`invoice-${order.id}.pdf`}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-medium"
+              style={{ background: "#F0FDF4", color: "#10B981", border: "1px solid #A7F3D0", textDecoration: "none" }}>
+              ⬇ Download Signed Invoice
+            </a>
+          </div>
+        )}
 
       </main>
     </div>
