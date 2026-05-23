@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { advanceToNextStep } from "@/lib/workflow/advanceToNextStep";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,9 +15,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const order = await prisma.order.findUnique({
+  const order = await (prisma as any).order.findUnique({
     where: { id: orderId },
-    select: { userId: true, deliveryStatus: true },
+    select: { userId: true, deliveryStatus: true, parentOrderId: true },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (order.userId !== user.id)
@@ -30,6 +31,25 @@ export async function POST(req: NextRequest, { params }: Params) {
     where: { id: orderId },
     data: { deliveryStatus: "delivered", partnerStatus: "completed" },
   });
+
+  // If this is a sub-order, advance the parent order's workflow
+  if (order.parentOrderId) {
+    const activeOSP = await prisma.orderStepProgress.findFirst({
+      where:   { orderId: order.parentOrderId, status: "active" },
+      select:  { id: true, stepId: true },
+      orderBy: { activatedAt: "desc" },
+    });
+    if (activeOSP) {
+      await prisma.orderStepProgress.update({
+        where: { id: activeOSP.id },
+        data:  { status: "confirmed", confirmedAt: new Date() },
+      });
+      // Fire-and-forget so it does not delay the response
+      advanceToNextStep(order.parentOrderId, activeOSP.stepId).catch((e) =>
+        console.error("customer-confirm: advanceToNextStep failed:", e)
+      );
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }

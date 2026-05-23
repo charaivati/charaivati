@@ -399,6 +399,15 @@ model StoreBlock {
   mastery        Int              @default(0)
   lessonTags     String[]         @default([])
   access         String           @default("free")
+  visibility     String           @default("public")
+  pricingModel   String?
+  perKmRate      Float?
+  perKgRate      Float?
+  assignedUserId String?
+  vehicleType    String?
+  maxWeightKg    Float?
+  maxDistanceKm  Float?
+  serviceType    String           @default("product")
   linkedPostId   String?
   section        StoreSection?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subsection     StoreSubsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)

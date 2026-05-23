@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/lib/notifications/createNotification";
+import { haversineKm } from "@/lib/geo/haversine";
 
 interface CreateSubOrderParams {
   parentOrderId: string;
@@ -15,41 +16,137 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<void
   const { parentOrderId, assigneeUserId, storeId, stepId, stepName, agreedAmount, subOrderType } = params;
 
   try {
-    // Fetch parent for addressId + items snapshot
-    const parent = await prisma.order.findUnique({
+    // Fetch parent order — need customer userId, addressId, items, and delivery coords
+    const parent = await (prisma as any).order.findUnique({
       where: { id: parentOrderId },
-      select: { addressId: true, items: true },
+      select: {
+        userId:    true,
+        addressId: true,
+        items:     true,
+        address:   { select: { lat: true, lng: true } },
+      },
     });
     if (!parent) return;
 
-    // Avoid duplicates: skip if a sub-order already exists for this parent + step + user
+    // Dedup: skip if a sub-order already exists for this parent + customer + type
     const existing = await (prisma as any).order.findFirst({
-      where: { parentOrderId, userId: assigneeUserId, subOrderType },
+      where: { parentOrderId, userId: parent.userId, subOrderType },
       select: { id: true },
     });
     if (existing) return;
 
+    // ── Find partner's store ──────────────────────────────────────────────────
+    const partnerStore = await prisma.store.findFirst({
+      where: { ownerId: assigneeUserId },
+      select: { id: true },
+    });
+    if (!partnerStore) {
+      console.warn(`createSubOrder: partner ${assigneeUserId} has no store — sub-order will use original storeId`);
+    }
+    const targetStoreId = partnerStore?.id ?? storeId;
+
+    // ── Find delivery blocks in partner's store ───────────────────────────────
+    const deliveryBlocks = partnerStore
+      ? await prisma.storeBlock.findMany({
+          where: {
+            section:     { storeId: partnerStore.id },
+            serviceType: "delivery",
+            visibility:  { in: ["public", "internal"] },
+          },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id:           true,
+            title:        true,
+            price:        true,
+            perKmRate:    true,
+            perKgRate:    true,
+            pricingModel: true,
+          },
+        })
+      : [];
+
+    // ── Calculate total weight from parent order items ────────────────────────
+    const rawItems = (parent.items as { blockId: string; quantity: number }[]) ?? [];
+    const totalItems = rawItems.reduce((s, i) => s + (i.quantity ?? 1), 0);
+    const blockIds = rawItems.map((i) => i.blockId).filter(Boolean);
+    const sourceBlocks =
+      blockIds.length > 0
+        ? await prisma.storeBlock.findMany({
+            where:  { id: { in: blockIds } },
+            select: { id: true, weight: true },
+          })
+        : [];
+    const weightMap = new Map(sourceBlocks.map((b) => [b.id, b.weight]));
+    const totalWeightKg = rawItems.reduce(
+      (s, i) => s + ((weightMap.get(i.blockId) ?? 1) as number) * (i.quantity ?? 1),
+      0
+    );
+
+    // ── Calculate distance (partner's default address → delivery address) ─────
+    let distanceKm = 0;
+    if (parent.address?.lat != null && parent.address?.lng != null) {
+      const partnerAddr = await prisma.address.findFirst({
+        where:  { userId: assigneeUserId, isDefault: true },
+        select: { lat: true, lng: true },
+      });
+      if (partnerAddr?.lat != null && partnerAddr?.lng != null) {
+        distanceKm = haversineKm(
+          partnerAddr.lat, partnerAddr.lng,
+          parent.address.lat, parent.address.lng
+        );
+      }
+    }
+
+    // ── Determine cost and item entry ─────────────────────────────────────────
+    let calculatedCost: number;
+    let itemBlockId: string | null = null;
+    let itemTitle = "Delivery Service";
+
+    if (deliveryBlocks.length > 0) {
+      const block = deliveryBlocks[0];
+      itemBlockId = block.id;
+      itemTitle   = block.title;
+
+      let cost = 0;
+      if (block.price)    cost += block.price;
+      if (block.perKgRate) cost += block.perKgRate * totalWeightKg;
+      if (block.perKmRate) cost += block.perKmRate * distanceKm;
+      calculatedCost = Math.round(cost * 100) / 100;
+    } else {
+      // Fall back to the Collaboration-level agreed amount
+      calculatedCost = agreedAmount ?? 0;
+    }
+
+    // ── Create sub-order in partner's store ───────────────────────────────────
     await (prisma as any).order.create({
       data: {
-        userId:        assigneeUserId,
-        storeId,
-        addressId:     parent.addressId,
-        status:        "confirmed",
-        deliveryStatus:"processing",
-        items:         parent.items,
-        total:         agreedAmount ?? 0,
+        userId:         parent.userId,
+        storeId:        targetStoreId,
+        addressId:      parent.addressId,
+        status:         "pending",
+        deliveryStatus: "pending",
+        items: [
+          {
+            blockId:  itemBlockId,
+            title:    itemTitle,
+            quantity: 1,
+            price:    calculatedCost,
+          },
+        ],
+        total:         calculatedCost,
         parentOrderId,
         subOrderType,
-        agreedAmount:  agreedAmount ?? null,
+        agreedAmount:  calculatedCost > 0 ? calculatedCost : null,
       },
     });
 
+    // ── Notify partner ────────────────────────────────────────────────────────
     await createNotification({
       userId: assigneeUserId,
       type:   "order_assigned",
-      title:  `New ${subOrderType} assignment`,
-      body:   `You have a new assignment for Order #${parentOrderId.slice(-8).toUpperCase()}`,
-      link:   "/app/orders?tab=my",
+      title:  "New delivery order",
+      body:   `New delivery order — ₹${calculatedCost}`,
+      link:   "/store/orders/all",
     });
   } catch (e) {
     console.error("createSubOrder failed:", e);

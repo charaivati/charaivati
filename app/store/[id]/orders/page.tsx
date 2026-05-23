@@ -43,8 +43,16 @@ type Order = {
   activeStep?: ActiveStep | null;
   quotes?: QuoteEntry[];
   initiativeId?: string | null;
+  subOrderType?: string | null;
   subOrders?: { id: string; subOrderType: string | null; agreedAmount: number | null; userId: string }[];
   allSteps?:  StepStatus[];
+};
+
+type DeliveryBlock = {
+  id: string;
+  title: string;
+  assignedUserId: string | null;
+  assignedUserName: string | null;
 };
 
 type CollabPage = { id: string; title: string; pageType: string };
@@ -737,6 +745,81 @@ function DeliverySection({
   );
 }
 
+// ── AssignEmployeeSection ─────────────────────────────────────────────────────
+function AssignEmployeeSection({
+  orderId,
+  storeId,
+  deliveryBlocks,
+  busy,
+  onAssigned,
+}: {
+  orderId: string;
+  storeId: string;
+  deliveryBlocks: DeliveryBlock[];
+  busy: boolean;
+  onAssigned: () => void;
+}) {
+  const [selectedBlockId, setSelectedBlockId] = useState("");
+  const [assigning, setAssigning] = useState(false);
+
+  async function handleAssign() {
+    if (!selectedBlockId) return;
+    setAssigning(true);
+    const res = await fetch(`/api/order/${orderId}/delivery`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ partnerAction: "assign_block", blockId: selectedBlockId }),
+    });
+    setAssigning(false);
+    if (res.ok) onAssigned();
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t space-y-2" style={{ borderColor: "#f0f0f0" }}>
+      <p className="text-xs font-semibold" style={{ color: A.textMuted }}>ASSIGN EMPLOYEE</p>
+      {deliveryBlocks.length === 0 ? (
+        <p className="text-xs" style={{ color: A.textMuted }}>
+          No delivery blocks set up.{" "}
+          <a href={`/store/${storeId}`} style={{ color: A.accent, textDecoration: "underline" }}>
+            Add a delivery block in your store
+          </a>{" "}
+          to assign employees.
+        </p>
+      ) : (
+        <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={selectedBlockId}
+            onChange={(e) => setSelectedBlockId(e.target.value)}
+            disabled={busy || assigning}
+            className="text-xs rounded-md px-2 py-1.5"
+            style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff" }}
+          >
+            <option value="">Select employee…</option>
+            {deliveryBlocks.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.title} — {b.assignedUserName ?? (b.assignedUserId ? b.assignedUserId.slice(-6) : "You")}
+              </option>
+            ))}
+          </select>
+          <button
+            disabled={!selectedBlockId || busy || assigning}
+            onClick={handleAssign}
+            className="text-xs px-3 py-1.5 rounded-md font-medium"
+            style={{
+              background: selectedBlockId ? "#6366f1" : "#E5E7EB",
+              color: selectedBlockId ? "#fff" : A.textMuted,
+              cursor: selectedBlockId ? "pointer" : "default",
+            }}
+          >
+            {assigning ? "Assigning…" : "Assign"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function StoreOrdersPage() {
   const { id } = useParams<{ id: string }>();
@@ -756,6 +839,8 @@ export default function StoreOrdersPage() {
   const [partners, setPartners] = useState<Collab[]>([]);
   // Initiative (page) linked to this store — used for workflow state A link
   const [initiativeId, setInitiativeId] = useState<string | null>(null);
+  // Delivery blocks for the current store — used by AssignEmployeeSection
+  const [deliveryBlocks, setDeliveryBlocks] = useState<DeliveryBlock[]>([]);
 
   function loadOrders() {
     return fetch(`/api/store/orders?storeId=${id}`, { credentials: "include" })
@@ -797,12 +882,29 @@ export default function StoreOrdersPage() {
   // Load orders on mount
   useEffect(() => { loadOrders(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load store pageId → accepted outbound partners + capture initiativeId
+  // Load store pageId → accepted outbound partners + capture initiativeId + delivery blocks
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((store) => {
         if (store?.pageId) setInitiativeId(store.pageId);
+
+        // Extract delivery blocks from store sections
+        const blocks: DeliveryBlock[] = [];
+        for (const section of store?.sections ?? []) {
+          for (const block of section.blocks ?? []) {
+            if (block.serviceType === "delivery") {
+              blocks.push({
+                id:               block.id,
+                title:            block.title,
+                assignedUserId:   block.assignedUserId ?? null,
+                assignedUserName: block.assignedUserName ?? null,
+              });
+            }
+          }
+        }
+        setDeliveryBlocks(blocks);
+
         if (!store?.pageId) return;
         return fetch(
           `/api/collaboration?pageId=${store.pageId}&direction=out&status=accepted`,
@@ -968,6 +1070,19 @@ export default function StoreOrdersPage() {
                 busy={updatingDelivery === order.id}
                 onPatch={(payload) => patchDelivery(order.id, payload)}
               />
+
+              {/* ── Assign Employee — for pending delivery sub-orders in this store ── */}
+              {order.subOrderType === "delivery" && order.status === "pending" && (
+                <AssignEmployeeSection
+                  orderId={order.id}
+                  storeId={id}
+                  deliveryBlocks={deliveryBlocks}
+                  busy={updatingDelivery === order.id}
+                  onAssigned={() => {
+                    loadOrders();
+                  }}
+                />
+              )}
 
               {/* ── Workflow section (states A/B/C/D) ── */}
               <WorkflowSection

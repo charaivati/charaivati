@@ -7,7 +7,8 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { sectionId, subsectionId, title, description, mediaType, mediaUrl, actionType, price,
-    aspect, lessonType, blockStatus } =
+    aspect, lessonType, blockStatus, serviceType, visibility,
+    pricingModel, perKmRate, perKgRate, assignedUserId, vehicleType, maxWeightKg, maxDistanceKm } =
     await req.json();
 
   if (!title?.trim())
@@ -44,6 +45,15 @@ export async function POST(req: NextRequest) {
       aspect: aspect ?? null,
       lessonType: lessonType ?? null,
       blockStatus: blockStatus ?? "unlocked",
+      serviceType: serviceType ?? "product",
+      visibility: visibility ?? "public",
+      pricingModel: pricingModel ?? null,
+      perKmRate: perKmRate != null ? Number(perKmRate) : null,
+      perKgRate: perKgRate != null ? Number(perKgRate) : null,
+      assignedUserId: assignedUserId ?? null,
+      vehicleType: vehicleType ?? null,
+      maxWeightKg: maxWeightKg != null ? Number(maxWeightKg) : null,
+      maxDistanceKm: maxDistanceKm != null ? Number(maxDistanceKm) : null,
     },
   });
 
@@ -65,13 +75,17 @@ export async function PATCH(req: NextRequest) {
   if (!block || block.section?.store.ownerId !== user.id)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const allowed = ["title", "description", "aspect", "lessonType", "mediaType", "mediaUrl", "blockStatus", "lessonTags", "access"];
+  const allowed = ["title", "description", "aspect", "lessonType", "mediaType", "mediaUrl", "blockStatus", "lessonTags", "access",
+    "visibility", "serviceType", "pricingModel", "perKmRate", "perKgRate", "assignedUserId", "vehicleType", "maxWeightKg", "maxDistanceKm"];
   const data: Record<string, unknown> = {};
   for (const key of allowed) {
     if (key in body) data[key] = body[key] ?? null;
   }
   if (typeof data.title === "string") data.title = (data.title as string).trim();
   if (typeof data.description === "string") data.description = (data.description as string).trim() || null;
+  for (const numKey of ["perKmRate", "perKgRate", "maxWeightKg", "maxDistanceKm"] as const) {
+    if (numKey in data && data[numKey] != null) data[numKey] = Number(data[numKey]);
+  }
 
   let updated = await prisma.storeBlock.update({
     where: { id: blockId },

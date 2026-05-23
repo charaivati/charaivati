@@ -53,23 +53,15 @@ export default async function DeliveriesPage() {
   });
   const pageIds = ownedPages.map((p) => p.id);
 
-  if (pageIds.length === 0) {
-    return <Shell><DeliveriesClient orders={[]} completedOrders={[]} /></Shell>;
-  }
-
   // Accepted collaborations where one of the user's pages is the receiver.
-  const collabs = await prisma.collaboration.findMany({
+  const collabs = pageIds.length > 0 ? await prisma.collaboration.findMany({
     where: { receiverId: { in: pageIds }, status: "accepted" },
     select: {
       id: true,
       role: true,
       requester: { select: { title: true } },
     },
-  });
-
-  if (collabs.length === 0) {
-    return <Shell><DeliveriesClient orders={[]} completedOrders={[]} /></Shell>;
-  }
+  }) : [];
 
   const collabIds = collabs.map((c) => c.id);
   const collabMeta: Record<string, { role: string; requesterTitle: string }> = {};
@@ -79,7 +71,7 @@ export default async function DeliveriesPage() {
 
   // All orders assigned to these collaborations with partnerStatus assigned or accepted.
   // Raw SQL because these are new schema fields not yet in all generated clients.
-  const rawOrders = await prisma.$queryRaw<RawOrder[]>`
+  const rawCollabOrders = collabIds.length > 0 ? await prisma.$queryRaw<RawOrder[]>`
     SELECT
       o.id,
       o."deliveryStatus",
@@ -110,14 +102,62 @@ export default async function DeliveriesPage() {
     WHERE o."assignedToId" = ANY(${collabIds}::text[])
       AND o."partnerStatus" IN ('assigned', 'accepted')
     ORDER BY o."createdAt" DESC
+  ` : [];
+
+  // Orders where a delivery block's assignedUserId matches the current user.
+  // Uses a LATERAL join to parse the items JSON array and look up Block.assignedUserId.
+  const rawBlockOrders = await prisma.$queryRaw<RawOrder[]>`
+    SELECT DISTINCT ON (o.id)
+      o.id,
+      o."deliveryStatus",
+      o."partnerStatus",
+      o."vehicleId",
+      o."assignedToId",
+      o."deliveryNote",
+      o.items,
+      o.total,
+      o."createdAt",
+      o."agreedAmount",
+      a.name      AS "addrName",
+      a.phone     AS "addrPhone",
+      a.line1,
+      a.city,
+      a.state,
+      a.pincode,
+      s.name      AS "storeName",
+      (SELECT osp."stepId" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
+      (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
+    FROM "Order" o
+    JOIN "Address" a ON o."addressId" = a.id
+    JOIN "Store"   s ON o."storeId"   = s.id,
+    LATERAL (
+      SELECT TRUE FROM jsonb_array_elements(o.items::jsonb) AS item
+      JOIN "Block" b ON b.id = (item->>'blockId')
+      WHERE b."assignedUserId" = ${userId} AND b."serviceType" = 'delivery'
+      LIMIT 1
+    ) AS matched
+    WHERE o."partnerStatus" IN ('assigned', 'accepted')
+    ORDER BY o.id, o."createdAt" DESC
   `;
 
-  const orders: DeliveryOrder[] = rawOrders.map((o) => ({
+  // Merge, deduplicate by id (collab orders take precedence).
+  const seenIds = new Set(rawCollabOrders.map((o) => o.id));
+  const mergedRaw = [
+    ...rawCollabOrders,
+    ...rawBlockOrders.filter((o) => !seenIds.has(o.id)),
+  ];
+  mergedRaw.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const orders: DeliveryOrder[] = mergedRaw.map((o) => ({
     ...o,
     items: o.items as DeliveryOrder["items"],
     createdAt: o.createdAt.toISOString(),
-    collabRole:     collabMeta[o.assignedToId]?.role           ?? "",
-    requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? "",
+    collabRole:     collabMeta[o.assignedToId]?.role           ?? "employee",
+    requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? (o as any).storeName ?? "",
   }));
 
   // Last 10 completed deliveries for this user

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { assignNextPartner } from "@/lib/workflow/assignNextPartner";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 const DELIVERY_STATUSES = [
   "pending",
@@ -162,6 +163,63 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   // ── Owner actions ──────────────────────────────────────────────────────────
+
+  // Assign an internal delivery block (and its employee) to a sub-order
+  if (partnerAction === "assign_block") {
+    const { blockId } = body as { blockId?: string };
+    if (!blockId) return NextResponse.json({ error: "blockId required" }, { status: 400 });
+
+    const block = await prisma.storeBlock.findUnique({
+      where:  { id: blockId },
+      select: {
+        id:             true,
+        title:          true,
+        serviceType:    true,
+        assignedUserId: true,
+        price:          true,
+        section:        { select: { storeId: true } },
+      },
+    });
+    if (!block) return NextResponse.json({ error: "Block not found" }, { status: 404 });
+    if (block.serviceType !== "delivery")
+      return NextResponse.json({ error: "Not a delivery block" }, { status: 400 });
+
+    // Fetch current items so we can update the first item's blockId/title
+    const currentOrder = await (prisma as any).order.findUnique({
+      where:  { id },
+      select: { items: true, agreedAmount: true, total: true },
+    });
+    const currentItems = (currentOrder?.items as any[]) ?? [];
+    const updatedItems =
+      currentItems.length > 0
+        ? currentItems.map((item: any, idx: number) =>
+            idx === 0 ? { ...item, blockId: block.id, title: block.title } : item
+          )
+        : [{ blockId: block.id, title: block.title, quantity: 1, price: currentOrder?.agreedAmount ?? currentOrder?.total ?? 0 }];
+
+    const updated = await (prisma as any).order.update({
+      where: { id },
+      data: {
+        assignedToId:   blockId,   // block used as internal delivery reference
+        partnerStatus:  "accepted",
+        deliveryStatus: "processing",
+        items:          updatedItems,
+      },
+    });
+
+    // Notify the assigned employee if one is set on the block
+    if (block.assignedUserId) {
+      await createNotification({
+        userId: block.assignedUserId,
+        type:   "order_assigned",
+        title:  "Delivery assigned to you",
+        body:   `Order #${id.slice(-8).toUpperCase()} — ₹${updated.agreedAmount ?? updated.total}`,
+        link:   "/earn/deliveries",
+      });
+    }
+
+    return NextResponse.json(updated);
+  }
 
   // Validate vehicleId exists when being set.
   if (vehicleId != null) {

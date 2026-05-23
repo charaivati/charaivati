@@ -30,6 +30,15 @@ type Block = {
   mediaUrl?: string | null;
   actionType: ActionType;
   price?: number | null;
+  visibility?: string;
+  serviceType?: string;
+  pricingModel?: string | null;
+  perKmRate?: number | null;
+  perKgRate?: number | null;
+  vehicleType?: string | null;
+  maxWeightKg?: number | null;
+  maxDistanceKm?: number | null;
+  assignedUserId?: string | null;
 };
 
 type CartItem = {
@@ -713,14 +722,42 @@ function StarRating({ productId, ratingData, isOwner, isLoggedIn, onRate }: {
 
 // ─── ProductCard ──────────────────────────────────────────────────────────────
 
-function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishlist, isWishlisted, ratingData, isOwner, isLoggedIn, onRate }: {
+function VisibilityToggle({ blockId, current, onChange }: {
+  blockId: string; current: string; onChange: (v: string) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  async function set(v: string) {
+    if (v === current || saving) return;
+    setSaving(true);
+    await fetch("/api/block", { method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId, visibility: v }) });
+    setSaving(false);
+    onChange(v);
+  }
+  const btn = (v: string, label: string) => (
+    <button type="button" onClick={() => set(v)} disabled={saving}
+      style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, border: current === v ? "1.5px solid #6366f1" : "1px solid #DDDDDD", background: current === v ? "#EEF2FF" : "#fff", color: current === v ? "#6366f1" : "#565959", cursor: "pointer", fontWeight: current === v ? 600 : 400 }}>
+      {label}
+    </button>
+  );
+  return (
+    <div style={{ display: "flex", gap: 3, marginTop: 4, flexWrap: "wrap" }}>
+      {btn("public", "Public")}
+      {btn("internal", "Internal")}
+      {btn("inactive", "Inactive")}
+    </div>
+  );
+}
+
+function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishlist, isWishlisted, ratingData, isOwner, isLoggedIn, onRate, onVisibilityChange }: {
   block: Block; editMode: boolean; onRemove?: () => void;
   onAddToCart?: (qty: number) => void; onBuyNow?: (qty: number) => void; onWishlist?: () => void; isWishlisted?: boolean;
   ratingData?: RatingData; isOwner?: boolean; isLoggedIn?: boolean;
   onRate?: (productId: string, rating: number) => void;
+  onVisibilityChange?: (blockId: string, v: string) => void;
 }) {
   const [added, setAdded] = useState(false);
   const [qty, setQty] = useState(1);
+  const vis = block.visibility ?? "public";
 
   function handleAddToCart() {
     if (!onAddToCart) return;
@@ -729,8 +766,16 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishl
     setTimeout(() => setAdded(false), 2000);
   }
 
+  const cardStyle: React.CSSProperties = editMode
+    ? vis === "inactive"
+      ? { border: `1px solid ${A.border}`, opacity: 0.5 }
+      : vis === "internal"
+      ? { border: "1.5px solid #9CA3AF" }
+      : { border: `1px solid ${A.border}` }
+    : { border: `1px solid ${A.border}` };
+
   return (
-    <div className="rounded-md bg-white hover:shadow-md transition-shadow relative" style={{ border: `1px solid ${A.border}` }}>
+    <div className="rounded-md bg-white hover:shadow-md transition-shadow relative" style={cardStyle}>
       {!editMode && (
         <button onClick={onWishlist}
           style={{ position: "absolute", top: 6, right: 6, zIndex: 2, width: 28, height: 28, borderRadius: "50%", background: "rgba(255,255,255,0.9)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
@@ -742,6 +787,11 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishl
           style={{ background: "rgba(0,0,0,0.65)", color: "#fff" }}>
           Remove
         </button>
+      )}
+      {editMode && vis !== "public" && (
+        <span style={{ position: "absolute", top: 6, left: 6, zIndex: 2, fontSize: 9, padding: "2px 6px", borderRadius: 8, background: vis === "internal" ? "#F3F4F6" : "#FEF3C7", color: vis === "internal" ? "#374151" : "#92400E", border: `1px solid ${vis === "internal" ? "#D1D5DB" : "#FDE68A"}`, fontWeight: 600 }}>
+          {vis === "internal" ? "Internal" : "Inactive"}
+        </span>
       )}
       <div className="overflow-hidden bg-white aspect-[4/3]">
         {block.mediaUrl
@@ -785,6 +835,13 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishl
               Buy Now
             </button>
           </div>
+        )}
+        {editMode && onVisibilityChange && (
+          <VisibilityToggle
+            blockId={block.id}
+            current={vis}
+            onChange={(v) => onVisibilityChange(block.id, v)}
+          />
         )}
       </div>
     </div>
@@ -872,6 +929,10 @@ export default function SectionPage() {
     if (res.ok) setBlocks((prev) => prev.filter((b) => b.id !== blockId));
   }
 
+  function handleVisibilityChange(blockId: string, v: string) {
+    setBlocks((prev) => prev.map((b) => b.id === blockId ? { ...b, visibility: v } : b));
+  }
+
   async function handleRate(productId: string, rating: number) {
     try {
       const res = await fetch(`/api/store/products/${productId}/rate`, {
@@ -940,11 +1001,14 @@ export default function SectionPage() {
     shell.setShowNav(true);
   }, []);
 
-  const visibleBlocks = blocks.filter((b) =>
-    b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-    searchQuery === ""
-  );
+  const visibleBlocks = blocks
+    .filter((b) => b.serviceType !== "delivery")
+    .filter((b) => editMode || b.visibility === "public" || b.visibility == null)
+    .filter((b) =>
+      b.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (b.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      searchQuery === ""
+    );
 
   if (loading) {
     return (
@@ -976,7 +1040,7 @@ export default function SectionPage() {
           )}
         </div>
         <p className="text-sm mb-4" style={{ color: A.textMuted }}>
-          {blocks.length} product{blocks.length !== 1 ? "s" : ""} in this section
+          {blocks.filter((b) => b.serviceType !== "delivery").length} product{blocks.filter((b) => b.serviceType !== "delivery").length !== 1 ? "s" : ""} in this section
         </p>
 
         {visibleBlocks.length === 0 ? (
@@ -997,6 +1061,7 @@ export default function SectionPage() {
                 isOwner={isOwner}
                 isLoggedIn={currentUser !== null}
                 onRate={handleRate}
+                onVisibilityChange={isOwner ? handleVisibilityChange : undefined}
               />
             ))}
           </div>
