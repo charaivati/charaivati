@@ -417,6 +417,7 @@ export default function HomePage() {
       fontFamily: "system-ui,-apple-system,sans-serif",
       paddingBottom: 80,
     }}>
+    <div style={{ maxWidth: 480, margin: "0 auto", width: "100%" }}>
 
       {/* 1. Topbar */}
       <header style={{
@@ -451,9 +452,9 @@ export default function HomePage() {
       </header>
 
       {/* 2. Empty state */}
-      <div style={{ textAlign: "center", padding: "40px 24px" }}>
-        <div style={{ fontSize: 32, marginBottom: 16 }}>🚀</div>
-        <div style={{ fontSize: 16, fontWeight: 500, color: "#111827", marginBottom: 10 }}>
+      <div style={{ textAlign: "center", padding: "16px 16px 12px" }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>🚀</div>
+        <div style={{ fontSize: 14, fontWeight: 500, color: "#111827", marginBottom: 6 }}>
           Start your first initiative
         </div>
         <p style={{
@@ -556,6 +557,8 @@ export default function HomePage() {
           </svg>
         </Link>
       </div>
+
+    </div>{/* /maxWidth wrapper */}
 
       {/* GST Modal */}
       {gstModalOpen && (

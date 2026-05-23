@@ -10,10 +10,13 @@ const A = {
 
 type OrderItem = { blockId: string; title: string; price: number; quantity: number };
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
+type CollabPage = { id: string; title: string; pageType: string };
+type Collab = { id: string; role: string; requester: CollabPage; receiver: CollabPage };
 type Order = {
   id: string; status: string; total: number; createdAt: string;
   deliveryStatus?: string | null;
   assignedToId?: string | null;
+  deliveryNote?: string | null;
   partnerStatus?: string | null;
   invoiceUrl?: string | null;
   invoiceSignedUrl?: string | null;
@@ -65,6 +68,13 @@ const PARTNER_STATUS_COLORS: Record<string, string> = {
   accepted: "#16A34A",
   rejected: "#DC2626",
   completed: "#2563EB",
+};
+
+const PARTNER_STATUS_BADGE: Record<string, { label: string; bg: string; color: string; border: string }> = {
+  assigned:  { label: "Pending acceptance",  bg: "#FFFBEB", color: "#D97706", border: "#FCD34D" },
+  accepted:  { label: "Partner accepted ✓",  bg: "#F0FDF4", color: "#16A34A", border: "#86EFAC" },
+  rejected:  { label: "Partner rejected — reassign", bg: "#FEF2F2", color: "#DC2626", border: "#FECACA" },
+  completed: { label: "Delivered by partner", bg: "#EFF6FF", color: "#2563EB", border: "#BFDBFE" },
 };
 
 const FILTER_TABS = [
@@ -156,6 +166,40 @@ function InvoiceSection({ orderId, inv, onSignUpload }: {
   return null;
 }
 
+function DeliveryNoteInline({ note, busy, onSave }: {
+  note: string;
+  busy: boolean;
+  onSave: (note: string) => void;
+}) {
+  const [local, setLocal] = useState(note);
+  useEffect(() => setLocal(note), [note]);
+  return (
+    <div className="flex flex-col gap-1 flex-1" style={{ minWidth: 200 }}>
+      <label className="text-xs font-medium" style={{ color: A.textMuted }}>Delivery note</label>
+      <div className="flex gap-2 items-start">
+        <textarea
+          rows={2}
+          disabled={busy}
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          placeholder="Instructions for the delivery person…"
+          className="flex-1 text-xs rounded-md px-2 py-1.5 resize-none"
+          style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff" }}
+        />
+        {local !== note && (
+          <button
+            disabled={busy}
+            onClick={() => onSave(local)}
+            className="text-xs px-2.5 py-1.5 rounded-md font-medium flex-shrink-0"
+            style={{ background: A.accent, color: "#fff", cursor: "pointer" }}>
+            Save
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AllOrdersPage() {
   const searchParams = useSearchParams();
   const storeId = searchParams?.get("storeId") ?? null;
@@ -166,6 +210,8 @@ export default function AllOrdersPage() {
   const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
   const [filter, setFilter] = useState("all");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
+  const [partnersByStoreId, setPartnersByStoreId] = useState<Record<string, Collab[]>>({});
 
   useEffect(() => {
     const url = storeId
@@ -184,6 +230,20 @@ export default function AllOrdersPage() {
           }
         }
         setInvoiceStates(init);
+
+        // Load collaboration partners for each unique store
+        const uniqueStoreIds = [...new Set(data.map((o) => o.store.id))];
+        for (const sid of uniqueStoreIds) {
+          fetch(`/api/store/${sid}`, { credentials: "include" })
+            .then((r) => r.ok ? r.json() : null)
+            .then((store: any) => {
+              if (!store?.pageId) return;
+              return fetch(`/api/collaboration?pageId=${store.pageId}&direction=out&status=accepted`, { credentials: "include" })
+                .then((r) => r.ok ? r.json() : [])
+                .then((collabs: Collab[]) => setPartnersByStoreId((prev) => ({ ...prev, [sid]: collabs })));
+            })
+            .catch(() => {});
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -231,6 +291,27 @@ export default function AllOrdersPage() {
       setErrors((p) => ({ ...p, [orderId]: "Status update failed — try again." }));
       setTimeout(() => setErrors((p) => { const e = { ...p }; delete e[orderId]; return e; }), 3000);
     }
+  }
+
+  async function patchDelivery(orderId: string, payload: Record<string, unknown>) {
+    setUpdatingDelivery(orderId);
+    const res = await fetch(`/api/order/${orderId}/delivery`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      credentials: "include", body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setOrders((prev) => prev.map((o) => {
+        if (o.id !== orderId) return o;
+        return {
+          ...o,
+          ...("assignedToId" in payload && { assignedToId: payload.assignedToId as string | null }),
+          ...("deliveryNote" in payload && { deliveryNote: payload.deliveryNote as string | null }),
+          partnerStatus: updated.partnerStatus ?? o.partnerStatus,
+        };
+      }));
+    }
+    setUpdatingDelivery(null);
   }
 
   const filteredOrders = filter === "all"
@@ -446,6 +527,52 @@ export default function AllOrdersPage() {
                   )}
                 </div>
               </div>
+
+              {/* ── Delivery partner assignment — confirmed or later ── */}
+              {(() => {
+                const ds = order.deliveryStatus ?? "pending";
+                const dsIdx = DELIVERY_STEPS.indexOf(ds as typeof DELIVERY_STEPS[number]);
+                if (dsIdx < 1 || ds === "cancelled" || ds === "delivered") return null;
+                const orderPartners = partnersByStoreId[order.store.id] ?? [];
+                const busy = updatingDelivery === order.id;
+                const badge = order.partnerStatus ? PARTNER_STATUS_BADGE[order.partnerStatus] : null;
+                return (
+                  <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+                    <p className="text-xs font-semibold mb-3" style={{ color: A.textMuted }}>DELIVERY PARTNER</p>
+                    <div className="flex items-start gap-4 flex-wrap">
+                      <div className="flex flex-col gap-1" style={{ minWidth: 200 }}>
+                        <label className="text-xs font-medium" style={{ color: A.textMuted }}>Assigned to</label>
+                        <select
+                          disabled={busy}
+                          value={order.assignedToId ?? ""}
+                          onChange={(e) => patchDelivery(order.id, { assignedToId: e.target.value || null })}
+                          className="text-xs rounded-md px-2 py-1.5"
+                          style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff", cursor: "pointer" }}
+                        >
+                          <option value="">Deliver myself</option>
+                          {orderPartners.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.receiver.title} · {c.role.replace(/_/g, " ")}
+                            </option>
+                          ))}
+                        </select>
+                        {order.assignedToId && badge && (
+                          <span className="text-xs px-2 py-0.5 rounded-full w-fit"
+                            style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
+                            {badge.label}
+                          </span>
+                        )}
+                      </div>
+                      <DeliveryNoteInline
+                        note={order.deliveryNote ?? ""}
+                        busy={busy}
+                        onSave={(note) => patchDelivery(order.id, { deliveryNote: note })}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
             </div>
           );
         })}

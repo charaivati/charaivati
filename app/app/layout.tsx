@@ -4,7 +4,6 @@ import { getLogoutRedirect } from "@/lib/logout";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Truck } from "lucide-react";
 import NotificationBell from "@/components/notifications/NotificationBell";
 import { useTranslations } from "@/hooks/useTranslations";
 
@@ -18,7 +17,6 @@ const TAB_DEFS = [
   { slug: "app-layout-tab-initiatives", fallback: "Initiatives", icon: "🌱" as string | null, href: "/app/initiatives", requiresLogin: false },
   { slug: "app-layout-tab-explore",     fallback: "Explore",     icon: "🔍" as string | null, href: "/app/saved",       requiresLogin: false },
   { slug: "app-layout-tab-orders",      fallback: "Orders",      icon: "🛍️" as string | null, href: "/app/orders",      requiresLogin: false },
-  { slug: "app-layout-tab-deliveries",  fallback: "Deliveries",  icon: null,                  href: "/earn/deliveries", requiresLogin: true  },
 ];
 
 const A = {
@@ -137,7 +135,7 @@ export default function AppShellLayout({
                   letterSpacing: "0.01em",
                 }}
               >
-                {tab.icon ?? <Truck size={14} style={{ display: "inline", verticalAlign: "middle" }} />} {tab.label}
+                {tab.icon} {tab.label}
               </Link>
             );
           })}
@@ -336,7 +334,7 @@ export default function AppShellLayout({
               }}
             >
               <span style={{ fontSize: 20, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {tab.icon ? tab.icon : <Truck size={20} />}
+                {tab.icon}
               </span>
 
               <span

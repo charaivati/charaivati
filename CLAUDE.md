@@ -44,7 +44,7 @@ The `app/` directory uses Next.js route groups to co-locate layouts:
 | `(User)` | User profile and editing |
 | `(locality)` | Country selection, local area |
 | `(state)` | State-level view |
-| `app/` | **Mobile shell** — Capacitor-wrapped layout with sticky header + **4-tab** bottom nav: Home / Initiatives / Explore / Orders. Home page (`app/app/home/page.tsx`) has two render states: guest/new-user (marketing content) and returning user (live dashboard — stats, pending orders, initiatives). |
+| `app/` | **Mobile shell** — Capacitor-wrapped layout with sticky header + **4-tab** bottom nav: Home / Initiatives / Explore / Orders (Deliveries tab removed — accessible via "Deliver 🚚" link inside `/app/orders?tab=my`). Home page (`app/app/home/page.tsx`) has two render states: guest/new-user (compact marketing layout matching signed-in density) and returning user (live dashboard — stats, pending orders, initiatives). |
 | `earn/` | Initiative Hub — owner-only pages at `/earn/initiative/[pageId]`; partner delivery dashboard at `/earn/deliveries` (server components, cookie auth) |
 | `order/` | Customer-facing order pages: `/order/[id]/track` (client component, live GPS tracking) |
 
@@ -567,7 +567,6 @@ UI: `components/notifications/NotificationBell.tsx` — bell icon in `app/app/la
 
 **Delivery partner flow**
 ```
-Bottom nav "Deliveries" → /earn/deliveries
 /app/orders?tab=my → "Deliver 🚚" → /earn/deliveries
 ```
 
@@ -595,8 +594,17 @@ Notification → /app/orders?tab=requests → submit quote → accepted → /app
 ## Windows Dev Environment Notes
 
 ### Prisma generate
-Always use: `npx prisma generate --no-engine`
 
-Reason: `query_engine-windows.dll.node` is held open by Windows Defender during dev server runtime. The `--no-engine` flag regenerates all TypeScript types and JS client code without touching the locked DLL binary. The existing DLL is version-pinned (v6.19.3) and handles any schema changes.
+**With the dev server stopped** (normal case — schema changes, after migrations):
+```bash
+npx prisma generate
+```
+Stop the server first (`Ctrl+C`). The DLL is not held open when the server is down, so the rename succeeds. This produces a full binary-engine client that works with direct `postgresql://` URLs. Restart the server afterward.
 
-Do NOT use plain `npx prisma generate` on this machine — it will fail with EPERM on the DLL rename.
+**With the dev server running** (hot-fix for stale client TS errors only):
+```bash
+npx prisma generate --no-engine
+```
+`--no-engine` regenerates TS types and JS wrappers without touching `query_engine-windows.dll.node`, which Windows Defender locks while the server is running. **Critical caveat:** the `--no-engine` output is a Data Proxy / Prisma Accelerate-only client — it refuses direct `postgresql://` URLs (error `P6001`). This means the server will crash on any Prisma query after a hot `--no-engine` run. **Always restart the server with a normal `npx prisma generate` afterward** (after stopping it first).
+
+**Rule of thumb:** Use `--no-engine` to silence TypeScript errors in the IDE while the server is running; use the normal generate before committing or after any actual schema/migration change.
