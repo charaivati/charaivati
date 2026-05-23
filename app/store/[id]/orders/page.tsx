@@ -291,7 +291,7 @@ function WorkflowSection({
         if (nextIdx < cur.queue.length) {
           startQueue(cur.queue, nextIdx);
         } else {
-          onReloadRef.current();
+          setTimeout(() => onReloadRef.current(), 1000);
         }
       }).catch(() => setExecuting(false));
     }, 1000);
@@ -928,6 +928,9 @@ export default function StoreOrdersPage() {
     });
     if (res.ok) {
       setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o));
+      if (status === "confirmed") {
+        setTimeout(() => loadOrders(), 1000);
+      }
       if (status === "delivered") {
         setInv(orderId, { genStatus: "loading", signStatus: "idle" });
         try {
@@ -1111,23 +1114,18 @@ export default function StoreOrdersPage() {
                 </div>
               )}
 
-              {/* ── Order status buttons (existing, unchanged) ── */}
-              <div className="mt-4 pt-4 border-t flex items-center gap-2 flex-wrap" style={{ borderColor: "#f0f0f0" }}>
-                <span className="text-xs" style={{ color: A.textMuted }}>Update status:</span>
-                {["pending", "confirmed", "shipped", "delivered", "cancelled"].map((s) => (
-                  <button key={s} disabled={order.status === s || updating === order.id}
-                    onClick={() => updateStatus(order.id, s)}
-                    className="text-xs px-2 py-1 rounded capitalize"
-                    style={{
-                      background: order.status === s ? `${STATUS_COLORS[s]}20` : "#f9fafb",
-                      color: order.status === s ? STATUS_COLORS[s] : A.textMuted,
-                      border: `1px solid ${order.status === s ? STATUS_COLORS[s] : A.border}`,
-                      cursor: order.status === s ? "default" : "pointer",
-                    }}>
-                    {s}
+              {/* ── Cancel order ── */}
+              {order.status !== "cancelled" && order.status !== "delivered" && (
+                <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+                  <button
+                    disabled={updating === order.id}
+                    onClick={() => updateStatus(order.id, "cancelled")}
+                    className="text-xs px-3 py-1.5 rounded-md"
+                    style={{ border: "1px solid #FECACA", color: "#EF4444", cursor: "pointer" }}>
+                    Cancel Order
                   </button>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
           );
         })}
