@@ -32,6 +32,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     data: { deliveryStatus: "delivered", partnerStatus: "completed" },
   });
 
+  // Give Neon DB time to fully commit before responding
+  await new Promise((r) => setTimeout(r, 500));
+
   // If this is a sub-order, advance the parent order's workflow
   if (order.parentOrderId) {
     const activeOSP = await prisma.orderStepProgress.findFirst({

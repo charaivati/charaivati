@@ -55,7 +55,6 @@ export default function TrackOrderPage() {
   const [loading,          setLoading]          = useState(true);
   const [vehiclePos,       setVehiclePos]       = useState<VehiclePos | null>(null);
   const [customerConfirmed,setCustomerConfirmed]= useState(false);
-  const [confirming,       setConfirming]       = useState(false);
   const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const orderPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -74,7 +73,7 @@ export default function TrackOrderPage() {
     fetchOrder().finally(() => setLoading(false));
   }, [id, router]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll order status every 5 s while waiting for partner to confirm or customer to receive
+  // Poll order status — 2 s when out_for_delivery, 5 s otherwise
   useEffect(() => {
     const isDone = order?.deliveryStatus === "delivered" || customerConfirmed;
     if (isDone) {
@@ -82,20 +81,17 @@ export default function TrackOrderPage() {
       return;
     }
     if (!order) return;
-    orderPollRef.current = setInterval(() => { fetchOrder(); }, 5000);
+    const interval = order.deliveryStatus === "out_for_delivery" ? 2000 : 5000;
+    orderPollRef.current = setInterval(() => { fetchOrder(); }, interval);
     return () => { if (orderPollRef.current) { clearInterval(orderPollRef.current); orderPollRef.current = null; } };
   }, [order?.deliveryStatus, order?.partnerStatus, customerConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function handleCustomerConfirm() {
-    setConfirming(true);
-    const res = await fetch(`/api/order/${id}/customer-confirm`, {
+  function handleCustomerConfirm() {
+    setCustomerConfirmed(true);
+    setOrder((prev) => prev ? { ...prev, deliveryStatus: "delivered" } : prev);
+    fetch(`/api/order/${id}/customer-confirm`, {
       method: "POST", credentials: "include",
-    });
-    if (res.ok) {
-      setCustomerConfirmed(true);
-      setOrder((prev) => prev ? { ...prev, deliveryStatus: "delivered" } : prev);
-    }
-    setConfirming(false);
+    }).catch(() => {});
   }
 
   // Live GPS poll — only when out_for_delivery AND vehicleId is linked
@@ -234,10 +230,9 @@ export default function TrackOrderPage() {
             <p className="text-xs text-gray-500 mb-4">Your delivery partner has marked this as delivered.</p>
             <button
               onClick={handleCustomerConfirm}
-              disabled={confirming}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
-              {confirming ? "Confirming…" : "Yes, I received it"}
+              Yes, I received it
             </button>
           </div>
         )}

@@ -591,3 +591,12 @@ Notification → /app/orders?tab=requests → submit quote → accepted → /app
 
 - **Delivery cost calculation** — now wired into `lib/workflow/assignNextPartner.ts`. Pricing comes from `WorkflowStepAssignee` cost fields (`costPerOrder`, `costPerKg`, `costPerKgPerKm`, `costPerItemPerKm`). Weight from `Block.weight Float @default(1)`. Distance from `haversineKm(storeOwnerDefaultAddress, orderDeliveryAddress)` using `Address.lat/lng`. If any price field is null the whole calculation returns 0 (free). The per-assignee `WorkflowStepAssignee` cost fields take precedence over Collaboration-level cost fields.
 - **Address GPS coordinates** — `Address.lat Float?` / `Address.lng Float?` are now captured by `components/shared/AddressForm.tsx` (pincode → Nominatim geocode or drag-pin map) and persisted via `POST/PATCH /api/store/address`. Both create and update routes accept optional `lat`/`lng` in the request body.
+
+## Windows Dev Environment Notes
+
+### Prisma generate
+Always use: `npx prisma generate --no-engine`
+
+Reason: `query_engine-windows.dll.node` is held open by Windows Defender during dev server runtime. The `--no-engine` flag regenerates all TypeScript types and JS client code without touching the locked DLL binary. The existing DLL is version-pinned (v6.19.3) and handles any schema changes.
+
+Do NOT use plain `npx prisma generate` on this machine — it will fail with EPERM on the DLL rename.
