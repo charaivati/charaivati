@@ -225,6 +225,8 @@ function WorkflowSection({
   assignedToId,
   partners,
   onReload,
+  onConfirmOrder,
+  onStepConfirmed,
 }: {
   orderId: string;
   orderStatus: string;
@@ -238,6 +240,8 @@ function WorkflowSection({
   assignedToId: string | null;
   partners: Collab[];
   onReload: () => void;
+  onConfirmOrder: () => void;
+  onStepConfirmed: () => void;
 }) {
   const [localQuotes,   setLocalQuotes]   = useState<QuoteEntry[]>(quotes);
   const [accepting,     setAccepting]     = useState<string | null>(null);
@@ -257,6 +261,9 @@ function WorkflowSection({
 
   const onReloadRef = useRef(onReload);
   useEffect(() => { onReloadRef.current = onReload; }, [onReload]);
+
+  const onStepConfirmedRef = useRef(onStepConfirmed);
+  useEffect(() => { onStepConfirmedRef.current = onStepConfirmed; }, [onStepConfirmed]);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   function stopTimer() {
@@ -287,6 +294,7 @@ function WorkflowSection({
       }).then((r) => {
         setExecuting(false);
         if (!r.ok) return;
+        onStepConfirmedRef.current();
         const nextIdx = cur.index + 1;
         if (nextIdx < cur.queue.length) {
           startQueue(cur.queue, nextIdx);
@@ -381,11 +389,18 @@ function WorkflowSection({
   // ── State B: initiative exists but order pending (workflow not yet activated) ──
   if (!activeStep && orderStatus === "pending" && !requiresAttention && quotes.length === 0) {
     return (
-      <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+      <div className="mt-4 pt-4 border-t space-y-2" style={{ borderColor: "#f0f0f0" }}>
         <p className="text-xs font-semibold mb-1" style={{ color: A.textMuted }}>WORKFLOW</p>
         <p className="text-xs" style={{ color: A.textMuted }}>
           Confirm the order to activate the workflow.
         </p>
+        <button
+          onClick={onConfirmOrder}
+          className="text-xs px-3 py-1.5 rounded-md font-medium"
+          style={{ background: "#10B981", color: "#fff", cursor: "pointer" }}
+        >
+          Confirm Order
+        </button>
       </div>
     );
   }
@@ -827,6 +842,7 @@ export default function StoreOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState<string | null>(null);
   const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
+  const [toast, setToast] = useState<string | null>(null);
 
   // Delivery state — keyed by orderId
   const [deliveryStatuses, setDeliveryStatuses] = useState<Record<string, string>>({});
@@ -927,9 +943,17 @@ export default function StoreOrdersPage() {
       credentials: "include", body: JSON.stringify({ status }),
     });
     if (res.ok) {
-      setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o));
       if (status === "confirmed") {
+        setOrders((prev) => prev.map((o) =>
+          o.id === orderId
+            ? { ...o, status: "confirmed", activeStep: { stepId: "", stepName: "Activating workflow...", assigneeName: "", quoteRequired: false } }
+            : o
+        ));
+        setToast("Order confirmed — activating workflow...");
+        setTimeout(() => setToast(null), 3000);
         setTimeout(() => loadOrders(), 1000);
+      } else {
+        setOrders((prev) => prev.map((o) => o.id === orderId ? { ...o, status } : o));
       }
       if (status === "delivered") {
         setInv(orderId, { genStatus: "loading", signStatus: "idle" });
@@ -1101,6 +1125,16 @@ export default function StoreOrdersPage() {
                 assignedToId={assignedTos[order.id] ?? null}
                 partners={partners}
                 onReload={loadOrders}
+                onConfirmOrder={() => updateStatus(order.id, "confirmed")}
+                onStepConfirmed={() => {
+                  setOrders((prev) => prev.map((o) =>
+                    o.id === order.id
+                      ? { ...o, activeStep: { stepId: "", stepName: "Advancing...", assigneeName: "", quoteRequired: false } }
+                      : o
+                  ));
+                  setToast("Step confirmed — advancing...");
+                  setTimeout(() => setToast(null), 3000);
+                }}
               />
 
               {/* ── Invoice section — only for delivered orders ── */}
@@ -1130,6 +1164,18 @@ export default function StoreOrdersPage() {
           );
         })}
       </main>
+
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%",
+          transform: "translateX(-50%)",
+          background: "#1a1a1a", color: "white",
+          padding: "10px 20px", borderRadius: 8,
+          zIndex: 9999, fontSize: 14,
+        }}>
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
