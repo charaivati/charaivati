@@ -345,7 +345,7 @@ export default function OrdersPage() {
         </h1>
 
         {/* Tab bar */}
-        <div style={{ display: "flex", background: "#fff", borderBottom: "0.5px solid #e2e8f0", position: "sticky", top: 56, zIndex: 20 }}>
+        <div style={{ display: "flex", background: "#fff", borderBottom: "0.5px solid #e2e8f0", position: "sticky", top: 0, zIndex: 40 }}>
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             const badge = tab.id === "tracking" ? trackingOrders.length
