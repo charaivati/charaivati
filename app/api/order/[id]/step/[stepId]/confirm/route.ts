@@ -48,6 +48,33 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
   }
 
+  // Fallback: check WorkflowStepAssignee rows (new system)
+  if (!isOwner && !isAssignee) {
+    const wsaRows = await (prisma as any).workflowStepAssignee.findMany({
+      where: { stepId },
+      select: { collaborationId: true },
+    }) as { collaborationId: string }[];
+    if (wsaRows.length > 0) {
+      const collabIds = wsaRows.map((r: { collaborationId: string }) => r.collaborationId);
+      const wsaCollabs = await prisma.collaboration.findMany({
+        where: { id: { in: collabIds } },
+        include: {
+          requester: { select: { ownerId: true } },
+          receiver:  { select: { ownerId: true } },
+        },
+      });
+      const storePageId = order.store.pageId;
+      for (const collab of wsaCollabs) {
+        const partnerPage =
+          storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
+        if (partnerPage.ownerId === user.id) {
+          isAssignee = true;
+          break;
+        }
+      }
+    }
+  }
+
   if (!isOwner && !isAssignee)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

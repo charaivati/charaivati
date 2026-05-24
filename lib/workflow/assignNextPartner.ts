@@ -185,8 +185,8 @@ export async function assignNextPartner({
     },
   });
 
-  // Create sub-order for the partner's dashboard
-  await createSubOrder({
+  // Create sub-order; use its final settled cost for the notification
+  const subOrderTotal = await createSubOrder({
     parentOrderId: orderId,
     assigneeUserId: partnerUserId,
     storeId: orderData.storeId,
@@ -195,13 +195,14 @@ export async function assignNextPartner({
     subOrderType: "delivery",
     ...(calculatedCost > 0 ? { agreedAmount: calculatedCost } : {}),
   });
+  const notifAmount = subOrderTotal > 0 ? subOrderTotal : calculatedCost;
 
-  // Notify the partner
+  // Notify the partner with the final settled amount
   await createNotification({
     userId: partnerUserId,
     type: "order_assigned",
     title: "New delivery assignment",
-    body: `Order #${orderId.slice(-8).toUpperCase()} — ₹${calculatedCost}. Accept or reject in Deliveries.`,
+    body: `Order #${orderId.slice(-8).toUpperCase()} — ₹${notifAmount}. Accept or reject in Deliveries.`,
     link: "/earn/deliveries",
   });
 

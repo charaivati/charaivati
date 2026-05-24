@@ -12,7 +12,7 @@ interface CreateSubOrderParams {
   subOrderType: string;
 }
 
-export async function createSubOrder(params: CreateSubOrderParams): Promise<void> {
+export async function createSubOrder(params: CreateSubOrderParams): Promise<number> {
   const { parentOrderId, assigneeUserId, storeId, stepId, stepName, agreedAmount, subOrderType } = params;
 
   try {
@@ -26,14 +26,14 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<void
         address:   { select: { lat: true, lng: true } },
       },
     });
-    if (!parent) return;
+    if (!parent) return 0;
 
     // Dedup: skip if a sub-order already exists for this parent + customer + type
     const existing = await (prisma as any).order.findFirst({
       where: { parentOrderId, userId: parent.userId, subOrderType },
       select: { id: true },
     });
-    if (existing) return;
+    if (existing) return 0;
 
     // ── Find partner's store ──────────────────────────────────────────────────
     const partnerStore = await prisma.store.findFirst({
@@ -102,19 +102,27 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<void
     let itemBlockId: string | null = null;
     let itemTitle = "Delivery Service";
 
-    if (deliveryBlocks.length > 0) {
+    if (agreedAmount && agreedAmount > 0) {
+      // Authoritative cost already calculated upstream (WorkflowStepAssignee pricing or accepted quote).
+      // Block pricing already had its chance at the WorkflowStepAssignee level — do not override here.
+      calculatedCost = agreedAmount;
+      if (deliveryBlocks.length > 0) {
+        itemBlockId = deliveryBlocks[0].id;
+        itemTitle   = deliveryBlocks[0].title;
+      }
+    } else if (deliveryBlocks.length > 0) {
+      // No agreed amount set upstream — fall back to partner's block pricing
       const block = deliveryBlocks[0];
       itemBlockId = block.id;
       itemTitle   = block.title;
 
       let cost = 0;
-      if (block.price)    cost += block.price;
+      if (block.price)     cost += block.price;
       if (block.perKgRate) cost += block.perKgRate * totalWeightKg;
       if (block.perKmRate) cost += block.perKmRate * distanceKm;
       calculatedCost = Math.round(cost * 100) / 100;
     } else {
-      // Fall back to the Collaboration-level agreed amount
-      calculatedCost = agreedAmount ?? 0;
+      calculatedCost = 0;
     }
 
     // ── Create sub-order in partner's store ───────────────────────────────────
@@ -148,7 +156,10 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<void
       body:   `New delivery order — ₹${calculatedCost}`,
       link:   "/store/orders/all",
     });
+
+    return calculatedCost;
   } catch (e) {
     console.error("createSubOrder failed:", e);
+    return 0;
   }
 }

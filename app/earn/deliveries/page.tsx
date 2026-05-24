@@ -144,21 +144,61 @@ export default async function DeliveriesPage() {
     ORDER BY o.id, o."createdAt" DESC
   `;
 
-  // Merge, deduplicate by id (collab orders take precedence).
+  // Orders where the store owner self-assigned via partnerAction: "self_assign".
+  // assignedToId is set to the owner's userId (a plain string marker, not a Collaboration id).
+  const rawSelfOrders = await prisma.$queryRaw<RawOrder[]>`
+    SELECT
+      o.id,
+      o."deliveryStatus",
+      o."partnerStatus",
+      o."vehicleId",
+      o."assignedToId",
+      o."deliveryNote",
+      o.items,
+      o.total,
+      o."createdAt",
+      o."agreedAmount",
+      a.name      AS "addrName",
+      a.phone     AS "addrPhone",
+      a.line1,
+      a.city,
+      a.state,
+      a.pincode,
+      s.name      AS "storeName",
+      (SELECT osp."stepId" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
+      (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
+    FROM "Order" o
+    JOIN "Address" a ON o."addressId" = a.id
+    JOIN "Store"   s ON o."storeId"   = s.id
+    WHERE o."assignedToId" = ${userId}
+      AND o."partnerStatus" IN ('assigned', 'accepted')
+  `;
+
+  // Merge, deduplicate by id (collab orders take precedence, then block, then self).
   const seenIds = new Set(rawCollabOrders.map((o) => o.id));
+  const afterCollab = rawBlockOrders.filter((o) => !seenIds.has(o.id));
+  afterCollab.forEach((o) => seenIds.add(o.id));
   const mergedRaw = [
     ...rawCollabOrders,
-    ...rawBlockOrders.filter((o) => !seenIds.has(o.id)),
+    ...afterCollab,
+    ...rawSelfOrders.filter((o) => !seenIds.has(o.id)),
   ];
   mergedRaw.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const orders: DeliveryOrder[] = mergedRaw.map((o) => ({
-    ...o,
-    items: o.items as DeliveryOrder["items"],
-    createdAt: o.createdAt.toISOString(),
-    collabRole:     collabMeta[o.assignedToId]?.role           ?? "employee",
-    requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? (o as any).storeName ?? "",
-  }));
+  const orders: DeliveryOrder[] = mergedRaw.map((o) => {
+    const isSelf = o.assignedToId === userId;
+    return {
+      ...o,
+      items: o.items as DeliveryOrder["items"],
+      createdAt: o.createdAt.toISOString(),
+      collabRole:     isSelf ? "self" : (collabMeta[o.assignedToId]?.role ?? "employee"),
+      requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? (o as any).storeName ?? "",
+    };
+  });
 
   // Last 10 completed deliveries for this user
   const rawCompleted = await prisma.$queryRaw<RawCompleted[]>`

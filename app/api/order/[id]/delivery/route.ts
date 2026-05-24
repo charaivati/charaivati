@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { assignNextPartner } from "@/lib/workflow/assignNextPartner";
+import { advanceToNextStep } from "@/lib/workflow/advanceToNextStep";
 import { createNotification } from "@/lib/notifications/createNotification";
 
 const DELIVERY_STATUSES = [
@@ -54,7 +55,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const order = await (prisma.order as any).findUnique({
     where: { id },
-    select: { assignedToId: true, store: { select: { ownerId: true, pageId: true } } },
+    select: { assignedToId: true, items: true, store: { select: { ownerId: true, pageId: true } } },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -63,7 +64,21 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     ? { isPartner: false }
     : await resolveAssignedCollab(order.assignedToId, order.store.pageId, user.id);
 
-  if (!isOwner && !isPartner)
+  // Check if user is a block-assigned employee (items JSON references a delivery block with assignedUserId = user.id)
+  let isBlockEmployee = false;
+  if (!isOwner && !isPartner) {
+    const items = (order.items as { blockId?: string }[] | null) ?? [];
+    const blockIds = items.map((i) => i.blockId).filter((b): b is string => !!b);
+    if (blockIds.length > 0) {
+      const match = await prisma.storeBlock.findFirst({
+        where: { id: { in: blockIds }, assignedUserId: user.id, serviceType: "delivery" },
+        select: { id: true },
+      });
+      isBlockEmployee = match !== null;
+    }
+  }
+
+  if (!isOwner && !isPartner && !isBlockEmployee)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
@@ -72,59 +87,89 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (deliveryStatus !== undefined && !DELIVERY_STATUSES.includes(deliveryStatus))
     return NextResponse.json({ error: "Invalid deliveryStatus" }, { status: 400 });
 
-  // ── Partner actions ────────────────────────────────────────────────────────
-  if (isPartner && !isOwner) {
-    // Accept / Reject assignment
-    if (partnerAction === "accept") {
-      const updated = await (prisma.order as any).update({
-        where: { id },
-        data: { partnerStatus: "accepted" },
-      });
-      return NextResponse.json(updated);
-    }
+  // ── Complete delivery — universal (owner, collab partner, block employee) ──
+  // Placed before the partner gate so owners delivering themselves can also call it.
+  if (partnerAction === "complete") {
+    const updated = await prisma.order.update({
+      where: { id },
+      data: { partnerStatus: "completed", vehicleId: null },
+    });
 
-    if (partnerAction === "reject") {
+    // Block-based employees bypass the step confirm API (auth gap there); advance the
+    // active OSP here instead. Collab partners call step confirm before this action —
+    // their OSP is already advanced, so this branch is intentionally skipped for them.
+    if (isBlockEmployee) {
       const activeOSP = await prisma.orderStepProgress.findFirst({
         where: { orderId: id, status: "active" },
         select: { id: true, stepId: true },
       });
-
-      // Clear current assignment before cycling
-      await prisma.order.update({
-        where: { id },
-        data: { partnerStatus: "rejected", assignedToId: null },
-      });
-
       if (activeOSP) {
-        const result = await assignNextPartner({
-          orderId: id,
-          stepId: activeOSP.stepId,
-          ospId: activeOSP.id,
+        await prisma.orderStepProgress.update({
+          where: { id: activeOSP.id },
+          data: { status: "confirmed", confirmedAt: new Date() },
         });
-
-        if (result.escalated) {
-          return NextResponse.json({ partnerStatus: "rejected", assignedToId: null, requiresAttention: true });
-        }
-        if (result.assigned) {
-          return NextResponse.json({ partnerStatus: "assigned", cycled: true });
-        }
+        advanceToNextStep(id, activeOSP.stepId).catch((e) =>
+          console.error("delivery complete: advanceToNextStep failed:", e)
+        );
       }
-
-      // No active OSP or no assignees configured — flag for owner attention
-      await prisma.order.update({
-        where: { id },
-        data: { requiresAttention: true },
-      });
-      return NextResponse.json({ partnerStatus: "rejected", assignedToId: null, requiresAttention: true });
     }
 
-    // Partner marks delivery complete (customer still needs to confirm receipt)
-    if (partnerAction === "complete") {
-      const updated = await prisma.order.update({
-        where: { id },
-        data: { partnerStatus: "completed", vehicleId: null },
-      });
-      return NextResponse.json(updated);
+    return NextResponse.json(updated);
+  }
+
+  // ── Partner / block-employee actions ──────────────────────────────────────
+  if ((isPartner || isBlockEmployee) && !isOwner) {
+    // Accept / Reject assignment — collab partners only
+    if (isPartner) {
+      if (partnerAction === "accept") {
+        const updated = await (prisma.order as any).update({
+          where: { id },
+          data: { partnerStatus: "accepted" },
+        });
+        return NextResponse.json(updated);
+      }
+
+      if (partnerAction === "reject") {
+        const activeOSP = await prisma.orderStepProgress.findFirst({
+          where: { orderId: id, status: "active" },
+          select: { id: true, stepId: true },
+        });
+
+        // Clear current assignment before cycling
+        await prisma.order.update({
+          where: { id },
+          data: { partnerStatus: "rejected", assignedToId: null },
+        });
+
+        if (activeOSP) {
+          const result = await assignNextPartner({
+            orderId: id,
+            stepId: activeOSP.stepId,
+            ospId: activeOSP.id,
+          });
+
+          if (result.escalated) {
+            return NextResponse.json({ partnerStatus: "rejected", assignedToId: null, requiresAttention: true });
+          }
+          if (result.assigned) {
+            return NextResponse.json({ partnerStatus: "assigned", cycled: true });
+          }
+        }
+
+        // No active OSP or no assignees configured — flag for owner attention
+        await prisma.order.update({
+          where: { id },
+          data: { requiresAttention: true },
+        });
+        createNotification({
+          userId: order.store.ownerId,
+          type: "workflow_attention",
+          title: "Delivery partner rejected",
+          body: `Order #${id.slice(-8).toUpperCase()} — no other partner available. Please reassign manually.`,
+          link: `/store/${order.storeId}/orders`,
+        }).catch(() => {});
+        return NextResponse.json({ partnerStatus: "rejected", assignedToId: null, requiresAttention: true });
+      }
     }
 
     // deliveryStatus and vehicleId updates
@@ -163,6 +208,22 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   // ── Owner actions ──────────────────────────────────────────────────────────
+
+  // Owner delivers the order themselves — appears in their own /earn/deliveries dashboard
+  if (partnerAction === "self_assign") {
+    const updated = await (prisma.order as any).update({
+      where: { id },
+      data: { assignedToId: user.id, partnerStatus: "accepted" },
+    });
+    createNotification({
+      userId: user.id,
+      type: "order_assigned",
+      title: "Delivery assigned to you",
+      body: `Order #${id.slice(-8).toUpperCase()} — ₹${updated.agreedAmount ?? updated.total}`,
+      link: "/earn/deliveries",
+    }).catch(() => {});
+    return NextResponse.json(updated);
+  }
 
   // Assign an internal delivery block (and its employee) to a sub-order
   if (partnerAction === "assign_block") {

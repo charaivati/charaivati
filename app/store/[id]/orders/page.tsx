@@ -563,6 +563,7 @@ export default function StoreOrdersPage() {
   // Delivery partner/assignment state — keyed by orderId
   const [assignedTos, setAssignedTos] = useState<Record<string, string | null>>({});
   const [partnerStatuses, setPartnerStatuses] = useState<Record<string, string | null>>({});
+  const [selfAssigning, setSelfAssigning] = useState<string | null>(null);
 
   // Collaboration partners for this store
   const [partners, setPartners] = useState<Collab[]>([]);
@@ -661,6 +662,22 @@ export default function StoreOrdersPage() {
     setUpdating(null);
   }
 
+  async function selfAssign(orderId: string) {
+    setSelfAssigning(orderId);
+    const res = await fetch(`/api/order/${orderId}/delivery`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ partnerAction: "self_assign" }),
+    });
+    if (res.ok) {
+      setPartnerStatuses((prev) => ({ ...prev, [orderId]: "accepted" }));
+      setToast("You're now the delivery person — open Deliveries Dashboard to start GPS");
+      setTimeout(() => setToast(null), 4000);
+    }
+    setSelfAssigning(null);
+  }
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
       <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
@@ -674,6 +691,29 @@ export default function StoreOrdersPage() {
           <div>
             <h1 className="text-lg font-bold" style={{ color: A.text }}>Orders</h1>
             <p className="text-xs" style={{ color: A.textMuted }}>{orders.length} total orders</p>
+            {(() => {
+              const pendingCount = orders.filter(
+                (o) => o.status === "pending" || o.status === "confirmed"
+              ).length;
+              const attentionCount = orders.filter((o) => o.requiresAttention).length;
+              if (pendingCount === 0 && attentionCount === 0) return null;
+              return (
+                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                  {pendingCount > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: "#FEF3C7", color: "#D97706", border: "1px solid #FCD34D" }}>
+                      {pendingCount} pending
+                    </span>
+                  )}
+                  {attentionCount > 0 && (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                      style={{ background: "#FEF2F2", color: "#EF4444", border: "1px solid #FECACA" }}>
+                      ⚠ {attentionCount} need attention
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             {initiativeId && (
@@ -788,9 +828,18 @@ export default function StoreOrdersPage() {
                 </div>
               )}
 
-              {/* ── Cancel order ── */}
+              {/* ── Deliver myself + Cancel ── */}
               {order.status !== "cancelled" && order.status !== "delivered" && (
-                <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+                <div className="mt-4 pt-4 border-t flex items-center gap-2 flex-wrap" style={{ borderColor: "#f0f0f0" }}>
+                  {order.status === "confirmed" && !partnerStatuses[order.id] && (
+                    <button
+                      disabled={selfAssigning === order.id}
+                      onClick={() => selfAssign(order.id)}
+                      className="text-xs px-3 py-1.5 rounded-md font-medium"
+                      style={{ background: "#EEF2FF", color: A.accent, border: `1px solid ${A.accent}`, cursor: "pointer", opacity: selfAssigning === order.id ? 0.6 : 1 }}>
+                      {selfAssigning === order.id ? "…" : "🚴 Deliver myself"}
+                    </button>
+                  )}
                   <button
                     disabled={updating === order.id}
                     onClick={() => updateStatus(order.id, "cancelled")}

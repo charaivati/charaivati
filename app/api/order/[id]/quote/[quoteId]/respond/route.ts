@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 type Params = { params: Promise<{ id: string; quoteId: string }> };
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { store: { select: { pageId: true } } },
+    select: { storeId: true, store: { select: { pageId: true, ownerId: true } } },
   });
   const storePageId = order?.store.pageId;
   const partnerPage =
@@ -92,6 +93,17 @@ export async function POST(req: NextRequest, { params }: Params) {
     where: { id: orderId },
     data: { quoteSummary: summary },
   });
+
+  // Notify the store owner that a quote has been submitted
+  if (order?.store.ownerId) {
+    createNotification({
+      userId: order.store.ownerId,
+      type: "quote_submitted",
+      title: "Quote received",
+      body: `Order #${orderId.slice(-8).toUpperCase()} — ₹${body.amount.toLocaleString("en-IN")} from a partner`,
+      link: order.storeId ? `/store/${order.storeId}/orders` : "/store/orders/all",
+    }).catch(() => {});
+  }
 
   return NextResponse.json({ ok: true, summary });
 }

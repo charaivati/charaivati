@@ -43,22 +43,55 @@ export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [open,        setOpen]        = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const esRef       = useRef<EventSource | null>(null);
+
+  function applyUpdate(data: { notifications: Notif[]; unreadCount: number }) {
+    setNotifs(data.notifications ?? []);
+    setUnreadCount(data.unreadCount ?? 0);
+  }
 
   async function load() {
     try {
       const res = await fetch("/api/notifications", { credentials: "include" });
       if (!res.ok) return;
-      const data = await res.json();
-      setNotifs(data.notifications ?? []);
-      setUnreadCount(data.unreadCount ?? 0);
+      applyUpdate(await res.json());
     } catch {}
   }
 
   useEffect(() => {
     load();
-    intervalRef.current = setInterval(load, 30000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, []);
+
+    // Polling fallback at 10 s — covers SSE failures and keeps state in sync
+    intervalRef.current = setInterval(load, 10000);
+
+    // Immediate refresh when user returns to this tab
+    function onVisible() {
+      if (document.visibilityState === "visible") load();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+
+    // SSE connection — real-time push; updates bell without waiting for next poll
+    if (typeof EventSource !== "undefined") {
+      const es = new EventSource("/api/notifications/stream");
+      esRef.current = es;
+
+      es.onmessage = (e) => {
+        try { applyUpdate(JSON.parse(e.data)); } catch {}
+      };
+
+      es.onerror = () => {
+        // Connection lost — polling fallback already running, nothing to do
+        es.close();
+        esRef.current = null;
+      };
+    }
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      document.removeEventListener("visibilitychange", onVisible);
+      esRef.current?.close();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function markRead(ids: string[]) {
     try {

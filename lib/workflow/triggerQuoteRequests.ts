@@ -20,10 +20,22 @@ export async function triggerQuoteRequests(
     return;
   }
 
-  const partyIds = [
+  // Collect from deprecated scalar fields (kept for backwards compat)
+  const legacyIds = [
     ...(step.assigneeId ? [step.assigneeId] : []),
     ...step.assigneeIds,
-  ].filter((v, i, a) => a.indexOf(v) === i); // dedupe
+  ];
+
+  // Also collect from WorkflowStepAssignee rows (new system)
+  const wsaRows = await (prisma as any).workflowStepAssignee.findMany({
+    where: { stepId: step.id },
+    select: { collaborationId: true },
+  }) as { collaborationId: string }[];
+  const wsaIds = wsaRows.map((r) => r.collaborationId);
+
+  const partyIds = [...legacyIds, ...wsaIds].filter(
+    (v, i, a) => a.indexOf(v) === i
+  ); // dedupe
 
   if (partyIds.length === 0) return;
 

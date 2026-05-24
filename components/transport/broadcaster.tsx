@@ -1,7 +1,7 @@
 // components/transport/Broadcaster.tsx
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { VehicleType } from "@/lib/types";
 import { useGeolocation } from "@/hooks/useGeolocation";
 
@@ -13,11 +13,13 @@ const VEHICLE_EMOJI: Record<VehicleType, string> = {
 interface BroadcasterProps {
   onPositionUpdate?: (lat: number, lng: number) => void;
   onVehicleCreated?: (vehicleId: string) => void;
+  initialName?: string;
+  initialPhone?: string;
 }
 
-export default function Broadcaster({ onPositionUpdate, onVehicleCreated }: BroadcasterProps) {
-  const [busNumber, setBusNumber]     = useState("");
-  const [route, setRoute]             = useState("");
+export default function Broadcaster({ onPositionUpdate, onVehicleCreated, initialName, initialPhone }: BroadcasterProps) {
+  const [busNumber, setBusNumber]     = useState(initialName ?? "");
+  const [route, setRoute]             = useState(initialPhone ?? "");
   const [vehicleType, setVehicleType] = useState<VehicleType>("Bike");
   const [status, setStatus]           = useState<"idle" | "active" | "error">("idle");
   const [statusMsg, setStatusMsg]     = useState("Enter your vehicle details and start broadcasting.");
@@ -25,6 +27,15 @@ export default function Broadcaster({ onPositionUpdate, onVehicleCreated }: Broa
 
   const { startWatch, stopWatch } = useGeolocation();
   const vehicleIdRef  = useRef<string | null>(null);
+
+  // Sync autofill values that arrive after mount (profile fetch is async)
+  const isActive = status === "active";
+  useEffect(() => {
+    if (!isActive && initialName) setBusNumber(initialName);
+  }, [initialName, isActive]);
+  useEffect(() => {
+    if (!isActive && initialPhone) setRoute(initialPhone);
+  }, [initialPhone, isActive]);
 
   const broadcast = useCallback(
     async (lat: number, lng: number, acc: number) => {
@@ -86,8 +97,6 @@ export default function Broadcaster({ onPositionUpdate, onVehicleCreated }: Broa
     setAccuracy(null);
     setStatusMsg("Stopped. Your vehicle is no longer visible to others.");
   };
-
-  const isActive = status === "active";
 
   return (
     <div className="flex flex-col gap-4">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Broadcaster from "@/components/transport/broadcaster";
 
 export type CompletedDelivery = {
@@ -253,6 +253,16 @@ export default function DeliveriesClient({
   const [gpsOrderId, setGpsOrderId] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState<Set<string>>(new Set());
   const [rejecting, setRejecting] = useState<Set<string>>(new Set());
+  const [userProfile, setUserProfile] = useState<{ name: string | null; phone: string | null } | null>(null);
+
+  // Fetch user profile when GPS modal opens — used to autofill Broadcaster fields
+  useEffect(() => {
+    if (!gpsOrderId || userProfile) return;
+    fetch("/api/user/me", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((u) => { if (u) setUserProfile({ name: u.name ?? null, phone: u.phone ?? null }); })
+      .catch(() => {});
+  }, [gpsOrderId, userProfile]);
 
   async function partnerPatch(orderId: string, body: Record<string, unknown>) {
     setBusy(orderId);
@@ -298,13 +308,14 @@ export default function DeliveriesClient({
   async function confirmDelivery(order: DeliveryOrder) {
     setBusy(order.id);
     try {
-      // 1. Confirm the workflow step (if one is active)
+      // 1. Confirm the workflow step (if one is active).
+      // Non-fatal: block-based employees lack step-confirm auth; their OSP is advanced
+      // inside the partnerAction: "complete" handler on the delivery API instead.
       if (order.activeStepId) {
-        const res = await fetch(`/api/order/${order.id}/step/${order.activeStepId}/confirm`, {
+        await fetch(`/api/order/${order.id}/step/${order.activeStepId}/confirm`, {
           method: "PATCH",
           credentials: "include",
         });
-        if (!res.ok) return;
       }
 
       // 2. Mark partner complete (no deliveryStatus change — customer confirms that)
@@ -427,6 +438,8 @@ export default function DeliveriesClient({
               </button>
             </div>
             <Broadcaster
+              initialName={userProfile?.name ?? undefined}
+              initialPhone={userProfile?.phone ?? undefined}
               onVehicleCreated={(vehicleId) => {
                 if (!gpsOrderId) return;
                 partnerPatch(gpsOrderId, { vehicleId });
