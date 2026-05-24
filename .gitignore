@@ -53,3 +53,6 @@ yarn-error.log*
 
 # MCP config (contains bearer tokens — keep off git)
 .mcp.json
+
+# Internal technical debt notes (not for public repo)
+TECH_DEBT.md

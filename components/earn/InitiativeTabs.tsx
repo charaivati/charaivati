@@ -8,7 +8,7 @@ const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { s
 const WorkflowTab = dynamic(() => import("./WorkflowTab"), { ssr: false });
 const TeamTab     = dynamic(() => import("./TeamTab"),     { ssr: false });
 
-type Tab = "overview" | "store" | "team" | "partners" | "workflow";
+type Tab = "overview" | "store" | "team" | "partners" | "workflow" | "fleet";
 
 interface InitiativeTabsProps {
   pageId: string;
@@ -42,6 +42,7 @@ function CommunityGroupTabs({ pageId, ownerPages }: { pageId: string; ownerPages
   );
 }
 
+
 export default function InitiativeTabs({
   pageId,
   pageType,
@@ -71,13 +72,20 @@ export default function InitiativeTabs({
       .catch(() => { /* keep default canEdit=true on error */ });
   }, [pageId]);
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "store",    label: "Store" },
-    { id: "team",     label: "Team" },
-    { id: "partners", label: "Partners" },
-    { id: "workflow", label: "Workflow" },
-  ];
+  const tabs: { id: Tab; label: string }[] = pageType === "fleet"
+    ? [
+        { id: "overview", label: "Overview" },
+        { id: "fleet",    label: "Fleet" },
+        { id: "partners", label: "Partners" },
+        { id: "workflow", label: "Workflow" },
+      ]
+    : [
+        { id: "overview", label: "Overview" },
+        { id: "store",    label: "Store" },
+        { id: "team",     label: "Team" },
+        { id: "partners", label: "Partners" },
+        { id: "workflow", label: "Workflow" },
+      ];
 
   async function handleOpenStore() {
     setOpeningStore(true);
@@ -150,6 +158,34 @@ export default function InitiativeTabs({
               </div>
               <span className="text-indigo-400">→</span>
             </a>
+          )}
+        </div>
+      )}
+
+      {/* Fleet */}
+      {activeTab === "fleet" && (
+        <div>
+          {storeId ? (
+            <a
+              href={`/fleet/${pageId}`}
+              className="flex items-center justify-between p-4 rounded-xl border border-amber-800/60 bg-amber-900/20 hover:bg-amber-900/40 transition-colors"
+            >
+              <div>
+                <p className="font-medium text-amber-300">{storeName ?? "Your Fleet"}</p>
+                <p className="text-sm text-gray-400 mt-0.5">View and manage your fleet</p>
+              </div>
+              <span className="text-amber-400">→</span>
+            </a>
+          ) : (
+            <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/50 text-center space-y-4">
+              <p className="text-gray-400">No fleet set up yet.</p>
+              <button
+                onClick={() => { window.location.href = `/fleet/${pageId}`; }}
+                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-medium transition-colors"
+              >
+                Set up fleet
+              </button>
+            </div>
           )}
         </div>
       )}

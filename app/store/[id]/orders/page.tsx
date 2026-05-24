@@ -8,18 +8,6 @@ const A = {
   text: "#0F1111", textMuted: "#565959", accent: "#6366f1",
 };
 
-// ── Delivery stepper ──────────────────────────────────────────────────────────
-const DELIVERY_STEPS = ["pending", "confirmed", "processing", "out_for_delivery", "delivered"] as const;
-type DeliveryStep = typeof DELIVERY_STEPS[number];
-
-const STEP_LABEL: Record<string, string> = {
-  pending: "Pending",
-  confirmed: "Confirmed",
-  processing: "Processing",
-  out_for_delivery: "Out for Delivery",
-  delivered: "Delivered",
-};
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 type OrderItem = { blockId: string; title: string; price: number; quantity: number };
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
@@ -34,25 +22,15 @@ type Order = {
   items: OrderItem[];
   address: Address;
   user: { name: string | null; email: string | null };
-  deliveryStatus?: string | null;
   assignedToId?: string | null;
-  deliveryNote?: string | null;
   partnerStatus?: string | null;
   requiresAttention?: boolean;
   agreedAmount?: number | null;
   activeStep?: ActiveStep | null;
   quotes?: QuoteEntry[];
   initiativeId?: string | null;
-  subOrderType?: string | null;
   subOrders?: { id: string; subOrderType: string | null; agreedAmount: number | null; userId: string }[];
   allSteps?:  StepStatus[];
-};
-
-type DeliveryBlock = {
-  id: string;
-  title: string;
-  assignedUserId: string | null;
-  assignedUserName: string | null;
 };
 
 type CollabPage = { id: string; title: string; pageType: string };
@@ -573,268 +551,6 @@ function WorkflowSection({
   );
 }
 
-// ── DeliveryStatusBar ─────────────────────────────────────────────────────────
-// Read-only delivery pipeline status — only Cancel remains actionable.
-// Assignment dropdown and delivery note are kept for manual override.
-const PARTNER_STATUS_BADGE: Record<
-  string,
-  { label: string; bg: string; color: string; border: string }
-> = {
-  assigned:  { label: "Pending acceptance",  bg: "#FFFBEB", color: "#D97706", border: "#FCD34D" },
-  accepted:  { label: "Partner accepted ✓",  bg: "#F0FDF4", color: "#16A34A", border: "#86EFAC" },
-  rejected:  { label: "Partner rejected — reassign", bg: "#FEF2F2", color: "#DC2626", border: "#FECACA" },
-  completed: { label: "Delivered by partner", bg: "#EFF6FF", color: "#2563EB", border: "#BFDBFE" },
-};
-
-function DeliverySection({
-  orderId,
-  deliveryStatus,
-  assignedToId,
-  deliveryNote,
-  partnerStatus,
-  partners,
-  busy,
-  onPatch,
-}: {
-  orderId: string;
-  deliveryStatus: string;
-  assignedToId: string | null;
-  deliveryNote: string;
-  partnerStatus: string | null;
-  partners: Collab[];
-  busy: boolean;
-  onPatch: (payload: Record<string, unknown>) => void;
-}) {
-  const [localNote, setLocalNote] = useState(deliveryNote);
-
-  // Keep localNote in sync if parent resets
-  useEffect(() => { setLocalNote(deliveryNote); }, [deliveryNote]);
-
-  const isCancelled = deliveryStatus === "cancelled";
-  const currentIdx = DELIVERY_STEPS.indexOf(deliveryStatus as DeliveryStep);
-  const showAssignment = !isCancelled && currentIdx >= 1; // confirmed or later
-
-  return (
-    <div className="mt-4 pt-4 border-t space-y-4" style={{ borderColor: "#f0f0f0" }}>
-      <p className="text-xs font-semibold" style={{ color: A.textMuted }}>DELIVERY TRACKING</p>
-
-      {/* ── Stepper ── */}
-      {isCancelled ? (
-        <div className="flex items-center gap-2">
-          <span className="text-xs px-2.5 py-1 rounded-full font-medium"
-            style={{ background: "#FEF2F2", color: "#EF4444", border: "1px solid #FECACA" }}>
-            Delivery cancelled
-          </span>
-          <button
-            disabled={busy}
-            onClick={() => onPatch({ deliveryStatus: "pending" })}
-            className="text-xs px-2.5 py-1 rounded-md"
-            style={{ border: `1px solid ${A.border}`, color: A.textMuted, cursor: "pointer" }}>
-            Reset to pending
-          </button>
-        </div>
-      ) : (
-        /* Read-only stepper — step pills are display only; only Cancel is actionable */
-        <div className="flex items-center gap-0 overflow-x-auto pb-1">
-          {DELIVERY_STEPS.map((step, idx) => {
-            const isCompleted = currentIdx > idx;
-            const isActive    = currentIdx === idx;
-            const circleColor = isCompleted ? "#10B981" : isActive ? A.accent : "#D1D5DB";
-            const labelColor  = isActive ? A.accent : isCompleted ? "#10B981" : A.textMuted;
-            return (
-              <div key={step} className="flex items-center">
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 72 }}>
-                  <div style={{
-                    width: 28, height: 28, borderRadius: "50%",
-                    background: isCompleted || isActive ? circleColor : "#F3F4F6",
-                    border: `2px solid ${circleColor}`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                  }}>
-                    {isCompleted ? (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                        <path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    ) : (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? "#fff" : "#9CA3AF" }}>
-                        {idx + 1}
-                      </span>
-                    )}
-                  </div>
-                  <span style={{ fontSize: 10, fontWeight: isActive ? 600 : 400, color: labelColor, textAlign: "center", lineHeight: 1.2 }}>
-                    {STEP_LABEL[step]}
-                  </span>
-                </div>
-                {idx < DELIVERY_STEPS.length - 1 && (
-                  <div style={{ width: 20, height: 2, flexShrink: 0, marginBottom: 18, background: currentIdx > idx ? "#10B981" : "#E5E7EB" }} />
-                )}
-              </div>
-            );
-          })}
-          {/* Cancel — only remaining clickable action */}
-          <button
-            disabled={busy}
-            onClick={() => onPatch({ deliveryStatus: "cancelled" })}
-            className="text-xs px-2 py-1 rounded ml-3 mb-4 flex-shrink-0"
-            style={{ border: "1px solid #FECACA", color: "#EF4444", cursor: "pointer" }}>
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {/* ── Assignment + note (confirmed or later, not cancelled) ── */}
-      {showAssignment && (
-        <div className="flex flex-col gap-3 pt-1">
-          <div className="flex items-start gap-4 flex-wrap">
-            {/* Assignment dropdown */}
-            <div className="flex flex-col gap-1" style={{ minWidth: 200 }}>
-              <label className="text-xs font-medium" style={{ color: A.textMuted }}>Assigned to</label>
-              <select
-                disabled={busy}
-                value={assignedToId ?? ""}
-                onChange={(e) => onPatch({ assignedToId: e.target.value || null })}
-                className="text-xs rounded-md px-2 py-1.5"
-                style={{
-                  border: `1px solid ${A.border}`, color: A.text,
-                  background: "#fff", cursor: "pointer",
-                }}>
-                <option value="">Deliver myself</option>
-                {partners.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.receiver.title} · {c.role.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
-              {assignedToId && (() => {
-                const p = partners.find((c) => c.id === assignedToId);
-                return p ? (
-                  <span className="text-xs" style={{ color: A.accent }}>
-                    → {p.receiver.title}
-                  </span>
-                ) : null;
-              })()}
-              {assignedToId && (() => {
-                const badge = partnerStatus ? PARTNER_STATUS_BADGE[partnerStatus] : null;
-                if (!badge) return (
-                  <span className="text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: "#F9FAFB", color: "#6B7280", border: "1px solid #E5E7EB" }}>
-                    Unassigned
-                  </span>
-                );
-                return (
-                  <span className="text-xs px-2 py-0.5 rounded-full"
-                    style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
-                    {badge.label}
-                  </span>
-                );
-              })()}
-            </div>
-
-            {/* Delivery note */}
-            <div className="flex flex-col gap-1 flex-1" style={{ minWidth: 200 }}>
-              <label className="text-xs font-medium" style={{ color: A.textMuted }}>Delivery note</label>
-              <div className="flex gap-2 items-start">
-                <textarea
-                  rows={2}
-                  disabled={busy}
-                  value={localNote}
-                  onChange={(e) => setLocalNote(e.target.value)}
-                  placeholder="Instructions for the delivery person…"
-                  className="flex-1 text-xs rounded-md px-2 py-1.5 resize-none"
-                  style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff" }}
-                />
-                {localNote !== deliveryNote && (
-                  <button
-                    disabled={busy}
-                    onClick={() => onPatch({ deliveryNote: localNote })}
-                    className="text-xs px-2.5 py-1.5 rounded-md font-medium flex-shrink-0"
-                    style={{ background: A.accent, color: "#fff", cursor: "pointer" }}>
-                    Save
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── AssignEmployeeSection ─────────────────────────────────────────────────────
-function AssignEmployeeSection({
-  orderId,
-  storeId,
-  deliveryBlocks,
-  busy,
-  onAssigned,
-}: {
-  orderId: string;
-  storeId: string;
-  deliveryBlocks: DeliveryBlock[];
-  busy: boolean;
-  onAssigned: () => void;
-}) {
-  const [selectedBlockId, setSelectedBlockId] = useState("");
-  const [assigning, setAssigning] = useState(false);
-
-  async function handleAssign() {
-    if (!selectedBlockId) return;
-    setAssigning(true);
-    const res = await fetch(`/api/order/${orderId}/delivery`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ partnerAction: "assign_block", blockId: selectedBlockId }),
-    });
-    setAssigning(false);
-    if (res.ok) onAssigned();
-  }
-
-  return (
-    <div className="mt-4 pt-4 border-t space-y-2" style={{ borderColor: "#f0f0f0" }}>
-      <p className="text-xs font-semibold" style={{ color: A.textMuted }}>ASSIGN EMPLOYEE</p>
-      {deliveryBlocks.length === 0 ? (
-        <p className="text-xs" style={{ color: A.textMuted }}>
-          No delivery blocks set up.{" "}
-          <a href={`/store/${storeId}`} style={{ color: A.accent, textDecoration: "underline" }}>
-            Add a delivery block in your store
-          </a>{" "}
-          to assign employees.
-        </p>
-      ) : (
-        <div className="flex items-center gap-2 flex-wrap">
-          <select
-            value={selectedBlockId}
-            onChange={(e) => setSelectedBlockId(e.target.value)}
-            disabled={busy || assigning}
-            className="text-xs rounded-md px-2 py-1.5"
-            style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff" }}
-          >
-            <option value="">Select employee…</option>
-            {deliveryBlocks.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.title} — {b.assignedUserName ?? (b.assignedUserId ? b.assignedUserId.slice(-6) : "You")}
-              </option>
-            ))}
-          </select>
-          <button
-            disabled={!selectedBlockId || busy || assigning}
-            onClick={handleAssign}
-            className="text-xs px-3 py-1.5 rounded-md font-medium"
-            style={{
-              background: selectedBlockId ? "#6366f1" : "#E5E7EB",
-              color: selectedBlockId ? "#fff" : A.textMuted,
-              cursor: selectedBlockId ? "pointer" : "default",
-            }}
-          >
-            {assigning ? "Assigning…" : "Assign"}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function StoreOrdersPage() {
   const { id } = useParams<{ id: string }>();
@@ -844,19 +560,14 @@ export default function StoreOrdersPage() {
   const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
   const [toast, setToast] = useState<string | null>(null);
 
-  // Delivery state — keyed by orderId
-  const [deliveryStatuses, setDeliveryStatuses] = useState<Record<string, string>>({});
+  // Delivery partner/assignment state — keyed by orderId
   const [assignedTos, setAssignedTos] = useState<Record<string, string | null>>({});
-  const [deliveryNotes, setDeliveryNotes] = useState<Record<string, string>>({});
   const [partnerStatuses, setPartnerStatuses] = useState<Record<string, string | null>>({});
-  const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
 
   // Collaboration partners for this store
   const [partners, setPartners] = useState<Collab[]>([]);
   // Initiative (page) linked to this store — used for workflow state A link
   const [initiativeId, setInitiativeId] = useState<string | null>(null);
-  // Delivery blocks for the current store — used by AssignEmployeeSection
-  const [deliveryBlocks, setDeliveryBlocks] = useState<DeliveryBlock[]>([]);
 
   function loadOrders() {
     return fetch(`/api/store/orders?storeId=${id}`, { credentials: "include" })
@@ -875,20 +586,14 @@ export default function StoreOrdersPage() {
         }
         setInvoiceStates(init);
 
-        // Delivery field init
-        const dsMap: Record<string, string> = {};
+        // Assignment/partner state init
         const atMap: Record<string, string | null> = {};
-        const dnMap: Record<string, string> = {};
         const psMap: Record<string, string | null> = {};
         for (const o of data) {
-          dsMap[o.id] = o.deliveryStatus ?? "pending";
           atMap[o.id] = o.assignedToId ?? null;
-          dnMap[o.id] = o.deliveryNote ?? "";
           psMap[o.id] = o.partnerStatus ?? null;
         }
-        setDeliveryStatuses(dsMap);
         setAssignedTos(atMap);
-        setDeliveryNotes(dnMap);
         setPartnerStatuses(psMap);
       })
       .catch(() => {})
@@ -898,29 +603,12 @@ export default function StoreOrdersPage() {
   // Load orders on mount
   useEffect(() => { loadOrders(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load store pageId → accepted outbound partners + capture initiativeId + delivery blocks
+  // Load store pageId → accepted outbound partners + capture initiativeId
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((store) => {
         if (store?.pageId) setInitiativeId(store.pageId);
-
-        // Extract delivery blocks from store sections
-        const blocks: DeliveryBlock[] = [];
-        for (const section of store?.sections ?? []) {
-          for (const block of section.blocks ?? []) {
-            if (block.serviceType === "delivery") {
-              blocks.push({
-                id:               block.id,
-                title:            block.title,
-                assignedUserId:   block.assignedUserId ?? null,
-                assignedUserName: block.assignedUserName ?? null,
-              });
-            }
-          }
-        }
-        setDeliveryBlocks(blocks);
-
         if (!store?.pageId) return;
         return fetch(
           `/api/collaboration?pageId=${store.pageId}&direction=out&status=accepted`,
@@ -971,29 +659,6 @@ export default function StoreOrdersPage() {
       }
     }
     setUpdating(null);
-  }
-
-  async function patchDelivery(orderId: string, payload: Record<string, unknown>) {
-    setUpdatingDelivery(orderId);
-    const res = await fetch(`/api/order/${orderId}/delivery`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) {
-      const updated = await res.json();
-      if ("deliveryStatus" in payload)
-        setDeliveryStatuses((prev) => ({ ...prev, [orderId]: payload.deliveryStatus as string }));
-      if ("assignedToId" in payload)
-        setAssignedTos((prev) => ({ ...prev, [orderId]: (payload.assignedToId as string | null) ?? null }));
-      if ("deliveryNote" in payload)
-        setDeliveryNotes((prev) => ({ ...prev, [orderId]: (payload.deliveryNote as string) ?? "" }));
-      // Always sync partnerStatus from the API response (set server-side)
-      if (updated?.partnerStatus !== undefined)
-        setPartnerStatuses((prev) => ({ ...prev, [orderId]: updated.partnerStatus ?? null }));
-    }
-    setUpdatingDelivery(null);
   }
 
   if (loading) return (
@@ -1085,31 +750,6 @@ export default function StoreOrdersPage() {
                   <p className="text-xs" style={{ color: A.textMuted }}>📞 {order.address.phone}</p>
                 </div>
               </div>
-
-              {/* ── Delivery status bar (read-only pipeline display + Cancel + assignment) ── */}
-              <DeliverySection
-                orderId={order.id}
-                deliveryStatus={deliveryStatuses[order.id] ?? "pending"}
-                assignedToId={assignedTos[order.id] ?? null}
-                deliveryNote={deliveryNotes[order.id] ?? ""}
-                partnerStatus={partnerStatuses[order.id] ?? null}
-                partners={partners}
-                busy={updatingDelivery === order.id}
-                onPatch={(payload) => patchDelivery(order.id, payload)}
-              />
-
-              {/* ── Assign Employee — for pending delivery sub-orders in this store ── */}
-              {order.subOrderType === "delivery" && order.status === "pending" && (
-                <AssignEmployeeSection
-                  orderId={order.id}
-                  storeId={id}
-                  deliveryBlocks={deliveryBlocks}
-                  busy={updatingDelivery === order.id}
-                  onAssigned={() => {
-                    loadOrders();
-                  }}
-                />
-              )}
 
               {/* ── Workflow section (states A/B/C/D) ── */}
               <WorkflowSection

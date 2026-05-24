@@ -49,13 +49,6 @@ type Block = {
   price?: number | null;
   visibility?: string;
   serviceType?: string;
-  pricingModel?: string | null;
-  perKmRate?: number | null;
-  perKgRate?: number | null;
-  vehicleType?: string | null;
-  maxWeightKg?: number | null;
-  maxDistanceKm?: number | null;
-  assignedUserId?: string | null;
 };
 
 type Tile = {
@@ -610,128 +603,10 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
   );
 }
 
-function MobileMenu({ isOwner, editMode, onToggleEdit, userName, storeId, onAddressClick, deliveryLabel }: {
-  isOwner: boolean; editMode: boolean; onToggleEdit: () => void;
-  userName?: string | null; storeId: string; onAddressClick: () => void; deliveryLabel: string;
-}) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ position: "relative", flexShrink: 0 }}>
-      <button onClick={() => setOpen((v) => !v)}
-        style={{ width: 30, height: 30, borderRadius: "50%", background: "#6366f1", color: "#fff", border: "none", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {userName?.[0]?.toUpperCase() ?? "👤"}
-      </button>
-      {open && <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
-      {open && (
-        <div style={{ position: "absolute", right: 0, top: 36, zIndex: 50, background: "#fff", borderRadius: 10, border: "1px solid #DDDDDD", boxShadow: "0 8px 24px rgba(0,0,0,0.15)", minWidth: 190, overflow: "hidden" }}>
-          <button onClick={() => { onAddressClick(); setOpen(false); }}
-            style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 16px", fontSize: 13, border: "none", background: "#f9fafb", color: "#565959", cursor: "pointer", borderBottom: "1px solid #f0f0f0" }}>
-            📍 {deliveryLabel}
-          </button>
-          <a href="/store/account" style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
-            👤 {userName ? `Hello, ${userName.split(" ")[0]}` : "Sign in"}
-          </a>
-          <a href="/store/account?tab=purchases" style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
-            📦 My Orders
-          </a>
-          {isOwner && (
-            <>
-              <a href="/self?tab=earn" style={{ display: "block", padding: "10px 16px", fontSize: 13, color: "#0F1111", textDecoration: "none", borderBottom: "1px solid #f0f0f0" }}>
-                🏪 My Businesses
-              </a>
-              <button onClick={() => { onToggleEdit(); setOpen(false); }}
-                style={{ display: "block", width: "100%", textAlign: "left", padding: "10px 16px", fontSize: 13, border: "none", background: editMode ? "#EEF2FF" : "#fff", color: editMode ? "#6366f1" : "#0F1111", cursor: "pointer" }}>
-                ✏️ {editMode ? "Done Editing" : "Edit Store"}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function TopNav({ editMode, onToggleEdit, isOwner, editLabel, onCartOpen, cartCount, onAddressClick, deliveryLabel, storeId, searchQuery, onSearch, userName, onAccountClick }: { editMode: boolean; onToggleEdit: () => void; isOwner: boolean; editLabel?: string; onCartOpen: () => void; cartCount: number; onAddressClick: () => void; deliveryLabel: string; storeId: string; searchQuery: string; onSearch: (q: string) => void; userName?: string | null; onAccountClick?: () => void }) {
-  return (
-    <header className="w-full sticky top-0 z-50">
-      <div className="w-full" style={{ background: A.nav }}>
-        <div className="max-w-7xl mx-auto px-2 md:px-3 h-12 md:h-14 flex items-center gap-2 md:gap-3">
-          {/* Desktop: delivery address */}
-          <button onClick={onAddressClick} className="hidden md:flex flex-col text-white text-xs leading-tight pr-3 text-left hover:opacity-80">
-            <span className="opacity-80">Deliver to</span>
-            <span className="font-bold underline">{deliveryLabel}</span>
-          </button>
-
-          {/* Search bar — compact on mobile */}
-          <div className="flex flex-1">
-            <select className="hidden sm:block h-8 md:h-10 rounded-l-md px-2 text-sm" style={{ border: `1px solid ${A.border}`, background: "#f3f3f3", color: A.text }}><option>All</option></select>
-            <input value={searchQuery} onChange={(e) => onSearch(e.target.value)} placeholder="Search Store"
-              className="flex-1 h-8 md:h-10 px-2 text-sm outline-none"
-              style={{ borderTop: `1px solid ${A.border}`, borderBottom: `1px solid ${A.border}`, borderLeft: `1px solid ${A.border}` }} />
-            <button className="h-8 md:h-10 px-2 md:px-4 rounded-r-md" style={{ background: "#FEBD69", border: "1px solid #FEBD69" }}>🔍</button>
-          </div>
-
-          {/* Mobile-only: cart + profile */}
-          <div className="flex md:hidden items-center gap-2 shrink-0">
-            <button onClick={onCartOpen} className="relative text-white" style={{ lineHeight: 1 }}>
-              <span className="text-xl">🛒</span>
-              {cartCount > 0 && (
-                <span style={{ position: "absolute", top: -4, right: -6, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 14, height: 14, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {cartCount}
-                </span>
-              )}
-            </button>
-            <MobileMenu isOwner={isOwner} editMode={editMode} onToggleEdit={onToggleEdit} userName={userName} storeId={storeId} onAddressClick={onAddressClick} deliveryLabel={deliveryLabel} />
-          </div>
-
-          {/* Desktop-only: full nav links */}
-          <div className="hidden md:flex items-center gap-5 text-white text-xs pl-3">
-            {isOwner ? (
-              <a href="/self?tab=earn" className="leading-tight text-white text-xs hover:opacity-80">
-                <div className="opacity-80">Manage</div>
-                <div className="font-bold">Your Stores ▾</div>
-              </a>
-            ) : (
-              <a href="/store/account" style={{ textDecoration: "none" }} className="leading-tight text-white text-xs hover:opacity-80">
-                <div className="opacity-80">{userName ? `Hello, ${userName.split(" ")[0]}` : "Hello, Sign in"}</div>
-                <div className="font-bold">My Account ▾</div>
-              </a>
-            )}
-            <a href="/store/account?tab=purchases" style={{ textDecoration: "none" }} className="leading-tight text-white text-xs hover:opacity-80">
-              <div className="opacity-80">Returns &amp;</div>
-              <div className="font-bold">Orders</div>
-            </a>
-            <button onClick={onCartOpen} className="flex items-center gap-1 relative">
-              <span className="text-lg">🛒</span>
-              <span className="font-bold">Cart</span>
-              {cartCount > 0 && (<span style={{ position: "absolute", top: -6, right: -8, background: "#6366f1", color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>{cartCount}</span>)}
-            </button>
-            {isOwner && (
-              <>
-                <a href="/self?tab=earn" className="text-xs font-semibold px-3 py-1.5 rounded-md" style={{ background: "transparent", color: "#ccc", border: "1px solid #848688" }}>← My Businesses</a>
-                <button onClick={onToggleEdit} className="text-xs font-semibold px-3 py-1.5 rounded-md"
-                  style={editMode ? { background: A.accent, color: "#111", border: `1px solid #FCD200` } : { background: "transparent", color: "#fff", border: `1px solid #848688` }}>
-                  {editLabel ?? (editMode ? "Done Editing" : "Edit Store")}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </header>
-  );
-}
-
 function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
   store: Store; totalBlocks: number;
   isPinned: boolean; onPin: () => void; isOwner: boolean;
 }) {
-  const deliveryLabel = store.deliveryFee != null
-    ? store.freeDeliveryAbove != null
-      ? `₹${store.deliveryFee} delivery · Free above ₹${store.freeDeliveryAbove}`
-      : `₹${store.deliveryFee} delivery`
-    : null;
-
   return (
     <div className="w-full" style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
       {store.bannerUrl && <img src={store.bannerUrl} alt="banner" className="w-full h-40 sm:h-56 object-cover" />}
@@ -746,11 +621,6 @@ function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
               <span className="text-xs font-mono" style={{ color: A.textMuted }}>@{store.slug}</span>
             )}
             <p className="text-sm" style={{ color: A.textMuted }}>{store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}</p>
-            {deliveryLabel && (
-              <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F0FDF4", color: "#15803D", border: "1px solid #BBF7D0", fontWeight: 500 }}>
-                🚚 {deliveryLabel}
-              </span>
-            )}
           </div>
         </div>
         <div className="ml-auto hidden md:flex items-center gap-2">
@@ -1011,31 +881,6 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
     {step===1 ? <><div className="space-y-2 max-h-56 overflow-auto">{addresses.map(a=><button key={a.id} onClick={()=>setSelected(a.id)} className="w-full text-left p-2 rounded-md" style={{ border:`1px solid ${selected===a.id?A.accent:A.border}` }}><div className="text-xs font-semibold">{a.name} · {a.phone}</div><div className="text-xs" style={{ color:A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div></button>)}</div><button className="text-xs" style={{ color:A.link }} onClick={()=>setAdding(v=>!v)}>+ Add new address</button>{adding&&<div className="space-y-2">{Object.keys(form).map((k)=><input key={k} value={(form as any)[k]} onChange={(e)=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={k} className={inputCls} style={inputStyle} />)}<button className="text-xs px-3 py-1 rounded" style={{ background:A.accent,color:'#fff' }} onClick={async()=>{const r=await fetch('/api/store/address',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({...form,isDefault:false})}); if(r.ok){const a=await r.json(); setAddresses(p=>[...p,a]); setSelected(a.id); setAdding(false);}}}>Save address</button></div>}<button disabled={!selected} onClick={()=>setStep(2)} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff',opacity:selected?1:0.5 }}>Next →</button></> : <>{success?<div className="text-sm" style={{ color:'#16A34A' }}>✓ Order placed! The store owner will contact you shortly.</div>:<><div className="text-xs space-y-1">{items.map(i=><div key={i.id}>{i.block.title} x{i.quantity} — ₹{(i.block.price ?? 0)*i.quantity}</div>)}</div><div className="text-xs">Total: ₹{total}</div><div className="text-xs">Cash on Delivery</div><button disabled={placing} onClick={async()=>{setPlacing(true); const r=await fetch('/api/store/orders',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({storeId,addressId:selected})}); setPlacing(false); if(r.ok){setSuccess(true); onOrderPlaced(); setTimeout(onClose,3000);}}} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff' }}>{placing?'Placing…':'Place Order'}</button></>}</>} </div></Overlay>;
 }
 
-function AddressModal({ open, onClose, onSelected }: { open: boolean; onClose: () => void; onSelected: (address: Address) => void; }) {
-  const [addresses, setAddresses] = useState<Address[]>([]);
-  const [selected, setSelected] = useState<string>("");
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
-  const [formError, setFormError] = useState("");
-  useEffect(() => {
-    if (!open) return;
-    fetch('/api/store/address', { credentials: 'include' }).then((r) => r.ok ? r.json() : []).then((a: Address[]) => {
-      setAddresses(a);
-      const d = a.find((x) => x.isDefault) ?? a[0];
-      if (d) setSelected(d.id);
-    }).catch(() => {});
-  }, [open]);
-  if (!open) return null;
-  return <Overlay onClose={onClose}><div className="space-y-2"><h3 className="text-sm font-semibold">Select delivery address</h3>
-    {addresses.map((a) => <button key={a.id} onClick={() => setSelected(a.id)} className="w-full text-left p-2 rounded-md" style={{ border: `1px solid ${selected===a.id ? A.accent : A.border}` }}><div className="text-xs font-semibold">{a.name} · {a.phone}</div><div className="text-xs" style={{ color: A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div></button>)}
-    <button className="text-xs" style={{ color: A.link }} onClick={() => { setAdding((v) => !v); setFormError(""); }}>+ Add new address</button>
-    {adding && <div className="space-y-2">{Object.keys(form).map((k) => <input key={k} value={(form as any)[k]} onChange={(e) => { setForm((f) => ({ ...f, [k]: e.target.value })); setFormError(""); }} placeholder={k} className={inputCls} style={inputStyle} />)}
-      {formError && <p className="text-xs" style={{ color: "#EF4444" }}>{formError}</p>}
-      <button className="text-xs px-3 py-1 rounded" style={{ background: A.accent, color: '#fff' }} onClick={async () => { const { name, phone, line1, city, state, pincode } = form; if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) { setFormError("Please fill all address fields"); return; } setFormError(""); const r = await fetch('/api/store/address', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name: name.trim(), phone: phone.trim(), line1: line1.trim(), city: city.trim(), state: state.trim(), pincode: pincode.trim(), isDefault: true }) }); if (r.ok) { const a = await r.json(); setAddresses((p) => [a, ...p]); setSelected(a.id); setAdding(false); setForm({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" }); } }}>Save address</button>
-    </div>}
-    <button disabled={!selected} onClick={() => { const addr = addresses.find((a) => a.id === selected); if (addr) onSelected(addr); onClose(); }} className="w-full py-2 rounded text-xs" style={{ background: A.accent, color: '#fff', opacity: selected ? 1 : 0.5 }}>Use this address</button></div></Overlay>;
-}
-
 function LoadingSkeleton() {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
@@ -1047,504 +892,7 @@ function LoadingSkeleton() {
   );
 }
 
-// ─── Delivery helpers ─────────────────────────────────────────────────────────
 
-function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371;
-  const toRad = (x: number) => (x * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function calcDeliveryPrice(block: Block, distKm: number, weightKg: number): number {
-  const base = block.price ?? 0;
-  if (!block.pricingModel || block.pricingModel === "fixed") return base;
-  if (block.pricingModel === "per_km") return base + (block.perKmRate ?? 0) * distKm;
-  if (block.pricingModel === "per_kg_km") return base + (block.perKgRate ?? 0) * weightKg + (block.perKmRate ?? 0) * weightKg * distKm;
-  return base;
-}
-
-const VEHICLE_ICON: Record<string, string> = { bike: "🚲", auto: "🛺", car: "🚗", van: "🚐", truck: "🚚" };
-
-function DeliveryBlockCard({ block, editMode, onEdit, onDelete, onBook }: {
-  block: Block; editMode: boolean;
-  onEdit?: () => void; onDelete?: () => void; onBook?: () => void;
-}) {
-  const vis = block.visibility ?? "public";
-  const icon = block.vehicleType ? (VEHICLE_ICON[block.vehicleType] ?? "🚚") : "🚚";
-
-  function pricingLabel() {
-    const model = block.pricingModel ?? "fixed";
-    if (model === "fixed") return `₹${block.price ?? 0} flat`;
-    if (model === "per_km") {
-      const parts = [`₹${block.perKmRate ?? 0}/km`];
-      if ((block.price ?? 0) > 0) parts.push(`Base ₹${block.price}`);
-      return parts.join(" + ");
-    }
-    return `₹${block.perKgRate ?? 0}/kg + ₹${block.perKmRate ?? 0}/km`;
-  }
-
-  const cardBorder = editMode
-    ? vis === "inactive" ? "1px dashed #D1D5DB" : vis === "internal" ? "1.5px solid #9CA3AF" : "1px solid #DDDDDD"
-    : "1px solid #DDDDDD";
-
-  return (
-    <div style={{ background: "#fff", border: cardBorder, borderRadius: 12, padding: "14px 16px", opacity: editMode && vis === "inactive" ? 0.55 : 1, position: "relative", minWidth: 220 }}>
-      {editMode && vis !== "public" && (
-        <span style={{ position: "absolute", top: 8, right: 8, fontSize: 9, padding: "2px 6px", borderRadius: 8, background: vis === "internal" ? "#F3F4F6" : "#FEF3C7", color: vis === "internal" ? "#374151" : "#92400E", border: `1px solid ${vis === "internal" ? "#D1D5DB" : "#FDE68A"}`, fontWeight: 600 }}>
-          {vis === "internal" ? "Internal" : "Inactive"}
-        </span>
-      )}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 22 }}>{icon}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: 14, fontWeight: 700, color: "#0F1111", margin: 0, lineHeight: 1.2 }}>{block.title}</p>
-          {block.vehicleType && <p style={{ fontSize: 11, color: "#565959", margin: "2px 0 0", textTransform: "capitalize" }}>{block.vehicleType}</p>}
-        </div>
-      </div>
-      <p style={{ fontSize: 13, fontWeight: 600, color: "#6366f1", margin: "0 0 6px" }}>{pricingLabel()}</p>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        {block.maxWeightKg != null && <span style={{ fontSize: 11, color: "#565959" }}>Up to {block.maxWeightKg}kg</span>}
-        {block.maxDistanceKm != null && <span style={{ fontSize: 11, color: "#565959" }}>Up to {block.maxDistanceKm}km</span>}
-      </div>
-      {editMode ? (
-        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-          <button onClick={onEdit} style={{ flex: 1, fontSize: 11, padding: "5px 0", borderRadius: 7, border: "1px solid #DDDDDD", background: "#F9FAFB", color: "#0F1111", cursor: "pointer" }}>Edit</button>
-          <button onClick={onDelete} style={{ fontSize: 11, padding: "5px 10px", borderRadius: 7, border: "1px solid #FCA5A5", background: "#fff", color: "#EF4444", cursor: "pointer" }}>Delete</button>
-        </div>
-      ) : (
-        <button onClick={onBook} style={{ marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          Book Now
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── AddDeliveryBlockModal ─────────────────────────────────────────────────────
-
-function AddDeliveryBlockModal({ storeId, sections, onClose, onCreated }: {
-  storeId: string; sections: { id: string; title: string }[];
-  onClose: () => void; onCreated: (block: Block) => void;
-}) {
-  const [form, setForm] = useState({
-    title: "", pricingModel: "fixed", price: "", perKmRate: "", perKgRate: "",
-    vehicleType: "", maxWeightKg: "", maxDistanceKm: "", assignedUserId: "",
-    visibility: "public",
-  });
-  const [sectionId, setSectionId] = useState(sections[0]?.id ?? "");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.title.trim()) { setError("Name is required"); return; }
-    if (!sectionId) { setError("Add at least one section to the store first"); return; }
-    setLoading(true);
-    const res = await fetch("/api/block", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({
-        sectionId,
-        title: form.title.trim(),
-        mediaType: "none",
-        actionType: "book",
-        serviceType: "delivery",
-        visibility: form.visibility,
-        pricingModel: form.pricingModel,
-        price: form.price ? parseFloat(form.price) : 0,
-        perKmRate: form.perKmRate ? parseFloat(form.perKmRate) : null,
-        perKgRate: form.perKgRate ? parseFloat(form.perKgRate) : null,
-        vehicleType: form.vehicleType || null,
-        maxWeightKg: form.maxWeightKg ? parseFloat(form.maxWeightKg) : null,
-        maxDistanceKm: form.maxDistanceKm ? parseFloat(form.maxDistanceKm) : null,
-        assignedUserId: form.assignedUserId.trim() || null,
-      }),
-    });
-    if (res.ok) { onCreated(await res.json()); onClose(); }
-    else { setError("Failed to create delivery block"); }
-    setLoading(false);
-  }
-
-  const iStyle2 = { background: "#fff", color: "#0F1111", border: "1px solid #DDDDDD", borderRadius: 6, padding: "7px 10px", fontSize: 13, width: "100%", outline: "none", boxSizing: "border-box" as const };
-  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "#0F1111", display: "block", marginBottom: 4 };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", padding: 16 }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 16px" }}>Add Delivery Block</h3>
-        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div>
-            <label style={labelStyle}>Name *</label>
-            <input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="e.g. Bike Delivery, Express" style={iStyle2} autoFocus />
-          </div>
-          {sections.length > 1 && (
-            <div>
-              <label style={labelStyle}>Section</label>
-              <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} style={iStyle2}>
-                {sections.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
-              </select>
-            </div>
-          )}
-          <div>
-            <label style={labelStyle}>Pricing Model</label>
-            <div style={{ display: "flex", gap: 6 }}>
-              {[["fixed", "Fixed"], ["per_km", "Per km"], ["per_kg_km", "Per kg/km"]].map(([v, l]) => (
-                <button type="button" key={v} onClick={() => set("pricingModel", v)}
-                  style={{ flex: 1, padding: "6px 4px", borderRadius: 7, border: form.pricingModel === v ? "1.5px solid #6366f1" : "1px solid #DDDDDD", background: form.pricingModel === v ? "#EEF2FF" : "#F9FAFB", fontSize: 11, fontWeight: form.pricingModel === v ? 600 : 400, cursor: "pointer", color: form.pricingModel === v ? "#6366f1" : "#0F1111" }}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label style={labelStyle}>Base Price (₹)</label>
-            <input type="number" min="0" value={form.price} onChange={(e) => set("price", e.target.value)} placeholder="0" style={iStyle2} />
-          </div>
-          {(form.pricingModel === "per_km" || form.pricingModel === "per_kg_km") && (
-            <div>
-              <label style={labelStyle}>Per km Rate (₹/km)</label>
-              <input type="number" min="0" step="0.01" value={form.perKmRate} onChange={(e) => set("perKmRate", e.target.value)} placeholder="e.g. 8" style={iStyle2} />
-            </div>
-          )}
-          {form.pricingModel === "per_kg_km" && (
-            <div>
-              <label style={labelStyle}>Per kg Rate (₹/kg)</label>
-              <input type="number" min="0" step="0.01" value={form.perKgRate} onChange={(e) => set("perKgRate", e.target.value)} placeholder="e.g. 5" style={iStyle2} />
-            </div>
-          )}
-          <div>
-            <label style={labelStyle}>Vehicle Type (optional)</label>
-            <select value={form.vehicleType} onChange={(e) => set("vehicleType", e.target.value)} style={iStyle2}>
-              <option value="">— None —</option>
-              <option value="bike">🚲 Bike</option>
-              <option value="auto">🛺 Auto</option>
-              <option value="car">🚗 Car</option>
-              <option value="van">🚐 Van</option>
-              <option value="truck">🚚 Truck</option>
-            </select>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Max Weight (kg)</label>
-              <input type="number" min="0" value={form.maxWeightKg} onChange={(e) => set("maxWeightKg", e.target.value)} placeholder="optional" style={iStyle2} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Max Distance (km)</label>
-              <input type="number" min="0" value={form.maxDistanceKm} onChange={(e) => set("maxDistanceKm", e.target.value)} placeholder="optional" style={iStyle2} />
-            </div>
-          </div>
-          <div>
-            <label style={labelStyle}>Assigned Employee (User ID, optional)</label>
-            <input value={form.assignedUserId} onChange={(e) => set("assignedUserId", e.target.value)} placeholder="paste userId" style={iStyle2} />
-          </div>
-          <div>
-            <label style={labelStyle}>Visibility</label>
-            <div style={{ display: "flex", gap: 6 }}>
-              {[["public", "Public"], ["internal", "Internal"], ["inactive", "Inactive"]].map(([v, l]) => (
-                <button type="button" key={v} onClick={() => set("visibility", v)}
-                  style={{ flex: 1, padding: "6px 4px", borderRadius: 7, border: form.visibility === v ? "1.5px solid #6366f1" : "1px solid #DDDDDD", background: form.visibility === v ? "#EEF2FF" : "#F9FAFB", fontSize: 11, fontWeight: form.visibility === v ? 600 : 400, cursor: "pointer", color: form.visibility === v ? "#6366f1" : "#0F1111" }}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          {error && <p style={{ fontSize: 12, color: "#EF4444", margin: 0 }}>{error}</p>}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="submit" disabled={loading} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>
-              {loading ? "Creating…" : "Create"}
-            </button>
-            <button type="button" onClick={onClose} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #DDDDDD", background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ─── EditDeliveryBlockModal ────────────────────────────────────────────────────
-
-function EditDeliveryBlockModal({ block, onClose, onSaved, onDeleted }: {
-  block: Block; onClose: () => void;
-  onSaved: (updated: Block) => void; onDeleted: (id: string) => void;
-}) {
-  const [form, setForm] = useState({
-    title: block.title, pricingModel: block.pricingModel ?? "fixed",
-    price: block.price != null ? String(block.price) : "",
-    perKmRate: block.perKmRate != null ? String(block.perKmRate) : "",
-    perKgRate: block.perKgRate != null ? String(block.perKgRate) : "",
-    vehicleType: block.vehicleType ?? "", maxWeightKg: block.maxWeightKg != null ? String(block.maxWeightKg) : "",
-    maxDistanceKm: block.maxDistanceKm != null ? String(block.maxDistanceKm) : "",
-    assignedUserId: block.assignedUserId ?? "", visibility: block.visibility ?? "public",
-  });
-  const [loading, setLoading] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
-
-  async function save() {
-    setLoading(true);
-    const res = await fetch("/api/block", {
-      method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({
-        blockId: block.id, title: form.title.trim(), pricingModel: form.pricingModel,
-        price: form.price ? parseFloat(form.price) : null,
-        perKmRate: form.perKmRate ? parseFloat(form.perKmRate) : null,
-        perKgRate: form.perKgRate ? parseFloat(form.perKgRate) : null,
-        vehicleType: form.vehicleType || null, maxWeightKg: form.maxWeightKg ? parseFloat(form.maxWeightKg) : null,
-        maxDistanceKm: form.maxDistanceKm ? parseFloat(form.maxDistanceKm) : null,
-        assignedUserId: form.assignedUserId.trim() || null, visibility: form.visibility,
-      }),
-    });
-    if (res.ok) { const updated = await res.json(); onSaved(updated); onClose(); }
-    setLoading(false);
-  }
-
-  async function del() {
-    if (!confirm("Delete this delivery block?")) return;
-    setDeleting(true);
-    await fetch("/api/block", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id }) });
-    onDeleted(block.id);
-    onClose();
-    setDeleting(false);
-  }
-
-  const iStyle2 = { background: "#fff", color: "#0F1111", border: "1px solid #DDDDDD", borderRadius: 6, padding: "7px 10px", fontSize: 13, width: "100%", outline: "none", boxSizing: "border-box" as const };
-  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "#0F1111", display: "block", marginBottom: 4 };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", padding: 16 }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 16px" }}>Edit Delivery Block</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div><label style={labelStyle}>Name</label><input value={form.title} onChange={(e) => set("title", e.target.value)} style={iStyle2} autoFocus /></div>
-          <div>
-            <label style={labelStyle}>Pricing Model</label>
-            <div style={{ display: "flex", gap: 6 }}>
-              {[["fixed", "Fixed"], ["per_km", "Per km"], ["per_kg_km", "Per kg/km"]].map(([v, l]) => (
-                <button type="button" key={v} onClick={() => set("pricingModel", v)}
-                  style={{ flex: 1, padding: "6px 4px", borderRadius: 7, border: form.pricingModel === v ? "1.5px solid #6366f1" : "1px solid #DDDDDD", background: form.pricingModel === v ? "#EEF2FF" : "#F9FAFB", fontSize: 11, fontWeight: form.pricingModel === v ? 600 : 400, cursor: "pointer", color: form.pricingModel === v ? "#6366f1" : "#0F1111" }}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div><label style={labelStyle}>Base Price (₹)</label><input type="number" min="0" value={form.price} onChange={(e) => set("price", e.target.value)} style={iStyle2} /></div>
-          {(form.pricingModel === "per_km" || form.pricingModel === "per_kg_km") && (
-            <div><label style={labelStyle}>Per km Rate (₹/km)</label><input type="number" min="0" step="0.01" value={form.perKmRate} onChange={(e) => set("perKmRate", e.target.value)} style={iStyle2} /></div>
-          )}
-          {form.pricingModel === "per_kg_km" && (
-            <div><label style={labelStyle}>Per kg Rate (₹/kg)</label><input type="number" min="0" step="0.01" value={form.perKgRate} onChange={(e) => set("perKgRate", e.target.value)} style={iStyle2} /></div>
-          )}
-          <div>
-            <label style={labelStyle}>Vehicle Type</label>
-            <select value={form.vehicleType} onChange={(e) => set("vehicleType", e.target.value)} style={iStyle2}>
-              <option value="">— None —</option>
-              <option value="bike">🚲 Bike</option>
-              <option value="auto">🛺 Auto</option>
-              <option value="car">🚗 Car</option>
-              <option value="van">🚐 Van</option>
-              <option value="truck">🚚 Truck</option>
-            </select>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <div style={{ flex: 1 }}><label style={labelStyle}>Max Weight (kg)</label><input type="number" min="0" value={form.maxWeightKg} onChange={(e) => set("maxWeightKg", e.target.value)} placeholder="optional" style={iStyle2} /></div>
-            <div style={{ flex: 1 }}><label style={labelStyle}>Max Distance (km)</label><input type="number" min="0" value={form.maxDistanceKm} onChange={(e) => set("maxDistanceKm", e.target.value)} placeholder="optional" style={iStyle2} /></div>
-          </div>
-          <div><label style={labelStyle}>Assigned Employee (User ID)</label><input value={form.assignedUserId} onChange={(e) => set("assignedUserId", e.target.value)} placeholder="paste userId" style={iStyle2} /></div>
-          <div>
-            <label style={labelStyle}>Visibility</label>
-            <div style={{ display: "flex", gap: 6 }}>
-              {[["public", "Public"], ["internal", "Internal"], ["inactive", "Inactive"]].map(([v, l]) => (
-                <button type="button" key={v} onClick={() => set("visibility", v)}
-                  style={{ flex: 1, padding: "6px 4px", borderRadius: 7, border: form.visibility === v ? "1.5px solid #6366f1" : "1px solid #DDDDDD", background: form.visibility === v ? "#EEF2FF" : "#F9FAFB", fontSize: 11, fontWeight: form.visibility === v ? 600 : 400, cursor: "pointer", color: form.visibility === v ? "#6366f1" : "#0F1111" }}>
-                  {l}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={save} disabled={loading} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>{loading ? "Saving…" : "Save"}</button>
-            <button onClick={del} disabled={deleting} style={{ padding: "10px 14px", borderRadius: 8, background: "#FEF2F2", color: "#DC2626", border: "1px solid #FCA5A5", fontSize: 13, cursor: "pointer" }}>{deleting ? "…" : "Delete"}</button>
-            <button onClick={onClose} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #DDDDDD", background: "#fff", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── BookingModal ──────────────────────────────────────────────────────────────
-
-function BookingModal({ block, storeId, defaultPickup, onClose }: {
-  block: Block; storeId: string; defaultPickup: Address | null; onClose: () => void;
-}) {
-  const [pickupAddresses, setPickupAddresses] = useState<Address[]>([]);
-  const [pickupId, setPickupId] = useState(defaultPickup?.id ?? "");
-  const [dropForm, setDropForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
-  const [dropLat, setDropLat] = useState<number | null>(null);
-  const [dropLng, setDropLng] = useState<number | null>(null);
-  const [weightKg, setWeightKg] = useState("1");
-  const [placing, setPlacing] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [formError, setFormError] = useState("");
-
-  useEffect(() => {
-    fetch("/api/store/address", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : [])
-      .then((a: Address[]) => {
-        setPickupAddresses(a);
-        if (!pickupId && a.length > 0) setPickupId((a.find((x) => x.isDefault) ?? a[0]).id);
-      }).catch(() => {});
-  }, []);
-
-  const pickup = pickupAddresses.find((a) => a.id === pickupId) ?? defaultPickup;
-  const distKm = (pickup?.lat && pickup?.lng && dropLat && dropLng)
-    ? haversineKm(pickup.lat, pickup.lng, dropLat, dropLng)
-    : 0;
-  const weight = parseFloat(weightKg) || 1;
-  const estimatedPrice = calcDeliveryPrice(block, distKm, weight);
-
-  async function confirm() {
-    const { name, phone, line1, city, state, pincode } = dropForm;
-    if (!name.trim() || !phone.trim() || !line1.trim() || !city.trim() || !state.trim() || !pincode.trim()) {
-      setFormError("Please fill all drop address fields");
-      return;
-    }
-    setPlacing(true);
-    const addrRes = await fetch("/api/store/address", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ name: name.trim(), phone: phone.trim(), line1: line1.trim(), city: city.trim(), state: state.trim(), pincode: pincode.trim(), lat: dropLat, lng: dropLng, isDefault: false }),
-    });
-    if (!addrRes.ok) { setPlacing(false); setFormError("Could not save drop address"); return; }
-    const savedAddr = await addrRes.json();
-    const orderRes = await fetch("/api/store/orders/quick", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ storeId, addressId: savedAddr.id, items: [{ blockId: block.id, quantity: 1 }] }),
-    });
-    setPlacing(false);
-    if (orderRes.ok) { setSuccess(true); setTimeout(onClose, 3000); }
-    else setFormError("Failed to place booking. Please try again.");
-  }
-
-  const iStyle2 = { background: "#fff", color: "#0F1111", border: "1px solid #DDDDDD", borderRadius: 6, padding: "7px 10px", fontSize: 13, width: "100%", outline: "none", boxSizing: "border-box" as const };
-  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "#0F1111", display: "block", marginBottom: 4 };
-  const icon = block.vehicleType ? (VEHICLE_ICON[block.vehicleType] ?? "🚚") : "🚚";
-
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", padding: 16 }}
-      onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 420, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
-        {success ? (
-          <div style={{ textAlign: "center", padding: "24px 0" }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
-            <p style={{ fontSize: 15, fontWeight: 700, color: "#16A34A" }}>Booking placed!</p>
-            <p style={{ fontSize: 12, color: "#565959" }}>The store will contact you shortly.</p>
-          </div>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-              <span style={{ fontSize: 26 }}>{icon}</span>
-              <div>
-                <h3 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Book {block.title}</h3>
-                <p style={{ fontSize: 11, color: "#565959", margin: 0 }}>Step {step} of 3</p>
-              </div>
-            </div>
-
-            {step === 1 && (
-              <>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#0F1111", marginBottom: 8 }}>Pickup address</p>
-                {pickupAddresses.length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                    {pickupAddresses.map((a) => (
-                      <button key={a.id} onClick={() => setPickupId(a.id)}
-                        style={{ textAlign: "left", padding: "8px 10px", borderRadius: 8, border: `1px solid ${pickupId === a.id ? "#6366f1" : "#DDDDDD"}`, background: pickupId === a.id ? "#EEF2FF" : "#fff", cursor: "pointer" }}>
-                        <div style={{ fontSize: 12, fontWeight: 600 }}>{a.name} · {a.phone}</div>
-                        <div style={{ fontSize: 11, color: "#565959" }}>{a.line1}, {a.city}</div>
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 12 }}>No saved addresses. Your address will be used as pickup.</p>
-                )}
-                <button onClick={() => setStep(2)} style={{ width: "100%", padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Next → Drop Address</button>
-              </>
-            )}
-
-            {step === 2 && (
-              <>
-                <p style={{ fontSize: 12, fontWeight: 600, color: "#0F1111", marginBottom: 8 }}>Drop address</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {[["name", "Name"], ["phone", "Phone"], ["line1", "Address line"], ["city", "City"], ["state", "State"], ["pincode", "Pincode"]].map(([k, pl]) => (
-                    <input key={k} value={(dropForm as any)[k]}
-                      onChange={(e) => { setDropForm((f) => ({ ...f, [k]: e.target.value })); setFormError(""); }}
-                      placeholder={pl} style={iStyle2} />
-                  ))}
-                  <div style={{ fontSize: 11, color: "#6366f1", padding: "6px 8px", background: "#EEF2FF", borderRadius: 6 }}>
-                    💡 Enter the drop location. For precise distance pricing, the system uses saved address coordinates.
-                  </div>
-                </div>
-                {block.pricingModel === "per_kg_km" && (
-                  <div style={{ marginTop: 12 }}>
-                    <label style={labelStyle}>Weight (kg)</label>
-                    <input type="number" min="0.1" step="0.1" value={weightKg} onChange={(e) => setWeightKg(e.target.value)} style={iStyle2} />
-                  </div>
-                )}
-                {formError && <p style={{ fontSize: 12, color: "#EF4444", marginTop: 8 }}>{formError}</p>}
-                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                  <button onClick={() => setStep(1)} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #DDDDDD", background: "#fff", fontSize: 13, cursor: "pointer" }}>← Back</button>
-                  <button onClick={() => { setFormError(""); setStep(3); }} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Next → Review</button>
-                </div>
-              </>
-            )}
-
-            {step === 3 && (
-              <>
-                <div style={{ background: "#F9FAFB", borderRadius: 10, padding: 14, marginBottom: 14, display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                    <span style={{ color: "#565959" }}>Drop</span>
-                    <span style={{ fontWeight: 500 }}>{dropForm.line1}, {dropForm.city}</span>
-                  </div>
-                  {distKm > 0 && (
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                      <span style={{ color: "#565959" }}>Distance</span>
-                      <span style={{ fontWeight: 500 }}>{distKm.toFixed(1)} km</span>
-                    </div>
-                  )}
-                  {block.pricingModel === "per_kg_km" && (
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-                      <span style={{ color: "#565959" }}>Weight</span>
-                      <span style={{ fontWeight: 500 }}>{weight} kg</span>
-                    </div>
-                  )}
-                </div>
-                <div style={{ textAlign: "center", margin: "0 0 18px" }}>
-                  <p style={{ fontSize: 12, color: "#565959", margin: "0 0 4px" }}>Estimated Price</p>
-                  <p style={{ fontSize: 28, fontWeight: 800, color: "#6366f1", margin: 0 }}>₹{estimatedPrice.toFixed(0)}</p>
-                  {distKm === 0 && block.pricingModel !== "fixed" && (
-                    <p style={{ fontSize: 11, color: "#9CA3AF", margin: "4px 0 0" }}>Exact price calculated after confirming location</p>
-                  )}
-                </div>
-                {formError && <p style={{ fontSize: 12, color: "#EF4444", marginBottom: 8 }}>{formError}</p>}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setStep(2)} style={{ padding: "10px 14px", borderRadius: 8, border: "1px solid #DDDDDD", background: "#fff", fontSize: 13, cursor: "pointer" }}>← Back</button>
-                  <button onClick={confirm} disabled={placing} style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: placing ? "default" : "pointer", opacity: placing ? 0.6 : 1 }}>
-                    {placing ? "Booking…" : "Confirm Booking"}
-                  </button>
-                </div>
-              </>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // --- MAIN PAGE ---
 export default function StorePage() {
@@ -1556,10 +904,6 @@ export default function StorePage() {
   const [loading, setLoading] = useState(true);
   const [screenW, setScreenW] = useState(1334);
   const [editMode, setEditMode] = useState(false);
-  const [showDeliveryFeeEdit, setShowDeliveryFeeEdit] = useState(false);
-  const [deliveryFeeInput, setDeliveryFeeInput] = useState("");
-  const [freeDeliveryAboveInput, setFreeDeliveryAboveInput] = useState("");
-  const [savingFee, setSavingFee] = useState(false);
   const [showAddSection, setShowAddSection] = useState(false);
   const [addBlockForSection, setAddBlockForSection] = useState<string | null>(null);
   const [addingTile, setAddingTile] = useState<string | null>(null);
@@ -1576,14 +920,8 @@ export default function StorePage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [wishlist, setWishlist] = useState<Set<string>>(new Set());
   const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [addressModalOpen, setAddressModalOpen] = useState(false);
-  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
-  const [currentUser, setCurrentUser] = useState<{ name: string | null; email: string | null } | null>(null);
   const [isPinned, setIsPinned] = useState(false);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
-  const [addDeliveryBlockOpen, setAddDeliveryBlockOpen] = useState(false);
-  const [editDeliveryBlock, setEditDeliveryBlock] = useState<Block | null>(null);
-  const [bookingBlock, setBookingBlock] = useState<Block | null>(null);
 
   const shell = useStoreShell();
   const { searchQuery, setSearchQuery } = shell;
@@ -1621,7 +959,6 @@ export default function StorePage() {
         setStore(data); setStoreFilters(data.filters ?? []); setGlobalBanner(data.globalBanner ?? null);
         fetch(`/api/store/cart/${data.id}`, { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setCartItems(items)).catch(() => {});
         fetch("/api/store/wishlist", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((items) => setWishlist(new Set(items.map((i: any) => i.blockId)))).catch(() => {});
-        fetch("/api/store/address", { credentials: "include" }).then((r) => r.ok ? r.json() : []).then((addresses: Address[]) => { const def = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null; setDefaultAddress(def); }).catch(() => {});
         fetch("/api/store/pinned", { credentials: "include" }).then((r) => r.ok ? r.json() : { pinned: [] }).then((d) => { setIsPinned(d.pinned?.some((p: any) => p.storeId === data.id) ?? false); }).catch(() => {}); }
     } catch (error) { console.error("Failed to fetch store:", error); }
     finally { setLoading(false); }
@@ -1629,16 +966,12 @@ export default function StorePage() {
 
   useEffect(() => { fetchStore(); }, [fetchStore]);
 
-  // Sync cart count, address label, and cart/address openers to shared shell
+  // Sync cart count and cart opener to shared shell
   useEffect(() => {
     shell.setCartCount(cartItems.reduce((s, i) => s + i.quantity, 0));
   }, [cartItems]);
   useEffect(() => {
-    shell.setDeliveryLabel(defaultAddress ? `${defaultAddress.city} ${defaultAddress.pincode}` : "Set address");
-  }, [defaultAddress]);
-  useEffect(() => {
     shell.registerOpenCart(() => setCartOpen(true));
-    shell.registerOpenAddress(() => setAddressModalOpen(true));
   }, []);
   useEffect(() => {
     if (!store) return;
@@ -1669,13 +1002,6 @@ export default function StorePage() {
         setLearningProgress(progressMap);
       }).catch(() => {});
   }, [store?.pageId, store?.pageType]);
-
-  useEffect(() => {
-    fetch("/api/user/me", { credentials: "include" })
-      .then(r => r.ok ? r.json() : { user: null })
-      .then(d => setCurrentUser(d.user))
-      .catch(() => {});
-  }, []);
 
   const totalBlocks = store?.sections.reduce((a, s) => a + s.blocks.length, 0) ?? 0;
   const sensorsSections = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -1714,24 +1040,6 @@ export default function StorePage() {
     setStore({ ...store, sections: store.sections.map((s) => s.id === sectionId ? { ...s, title: newTitle } : s) });
   }
 
-
-  async function handleSaveDeliveryFee() {
-    if (!store) return;
-    setSavingFee(true);
-    const fee = deliveryFeeInput === "" ? null : parseFloat(deliveryFeeInput);
-    const freeAbove = freeDeliveryAboveInput === "" ? null : parseFloat(freeDeliveryAboveInput);
-    const res = await fetch(`/api/store/${store.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ deliveryFee: fee, freeDeliveryAbove: freeAbove }),
-    });
-    if (res.ok) {
-      setStore((prev) => prev ? { ...prev, deliveryFee: fee, freeDeliveryAbove: freeAbove } : prev);
-      setShowDeliveryFeeEdit(false);
-    }
-    setSavingFee(false);
-  }
 
   async function handleAddToCart(block: Block, storeId: string) {
     if (!store) return;
@@ -1818,11 +1126,6 @@ export default function StorePage() {
     rowMap.get(ri)!.push(s);
   });
   const sortedRows = Array.from(rowMap.entries()).sort(([a], [b]) => a - b).map(([, secs]) => secs);
-
-  const allDeliveryBlocks = (store?.sections ?? []).flatMap((s) => s.blocks).filter((b) => b.serviceType === "delivery");
-  const displayDeliveryBlocks = editMode
-    ? allDeliveryBlocks
-    : allDeliveryBlocks.filter((b) => b.visibility === "public");
 
   return (
     <div className="min-h-screen" style={{ background: isLearning ? "#FAF8F5" : A.bg }}>
@@ -1952,35 +1255,6 @@ export default function StorePage() {
             </div>
           )}
 
-          {/* ── Delivery Services section ── */}
-          {displayDeliveryBlocks.length > 0 && (
-            <div className="mt-6">
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <h2 style={{ fontSize: 16, fontWeight: 700, color: A.text, margin: 0 }}>Delivery Services</h2>
-                {editMode && (
-                  <span style={{ fontSize: 11, color: "#565959", background: "#F3F4F6", padding: "2px 8px", borderRadius: 10 }}>
-                    {allDeliveryBlocks.length} block{allDeliveryBlocks.length !== 1 ? "s" : ""}
-                  </span>
-                )}
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-                {displayDeliveryBlocks.map((block) => (
-                  <DeliveryBlockCard
-                    key={block.id}
-                    block={block}
-                    editMode={editMode && store.isOwner}
-                    onEdit={() => setEditDeliveryBlock(block)}
-                    onDelete={async () => {
-                      if (!confirm("Delete this delivery block?")) return;
-                      await fetch("/api/block", { method: "DELETE", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ blockId: block.id }) });
-                      deleteBlockFromStore(block.id);
-                    }}
-                    onBook={() => setBookingBlock(block)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
         </main>
       )}
 
@@ -2010,16 +1284,6 @@ export default function StorePage() {
                 style={{ padding: "9px 18px", borderRadius: 24, background: "#fff", color: "#6366f1", border: "1px solid #6366f1", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
                 📸 Bulk image upload
               </button>
-              <button
-                onClick={() => setAddDeliveryBlockOpen(true)}
-                style={{ padding: "9px 18px", borderRadius: 24, background: "#fff", color: "#0369A1", border: "1px solid #BAE6FD", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                🚚 Add Delivery Block
-              </button>
-              <button
-                onClick={() => { setDeliveryFeeInput(store.deliveryFee != null ? String(store.deliveryFee) : ""); setFreeDeliveryAboveInput(store.freeDeliveryAbove != null ? String(store.freeDeliveryAbove) : ""); setShowDeliveryFeeEdit(true); }}
-                style={{ padding: "9px 18px", borderRadius: 24, background: "#fff", color: "#15803D", border: "1px solid #BBF7D0", boxShadow: "0 4px 12px rgba(0,0,0,0.12)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                🚚 Delivery Fee
-              </button>
             </>
           )}
           <button
@@ -2029,83 +1293,11 @@ export default function StorePage() {
           </button>
         </div>
       )}
-      {showDeliveryFeeEdit && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.5)" }}
-          onClick={(e) => e.target === e.currentTarget && setShowDeliveryFeeEdit(false)}>
-          <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", border: `1px solid ${A.border}` }}>
-            <h3 style={{ fontSize: 15, fontWeight: 700, color: A.text, margin: "0 0 4px" }}>Delivery Fee</h3>
-            <p style={{ fontSize: 12, color: A.textMuted, margin: "0 0 18px" }}>Set the default delivery charge for this store.</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <label style={{ fontSize: 13, color: A.text, fontWeight: 600 }}>
-                Default delivery charge (₹)
-                <input
-                  type="number" min="0" placeholder="e.g. 50"
-                  value={deliveryFeeInput}
-                  onChange={(e) => setDeliveryFeeInput(e.target.value)}
-                  style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", borderRadius: 8, border: `1px solid ${A.border}`, fontSize: 14, color: A.text, outline: "none", boxSizing: "border-box" }}
-                />
-              </label>
-              <label style={{ fontSize: 13, color: A.text, fontWeight: 600 }}>
-                Free delivery above (₹) <span style={{ fontWeight: 400, color: A.textMuted }}>optional</span>
-                <input
-                  type="number" min="0" placeholder="e.g. 500"
-                  value={freeDeliveryAboveInput}
-                  onChange={(e) => setFreeDeliveryAboveInput(e.target.value)}
-                  style={{ display: "block", width: "100%", marginTop: 6, padding: "8px 10px", borderRadius: 8, border: `1px solid ${A.border}`, fontSize: 14, color: A.text, outline: "none", boxSizing: "border-box" }}
-                />
-              </label>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
-              <button
-                disabled={savingFee}
-                onClick={handleSaveDeliveryFee}
-                style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: savingFee ? 0.6 : 1 }}>
-                {savingFee ? "Saving…" : "Save"}
-              </button>
-              <button
-                onClick={() => setShowDeliveryFeeEdit(false)}
-                style={{ padding: "10px 16px", borderRadius: 8, background: "#fff", color: A.text, border: `1px solid ${A.border}`, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {showBulkUpload && store && (
         <BulkImageUploadModal storeId={store.id} onClose={() => setShowBulkUpload(false)} />
       )}
-      {addDeliveryBlockOpen && store && (
-        <AddDeliveryBlockModal
-          storeId={store.id}
-          sections={store.sections.map((s) => ({ id: s.id, title: s.title }))}
-          onClose={() => setAddDeliveryBlockOpen(false)}
-          onCreated={(block) => {
-            setStore((prev) => {
-              if (!prev || prev.sections.length === 0) return prev;
-              return { ...prev, sections: prev.sections.map((s, i) => i === 0 ? { ...s, blocks: [...s.blocks, block] } : s) };
-            });
-          }}
-        />
-      )}
-      {editDeliveryBlock && (
-        <EditDeliveryBlockModal
-          block={editDeliveryBlock}
-          onClose={() => setEditDeliveryBlock(null)}
-          onSaved={(updated) => { updateBlockInStore(updated); setEditDeliveryBlock(null); }}
-          onDeleted={(id) => { deleteBlockFromStore(id); setEditDeliveryBlock(null); }}
-        />
-      )}
-      {bookingBlock && store && (
-        <BookingModal
-          block={bookingBlock}
-          storeId={store.id}
-          defaultPickup={defaultAddress}
-          onClose={() => setBookingBlock(null)}
-        />
-      )}
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} items={cartItems} onRemove={handleRemoveFromCart} storeId={store.id} storeName={store.name} onCheckout={() => setCheckoutOpen(true)} />
       <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={(() => { const sub = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0); const fee = store.deliveryFee; const freeA = store.freeDeliveryAbove; return sub + (fee != null && (freeA == null || sub < freeA) ? fee : 0); })()} storeId={store.id} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />
-      <AddressModal open={addressModalOpen} onClose={() => setAddressModalOpen(false)} onSelected={(addr) => setDefaultAddress(addr)} />
       {showManageFilters && store && (
         <ManageFiltersPanel storeId={store.id} filters={storeFilters} sections={store.sections.map((s) => ({ id: s.id, title: s.title }))} globalBanner={globalBanner}
           onClose={(updatedFilters, updatedGlobalBanner) => { setStoreFilters(updatedFilters); setGlobalBanner(updatedGlobalBanner); setShowManageFilters(false); }} />

@@ -18,8 +18,13 @@ export default function MapPicker({ lat, lng, onMove }: MapPickerProps) {
   // Boot Leaflet once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    const container = containerRef.current;
+    let isMounted = true;
 
     import("leaflet").then((L) => {
+      // Guard against unmount racing the async import, or a stale Leaflet instance on the container
+      if (!isMounted || !container || (container as any)._leaflet_id) return;
+
       // Fix webpack-broken default icon paths
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -29,7 +34,7 @@ export default function MapPicker({ lat, lng, onMove }: MapPickerProps) {
         shadowUrl:     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
       });
 
-      const map = L.map(containerRef.current!, { center: [lat, lng], zoom: 15, zoomControl: true });
+      const map = L.map(container, { center: [lat, lng], zoom: 15, zoomControl: true });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap contributors",
         maxZoom: 19,
@@ -46,6 +51,7 @@ export default function MapPicker({ lat, lng, onMove }: MapPickerProps) {
     });
 
     return () => {
+      isMounted = false;
       mapRef.current?.remove();
       mapRef.current    = null;
       markerRef.current = null;

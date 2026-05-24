@@ -58,7 +58,7 @@ export async function POST(req: Request) {
     const rawType = (body.type || "").trim();
     const type = rawType === "health" ? "health" : "standard";
     const rawPageType = (body.pageType || "").trim();
-    const pageType = ["store", "learning", "service", "helping"].includes(rawPageType) ? rawPageType : "store";
+    const pageType = ["store", "learning", "service", "helping", "community_group", "fleet"].includes(rawPageType) ? rawPageType : "store";
 
     if (!title) return NextResponse.json({ error: "title_required" }, { status: 400 });
 

@@ -4,5 +4,6 @@ export function kindLabel(page: { type: string; pageType: string }): string {
   if (page.pageType === "learning")              return "Learning";
   if (page.pageType === "service")               return "Service";
   if (page.pageType === "community_group")       return "Community Group";
+  if (page.pageType === "fleet")                 return "Fleet";
   return "Store";
 }

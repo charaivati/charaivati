@@ -77,7 +77,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false }:
         <button
           onClick={() => setOpen(true)}
           aria-label="Open Charaivati guide"
-          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-lg hover:bg-indigo-500 transition-colors"
+          className="fixed bottom-20 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-lg hover:bg-indigo-500 transition-colors"
         >
           <MessageCircle className="h-6 w-6 text-white" />
         </button>
@@ -86,7 +86,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false }:
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-6 right-6 z-50 flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
+          className="fixed bottom-20 right-6 z-50 flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
           style={{ width: 380, height: 520 }}
         >
           {/* Header */}

@@ -47,8 +47,11 @@ type PageItem = {
 };
 
 type PendingDelete = { id: string; name: string };
-type InitiativeType = "store" | "learning" | "service" | "health" | "helping" | "community_group";
+type InitiativeType = "store" | "learning" | "service" | "health" | "helping" | "community_group" | "fleet";
 type CourseType = "skill" | "academic" | "art" | "growth";
+
+// To re-enable a type, just add its key to this array — nothing else needs to change.
+const ACTIVE_INITIATIVE_TYPES: InitiativeType[] = ["store", "service", "fleet"];
 
 function InitiativeCardSkeleton() {
   return (
@@ -169,6 +172,54 @@ function DeleteConfirmModal({
   );
 }
 
+function ComingSoonModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 300,
+        background: "rgba(0,0,0,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "0 20px",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#fff", borderRadius: 20,
+          padding: "28px 24px 24px", maxWidth: 320, width: "100%",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.18)",
+          textAlign: "center",
+        }}
+      >
+        <div style={{
+          width: 52, height: 52, borderRadius: "50%",
+          background: "#FEF3C7",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          margin: "0 auto 16px",
+          fontSize: 26,
+        }}>🚧</div>
+        <h2 style={{ fontSize: 18, fontWeight: 700, color: A.text, margin: "0 0 8px" }}>
+          Coming Soon
+        </h2>
+        <p style={{ fontSize: 14, color: A.textMuted, margin: "0 0 24px", lineHeight: 1.5 }}>
+          This initiative type is under development. Check back soon.
+        </p>
+        <button
+          onClick={onClose}
+          style={{
+            width: "100%", padding: "11px 0", borderRadius: 10,
+            border: "none", background: "#F59E0B", color: "#fff",
+            fontSize: 14, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const INPUT = {
   width: "100%", padding: "10px 12px", borderRadius: 8,
   border: `1px solid #E5E7EB`, fontSize: 13, color: "#111827",
@@ -184,6 +235,7 @@ export default function InitiativesPage() {
     if (page.pageType === "learning")            return { label: t("app-initiatives-kind-learning",   "Learning"),        color: "#185FA5", bg: "#EBF2FA" };
     if (page.pageType === "service")             return { label: t("app-initiatives-kind-service",    "Service"),         color: "#7B5EA7", bg: "#F0EDF8" };
     if (page.pageType === "community_group")     return { label: t("app-initiatives-kind-community",  "Community Group"), color: "#0369A1", bg: "#E0F2FE" };
+    if (page.pageType === "fleet")               return { label: "Fleet",                                                  color: "#B45309", bg: "#FEF3C7" };
     return                                              { label: t("app-initiatives-kind-store",      "Store"),           color: "#D85A30", bg: "#FDF0EB" };
   }
 
@@ -196,6 +248,7 @@ export default function InitiativesPage() {
 
   // Create form
   const [showCreate, setShowCreate] = useState(false);
+  const [showComingSoon, setShowComingSoon] = useState(false);
   const [selectedType, setSelectedType] = useState<InitiativeType>("store");
   const [courseType, setCourseType] = useState<CourseType>("skill");
   const [newTitle, setNewTitle] = useState("");
@@ -345,12 +398,19 @@ export default function InitiativesPage() {
 
       {/* Type grid */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-        <button type="button" onClick={() => setSelectedType("health")} disabled={adding} style={{
-          padding: "10px 12px", borderRadius: 10, textAlign: "left", border: "none",
+        <button type="button" onClick={() => ACTIVE_INITIATIVE_TYPES.includes("health") ? setSelectedType("health") : setShowComingSoon(true)} disabled={adding} style={{
+          position: "relative", padding: "10px 12px", borderRadius: 10, textAlign: "left", border: "none",
           background: selectedType === "health" ? "rgba(5,150,105,0.08)" : A.bg,
           outline: selectedType === "health" ? "2px solid #059669" : `1px solid ${A.border}`,
           cursor: "pointer",
         }}>
+          {!ACTIVE_INITIATIVE_TYPES.includes("health") && (
+            <span style={{
+              position: "absolute", top: 5, right: 6,
+              fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+              background: "#FEF3C7", color: "#92400E", letterSpacing: "0.04em",
+            }}>Soon</span>
+          )}
           <p style={{ fontSize: 12, fontWeight: 700, color: selectedType === "health" ? "#059669" : A.text, margin: 0 }}>
             {t("app-initiatives-type-health", "Health & Wellness")}
           </p>
@@ -364,13 +424,21 @@ export default function InitiativesPage() {
           { value: "service",         slugL: "app-initiatives-type-service",   fallbackL: "Service",            slugS: "app-initiatives-type-service-sub",  fallbackS: "Consulting or sessions" },
           { value: "helping",         slugL: "app-initiatives-type-helping",   fallbackL: "Helping Initiative", slugS: "app-initiatives-type-helping-sub",  fallbackS: "Community cause, volunteering" },
           { value: "community_group", slugL: "app-initiatives-type-community", fallbackL: "Community Group",    slugS: "app-initiatives-type-community-sub", fallbackS: "Organize a community, manage branches and members" },
+          { value: "fleet",           slugL: "app-initiatives-type-fleet",     fallbackL: "🚛 Fleet",           slugS: "app-initiatives-type-fleet-sub",    fallbackS: "Delivery, cab, bike rental, fleet services" },
         ] as { value: InitiativeType; slugL: string; fallbackL: string; slugS: string; fallbackS: string }[]).map(({ value, slugL, fallbackL, slugS, fallbackS }) => (
-          <button key={value} type="button" onClick={() => setSelectedType(value)} disabled={adding} style={{
-            padding: "10px 12px", borderRadius: 10, textAlign: "left", border: "none",
+          <button key={value} type="button" onClick={() => ACTIVE_INITIATIVE_TYPES.includes(value) ? setSelectedType(value) : setShowComingSoon(true)} disabled={adding} style={{
+            position: "relative", padding: "10px 12px", borderRadius: 10, textAlign: "left", border: "none",
             background: selectedType === value ? "rgba(99,102,241,0.08)" : A.bg,
             outline: selectedType === value ? `2px solid ${A.accent}` : `1px solid ${A.border}`,
             cursor: "pointer",
           }}>
+            {!ACTIVE_INITIATIVE_TYPES.includes(value) && (
+              <span style={{
+                position: "absolute", top: 5, right: 6,
+                fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+                background: "#FEF3C7", color: "#92400E", letterSpacing: "0.04em",
+              }}>Soon</span>
+            )}
             <p style={{ fontSize: 12, fontWeight: 700, color: selectedType === value ? A.accent : A.text, margin: 0 }}>{t(slugL, fallbackL)}</p>
             <p style={{ fontSize: 11, color: A.textMuted, margin: "2px 0 0" }}>{t(slugS, fallbackS)}</p>
           </button>
@@ -564,6 +632,7 @@ export default function InitiativesPage() {
           t={t}
         />
       )}
+      {showComingSoon && <ComingSoonModal onClose={() => setShowComingSoon(false)} />}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       <div style={{ maxWidth: 480, margin: "0 auto", width: "100%", padding: "0 0 8px" }}>

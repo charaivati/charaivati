@@ -12,6 +12,7 @@ function pageBadgeColor(type: string | null, pageType: string | null): string {
   if (pageType === "learning")           return "#7c3aed";
   if (pageType === "service")            return "#b45309";
   if (pageType === "community_group")    return "#0369a1";
+  if (pageType === "fleet")              return "#b45309";
   return "#6366f1";
 }
 

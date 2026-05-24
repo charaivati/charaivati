@@ -246,27 +246,28 @@ export default function AddressForm({ initialValues, onSave, onCancel, saving }:
         Set as default address
       </label>
 
-      {error && <p className="text-xs text-red-500">{error}</p>}
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={saving}
-          className="px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 transition-colors"
-        >
-          {saving ? "Saving…" : "Save Address"}
-        </button>
-        {onCancel && (
+      {/* Actions — sticky so the button stays visible when the map pushes content below the fold */}
+      <div className="sticky bottom-0 bg-white border-t border-gray-100 pt-3 pb-1">
+        {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onCancel}
-            className="px-4 py-2 rounded-md text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+            onClick={handleSubmit}
+            disabled={saving}
+            className="px-4 py-2 rounded-md text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 transition-colors"
           >
-            Cancel
+            {saving ? "Saving…" : "Save Address"}
           </button>
-        )}
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-4 py-2 rounded-md text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
