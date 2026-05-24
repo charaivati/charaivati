@@ -39,6 +39,30 @@ async function saveGoalsToAiTable(
   try { window.dispatchEvent(new CustomEvent("charaivati:goalCreated")); } catch {}
 }
 
+function SelfTabSkeleton() {
+  return (
+    <div className="animate-pulse space-y-3">
+      {[0, 1, 2].map((i) => (
+        <div key={i} style={{
+          background: "rgba(255,255,255,0.07)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: 14,
+          padding: "14px 16px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+        }}>
+          <div style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.12)", flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ width: "55%", height: 13, borderRadius: 4, background: "rgba(255,255,255,0.15)", marginBottom: 7 }} />
+            <div style={{ width: "35%", height: 10, borderRadius: 4, background: "rgba(255,255,255,0.10)" }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SelfTab({ profile }: { profile?: any }) {
   const s = useSelfState(profile);
   const { setSkillsSnapshot } = useSelfSkills();
@@ -119,25 +143,20 @@ export default function SelfTab({ profile }: { profile?: any }) {
     try { localStorage.setItem(OB_SKIP_KEY, "1"); } catch {}
     setSkipped(true);
     setOnboardingOpen(false);
-    // Scroll to canvas after it mounts (showContent fires at 700ms)
+    // Scroll to canvas after it mounts (showContent now fires immediately)
     setTimeout(() => {
       const el = canvasRef.current;
       if (el) {
         const top = el.getBoundingClientRect().top + window.scrollY - 116;
         window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
       }
-    }, 1400);
-    setTimeout(() => setHighlightGeneral(true), 1800);
-    setTimeout(() => setHighlightGeneral(false), 1800 + 2900);
+    }, 100);
+    setTimeout(() => setHighlightGeneral(true), 500);
+    setTimeout(() => setHighlightGeneral(false), 500 + 2900);
   }
 
   useEffect(() => {
-    if (s.drives.length > 0 || skipped) {
-      const t = setTimeout(() => setShowContent(true), 700);
-      return () => clearTimeout(t);
-    } else {
-      setShowContent(false);
-    }
+    setShowContent(s.drives.length > 0 || skipped);
   }, [s.drives.length, skipped]);
 
   return (
@@ -189,9 +208,9 @@ export default function SelfTab({ profile }: { profile?: any }) {
                     const top = el.getBoundingClientRect().top + window.scrollY - 116;
                     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
                   }
-                }, 1400);
-                setTimeout(() => setHighlightGoalId(firstNewId), 1800);
-                setTimeout(() => setHighlightGoalId(null), 1800 + 2900);
+                }, 100);
+                setTimeout(() => setHighlightGoalId(firstNewId), 500);
+                setTimeout(() => setHighlightGoalId(null), 500 + 2900);
               }
             }}
             onCancel={s.drives.length > 0 ? () => { pendingGoalsRef.current = []; setOnboardingOpen(false); } : undefined}
@@ -212,7 +231,10 @@ export default function SelfTab({ profile }: { profile?: any }) {
         )}
       </div>
 
-      {/* ── Content — revealed after drive is picked ── */}
+      {/* ── Canvas skeleton — fills blank space while profile loads ── */}
+      {!s.profileReady && !onboardingOpen && <SelfTabSkeleton />}
+
+      {/* ── Content — shown immediately when drives are available ── */}
       {showContent && !onboardingOpen && (
         <div style={{ animation: "fadeSlideUp 600ms ease both" }}>
           <div className="space-y-5">

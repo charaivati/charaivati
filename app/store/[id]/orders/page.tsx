@@ -29,6 +29,8 @@ type Order = {
   activeStep?: ActiveStep | null;
   quotes?: QuoteEntry[];
   initiativeId?: string | null;
+  deliveryStatus?: string | null;
+  vehicleId?: string | null;
   subOrders?: { id: string; subOrderType: string | null; agreedAmount: number | null; userId: string }[];
   allSteps?:  StepStatus[];
 };
@@ -604,6 +606,29 @@ export default function StoreOrdersPage() {
   // Load orders on mount
   useEffect(() => { loadOrders(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const loadOrdersRef = useRef(loadOrders);
+  useEffect(() => { loadOrdersRef.current = loadOrders; });
+
+  // SSE auto-refresh: silently reload on relevant notification events
+  useEffect(() => {
+    const REFRESH_TYPES = new Set([
+      "order_assigned", "step_confirmed", "delivery_complete",
+      "workflow_attention", "quote_submitted",
+    ]);
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource("/api/notifications/stream", { withCredentials: true });
+      es.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (REFRESH_TYPES.has(data.type)) loadOrdersRef.current();
+        } catch { /* ignore malformed events */ }
+      };
+      es.onerror = () => { es?.close(); es = null; };
+    } catch { /* SSE unavailable — page works normally without it */ }
+    return () => { es?.close(); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load store pageId → accepted outbound partners + capture initiativeId
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
@@ -716,6 +741,13 @@ export default function StoreOrdersPage() {
             })()}
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={loadOrders}
+              className="text-xs px-2.5 py-1.5 rounded-md font-medium"
+              style={{ background: "#F8F9FA", color: A.textMuted, border: `1px solid ${A.border}`, cursor: "pointer" }}
+            >
+              ↻ Refresh
+            </button>
             {initiativeId && (
               <a href={`/earn/initiative/${initiativeId}`} className="text-xs px-3 py-1.5 rounded-md font-medium"
                 style={{ background: "#EEF2FF", color: "#6366f1", border: "1px solid #C7D2FE" }}>
@@ -825,6 +857,20 @@ export default function StoreOrdersPage() {
                     inv={inv}
                     onSignUpload={(url) => setInv(order.id, { signedUrl: url, signStatus: "done" })}
                   />
+                </div>
+              )}
+
+              {/* ── Track partner (shown when partner GPS is live) ── */}
+              {order.deliveryStatus === "out_for_delivery" && order.vehicleId &&
+                (partnerStatuses[order.id] === "accepted" || partnerStatuses[order.id] === "assigned") && (
+                <div className="mt-3 pt-3 border-t" style={{ borderColor: "#f0f0f0" }}>
+                  <a
+                    href={`/order/${order.id}/track`}
+                    className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold"
+                    style={{ background: "#0F766E", color: "#fff", textDecoration: "none" }}
+                  >
+                    📍 Track partner →
+                  </a>
                 </div>
               )}
 

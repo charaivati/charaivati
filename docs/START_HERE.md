@@ -203,7 +203,7 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 ### Delivery Tracking (order fulfillment with live GPS)
 1. Owner selects an accepted Collaboration partner in the order management UI (`/store/[id]/orders`) — `PATCH /api/order/[id]/delivery { assignedToId: collabId }`
 2. Owner advances `deliveryStatus` through a 5-step stepper: `pending → confirmed → processing → out_for_delivery → delivered` (or `cancelled` at any point)
-3. Partner sees assigned orders in `/earn/deliveries` (server component, cookie auth) — only `out_for_delivery` orders appear
+3. Partner sees orders in `/earn/deliveries` (server component, cookie auth) — orders with `partnerStatus IN ('assigned', 'accepted')` appear. Accepted cards show a **PICK UP FROM** section (store name + owner's default address as pickup proxy, `tel:` link, "🗺️ Navigate to pickup" Google Maps link) and a **"🗺️ Navigate to delivery"** button above GPS controls. Both links open in a new tab; precise-pin URL when `Address.lat/lng` are set, text-search fallback otherwise.
 4. Partner clicks "Start GPS" in `DeliveriesClient.tsx` → `useGeolocation()` hook → `POST /api/transport/broadcast` on an interval; `Order.vehicleId` is set to the new `Vehicle` row ID
 5. Buyer at `/order/[id]/track` polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s and shows the partner on `TransportMap`. If `vehicleId` is null, shows "Delivery partner hasn't started GPS yet."
 6. Partner clicks "Mark Delivered" → `PATCH /api/order/[id]/delivery { status: "delivered" }` → Broadcaster stops → `Vehicle` row deleted. `Order.vehicleId` is **not** cleared; the tracking page handles stale IDs because the vehicles API filters by `updatedAt >= 2 min ago`.
@@ -349,6 +349,12 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 **No comments by default.** Only add a comment when the reason is non-obvious. The codebase is mostly uncommented — match that style.
 
+**Loading states** — see [`docs/modules/loading-states.md`](modules/loading-states.md) for the full reference. Short rules:
+- Skeleton (`animate-pulse` blocks matching content dimensions) over spinners for page/list loading
+- `loading.tsx` sibling for every non-dynamic App Router route
+- Per-item `useState<string | null>(null)` guard on every async button; always `disabled` + `.finally()` cleanup
+- No `setTimeout` to delay content reveal
+
 ---
 
 ## 9. Forbidden Modifications
@@ -383,6 +389,7 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 | **Chat system messages stored as plaintext** | `lib/workflow/triggerQuoteRequests.ts` + any chat renderer | `ChatMessage` rows with `iv = "system"` contain plaintext in `ciphertext`. Renderers must check `iv === "system"` and skip decryption. See `CLAUDE.md` for the full note. |
 | **Prisma client stale for new columns** | `Order.parentOrderId/subOrderType/agreedAmount`, `Notification` model, `WorkflowStepAssignee` model, `OrderStepProgress.currentAssigneeId/cycleCount/lastFeeMultiplier` | These were added via Neon MCP migrations but `prisma generate` fails on Windows while the dev server runs (EPERM). All affected code uses `(prisma as any)`. Run `npx prisma generate` after stopping the dev server to restore type safety. |
 | **Sub-orders appear alongside parent orders** | `GET /api/store/orders?storeId=X` | The query does not filter by `parentOrderId IS NULL`. Sub-orders (with the same `storeId`) are returned as top-level items. Add the filter if the owner's order list becomes cluttered. |
+| **`DATABASE_PRISMA_URL` missing UTC timezone → wrong timestamps** | `.env.local`, Vercel env vars | Neon's session default is IST. All three connection strings (`DATABASE_PRISMA_URL`, `DATABASE_URL`, `DIRECT_URL`) must include `&options=-c%20timezone%3DUTC`. Without it, `createdAt` timestamps are stored 5:30h ahead of UTC and notification "X ago" times appear hours wrong. `.env.local` is fixed; **set `DATABASE_PRISMA_URL` with the parameter in Vercel's env vars dashboard**. |
 
 ---
 

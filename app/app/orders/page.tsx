@@ -247,6 +247,24 @@ function RequestCard({ q, onSubmit }: { q: QuoteRequest; onSubmit: (quoteId: str
   );
 }
 
+// ── Skeleton ──────────────────────────────────────────────────────────────────
+
+function OrderCardSkeleton() {
+  return (
+    <div style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div className="animate-pulse" style={{ width: 110, height: 14, borderRadius: 6, background: "#E2E8F0" }} />
+        <div className="animate-pulse" style={{ width: 72, height: 20, borderRadius: 99, background: "#F1F5F9" }} />
+      </div>
+      <div className="animate-pulse" style={{ width: "65%", height: 12, borderRadius: 4, background: "#F1F5F9", marginBottom: 10 }} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="animate-pulse" style={{ width: 56, height: 14, borderRadius: 4, background: "#E2E8F0" }} />
+        <div className="animate-pulse" style={{ width: 76, height: 28, borderRadius: 6, background: "#F1F5F9" }} />
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function OrdersPage() {
@@ -360,9 +378,11 @@ export default function OrdersPage() {
         {/* Content */}
         <div style={{ padding: "12px 16px" }}>
           {loading && activeTab !== "requests" ? (
-            <div style={{ textAlign: "center", color: "#64748B", padding: 48, fontSize: 14 }}>
-              {t("app-orders-loading", "Loading...")}
-            </div>
+            <>
+              <OrderCardSkeleton />
+              <OrderCardSkeleton />
+              <OrderCardSkeleton />
+            </>
 
           /* ── MY ORDERS ─────────────────────────────────────────────────── */
           ) : activeTab === "my" ? (
@@ -478,9 +498,10 @@ export default function OrdersPage() {
           /* ── REQUESTS ───────────────────────────────────────────────────── */
           ) : activeTab === "requests" ? (
             reqLoading ? (
-              <div style={{ textAlign: "center", color: "#64748B", padding: 48, fontSize: 14 }}>
-                Loading…
-              </div>
+              <>
+                <OrderCardSkeleton />
+                <OrderCardSkeleton />
+              </>
             ) : requests.length === 0 ? (
               <div style={{ textAlign: "center", color: "#64748B", padding: 48, fontSize: 14 }}>
                 No quote requests yet.

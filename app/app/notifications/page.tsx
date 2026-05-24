@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { timeAgo } from "@/lib/utils/timeAgo";
 
 type Notif = {
   id: string;
@@ -12,17 +13,6 @@ type Notif = {
   read: boolean;
   createdAt: string;
 };
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1)  return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return d === 1 ? "yesterday" : `${d} days ago`;
-}
 
 function groupNotifs(notifs: Notif[]) {
   const todayStart     = new Date(); todayStart.setHours(0, 0, 0, 0);
@@ -78,6 +68,23 @@ function NotifRow({
         <p style={{ fontSize: 13, color: "#6B7280", margin: "2px 0 0", lineHeight: 1.45 }}>
           {n.body}
         </p>
+      </div>
+    </div>
+  );
+}
+
+function NotifRowSkeleton() {
+  return (
+    <div style={{ display: "flex", gap: 12, padding: "14px 16px", borderBottom: "1px solid #F3F4F6" }}>
+      <div style={{ paddingTop: 6, flexShrink: 0, width: 8 }}>
+        <div className="animate-pulse" style={{ width: 8, height: 8, borderRadius: "50%", background: "#E2E8F0" }} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+          <div className="animate-pulse" style={{ width: "55%", height: 14, borderRadius: 4, background: "#E2E8F0" }} />
+          <div className="animate-pulse" style={{ width: 36, height: 10, borderRadius: 4, background: "#F1F5F9", flexShrink: 0 }} />
+        </div>
+        <div className="animate-pulse" style={{ width: "80%", height: 12, borderRadius: 4, background: "#F1F5F9" }} />
       </div>
     </div>
   );
@@ -184,9 +191,12 @@ export default function NotificationsPage() {
       {/* Content */}
       <div style={{ maxWidth: 600, margin: "0 auto" }}>
         {loading ? (
-          <div style={{ textAlign: "center", padding: 48, color: "#9CA3AF" }}>
-            <div style={{ width: 24, height: 24, borderRadius: "50%", border: "2px solid #6366f1", borderTopColor: "transparent", animation: "spin 0.8s linear infinite", margin: "0 auto 8px" }} />
-            Loading…
+          <div style={{ background: "#fff", borderRadius: 12, overflow: "hidden", margin: 12, border: "1px solid #E5E7EB" }}>
+            <NotifRowSkeleton />
+            <NotifRowSkeleton />
+            <NotifRowSkeleton />
+            <NotifRowSkeleton />
+            <NotifRowSkeleton />
           </div>
         ) : isEmpty ? (
           <div style={{ textAlign: "center", padding: "64px 16px", color: "#9CA3AF" }}>

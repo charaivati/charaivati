@@ -31,12 +31,21 @@ export type DeliveryOrder = {
   city: string;
   state: string;
   pincode: string;
+  addrLat: number | null;
+  addrLng: number | null;
   storeName: string;
   collabRole: string;
   requesterTitle: string;
   activeStepId: string | null;
   agreedAmount: number | null;
   cycleCount: number | null;
+  pickupLine1: string | null;
+  pickupCity: string | null;
+  pickupState: string | null;
+  pickupPincode: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  ownerPhone: string | null;
 };
 
 // ── Order card ────────────────────────────────────────────────────────────────
@@ -109,6 +118,44 @@ function OrderCard({
           )}
         </div>
       )}
+
+      {/* Pick up from */}
+      {/* TODO: replace with Store.address once added to schema (see TECH_DEBT.md — Address & GPS Architecture) */}
+      <div className="mb-4">
+        <p className="text-xs font-semibold text-gray-500 mb-1">PICK UP FROM</p>
+        <p className="text-sm text-white">{order.storeName}</p>
+        {order.pickupLine1 != null ? (
+          <>
+            <p className="text-sm text-gray-400">
+              {order.pickupLine1}, {order.pickupCity}, {order.pickupState} {order.pickupPincode}
+            </p>
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+              {order.ownerPhone && (
+                <a
+                  href={`tel:${order.ownerPhone}`}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  📞 {order.ownerPhone}
+                </a>
+              )}
+              <a
+                href={
+                  order.pickupLat != null && order.pickupLng != null
+                    ? `https://maps.google.com/?q=${order.pickupLat},${order.pickupLng}`
+                    : `https://maps.google.com/?q=${encodeURIComponent(`${order.pickupLine1}, ${order.pickupCity}, ${order.pickupState} ${order.pickupPincode}`)}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+              >
+                🗺️ Navigate to pickup
+              </a>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-gray-500">Contact store owner for pickup location</p>
+        )}
+      </div>
 
       {/* Deliver to */}
       <div className="mb-4">
@@ -208,6 +255,18 @@ function OrderCard({
         ) : isAccepted ? (
           // ── Accepted: GPS + Confirm Delivery ──
           <div className="flex flex-col gap-3">
+            <a
+              href={
+                order.addrLat != null && order.addrLng != null
+                  ? `https://maps.google.com/?q=${order.addrLat},${order.addrLng}`
+                  : `https://maps.google.com/?q=${encodeURIComponent(`${order.line1}, ${order.city}, ${order.state} ${order.pincode}`)}`
+              }
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-sm px-4 py-2.5 rounded-lg font-medium bg-indigo-600 hover:bg-indigo-700 text-white text-center transition-colors w-full"
+            >
+              🗺️ Navigate to delivery
+            </a>
             {order.vehicleId ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <span className="relative flex h-2.5 w-2.5">

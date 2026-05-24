@@ -56,6 +56,7 @@ export default function TrackOrderPage() {
   const [loading,          setLoading]          = useState(true);
   const [vehiclePos,       setVehiclePos]       = useState<VehiclePos | null>(null);
   const [customerConfirmed,setCustomerConfirmed]= useState(false);
+  const [confirming, setConfirming] = useState(false);
   const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
   const orderPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -88,11 +89,13 @@ export default function TrackOrderPage() {
   }, [order?.deliveryStatus, order?.partnerStatus, customerConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleCustomerConfirm() {
+    if (confirming) return;
+    setConfirming(true);
     setCustomerConfirmed(true);
     setOrder((prev) => prev ? { ...prev, deliveryStatus: "delivered" } : prev);
     fetch(`/api/order/${id}/customer-confirm`, {
       method: "POST", credentials: "include",
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setConfirming(false));
   }
 
   // Live GPS poll — only when out_for_delivery AND vehicleId is linked
@@ -231,9 +234,13 @@ export default function TrackOrderPage() {
             <p className="text-xs text-gray-500 mb-4">Your delivery partner has marked this as delivered.</p>
             <button
               onClick={handleCustomerConfirm}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors"
+              disabled={confirming}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2 disabled:opacity-70"
             >
-              Yes, I received it
+              {confirming && (
+                <span className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+              )}
+              {confirming ? "Confirming…" : "Yes, I received it"}
             </button>
           </div>
         )}

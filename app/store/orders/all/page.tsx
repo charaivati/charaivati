@@ -211,6 +211,7 @@ export default function AllOrdersPage() {
   const [filter, setFilter] = useState("all");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState<string | null>(null);
   const [partnersByStoreId, setPartnersByStoreId] = useState<Record<string, Collab[]>>({});
 
   useEffect(() => {
@@ -280,6 +281,8 @@ export default function AllOrdersPage() {
   }
 
   async function advanceStatus(orderId: string, newStatus: string) {
+    if (advancing === orderId) return;
+    setAdvancing(orderId);
     const prev = orders.find((o) => o.id === orderId)?.deliveryStatus ?? "pending";
     setOrders((p) => p.map((o) => o.id === orderId ? { ...o, deliveryStatus: newStatus } : o));
     const res = await fetch(`/api/order/${orderId}/delivery`, {
@@ -291,6 +294,7 @@ export default function AllOrdersPage() {
       setErrors((p) => ({ ...p, [orderId]: "Status update failed — try again." }));
       setTimeout(() => setErrors((p) => { const e = { ...p }; delete e[orderId]; return e; }), 3000);
     }
+    setAdvancing(null);
   }
 
   async function patchDelivery(orderId: string, payload: Record<string, unknown>) {
@@ -480,13 +484,18 @@ export default function AllOrdersPage() {
                           {isNext ? (
                             <button
                               onClick={() => advanceStatus(order.id, s)}
+                              disabled={advancing === order.id}
                               title={`Advance to ${DELIVERY_LABELS[s]}`}
-                              className="text-xs px-2 py-0.5 rounded"
+                              className="text-xs px-2 py-0.5 rounded inline-flex items-center gap-1"
                               style={{
                                 background: `${color}15`, color, fontWeight: 500,
-                                border: `1px dashed ${color}`, cursor: "pointer",
+                                border: `1px dashed ${color}`,
+                                cursor: advancing === order.id ? "not-allowed" : "pointer",
+                                opacity: advancing === order.id ? 0.6 : 1,
                               }}>
-                              {DELIVERY_LABELS[s]} +
+                              {advancing === order.id
+                                ? <><span className="w-2.5 h-2.5 rounded-full border border-current border-t-transparent animate-spin" /> Updating…</>
+                                : `${DELIVERY_LABELS[s]} +`}
                             </button>
                           ) : (
                             <span className="text-xs px-2 py-0.5 rounded"
@@ -547,7 +556,7 @@ export default function AllOrdersPage() {
                           value={order.assignedToId ?? ""}
                           onChange={(e) => patchDelivery(order.id, { assignedToId: e.target.value || null })}
                           className="text-xs rounded-md px-2 py-1.5"
-                          style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff", cursor: "pointer" }}
+                          style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.5 : 1 }}
                         >
                           <option value="">Deliver myself</option>
                           {orderPartners.map((c) => (

@@ -21,7 +21,16 @@ type RawOrder = {
   city: string;
   state: string;
   pincode: string;
+  addrLat: number | null;
+  addrLng: number | null;
   storeName: string;
+  pickupLine1: string | null;
+  pickupCity: string | null;
+  pickupState: string | null;
+  pickupPincode: string | null;
+  pickupLat: number | null;
+  pickupLng: number | null;
+  ownerPhone: string | null;
   activeStepId: string | null;
   cycleCount: number | null;
 };
@@ -89,7 +98,16 @@ export default async function DeliveriesPage() {
       a.city,
       a.state,
       a.pincode,
+      a.lat       AS "addrLat",
+      a.lng       AS "addrLng",
       s.name      AS "storeName",
+      pa.line1    AS "pickupLine1",
+      pa.city     AS "pickupCity",
+      pa.state    AS "pickupState",
+      pa.pincode  AS "pickupPincode",
+      pa.lat      AS "pickupLat",
+      pa.lng      AS "pickupLng",
+      ou.phone    AS "ownerPhone",
       (SELECT osp."stepId" FROM "OrderStepProgress" osp
        WHERE osp."orderId" = o.id AND osp.status = 'active'
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
@@ -99,6 +117,8 @@ export default async function DeliveriesPage() {
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
+    LEFT JOIN "User"    ou ON ou.id = s."ownerId"
+    LEFT JOIN "Address" pa ON pa."userId" = ou.id AND pa."isDefault" = true
     WHERE o."assignedToId" = ANY(${collabIds}::text[])
       AND o."partnerStatus" IN ('assigned', 'accepted')
     ORDER BY o."createdAt" DESC
@@ -124,7 +144,16 @@ export default async function DeliveriesPage() {
       a.city,
       a.state,
       a.pincode,
+      a.lat       AS "addrLat",
+      a.lng       AS "addrLng",
       s.name      AS "storeName",
+      pa.line1    AS "pickupLine1",
+      pa.city     AS "pickupCity",
+      pa.state    AS "pickupState",
+      pa.pincode  AS "pickupPincode",
+      pa.lat      AS "pickupLat",
+      pa.lng      AS "pickupLng",
+      ou.phone    AS "ownerPhone",
       (SELECT osp."stepId" FROM "OrderStepProgress" osp
        WHERE osp."orderId" = o.id AND osp.status = 'active'
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
@@ -133,7 +162,9 @@ export default async function DeliveriesPage() {
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
-    JOIN "Store"   s ON o."storeId"   = s.id,
+    JOIN "Store"   s ON o."storeId"   = s.id
+    LEFT JOIN "User"    ou ON ou.id = s."ownerId"
+    LEFT JOIN "Address" pa ON pa."userId" = ou.id AND pa."isDefault" = true,
     LATERAL (
       SELECT TRUE FROM jsonb_array_elements(o.items::jsonb) AS item
       JOIN "Block" b ON b.id = (item->>'blockId')
@@ -164,7 +195,16 @@ export default async function DeliveriesPage() {
       a.city,
       a.state,
       a.pincode,
+      a.lat       AS "addrLat",
+      a.lng       AS "addrLng",
       s.name      AS "storeName",
+      pa.line1    AS "pickupLine1",
+      pa.city     AS "pickupCity",
+      pa.state    AS "pickupState",
+      pa.pincode  AS "pickupPincode",
+      pa.lat      AS "pickupLat",
+      pa.lng      AS "pickupLng",
+      ou.phone    AS "ownerPhone",
       (SELECT osp."stepId" FROM "OrderStepProgress" osp
        WHERE osp."orderId" = o.id AND osp.status = 'active'
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
@@ -174,6 +214,8 @@ export default async function DeliveriesPage() {
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
+    LEFT JOIN "User"    ou ON ou.id = s."ownerId"
+    LEFT JOIN "Address" pa ON pa."userId" = ou.id AND pa."isDefault" = true
     WHERE o."assignedToId" = ${userId}
       AND o."partnerStatus" IN ('assigned', 'accepted')
   `;

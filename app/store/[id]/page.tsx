@@ -883,10 +883,43 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
 
 function LoadingSkeleton() {
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-8 h-8 rounded-full animate-pulse" style={{ background: "#fff", border: `1px solid ${A.border}` }} />
-        <span className="text-xs" style={{ color: A.textMuted }}>Loading…</span>
+    <div className="min-h-screen" style={{ background: A.bg }}>
+      {/* Filter bar */}
+      <div style={{ background: "#fff", borderBottom: `1px solid ${A.border}`, padding: "8px 12px", display: "flex", gap: 8, overflowX: "hidden" }}>
+        {[72, 88, 64, 96].map((w, i) => (
+          <div key={i} className="animate-pulse shrink-0" style={{ width: w, height: 28, borderRadius: 99, background: A.bg }} />
+        ))}
+      </div>
+      {/* Hero */}
+      <div style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
+        <div className="animate-pulse" style={{ width: "100%", height: 160, background: "#DDD" }} />
+        <div style={{ padding: "12px 12px", display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="animate-pulse" style={{ width: 48, height: 48, borderRadius: "50%", background: A.bg, border: `1px solid ${A.border}`, flexShrink: 0 }} />
+          <div>
+            <div className="animate-pulse" style={{ width: 148, height: 18, borderRadius: 4, background: A.bg, marginBottom: 6 }} />
+            <div className="animate-pulse" style={{ width: 220, height: 13, borderRadius: 4, background: A.bg }} />
+          </div>
+        </div>
+      </div>
+      {/* Section cards */}
+      <div className="w-full px-2 py-4 flex flex-col gap-3">
+        {[0, 1].map((si) => (
+          <div key={si} style={{ background: A.surface, border: `1px solid ${A.border}`, borderRadius: 12, padding: 12, boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+            <div className="animate-pulse" style={{ width: 110, height: 18, borderRadius: 4, background: A.bg, marginBottom: 12 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+              {[0, 1, 2, 3].map((ti) => (
+                <div key={ti} style={{ borderRadius: 8, border: `1px solid ${A.border}`, overflow: "hidden", background: "#fff" }}>
+                  <div className="animate-pulse" style={{ aspectRatio: "1 / 1", background: A.bg }} />
+                  <div style={{ padding: "6px 8px 8px" }}>
+                    <div className="animate-pulse" style={{ width: "80%", height: 11, borderRadius: 4, background: A.bg, marginBottom: 4 }} />
+                    <div className="animate-pulse" style={{ width: "55%", height: 11, borderRadius: 4, background: A.bg, marginBottom: 4 }} />
+                    <div className="animate-pulse" style={{ width: "35%", height: 11, borderRadius: 4, background: A.bg }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

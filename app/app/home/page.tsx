@@ -102,41 +102,59 @@ function HomeSkeleton() {
   const pulse: React.CSSProperties = { background: "#E2E8F0", borderRadius: 4 };
   return (
     <div style={{ background: "#F8FAFC", minHeight: "100vh", fontFamily: "system-ui,-apple-system,sans-serif", paddingBottom: 80 }}>
-      {/* topbar */}
-      <div style={{ background: "#fff", borderBottom: "0.5px solid #e2e8f0", padding: "12px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ ...pulse, width: 36, height: 36, borderRadius: "50%", flexShrink: 0 }} />
-        <div>
-          <div style={{ ...pulse, width: 80, height: 10, marginBottom: 6 }} />
-          <div style={{ ...pulse, width: 60, height: 13 }} />
-        </div>
-      </div>
-      {/* stats */}
-      <div style={{ display: "flex", gap: 10, margin: "12px 16px 0" }}>
-        {[0, 1].map((i) => (
-          <div key={i} style={{ flex: 1, background: "#fff", borderRadius: 10, padding: 12, border: "0.5px solid #e2e8f0" }}>
-            <div style={{ ...pulse, width: "60%", height: 10, marginBottom: 8 }} />
-            <div style={{ ...pulse, width: "45%", height: 22 }} />
+      <div style={{ maxWidth: 480, margin: "0 auto", width: "100%" }}>
+        {/* topbar */}
+        <div style={{ background: "#fff", borderBottom: "0.5px solid #e2e8f0", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ ...pulse, width: 36, height: 36, borderRadius: "50%", flexShrink: 0 }} />
+            <div>
+              <div style={{ ...pulse, width: 80, height: 11, marginBottom: 6 }} />
+              <div style={{ ...pulse, width: 60, height: 14 }} />
+            </div>
           </div>
-        ))}
-      </div>
-      {/* cards */}
-      {[0, 1].map((c) => (
-        <div key={c} style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, margin: "12px 16px 0" }}>
+          <div style={{ ...pulse, width: 20, height: 20, borderRadius: 4 }} />
+        </div>
+        {/* stats */}
+        <div style={{ display: "flex", gap: 10, margin: "12px 16px 0" }}>
+          {[0, 1].map((i) => (
+            <div key={i} style={{ flex: 1, background: "#fff", borderRadius: 10, padding: 12, border: "0.5px solid #e2e8f0" }}>
+              <div style={{ ...pulse, width: "60%", height: 11, marginBottom: 6 }} />
+              <div style={{ ...pulse, width: "45%", height: 26 }} />
+            </div>
+          ))}
+        </div>
+        {/* pending orders card — rows: text + pill badge, no leading icon */}
+        <div style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, margin: "12px 16px 0" }}>
           <div style={{ padding: "12px 14px", display: "flex", justifyContent: "space-between" }}>
             <div style={{ ...pulse, width: 100, height: 13 }} />
             <div style={{ ...pulse, width: 40, height: 11 }} />
           </div>
           {[0, 1, 2].map((r) => (
-            <div key={r} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 14px", borderTop: "0.5px solid #f1f5f9" }}>
-              <div style={{ ...pulse, width: 32, height: 32, borderRadius: "50%", flexShrink: 0 }} />
+            <div key={r} style={{ display: "flex", alignItems: "center", padding: "10px 14px", borderTop: "0.5px solid #f1f5f9" }}>
               <div style={{ flex: 1 }}>
-                <div style={{ ...pulse, width: "70%", height: 11, marginBottom: 5 }} />
-                <div style={{ ...pulse, width: "45%", height: 9 }} />
+                <div style={{ ...pulse, width: "70%", height: 13, marginBottom: 2 }} />
+                <div style={{ ...pulse, width: "45%", height: 11 }} />
               </div>
+              <div style={{ ...pulse, width: 48, height: 20, borderRadius: 99, flexShrink: 0 }} />
             </div>
           ))}
         </div>
-      ))}
+        {/* section label */}
+        <div style={{ ...pulse, width: 140, height: 11, margin: "16px 16px 8px" }} />
+        {/* initiatives card — rows: 32×32 icon + text + 16×16 chevron */}
+        <div style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, margin: "0 16px" }}>
+          {[0, 1, 2].map((r) => (
+            <div key={r} style={{ display: "flex", gap: 12, alignItems: "center", padding: "12px 14px", borderTop: r === 0 ? "none" : "0.5px solid #f1f5f9" }}>
+              <div style={{ ...pulse, width: 32, height: 32, borderRadius: "50%", flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <div style={{ ...pulse, width: "70%", height: 13, marginBottom: 2 }} />
+                <div style={{ ...pulse, width: "45%", height: 11 }} />
+              </div>
+              <div style={{ ...pulse, width: 16, height: 16, borderRadius: 3, flexShrink: 0 }} />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

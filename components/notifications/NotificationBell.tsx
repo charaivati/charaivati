@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { timeAgo } from "@/lib/utils/timeAgo";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -14,18 +15,6 @@ type Notif = {
   read: boolean;
   createdAt: string;
 };
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1)  return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
 
 function BellSvg({ size = 20 }: { size?: number }) {
   return (
@@ -42,6 +31,8 @@ export default function NotificationBell() {
   const [notifs,      setNotifs]      = useState<Notif[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [open,        setOpen]        = useState(false);
+  const [markingAll,  setMarkingAll]  = useState(false);
+  const [readingId,   setReadingId]   = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const esRef       = useRef<EventSource | null>(null);
 
@@ -107,6 +98,8 @@ export default function NotificationBell() {
   }
 
   async function markAllRead() {
+    if (markingAll) return;
+    setMarkingAll(true);
     try {
       await fetch("/api/notifications/read", {
         method: "PATCH",
@@ -117,10 +110,14 @@ export default function NotificationBell() {
       setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
       setUnreadCount(0);
     } catch {}
+    setMarkingAll(false);
   }
 
   function handleRowClick(n: Notif) {
-    if (!n.read) markRead([n.id]);
+    if (!n.read && readingId !== n.id) {
+      setReadingId(n.id);
+      markRead([n.id]).finally(() => setReadingId(null));
+    }
     setOpen(false);
     if (n.link) window.location.href = n.link;
   }
@@ -208,7 +205,8 @@ export default function NotificationBell() {
             {unreadCount > 0 && (
               <button
                 onClick={markAllRead}
-                style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}
+                disabled={markingAll}
+                style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", fontWeight: 600, opacity: markingAll ? 0.5 : 1 }}
               >
                 Mark all read
               </button>
@@ -226,6 +224,7 @@ export default function NotificationBell() {
                 <button
                   key={n.id}
                   onClick={() => handleRowClick(n)}
+                  disabled={readingId === n.id}
                   style={{
                     display: "block",
                     width: "100%",
@@ -238,6 +237,7 @@ export default function NotificationBell() {
                     borderBottomColor: "#F3F4F6",
                     borderBottomWidth: 1,
                     borderBottomStyle: "solid",
+                    opacity: readingId === n.id ? 0.6 : 1,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
