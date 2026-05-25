@@ -10,7 +10,8 @@ import { useTranslations } from "@/hooks/useTranslations";
 const LAYOUT_SLUGS =
   "app-layout-tab-home,app-layout-tab-initiatives,app-layout-tab-explore," +
   "app-layout-tab-orders,app-layout-my-account,app-layout-sign-out," +
-  "app-layout-sign-in-up,app-layout-sign-in";
+  "app-layout-sign-in-up,app-layout-sign-in,app-layout-get-app," +
+  "app-layout-privacy,app-layout-terms,app-layout-about";
 
 const TAB_DEFS = [
   { slug: "app-layout-tab-home",        fallback: "Home",        icon: "🏠" as string | null, href: "/app/home",        requiresLogin: false },
@@ -250,6 +251,42 @@ export default function AppShellLayout({
                           >
                             {t("app-layout-my-account", "My Account")}
                           </a>
+
+                          <a
+                            href="/apps"
+                            style={{
+                              display: "block",
+                              padding: "10px 16px",
+                              fontSize: 13,
+                              color: A.text,
+                              textDecoration: "none",
+                            }}
+                          >
+                            📱 {t("app-layout-get-app", "Get the app")}
+                          </a>
+
+                          <div style={{ borderTop: `1px solid ${A.border}`, margin: "4px 0" }} />
+
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 12,
+                              padding: "8px 16px",
+                            }}
+                          >
+                            <a href="/privacy-policy" style={{ fontSize: 11, color: A.textMuted, textDecoration: "none" }}>
+                              {t("app-layout-privacy", "Privacy Policy")}
+                            </a>
+                            <a href="/terms-of-service" style={{ fontSize: 11, color: A.textMuted, textDecoration: "none" }}>
+                              {t("app-layout-terms", "Terms")}
+                            </a>
+                            <a href="/about-charaivati" style={{ fontSize: 11, color: A.textMuted, textDecoration: "none" }}>
+                              {t("app-layout-about", "About")}
+                            </a>
+                          </div>
+
+                          <div style={{ borderTop: `1px solid ${A.border}`, margin: "4px 0" }} />
 
                           <button
                             onClick={handleSignOut}

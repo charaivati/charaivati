@@ -307,39 +307,51 @@ export default function UserProfilePage() {
           }}
           onClick={() => setLightbox(null)}
         >
-          {/* Top-right controls */}
+          {/* Download button — absolute, 44×44 tap target */}
+          <button
+            onClick={(e) => { e.stopPropagation(); downloadImage(lightbox); }}
+            style={{
+              position: "absolute", top: 16, right: 72, zIndex: 1010,
+              width: 44, height: 44, borderRadius: "50%",
+              background: "rgba(0,0,0,0.5)", border: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", color: "#fff",
+            }}
+            aria-label="Download image"
+          >
+            <Download style={{ width: 20, height: 20 }} />
+          </button>
+          {/* Close button — absolute, 44×44 tap target */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setLightbox(null); }}
+            style={{
+              position: "absolute", top: 16, right: 16, zIndex: 1010,
+              width: 44, height: 44, borderRadius: "50%",
+              background: "rgba(0,0,0,0.5)", border: "none",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", color: "#fff",
+            }}
+            aria-label="Close lightbox"
+          >
+            <X style={{ width: 20, height: 20 }} />
+          </button>
+          {/* Image — pinch-zoom wrapper allows scroll/pan when zoomed */}
           <div
-            style={{ position: "absolute", top: 16, right: 16, display: "flex", gap: 8 }}
+            style={{ overflow: "auto", maxWidth: "100vw", maxHeight: "90vh" }}
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              onClick={() => downloadImage(lightbox)}
+            <img
+              src={lightbox}
+              alt=""
               style={{
-                background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8,
-                padding: "8px", cursor: "pointer", color: "#fff", display: "flex",
+                maxWidth: "100%", maxHeight: "90vh",
+                objectFit: "contain",
+                touchAction: "pinch-zoom",
+                cursor: "zoom-in",
               }}
-              aria-label="Download image"
-            >
-              <Download style={{ width: 20, height: 20 }} />
-            </button>
-            <button
-              onClick={() => setLightbox(null)}
-              style={{
-                background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8,
-                padding: "8px", cursor: "pointer", color: "#fff", display: "flex",
-              }}
-              aria-label="Close lightbox"
-            >
-              <X style={{ width: 20, height: 20 }} />
-            </button>
+              onClick={(e) => e.stopPropagation()}
+            />
           </div>
-          {/* Image */}
-          <img
-            src={lightbox}
-            alt=""
-            style={{ maxWidth: "100vw", maxHeight: "90vh", objectFit: "contain" }}
-            onClick={(e) => e.stopPropagation()}
-          />
         </div>
       )}
 

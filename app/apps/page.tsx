@@ -12,7 +12,7 @@ const apps = [
       "Save stores and products",
       "Cash on delivery checkout",
     ],
-    apkUrl: "/downloads/charaivati-store.apk",
+    apkUrl: "https://github.com/charaivati/charaivati/releases/latest/download/app-release.apk",
     appUrl: "/app/home",
     color: "#6366f1",
   },
@@ -84,7 +84,8 @@ export default function AppsPage() {
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <a
                   href={app.apkUrl}
-                  download
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{
                     display: "inline-flex", alignItems: "center", gap: 6,
                     padding: "10px 20px", borderRadius: 8, textDecoration: "none",
@@ -105,6 +106,9 @@ export default function AppsPage() {
                   ▶ Open App
                 </a>
               </div>
+              <p style={{ fontSize: 12, color: "#9CA3AF", textAlign: "center", margin: "12px 0 0" }}>
+                Always download from charaivati.com/apps — the official source.
+              </p>
             </div>
           ))}
         </div>

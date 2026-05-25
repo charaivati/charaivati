@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { User, LogOut, Settings, ChevronDown } from "lucide-react";
+import { User, LogOut, Settings, ChevronDown, Smartphone } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 type Props = {
@@ -88,6 +88,17 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
                 <User className="w-4 h-4" />
                 Profile
               </button>
+
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  window.location.href = "/apps";
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+              >
+                <Smartphone className="w-4 h-4" />
+                Get the app
+              </button>
             </div>
 
             <div className="border-t border-white/10">
@@ -148,6 +159,17 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
               <User className="w-4 h-4" />
               Profile
             </button>
+
+            <button
+              onClick={() => {
+                setIsOpen(false);
+                window.location.href = "/apps";
+              }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
+            >
+              <Smartphone className="w-4 h-4" />
+              Get the app
+            </button>
           </div>
 
           <div className="border-t border-white/10">
@@ -156,7 +178,7 @@ export default function ProfileMenu({ profile, onLogout, compact = false }: Prop
                 setIsOpen(false);
                 onLogout();
               }}
-              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-white/5 hover:text-white transition-colors"
             >
               <LogOut className="w-4 h-4" />
               Sign Out
