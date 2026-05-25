@@ -252,6 +252,9 @@ export default function InitiativesPage() {
   // per-card delete tracking — null means no deletion in flight
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // post composer initiative selector
+  const [selectedPageId, setSelectedPageId] = useState<string>("");
+
   // Create form
   const [showCreate, setShowCreate] = useState(false);
   const [showComingSoon, setShowComingSoon] = useState(false);
@@ -269,6 +272,13 @@ export default function InitiativesPage() {
   const [hbTiers, setHbTiers] = useState([{ name: "", price: "", description: "" }]);
 
   useEffect(() => {
+    console.log("selectedPageId:", selectedPageId, "| pages passed to block:", pages.length);
+    if (pages.length > 0 && !selectedPageId) {
+      setSelectedPageId(pages[0].id);
+    }
+  }, [pages, selectedPageId]);
+
+  useEffect(() => {
     fetch("/api/user/me", { credentials: "include" })
       .then((r) => r.ok ? r.json() : { user: null })
       .then((d) => setIsLoggedIn(!!d.user))
@@ -276,7 +286,11 @@ export default function InitiativesPage() {
 
     fetch("/api/user/pages", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : { pages: [] }))
-      .then((d) => setPages(d.pages ?? []))
+      .then((d) => {
+        const loaded = d.pages ?? [];
+        console.log("pages loaded:", loaded.length, loaded.map((p: any) => p.title));
+        setPages(loaded);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -762,11 +776,14 @@ export default function InitiativesPage() {
                   <>
                     <div style={{ borderTop: "0.5px solid #e2e8f0", margin: "4px 0 0" }} />
                     <InitiativePostsBlock
-                      pageId={pages[0].id}
+                      key={selectedPageId}
+                      pageId={selectedPageId}
                       isCreator={true}
                       theme="light"
                       accentColor="#534AB7"
                       showFeedBelow={false}
+                      pages={pages.map((p) => ({ id: p.id, title: p.title }))}
+                      onPageChange={(id) => setSelectedPageId(id)}
                     />
                   </>
                 )}

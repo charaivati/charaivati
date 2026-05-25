@@ -2,7 +2,11 @@
 
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { MessageSquare, MapPin, Link as LinkIcon, Calendar, UserPlus, UserCheck, Clock, ArrowLeft, Trash2 } from "lucide-react";
+import {
+  MessageSquare, MapPin, Link as LinkIcon, Calendar, UserPlus, UserCheck,
+  Clock, ArrowLeft, Trash2, ShoppingBag, Truck, Briefcase, Heart, ChevronRight,
+  X, Download, Share2,
+} from "lucide-react";
 import Link from "next/link";
 
 type Relationship = "self" | "friends" | "outgoing" | "incoming" | "none";
@@ -30,6 +34,17 @@ type FeedPost = {
   youtubeLinks: string[];
   visibility: "public" | "friends" | "private";
   createdAt: string;
+  pageId?: string | null;
+};
+
+type InitiativePage = {
+  id: string;
+  title: string;
+  description: string | null;
+  avatarUrl: string | null;
+  pageType: string;
+  storeSlug: string | null;
+  storeId: string | null;
 };
 
 function extractYouTubeId(url: string): string | null {
@@ -61,6 +76,43 @@ function formatJoined(iso: string | null): string | null {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "long" });
 }
 
+function initiativeUrl(page: InitiativePage): string | null {
+  if (page.pageType === "store") {
+    return page.storeSlug
+      ? `/store/${page.storeSlug}`
+      : page.storeId
+      ? `/store/${page.storeId}`
+      : null;
+  }
+  if (page.pageType === "fleet") return `/fleet/${page.id}`;
+  if (page.pageType === "helping") return `/helping/${page.id}`;
+  return null;
+}
+
+type TypeMeta = {
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  iconColor: string;
+  iconBg: string;
+  badgeBg: string;
+  badgeColor: string;
+  label: string;
+};
+
+function typeMeta(pageType: string): TypeMeta {
+  switch (pageType) {
+    case "store":
+      return { Icon: ShoppingBag, iconColor: "#D85A30", iconBg: "#FDF0EB", badgeBg: "#FDF0EB", badgeColor: "#993C1D", label: "Store" };
+    case "fleet":
+      return { Icon: Truck, iconColor: "#B45309", iconBg: "#FEF3C7", badgeBg: "#FEF3C7", badgeColor: "#92400E", label: "Fleet" };
+    case "service":
+      return { Icon: Briefcase, iconColor: "#7B5EA7", iconBg: "#F0EDF8", badgeBg: "#F0EDF8", badgeColor: "#534AB7", label: "Service" };
+    case "helping":
+      return { Icon: Heart, iconColor: "#0F6E56", iconBg: "#E1F5EE", badgeBg: "#E1F5EE", badgeColor: "#085041", label: "Helping" };
+    default:
+      return { Icon: ShoppingBag, iconColor: "#D85A30", iconBg: "#FDF0EB", badgeBg: "#FDF0EB", badgeColor: "#993C1D", label: "Initiative" };
+  }
+}
+
 export default function UserProfilePage() {
   const params = useParams();
   const router = useRouter();
@@ -68,12 +120,16 @@ export default function UserProfilePage() {
 
   const [user, setUser] = useState<UserProfile | null>(null);
   const [posts, setPosts] = useState<FeedPost[]>([]);
+  const [initiatives, setInitiatives] = useState<InitiativePage[]>([]);
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [relationship, setRelationship] = useState<Relationship>("none");
   const [friendPending, setFriendPending] = useState(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!userId) return;
@@ -115,11 +171,24 @@ export default function UserProfilePage() {
               youtubeLinks: p.youtubeLinks ?? [],
               visibility: p.visibility ?? "public",
               createdAt: p.createdAt,
+              pageId: p.pageId ?? null,
             }))
           );
         }
       })
       .finally(() => setLoadingPosts(false));
+
+    fetch(`/api/users/${userId}/pages`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => {
+        if (json?.pages) setInitiatives(json.pages);
+      })
+      .catch(() => {});
+
+    fetch("/api/user/me", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((json) => { if (json?.user?.id) setCurrentUserId(json.user.id); })
+      .catch(() => {});
   }, [userId]);
 
   async function sendFriendRequest() {
@@ -142,6 +211,31 @@ export default function UserProfilePage() {
       alert("Failed to send friend request");
     } finally {
       setFriendPending(false);
+    }
+  }
+
+  async function handleSharePost(post: FeedPost, initiative: InitiativePage | null) {
+    const origin = window.location.origin;
+    const shareUrl = (() => {
+      if (!initiative) return origin;
+      if (initiative.pageType === "store") {
+        if (initiative.storeSlug) return `${origin}/store/${initiative.storeSlug}`;
+        if (initiative.storeId) return `${origin}/store/${initiative.storeId}`;
+      }
+      if (initiative.pageType === "fleet") return `${origin}/fleet/${initiative.id}`;
+      return origin;
+    })();
+    const shareData = {
+      title: initiative?.title ?? "Charaivati",
+      text: post.content?.slice(0, 100) ?? "Check this out",
+      url: shareUrl,
+    };
+    if (navigator.share) {
+      try { await navigator.share(shareData); } catch {}
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedPostId(post.id);
+      setTimeout(() => setCopiedPostId(null), 1500);
     }
   }
 
@@ -189,9 +283,66 @@ export default function UserProfilePage() {
 
   const displayName = user.name ?? user.email ?? "User";
   const avatarLetter = displayName[0].toUpperCase();
+  const initiativeById = Object.fromEntries(initiatives.map((i) => [i.id, i]));
+  const isSelf = currentUserId !== null && currentUserId === userId;
+
+  function downloadImage(url: string) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "image.jpg";
+    a.target = "_blank";
+    a.click();
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
+
+      {/* Lightbox overlay */}
+      {lightbox && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.92)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={() => setLightbox(null)}
+        >
+          {/* Top-right controls */}
+          <div
+            style={{ position: "absolute", top: 16, right: 16, display: "flex", gap: 8 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => downloadImage(lightbox)}
+              style={{
+                background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8,
+                padding: "8px", cursor: "pointer", color: "#fff", display: "flex",
+              }}
+              aria-label="Download image"
+            >
+              <Download style={{ width: 20, height: 20 }} />
+            </button>
+            <button
+              onClick={() => setLightbox(null)}
+              style={{
+                background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8,
+                padding: "8px", cursor: "pointer", color: "#fff", display: "flex",
+              }}
+              aria-label="Close lightbox"
+            >
+              <X style={{ width: 20, height: 20 }} />
+            </button>
+          </div>
+          {/* Image */}
+          <img
+            src={lightbox}
+            alt=""
+            style={{ maxWidth: "100vw", maxHeight: "90vh", objectFit: "contain" }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="sticky top-0 z-10 bg-gray-950/90 backdrop-blur border-b border-gray-800 px-4 py-3 flex items-center gap-3">
         <button
@@ -234,7 +385,16 @@ export default function UserProfilePage() {
             </div>
 
             {/* Friend action button */}
-            {relationship === "none" && (
+            {isSelf && (
+              <a
+                href="/self"
+                className="flex items-center gap-1.5 shrink-0 rounded-lg border border-gray-700 bg-gray-800/40 px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:border-gray-500 transition-colors"
+                style={{ textDecoration: "none" }}
+              >
+                Edit profile
+              </a>
+            )}
+            {!isSelf && relationship === "none" && (
               <button
                 onClick={sendFriendRequest}
                 disabled={friendPending}
@@ -244,19 +404,19 @@ export default function UserProfilePage() {
                 {friendPending ? "Sending…" : "Add friend"}
               </button>
             )}
-            {relationship === "outgoing" && (
+            {!isSelf && relationship === "outgoing" && (
               <span className="flex items-center gap-1.5 shrink-0 rounded-lg border border-gray-700 bg-gray-800/40 px-3 py-1.5 text-sm text-gray-400">
                 <Clock className="w-4 h-4" />
                 Requested
               </span>
             )}
-            {relationship === "friends" && (
+            {!isSelf && relationship === "friends" && (
               <span className="flex items-center gap-1.5 shrink-0 rounded-lg border border-green-700 bg-green-900/20 px-3 py-1.5 text-sm text-green-400">
                 <UserCheck className="w-4 h-4" />
                 Friends
               </span>
             )}
-            {relationship === "incoming" && (
+            {!isSelf && relationship === "incoming" && (
               <button
                 onClick={sendFriendRequest}
                 disabled={friendPending}
@@ -310,6 +470,71 @@ export default function UserProfilePage() {
           )}
         </div>
 
+        {/* ── Initiatives ───────────────────────────────────────────────── */}
+        {initiatives.length > 0 && (
+          <div>
+            <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider px-1 mb-4">
+              Initiatives
+            </h2>
+            <div className="flex flex-col gap-3">
+              {initiatives.map((page) => {
+                const url = initiativeUrl(page);
+                const meta = typeMeta(page.pageType);
+                const { Icon } = meta;
+                const isClickable = url !== null;
+
+                const cardContent = (
+                  <div
+                    className="flex items-center gap-3 p-3 rounded-xl border border-gray-800 bg-gray-900/70"
+                    style={{ opacity: isClickable ? 1 : 0.7, cursor: isClickable ? "pointer" : "default" }}
+                  >
+                    {/* Icon box */}
+                    <div
+                      className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+                      style={{ background: meta.iconBg }}
+                    >
+                      <Icon style={{ color: meta.iconColor, width: 20, height: 20 }} />
+                    </div>
+
+                    {/* Text */}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-white leading-snug truncate">
+                        {page.title}
+                      </p>
+                      {page.description && (
+                        <p className="text-xs text-gray-500 truncate mt-0.5">
+                          {page.description}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Badge + arrow */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span
+                        className="text-xs font-medium px-2 py-0.5 rounded-full"
+                        style={{ background: meta.badgeBg, color: meta.badgeColor }}
+                      >
+                        {meta.label}
+                      </span>
+                      {isClickable && (
+                        <ChevronRight className="w-4 h-4 text-gray-500" />
+                      )}
+                    </div>
+                  </div>
+                );
+
+                return isClickable ? (
+                  <a key={page.id} href={url} style={{ textDecoration: "none" }}>
+                    {cardContent}
+                  </a>
+                ) : (
+                  <div key={page.id}>{cardContent}</div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Posts ─────────────────────────────────────────────────────── */}
         <div>
           <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider px-1 mb-4">
@@ -331,107 +556,133 @@ export default function UserProfilePage() {
           )}
 
           <div className="space-y-5">
-            {posts.map((post) => (
-              <article
-                key={post.id}
-                className="rounded-2xl border border-gray-800 bg-gray-900/70 overflow-hidden"
-              >
-                <div className="p-5 pb-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    {user.avatar ? (
-                      <img
-                        src={user.avatar}
-                        alt={displayName}
-                        className="w-8 h-8 rounded-full object-cover shrink-0"
-                      />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-medium shrink-0">
-                        {avatarLetter}
+            {posts.map((post) => {
+              const viaInitiative = post.pageId ? initiativeById[post.pageId] : null;
+              return (
+                <article
+                  key={post.id}
+                  className="rounded-2xl border border-gray-800 bg-gray-900/70 overflow-hidden"
+                >
+                  <div className="p-5 pb-4">
+                    <div className="flex items-center gap-3 mb-3">
+                      {user.avatar ? (
+                        <img
+                          src={user.avatar}
+                          alt={displayName}
+                          className="w-8 h-8 rounded-full object-cover shrink-0"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-sm font-medium shrink-0">
+                          {avatarLetter}
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs font-medium" style={{ color: "var(--color-text-primary)" }}>
+                          {displayName}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>{formatTime(post.createdAt)}</p>
+                          {post.visibility === "friends" && (
+                            <span className="text-xs text-gray-500 px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">
+                              👥 Friends
+                            </span>
+                          )}
+                        </div>
+                        {viaInitiative && (
+                          <p className="text-xs mt-0.5" style={{ color: "var(--color-text-secondary)" }}>
+                            via {viaInitiative.title}
+                          </p>
+                        )}
                       </div>
+                    </div>
+
+                    {post.content && (
+                      <p className="whitespace-pre-wrap leading-relaxed text-sm" style={{ color: "var(--color-text-primary)" }}>
+                        {post.content}
+                      </p>
                     )}
-                    <div className="flex items-center gap-2">
-                      <p className="text-xs text-gray-500">{formatTime(post.createdAt)}</p>
-                      {post.visibility === "friends" && (
-                        <span className="text-xs text-gray-500 px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700">
-                          👥 Friends
-                        </span>
+                  </div>
+
+                  {post.imageUrls.length > 0 && (
+                    <div className={post.imageUrls.length === 1 ? "" : "grid grid-cols-2 gap-0.5"}>
+                      {post.imageUrls.map((url, i) => {
+                        const isFirst = i === 0 && post.imageUrls.length >= 3;
+                        return (
+                          <img
+                            key={i}
+                            src={url}
+                            alt=""
+                            loading="lazy"
+                            onClick={() => setLightbox(url)}
+                            className={`w-full object-cover cursor-pointer ${
+                              post.imageUrls.length === 1
+                                ? "max-h-[480px]"
+                                : isFirst
+                                ? "col-span-2 max-h-64"
+                                : "h-40"
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {post.videoUrl && (
+                    <video
+                      src={post.videoUrl}
+                      controls
+                      className="w-full bg-black max-h-[480px]"
+                    />
+                  )}
+
+                  {post.youtubeLinks.map((link, i) => {
+                    const id = extractYouTubeId(link);
+                    if (!id) return null;
+                    return (
+                      <div key={i} className="aspect-video">
+                        <iframe
+                          width="100%"
+                          height="100%"
+                          src={`https://www.youtube.com/embed/${id}`}
+                          allowFullScreen
+                          className="border-0"
+                        />
+                      </div>
+                    );
+                  })}
+
+                  <div className="px-5 py-3 border-t border-gray-800 flex items-center justify-between">
+                    <span className="text-xs text-gray-500">
+                      {post.likes > 0
+                        ? `${post.likes} like${post.likes !== 1 ? "s" : ""}`
+                        : "Be the first to like"}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleSharePost(post, viaInitiative)}
+                        className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                        Share
+                      </button>
+                      {copiedPostId === post.id && (
+                        <span className="text-xs text-green-500">Link copied!</span>
+                      )}
+                      {isSelf && (
+                        <button
+                          onClick={() => deletePost(post.id)}
+                          disabled={deletingPostId === post.id}
+                          className="flex items-center gap-1 text-xs text-gray-600 hover:text-red-400 disabled:opacity-40 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          {deletingPostId === post.id ? "Deleting…" : "Delete"}
+                        </button>
                       )}
                     </div>
                   </div>
-
-                  {post.content && (
-                    <p className="text-gray-300 whitespace-pre-wrap leading-relaxed text-sm">
-                      {post.content}
-                    </p>
-                  )}
-                </div>
-
-                {post.imageUrls.length > 0 && (
-                  <div className={post.imageUrls.length === 1 ? "" : "grid grid-cols-2 gap-0.5"}>
-                    {post.imageUrls.map((url, i) => {
-                      const isFirst = i === 0 && post.imageUrls.length >= 3;
-                      return (
-                        <img
-                          key={i}
-                          src={url}
-                          alt=""
-                          loading="lazy"
-                          className={`w-full object-cover ${
-                            post.imageUrls.length === 1
-                              ? "max-h-[480px]"
-                              : isFirst
-                              ? "col-span-2 max-h-64"
-                              : "h-40"
-                          }`}
-                        />
-                      );
-                    })}
-                  </div>
-                )}
-
-                {post.videoUrl && (
-                  <video
-                    src={post.videoUrl}
-                    controls
-                    className="w-full bg-black max-h-[480px]"
-                  />
-                )}
-
-                {post.youtubeLinks.map((link, i) => {
-                  const id = extractYouTubeId(link);
-                  if (!id) return null;
-                  return (
-                    <div key={i} className="aspect-video">
-                      <iframe
-                        width="100%"
-                        height="100%"
-                        src={`https://www.youtube.com/embed/${id}`}
-                        allowFullScreen
-                        className="border-0"
-                      />
-                    </div>
-                  );
-                })}
-
-                <div className="px-5 py-3 border-t border-gray-800 flex items-center justify-between">
-                  <span className="text-xs text-gray-500">
-                    {post.likes > 0
-                      ? `${post.likes} like${post.likes !== 1 ? "s" : ""}`
-                      : "Be the first to like"}
-                  </span>
-                  {relationship === "self" && (
-                    <button
-                      onClick={() => deletePost(post.id)}
-                      disabled={deletingPostId === post.id}
-                      className="flex items-center gap-1 text-xs text-gray-600 hover:text-red-400 disabled:opacity-40 transition-colors"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      {deletingPostId === post.id ? "Deleting…" : "Delete"}
-                    </button>
-                  )}
-                </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </div>
       </div>

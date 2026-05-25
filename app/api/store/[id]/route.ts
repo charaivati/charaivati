@@ -41,6 +41,7 @@ export async function GET(
           include: { banner: true, sections: { select: { sectionId: true } } },
         },
         banners: { where: { isGlobal: true }, take: 1 },
+        owner: { select: { name: true } },
       },
     }),
     getServerUser(req),
@@ -92,6 +93,7 @@ export async function GET(
     globalBanner,
     pageType,
     isOwner: user?.id === store.ownerId,
+    ownerName: store.owner?.name ?? null,
   });
 }
 

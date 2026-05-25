@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { X, Download, Share2 } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "@/hooks/useTranslations";
 import { kindLabel } from "@/lib/pages/kindLabel";
-import { PostCard } from "@/components/shared/PostCard";
+import { PostCard, extractYouTubeId } from "@/components/shared/PostCard";
 import type { PostCardPost } from "@/components/shared/PostCard";
 
 const HOME_SLUGS = [
@@ -24,7 +25,10 @@ type User = {
   pincode?: string | null;
 };
 
-type LocalPost = PostCardPost & { page: { title: string } | null };
+type LocalPost = PostCardPost & {
+  pageId: string | null;
+  page: { title: string; pageType: string; storeId: string | null; storeSlug: string | null } | null;
+};
 
 type SellerOrder = {
   id: string;
@@ -164,6 +168,162 @@ function HomeSkeleton() {
   );
 }
 
+// ── Near You post card (links added; PostCard unchanged) ──────────────────────
+
+function NearYouCard({ post }: { post: LocalPost }) {
+  const [mounted, setMounted] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  async function handleShare() {
+    const origin = window.location.origin;
+    const shareUrl = post.page?.storeSlug
+      ? `${origin}/store/${post.page.storeSlug}`
+      : post.page?.storeId
+      ? `${origin}/store/${post.page.storeId}`
+      : post.page?.pageType === "fleet" && post.pageId
+      ? `${origin}/fleet/${post.pageId}`
+      : origin;
+    const shareData = {
+      title: post.page?.title ?? "Charaivati",
+      text: post.content?.slice(0, 100) ?? "Check this out",
+      url: shareUrl,
+    };
+    if (navigator.share) {
+      try { await navigator.share(shareData); } catch {}
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
+  const initiativeUrl = (() => {
+    if (!post.page || !post.pageId) return null;
+    if (post.page.pageType === "store") {
+      return post.page.storeSlug
+        ? `/store/${post.page.storeSlug}`
+        : post.page.storeId
+        ? `/store/${post.page.storeId}`
+        : null;
+    }
+    if (post.page.pageType === "fleet") return `/fleet/${post.pageId}`;
+    return null;
+  })();
+
+  const ytId = post.youtubeLinks[0] ? extractYouTubeId(post.youtubeLinks[0]) : null;
+
+  function downloadImage(url: string) {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "image.jpg";
+    a.target = "_blank";
+    a.click();
+  }
+
+  return (
+    <>
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.92)", display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={() => setLightbox(null)}
+        >
+          <div
+            style={{ position: "absolute", top: 16, right: 16, display: "flex", gap: 8 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button onClick={() => downloadImage(lightbox)} style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8, padding: 8, cursor: "pointer", color: "#fff", display: "flex" }} aria-label="Download">
+              <Download style={{ width: 20, height: 20 }} />
+            </button>
+            <button onClick={() => setLightbox(null)} style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 8, padding: 8, cursor: "pointer", color: "#fff", display: "flex" }} aria-label="Close">
+              <X style={{ width: 20, height: 20 }} />
+            </button>
+          </div>
+          <img
+            src={lightbox}
+            alt=""
+            style={{ maxWidth: "100vw", maxHeight: "90vh", objectFit: "contain" }}
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+
+      <div style={{ borderRadius: 14, border: "1px solid #E8E4DE", background: "#FFFFFF", padding: 16, fontFamily: "system-ui,-apple-system,sans-serif" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "#F0EDE9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#888", overflow: "hidden", flexShrink: 0 }}>
+              {post.user.avatarUrl
+                ? <img src={post.user.avatarUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                : (post.user.name ?? "?")[0].toUpperCase()}
+            </div>
+            <div>
+              <a
+                href={`/user/${post.user.id}`}
+                style={{ fontSize: 13, fontWeight: 500, color: "#111827", textDecoration: "none" }}
+                onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
+                onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}
+              >
+                {post.user.name ?? "Creator"}
+              </a>
+              {post.page && (
+                initiativeUrl
+                  ? <a href={initiativeUrl} style={{ display: "block", fontSize: 11, color: "#888", textDecoration: "none" }} onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")} onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}>{post.page.title}</a>
+                  : <div style={{ fontSize: 11, color: "#888" }}>{post.page.title}</div>
+              )}
+            </div>
+          </div>
+          <span style={{ fontSize: 11, color: "#888", fontFamily: "monospace" }}>
+            {mounted ? new Date(post.createdAt).toLocaleDateString() : null}
+          </span>
+        </div>
+
+        {/* Content */}
+        {post.content && (
+          <p style={{ fontSize: 14, lineHeight: 1.6, color: "#1A1714", margin: "0 0 10px", whiteSpace: "pre-wrap" }}>
+            {post.content}
+          </p>
+        )}
+
+        {/* Images */}
+        {post.imageUrls.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: post.imageUrls.length === 1 ? "1fr" : "repeat(2, 1fr)", gap: 6, marginBottom: 10 }}>
+            {post.imageUrls.slice(0, 4).map((url, i) => (
+              <img key={i} src={url} alt="" onClick={() => setLightbox(url)} style={{ width: "100%", borderRadius: 8, objectFit: "cover", maxHeight: 260, cursor: "pointer" }} />
+            ))}
+          </div>
+        )}
+
+        {/* Video */}
+        {post.videoUrl && (
+          <video src={post.videoUrl} controls style={{ width: "100%", borderRadius: 8, maxHeight: 280, background: "#000", marginBottom: 10 }} />
+        )}
+
+        {/* YouTube */}
+        {ytId && (
+          <div style={{ marginBottom: 10 }}>
+            <iframe width="100%" height="220" src={`https://www.youtube.com/embed/${ytId}`} frameBorder="0" allowFullScreen style={{ borderRadius: 8, display: "block" }} />
+          </div>
+        )}
+
+        {/* Share row */}
+        <div style={{ borderTop: "1px solid #E8E4DE", marginTop: 4, paddingTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            onClick={handleShare}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 0", display: "flex", alignItems: "center", gap: 4, color: "#9CA3AF" }}
+          >
+            <Share2 size={13} />
+            <span style={{ fontSize: 12 }}>Share</span>
+          </button>
+          {copied && <span style={{ fontSize: 11, color: "#22c55e" }}>Link copied!</span>}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function HomePage() {
@@ -256,7 +416,6 @@ export default function HomePage() {
           borderBottom: "0.5px solid #e2e8f0",
           padding: "12px 16px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          position: "sticky", top: 56, zIndex: 20,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{
@@ -496,7 +655,7 @@ export default function HomePage() {
         ) : (
           <div style={{ margin: "8px 16px 0", display: "flex", flexDirection: "column", gap: 10 }}>
             {localPosts.slice(0, 10).map((post) => (
-              <PostCard key={post.id} post={post} theme="light" />
+              <NearYouCard key={post.id} post={post} />
             ))}
             {localPosts.length > 10 && (
               <div style={{ textAlign: "center", padding: "8px 0" }}>
@@ -525,7 +684,6 @@ export default function HomePage() {
         borderBottom: "0.5px solid #e2e8f0",
         padding: "12px 16px",
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        position: "sticky", top: 56, zIndex: 20,
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{

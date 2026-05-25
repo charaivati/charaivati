@@ -80,6 +80,8 @@ type Store = {
   pageId?: string | null;
   pageType?: string;
   isOwner: boolean;
+  ownerId?: string | null;
+  ownerName?: string | null;
   sections: Section[];
   deliveryFee?: number | null;
   freeDeliveryAbove?: number | null;
@@ -621,6 +623,19 @@ function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
             )}
             <p className="text-sm" style={{ color: A.textMuted }}>{store.sections.length} section{store.sections.length !== 1 ? "s" : ""} · {totalBlocks} item{totalBlocks !== 1 ? "s" : ""}</p>
           </div>
+          {!store.isOwner && store.ownerName && store.ownerId && (
+            <p className="text-xs mt-0.5" style={{ color: A.textMuted }}>
+              by{" "}
+              <a
+                href={`/user/${store.ownerId}`}
+                style={{ color: A.link, textDecoration: "none" }}
+                onMouseOver={(e) => ((e.currentTarget as HTMLAnchorElement).style.textDecoration = "underline")}
+                onMouseOut={(e) => ((e.currentTarget as HTMLAnchorElement).style.textDecoration = "none")}
+              >
+                {store.ownerName}
+              </a>
+            </p>
+          )}
         </div>
         <div className="ml-auto hidden md:flex items-center gap-2">
           <span className="text-sm" style={{ color: A.link }}>Visit the {store.name} Store</span>

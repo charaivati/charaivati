@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 import { getCurrentUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
         ownerId: { in: ownerIds },
         pageType: { in: ["store", "service", "fleet"] },
       },
-      select: { id: true, title: true },
+      select: { id: true, title: true, pageType: true },
     });
 
     if (nearbyPages.length === 0) {
@@ -45,7 +46,25 @@ export async function GET(req: NextRequest) {
     }
 
     const pageIds = nearbyPages.map((p) => p.id);
-    const pageMap = Object.fromEntries(nearbyPages.map((p) => [p.id, { title: p.title }]));
+
+    // Resolve store id + slug via raw SQL (Prisma client may be stale for slug field)
+    const storePageIds = nearbyPages.filter((p) => p.pageType === "store").map((p) => p.id);
+    const storeByPageId: Record<string, { id: string; slug: string | null }> = {};
+    if (storePageIds.length > 0) {
+      const rows = await db.$queryRaw<{ pageId: string; id: string; slug: string | null }[]>`
+        SELECT "pageId", id, slug FROM "Store" WHERE "pageId" IN (${Prisma.join(storePageIds)})
+      `;
+      for (const row of rows) storeByPageId[row.pageId] = { id: row.id, slug: row.slug };
+    }
+
+    const pageMap = Object.fromEntries(
+      nearbyPages.map((p) => [p.id, {
+        title: p.title,
+        pageType: p.pageType,
+        storeId: storeByPageId[p.id]?.id ?? null,
+        storeSlug: storeByPageId[p.id]?.slug ?? null,
+      }])
+    );
 
     const rawPosts = await db.post.findMany({
       where: {

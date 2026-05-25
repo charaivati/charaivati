@@ -36,7 +36,11 @@ const INPUT_CLS    = "w-full text-sm px-3 py-2 rounded-md outline-none border bo
 
 async function lookupPincode(pin: string): Promise<{ city: string; state: string } | null> {
   try {
-    const res  = await fetch(`https://api.postalpincode.in/pincode/${pin}`);
+    // SSL cert expired May 2026 — silent fallback
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res  = await fetch(`https://api.postalpincode.in/pincode/${pin}`, { signal: controller.signal });
+    clearTimeout(timer);
     const data = await res.json();
     if (data?.[0]?.Status === "Success" && data[0].PostOffice?.length > 0) {
       const po = data[0].PostOffice[0];

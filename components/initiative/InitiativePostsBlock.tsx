@@ -24,6 +24,8 @@ export interface InitiativePostsBlockProps {
   accentColor?: string;
   theme?: "dark" | "light";
   showFeedBelow?: boolean;
+  pages?: { id: string; title: string }[];
+  onPageChange?: (pageId: string) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -47,7 +49,10 @@ export default function InitiativePostsBlock({
   accentColor = "#818CF8",
   theme = "dark",
   showFeedBelow = true,
+  pages,
+  onPageChange,
 }: InitiativePostsBlockProps) {
+  console.log("pages prop received:", pages?.length);
   const isDark = theme === "dark";
   const cloudinary = useCloudinaryUpload();
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -169,6 +174,22 @@ export default function InitiativePostsBlock({
       {/* ── Composer (creator only) ───────────────────────────────── */}
       {isCreator && (
         <div style={{ ...T.card, marginBottom: 24 }}>
+          {/* Initiative selector — only when multiple pages are passed */}
+          {pages && pages.length >= 1 && (
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ ...T.label, marginBottom: 6 }}>Initiative / Page</p>
+              <select
+                value={pageId}
+                onChange={(e) => onPageChange?.(e.target.value)}
+                style={{ ...T.inputBase, padding: "8px 10px" }}
+              >
+                {pages.map((p) => (
+                  <option key={p.id} value={p.id}>{p.title}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Privacy + Tags row */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
             <div>
@@ -246,16 +267,17 @@ export default function InitiativePostsBlock({
           <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => handleAddImages(e.target.files)} />
           <input ref={videoInputRef} type="file" accept="video/*" className="hidden" onChange={(e) => handlePickVideo(e.target.files)} />
 
-          {/* Action bar */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderTop: `1px solid ${isDark ? "#1f2937" : "#E8E4DE"}`, paddingTop: 12 }}>
+          {/* Action bar — two rows */}
+          <div style={{ borderTop: `1px solid ${isDark ? "#1f2937" : "#E8E4DE"}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Row 1: Photo + Video */}
             <div style={{ display: "flex", gap: 8 }}>
               {/* Photo button */}
-              <div style={{ position: "relative" }}>
+              <div style={{ position: "relative", flex: 1, maxWidth: 120 }}>
                 <button
                   type="button"
                   onClick={() => { setPhotoMenuOpen((v) => !v); setVideoMenuOpen(false); }}
                   disabled={postingInProgress}
-                  style={{ ...T.btnSecondary, display: "flex", alignItems: "center", gap: 6, padding: "7px 12px" }}
+                  style={{ ...T.btnSecondary, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 12px" }}
                 >
                   <Camera size={14} color="#60a5fa" />
                   <span style={{ fontSize: 12 }}>Photo</span>
@@ -271,12 +293,12 @@ export default function InitiativePostsBlock({
                 )}
               </div>
               {/* Video button */}
-              <div style={{ position: "relative" }}>
+              <div style={{ position: "relative", flex: 1, maxWidth: 120 }}>
                 <button
                   type="button"
                   onClick={() => { setVideoMenuOpen((v) => !v); setPhotoMenuOpen(false); }}
                   disabled={postingInProgress}
-                  style={{ ...T.btnSecondary, display: "flex", alignItems: "center", gap: 6, padding: "7px 12px" }}
+                  style={{ ...T.btnSecondary, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 12px" }}
                 >
                   <Video size={14} color="#c084fc" />
                   <span style={{ fontSize: 12 }}>Video</span>
@@ -292,12 +314,13 @@ export default function InitiativePostsBlock({
                 )}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            {/* Row 2: Clear + Publish */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <button onClick={clearComposer} disabled={postingInProgress} style={T.btnSecondary}>Clear</button>
               <button
                 onClick={handlePost}
                 disabled={postingInProgress || cloudinary.uploading}
-                style={{ ...T.btn, background: accentColor, color: "#fff", opacity: (postingInProgress || cloudinary.uploading) ? 0.6 : 1, display: "flex", alignItems: "center", gap: 6 }}
+                style={{ ...T.btn, background: accentColor, color: "#fff", opacity: (postingInProgress || cloudinary.uploading) ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, minWidth: 140 }}
               >
                 {postingInProgress || cloudinary.uploading ? <><Upload size={14} /> Posting…</> : "Publish Post"}
               </button>
