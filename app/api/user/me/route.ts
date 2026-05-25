@@ -19,7 +19,7 @@ export async function GET(req: Request) {
 
   const userId = String(payload.userId);
 
-  const [user, profile] = await Promise.all([
+  const [user, profile, defaultAddress] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, name: true, email: true, avatarUrl: true, status: true },
@@ -27,6 +27,10 @@ export async function GET(req: Request) {
     prisma.profile.findUnique({
       where: { userId },
       select: { displayName: true },
+    }),
+    prisma.address.findFirst({
+      where: { userId, isDefault: true },
+      select: { pincode: true },
     }),
   ]);
 
@@ -42,6 +46,7 @@ export async function GET(req: Request) {
       email: user.email,
       avatarUrl: user.avatarUrl ?? null,
       status: user.status,
+      pincode: defaultAddress?.pincode ?? null,
     },
   });
 }

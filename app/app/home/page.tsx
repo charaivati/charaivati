@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useTranslations } from "@/hooks/useTranslations";
 import { kindLabel } from "@/lib/pages/kindLabel";
+import { PostCard } from "@/components/shared/PostCard";
+import type { PostCardPost } from "@/components/shared/PostCard";
 
 const HOME_SLUGS = [
   "app-home-cta-btn",
@@ -19,7 +21,10 @@ type User = {
   name: string | null;
   email: string | null;
   status?: string | null;
+  pincode?: string | null;
 };
+
+type LocalPost = PostCardPost & { page: { title: string } | null };
 
 type SellerOrder = {
   id: string;
@@ -170,6 +175,9 @@ export default function HomePage() {
   const [sellerOrders, setSellerOrders] = useState<SellerOrder[]>([]);
   const [pages, setPages]               = useState<Page[]>([]);
   const [ordersError, setOrdersError]   = useState(false);
+  const [localPosts, setLocalPosts]     = useState<LocalPost[]>([]);
+  const [userPincode, setUserPincode]   = useState<string | null>(null);
+  const [noPincode, setNoPincode]       = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -179,7 +187,9 @@ export default function HomePage() {
         .then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/user/pages", { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    ]).then(([meData, ordersData, pagesData]) => {
+      fetch("/api/posts/local", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([meData, ordersData, pagesData, localData]) => {
       const u: User | null = meData?.user ?? null;
       setUser(u);
 
@@ -196,6 +206,12 @@ export default function HomePage() {
 
       if (pagesData?.ok && Array.isArray(pagesData.pages)) {
         setPages(pagesData.pages);
+      }
+
+      if (localData?.ok) {
+        setLocalPosts(localData.posts ?? []);
+        setUserPincode(localData.userPincode ?? null);
+        if (!localData.userPincode) setNoPincode(true);
       }
 
       setLoadState("returning");
@@ -383,46 +399,112 @@ export default function HomePage() {
               </a>
             </div>
           ) : (
-            pages.map((page, i) => {
-              const icon  = initiativeIcon(page);
-              const label = kindLabel(page);
-              return (
-                <Link
-                  key={page.id}
-                  href={`/earn/initiative/${page.id}`}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 12,
-                    padding: "12px 14px", textDecoration: "none",
-                    borderTop: i === 0 ? "none" : "0.5px solid #f1f5f9",
-                  }}
-                >
-                  <div style={{
-                    width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
-                    background: icon.bg,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 15,
-                  }}>
-                    {icon.emoji}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+            <>
+              {pages.map((page, i) => {
+                const icon  = initiativeIcon(page);
+                const label = kindLabel(page);
+                return (
+                  <Link
+                    key={page.id}
+                    href={`/earn/initiative/${page.id}`}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      padding: "12px 14px", textDecoration: "none",
+                      borderTop: i === 0 ? "none" : "0.5px solid #f1f5f9",
+                    }}
+                  >
                     <div style={{
-                      fontSize: 13, fontWeight: 500, color: "#111827",
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      width: 32, height: 32, borderRadius: "50%", flexShrink: 0,
+                      background: icon.bg,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 15,
                     }}>
-                      {page.title}
+                      {icon.emoji}
                     </div>
-                    <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>
-                      {label}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 13, fontWeight: 500, color: "#111827",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}>
+                        {page.title}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>
+                        {label}
+                      </div>
                     </div>
-                  </div>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round">
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
-                </Link>
-              );
-            })
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" strokeWidth="2" strokeLinecap="round">
+                      <polyline points="9 18 15 12 9 6" />
+                    </svg>
+                  </Link>
+                );
+              })}
+              <a
+                href="/app/initiatives"
+                style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  padding: "11px 14px", borderTop: "0.5px solid #f1f5f9",
+                  textDecoration: "none",
+                }}
+              >
+                <span style={{ fontSize: 18, lineHeight: 1, color: "#D85A30" }}>+</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: "#185FA5" }}>Add Initiative</span>
+              </a>
+            </>
           )}
         </div>
+
+        {/* 5. Near you — local store feed */}
+        <div style={{
+          fontSize: 11, fontWeight: 500, letterSpacing: "0.06em",
+          color: "#64748B", textTransform: "uppercase" as const,
+          margin: "16px 16px 2px",
+          display: "flex", alignItems: "baseline", gap: 6,
+        }}>
+          NEAR YOU
+          {userPincode && (
+            <span style={{ fontSize: 10, fontWeight: 400, textTransform: "none" as const, color: "#94A3B8" }}>
+              {userPincode}
+            </span>
+          )}
+        </div>
+
+        {noPincode ? (
+          <div style={{
+            background: "#fff", border: "0.5px solid #e2e8f0",
+            borderRadius: 12, margin: "8px 16px 0",
+            padding: "16px 14px",
+          }}>
+            <div style={{ fontSize: 13, color: "#64748B", marginBottom: 6 }}>
+              Add your address to see updates from local stores.
+            </div>
+            <a
+              href="/store/account"
+              style={{ fontSize: 12, color: "#185FA5", textDecoration: "none" }}
+            >
+              Add address →
+            </a>
+          </div>
+        ) : localPosts.length === 0 ? (
+          <div style={{
+            background: "#fff", border: "0.5px solid #e2e8f0",
+            borderRadius: 12, margin: "8px 16px 0",
+            padding: "16px 14px", textAlign: "center",
+            fontSize: 13, color: "#94A3B8",
+          }}>
+            No updates from local stores yet.
+          </div>
+        ) : (
+          <div style={{ margin: "8px 16px 0", display: "flex", flexDirection: "column", gap: 10 }}>
+            {localPosts.slice(0, 10).map((post) => (
+              <PostCard key={post.id} post={post} theme="light" />
+            ))}
+            {localPosts.length > 10 && (
+              <div style={{ textAlign: "center", padding: "8px 0" }}>
+                <span style={{ fontSize: 12, color: "#185FA5" }}>See more →</span>
+              </div>
+            )}
+          </div>
+        )}
         </div>
       </div>
     );

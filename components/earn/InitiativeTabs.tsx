@@ -5,9 +5,8 @@ import dynamic from "next/dynamic";
 import PartnersTab from "./PartnersTab";
 
 const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
-const WorkflowTab = dynamic(() => import("./WorkflowTab"), { ssr: false });
-const TeamTab     = dynamic(() => import("./TeamTab"),     { ssr: false });
-
+const WorkflowTab          = dynamic(() => import("./WorkflowTab"),          { ssr: false });
+const TeamTab              = dynamic(() => import("./TeamTab"),              { ssr: false });
 type Tab = "overview" | "store" | "team" | "partners" | "workflow" | "fleet";
 
 interface InitiativeTabsProps {

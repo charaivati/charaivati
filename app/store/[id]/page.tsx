@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ConsentModal from "@/components/health/ConsentModal";
 import { useParams, useRouter } from "next/navigation";
 import LearningPageView, { type LearningSection } from "./LearningPageView";
-import InitiativePostsBlock from "@/components/initiative/InitiativePostsBlock";
 import FilterBar, { type StoreFilterItem } from "@/components/store/FilterBar";
 import BannerZone, { type StoreBannerData } from "@/components/store/BannerZone";
 import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
@@ -1183,11 +1182,6 @@ export default function StorePage() {
           ) : (
             <div className="flex items-center justify-center py-20">
               <div className="w-6 h-6 rounded-full animate-spin" style={{ border: "3px solid #DDDDDD", borderTopColor: "#232F3E" }} />
-            </div>
-          )}
-          {store.pageId && (
-            <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 24px 48px", background: "#FAF8F5" }}>
-              <InitiativePostsBlock pageId={store.pageId} isCreator={store.isOwner} accentColor="#4A7FB5" theme="light" />
             </div>
           )}
         </>

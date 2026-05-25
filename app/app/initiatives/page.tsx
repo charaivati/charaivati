@@ -1,8 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useTranslations } from "@/hooks/useTranslations";
 import { kindLabel } from "@/lib/pages/kindLabel";
+
+const InitiativePostsBlock = dynamic(
+  () => import("@/components/initiative/InitiativePostsBlock"),
+  { ssr: false }
+);
 
 const INITIATIVES_SLUGS = [
   "app-initiatives-heading","app-initiatives-subtitle","app-initiatives-empty","app-initiatives-add-btn",
@@ -742,14 +748,29 @@ export default function InitiativesPage() {
                 </div>
               ) : createForm
             ) : (
-              <button onClick={() => setShowCreate(true)} style={{
-                display: "block", width: "100%", textAlign: "center",
-                padding: "12px", borderRadius: 12,
-                border: "2px dashed #e2e8f0", color: "#D85A30",
-                fontSize: 13, fontWeight: 600, background: "none", cursor: "pointer", marginTop: 4,
-              }}>
-                {t("app-initiatives-add-btn", "+ Add Initiative")}
-              </button>
+              <>
+                <button onClick={() => setShowCreate(true)} style={{
+                  display: "block", width: "100%", textAlign: "center",
+                  padding: "12px", borderRadius: 12,
+                  border: "2px dashed #e2e8f0", color: "#D85A30",
+                  fontSize: 13, fontWeight: 600, background: "none", cursor: "pointer", marginTop: 4,
+                }}>
+                  {t("app-initiatives-add-btn", "+ Add Initiative")}
+                </button>
+
+                {pages.length > 0 && (
+                  <>
+                    <div style={{ borderTop: "0.5px solid #e2e8f0", margin: "4px 0 0" }} />
+                    <InitiativePostsBlock
+                      pageId={pages[0].id}
+                      isCreator={true}
+                      theme="light"
+                      accentColor="#534AB7"
+                      showFeedBelow={false}
+                    />
+                  </>
+                )}
+              </>
             )
           )}
         </div>

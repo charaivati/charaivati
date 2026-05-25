@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useCloudinaryUpload } from "@/hooks/useCloudinaryUpload";
 import SelectTabsModal from "@/components/SelectTabsModal";
-import InitiativePostsBlock from "@/components/initiative/InitiativePostsBlock";
 import FilterBar, { type StoreFilterItem } from "@/components/store/FilterBar";
 import BannerZone, { type StoreBannerData } from "@/components/store/BannerZone";
 import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
@@ -1634,16 +1633,6 @@ export default function StoreSetupPage() {
           {phase === "ready" && store && !course && (
             <div className="flex items-center justify-center py-20">
               <div className="w-6 h-6 rounded-full border-2 border-[#818CF8] border-t-transparent animate-spin" />
-            </div>
-          )}
-          {phase === "ready" && store && (
-            <div className="max-w-5xl mx-auto px-4 sm:px-8 py-8">
-              <InitiativePostsBlock
-                pageId={businessId}
-                isCreator={true}
-                accentColor="#818CF8"
-                theme="dark"
-              />
             </div>
           )}
         </>

@@ -1275,6 +1275,7 @@ model Address {
   orders    Order[]
 
   @@index([userId])
+  @@index([pincode])
 }
 
 /// Cart item — one row per product per user per store
