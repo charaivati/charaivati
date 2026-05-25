@@ -39,8 +39,8 @@ export async function PATCH(
     createNotification({
       userId: user.id,
       type: "order_confirmed",
-      title: "New order received",
-      body: `Order #${orderId.slice(-8).toUpperCase()} has been placed`,
+      title: "Order confirmed",
+      body: `Order #${orderId.slice(-8).toUpperCase()} confirmed.`,
       link: "/store/orders/all",
     }).catch(() => {});
     // Notify the buyer their order was confirmed

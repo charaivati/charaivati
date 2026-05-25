@@ -341,9 +341,9 @@ export default function AllOrdersPage() {
                 {storeId ? " for this store" : " across all stores"}
               </p>
             </div>
-            <a href="/store/account" className="text-xs px-3 py-1.5 rounded-md"
+            <a href="/app/app/orders" className="text-xs px-3 py-1.5 rounded-md"
               style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
-              ← My Account
+              ← Back
             </a>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
@@ -549,6 +549,23 @@ export default function AllOrdersPage() {
                 return (
                   <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
                     <p className="text-xs font-semibold mb-3" style={{ color: A.textMuted }}>DELIVERY PARTNER</p>
+                    {order.assignedToId && (() => {
+                      const collab = orderPartners.find((c) => c.id === order.assignedToId);
+                      if (!collab) return null;
+                      return (
+                        <div className="mb-3 p-2.5 rounded-lg flex items-center gap-3"
+                          style={{ background: "#F0FDF4", border: "1px solid #86EFAC" }}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold truncate" style={{ color: "#14532D" }}>
+                              {collab.receiver.title}
+                            </p>
+                            <p className="text-xs" style={{ color: "#166534" }}>
+                              {collab.role.replace(/_/g, " ")}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div className="flex items-start gap-4 flex-wrap">
                       <div className="flex flex-col gap-1" style={{ minWidth: 200 }}>
                         <label className="text-xs font-medium" style={{ color: A.textMuted }}>Assigned to</label>

@@ -98,7 +98,7 @@ All API routes live under `app/api/`. Key areas:
 - `app/api/orders/requests` — `GET` returns all Quote rows where current user's collaborations are `requestedPartyId`; used by the Requests tab in the mobile orders page
 - `app/api/notifications` — `GET` returns `{ notifications[], unreadCount }` for the current user (latest 30, newest first)
 - `app/api/notifications/read` — `PATCH { ids }` or `{ all: true }` marks notifications as read
-- `app/api/notifications/stream` — `GET` SSE stream; sends `data:` events when unread count changes; heartbeat ping every 30 s; client falls back to 10 s polling + `visibilitychange` trigger when EventSource is unavailable
+- `app/api/notifications/stream` — `GET` SSE stream; sends `data:` events when unread count changes; heartbeat ping every 30 s; client falls back to 10 s polling + `visibilitychange` trigger when EventSource is unavailable. **Early-exit optimisation**: if the user has zero total notifications on the initial poll the stream closes immediately and the client falls back to polling — avoids holding open connections for brand-new users
 - `app/api/initiative/[pageId]/workflow` — `GET` returns `{ steps[], assignees[] }`; each step includes `assignees: WorkflowStepAssignee[]` (new system) and deprecated `assignee` (from `assigneeId`); auto-seeds 3 default steps if none exist; `POST` adds a step
 - `app/api/initiative/[pageId]/workflow/[stepId]` — `PATCH` updates a step (accepts `name`, `assigneeId`, `assigneeType`, `quoteRequired`, `quoteTimeoutHours`, `assignmentMode`); `DELETE` removes it
 - `app/api/initiative/[pageId]/workflow/reorder` — `PATCH { steps: [{id,sequence}] }` reorders steps in a transaction
@@ -150,7 +150,7 @@ Every store has a `slug String? @unique` field. Slugs are generated from the sto
 
 ### Mobile Orders Page (`/app/orders`)
 Client component in the mobile shell. **Four** internal tabs (initial tab set by `?tab=` URL param — notification links use this):
-- **My Orders** — fetches `GET /api/store/orders` (buyer view, no params); shows store name, items summary, status badge; "Track 📍" button appears when `deliveryStatus === "out_for_delivery"`. Sub-orders appear here automatically (they have `userId = assigneeUserId`); they show an amber "Assignment" pill, `subOrderType` chip, and `agreedAmount` if set.
+- **My Orders** — fetches `GET /api/store/orders` (buyer view, no params); shows store name, items summary, status badge; "Track 📍" button appears when `deliveryStatus === "out_for_delivery"`. Sub-orders appear here automatically (they have `userId = assigneeUserId`); they show an amber "Assignment" pill, `subOrderType` chip, and `agreedAmount` if set. **Auto-refreshes via SSE stream** (`/api/notifications/stream`) — buyer orders re-fetch on any notification event; reconnects after error (10 s delay) and on `visibilitychange`.
 - **Store Orders** — fetches `GET /api/store/orders?all=true` (seller view); each card links to `/store/[slug]/orders` (or `/store/orders/all` if no slug); "Manage all orders →" shortcut in header
 - **Requests** — fetches `GET /api/orders/requests`; shows Quote rows where the current user's collaborations are the `requestedPartyId`. Cards show order ref, step name, items summary, time-remaining countdown, and a quote submission UI: pending=amount input+submit, submitted=quote+edit, accepted=green badge+"View Assignment →", rejected=grey "Not selected". Badge on tab shows count of pending+submitted quotes.
 - **Tracking** — filters buyer orders where `deliveryStatus === "out_for_delivery"`; each renders `TransportMap` (dynamic import, ssr:false) polling `GET /api/transport/vehicles?id={vehicleId}` every 5 s; badge on tab shows count of active tracking orders
@@ -491,7 +491,7 @@ One row per (Order, step, party). `requestedPartyId` is a `Collaboration.id`. `s
 `requiresAttention Boolean @default(false)` — set when a step fails or a quote times out; visible as a red banner in the owner order page. `quoteSummary Json?` — rebuilt sorted by amount on every quote response. `parentOrderId String?` — self-FK; set on sub-orders created per workflow step. `subOrderType String?` — `"delivery" | "service" | "packaging"`. `agreedAmount Float?` — the accepted quote amount or fixed assignment fee for a sub-order.
 
 **`Notification`**
-Fields: `id`, `userId` (FK → User, cascade delete), `type` (`"order_assigned" | "quote_requested" | "quote_submitted" | "step_confirmed" | "order_confirmed" | "delivery_complete" | "escalation"`), `title`, `body`, `link String?`, `read Boolean @default(false)`, `createdAt`. Index on `userId` and `createdAt`.
+Fields: `id`, `userId` (FK → User, cascade delete), `type` (`"order_assigned" | "quote_requested" | "quote_submitted" | "step_confirmed" | "order_confirmed" | "out_for_delivery" | "delivery_complete" | "order_cancelled" | "escalation" | "workflow_attention"`), `title`, `body`, `link String?`, `read Boolean @default(false)`, `createdAt`. Index on `userId` and `createdAt`.
 
 ### Helper Files
 
@@ -548,13 +548,15 @@ Fields: `id`, `userId` (FK → User, cascade delete), `type` (`"order_assigned" 
 
 ### Notifications
 
-`Notification` rows are created by `lib/notifications/createNotification.ts` in four places:
+`Notification` rows are created by `lib/notifications/createNotification.ts` in these places:
 - **`triggerQuoteRequests`** → `type: "quote_requested"` to each party when a quote-step activates
 - **`confirm/route.ts`** (step confirm) → `type: "order_assigned"` to the next step's assignee (fire-and-forget)
-- **`store/orders/[orderId]/route.ts`** (confirm order) → `type: "order_confirmed"` to the store owner
+- **`store/orders/[orderId]/route.ts`** (confirm order) → `type: "order_confirmed"` to the store owner **and** to the buyer; `type: "order_cancelled"` to the buyer on cancellation. Guest buyers are skipped silently (`user.status !== "guest"` check).
+- **`order/[id]/delivery/route.ts`** → `type: "out_for_delivery"` to the buyer when `deliveryStatus` becomes `"out_for_delivery"` (fires from both the owner path and the partner path). Guest buyers skipped.
+- **`order/[id]/customer-confirm/route.ts`** → `type: "delivery_complete"` to the store owner (existing) **and** to the buyer. Guest buyers skipped.
 - **`assignNextPartner`** → `type: "order_assigned"` to newly assigned partner; `type: "escalation"` to store owner when all partners reject after 3 full cycles
 
-UI: `components/notifications/NotificationBell.tsx` — bell icon in `app/app/layout.tsx` top bar (left of avatar, only shown when logged in). Uses SSE stream (`GET /api/notifications/stream`) for real-time updates; falls back to 10 s polling + `visibilitychange` trigger when EventSource is unavailable. Red badge shows `unreadCount`. Click opens a dropdown of 10 most recent; "See all →" links to `/app/notifications`. Full page: `app/app/notifications/page.tsx` — groups by Today / Yesterday / Earlier; "Mark all read" button. The store all-orders page (`/store/orders/all`) also subscribes to the same SSE stream and auto-refreshes when the backend fires notifications.
+UI: `components/notifications/NotificationBell.tsx` — bell icon in `app/app/layout.tsx` top bar (left of avatar, only shown when logged in). Uses SSE stream (`GET /api/notifications/stream`) for real-time updates; falls back to 10 s polling + `visibilitychange` trigger when EventSource is unavailable. Red badge shows `unreadCount`. Click opens a dropdown of 10 most recent; "See all →" links to `/app/notifications`. Full page: `app/app/notifications/page.tsx` — groups by Today / Yesterday / Earlier; "Mark all read" button. Both `/store/orders/all` and `/app/orders` subscribe to the same SSE stream and auto-refresh their order lists when the backend fires notifications.
 
 ### Initiative Hub Tabs (owner-only at `/earn/initiative/[pageId]`)
 

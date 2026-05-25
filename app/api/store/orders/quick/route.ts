@@ -78,12 +78,12 @@ export async function POST(req: NextRequest) {
     include: { store: true, address: true },
   });
 
-  try {
-    const storeWithOwner = await db.store.findUnique({
-      where: { id: storeId },
-      include: { owner: { select: { email: true, name: true } } },
-    });
+  const storeWithOwner = await db.store.findUnique({
+    where: { id: storeId },
+    include: { owner: { select: { email: true, name: true } } },
+  }).catch(() => null);
 
+  try {
     if (storeWithOwner?.owner?.email) {
       const { sendEmail } = await import("@/lib/sendEmail");
       const itemLines = orderItems.map((i) => `  - ${i.title} x${i.quantity} @ ₹${i.price}`).join("\n");
@@ -94,17 +94,22 @@ export async function POST(req: NextRequest) {
         text: `Hi ${storeWithOwner.owner.name ?? "Store Owner"},\n\nNew order on ${store.name}!\n\nOrder ID: #${order.id.slice(-8).toUpperCase()}\nCustomer: ${user.name ?? "Customer"}\n\nItems:\n${itemLines}\n\nTotal: ₹${total.toLocaleString("en-IN")}\n\nDelivery Address:\n${addressLine}\n\nPayment: Cash on Delivery`.trim(),
       });
     }
+  } catch (e) {
+    console.error("Quick order email failed:", e);
+  }
+
+  try {
     if (storeWithOwner) {
-      createNotification({
+      await createNotification({
         userId: storeWithOwner.ownerId,
         type: "order_confirmed",
         title: `New order on ${storeWithOwner.name}`,
         body: `Order #${order.id.slice(-8).toUpperCase()} — ₹${total.toLocaleString("en-IN")}`,
         link: `/store/${storeId}/orders`,
-      }).catch(() => {});
+      });
     }
   } catch (e) {
-    console.error("Quick order email failed:", e);
+    console.error("Notification failed:", e);
   }
 
   return NextResponse.json(order, { status: 201 });

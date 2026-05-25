@@ -83,20 +83,20 @@ export async function POST(req: NextRequest) {
 
   await prisma.cartItem.deleteMany({ where: { userId: user.id, storeId } });
 
-  try {
-    const store = await prisma.store.findUnique({
-      where: { id: storeId },
-      include: { owner: { select: { email: true, name: true } } },
-    });
+  const storeForNotif = await prisma.store.findUnique({
+    where: { id: storeId },
+    include: { owner: { select: { email: true, name: true } } },
+  }).catch(() => null);
 
-    if (store?.owner?.email) {
+  try {
+    if (storeForNotif?.owner?.email) {
       const itemLines = items.map((i) => `  - ${i.title} x${i.quantity} @ ₹${i.price}`).join("\n");
       const addressLine = `${address.name}, ${address.line1}, ${address.city}, ${address.state} - ${address.pincode} | Phone: ${address.phone}`;
 
       await sendOrderEmail({
-        to: store.owner.email,
-        ownerName: store.owner.name ?? "Store Owner",
-        storeName: store.name,
+        to: storeForNotif.owner.email,
+        ownerName: storeForNotif.owner.name ?? "Store Owner",
+        storeName: storeForNotif.name,
         orderId: order.id,
         customerName: user.name ?? "Customer",
         itemLines,
@@ -104,17 +104,22 @@ export async function POST(req: NextRequest) {
         addressLine,
       });
     }
-    if (store) {
-      createNotification({
-        userId: store.ownerId,
-        type: "order_confirmed",
-        title: `New order on ${store.name}`,
-        body: `Order #${order.id.slice(-8).toUpperCase()} — ₹${total.toLocaleString("en-IN")}`,
-        link: `/store/${storeId}/orders`,
-      }).catch(() => {});
-    }
   } catch (e) {
     console.error("Order email failed:", e);
+  }
+
+  try {
+    if (storeForNotif) {
+      await createNotification({
+        userId: storeForNotif.ownerId,
+        type: "order_confirmed",
+        title: `New order on ${storeForNotif.name}`,
+        body: `Order #${order.id.slice(-8).toUpperCase()} — ₹${total.toLocaleString("en-IN")}`,
+        link: `/store/${storeId}/orders`,
+      });
+    }
+  } catch (e) {
+    console.error("Notification failed:", e);
   }
 
   return NextResponse.json(order, { status: 201 });

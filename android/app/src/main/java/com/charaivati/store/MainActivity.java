@@ -1,5 +1,7 @@
 package com.charaivati.store;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.webkit.CookieManager;
@@ -25,6 +27,15 @@ public class MainActivity extends BridgeActivity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
+
+                // Send Maps URLs and geo: URIs to the native Maps app via OS intent.
+                if (isMapsUrl(url)) {
+                    Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(intent);
+                    return true;
+                }
+
                 if (url.contains("charaivati.com")) {
                     view.loadUrl(url);
                     return true;
@@ -32,5 +43,13 @@ public class MainActivity extends BridgeActivity {
                 return false;
             }
         });
+    }
+
+    private static boolean isMapsUrl(String url) {
+        return url.startsWith("geo:")
+                || url.startsWith("https://maps.google.com")
+                || url.startsWith("http://maps.google.com")
+                || url.startsWith("https://www.google.com/maps")
+                || url.startsWith("http://www.google.com/maps");
     }
 }
