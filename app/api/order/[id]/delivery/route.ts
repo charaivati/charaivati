@@ -55,7 +55,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const order = await (prisma.order as any).findUnique({
     where: { id },
-    select: { assignedToId: true, items: true, store: { select: { ownerId: true, pageId: true } } },
+    select: {
+      userId: true,
+      assignedToId: true,
+      items: true,
+      store: { select: { ownerId: true, pageId: true } },
+      user: { select: { status: true } },
+    },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -204,6 +210,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
 
     const updated = await (prisma.order as any).update({ where: { id }, data });
+
+    if (deliveryStatus === "out_for_delivery" && order.userId && order.user?.status !== "guest") {
+      createNotification({
+        userId: order.userId,
+        type: "out_for_delivery",
+        title: "Order out for delivery",
+        body: `Your order #${id.slice(-6).toUpperCase()} is on its way!`,
+        link: `/order/${id}/track`,
+      }).catch(() => {});
+    }
+
     return NextResponse.json(updated);
   }
 
@@ -329,6 +346,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   const updated = await (prisma.order as any).update({ where: { id }, data });
+
+  if (deliveryStatus === "out_for_delivery" && order.userId && order.user?.status !== "guest") {
+    createNotification({
+      userId: order.userId,
+      type: "out_for_delivery",
+      title: "Order out for delivery",
+      body: `Your order #${id.slice(-6).toUpperCase()} is on its way!`,
+      link: `/order/${id}/track`,
+    }).catch(() => {});
+  }
+
   return NextResponse.json(updated);
 }
 

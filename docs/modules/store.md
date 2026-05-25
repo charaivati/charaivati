@@ -10,6 +10,9 @@ status: active
 
 # Module: Store
 
+## Status (as of May 2026)
+**V1 complete.** Guest checkout works — no login required to place an order. Workflow auto-assignment fires on order confirm. Delivery logistics are handled by the workflow system (via `WorkflowStepAssignee` partners or self-delivery); the Store type itself is products-only. Fleet is the separate initiative type for delivery businesses.
+
 ## Purpose
 Full e-commerce system allowing users to create storefronts, organize products into sections, manage filters and banners, accept orders, and handle wishlists and pinned stores. Also powers the course content structure (same block/section models).
 
@@ -70,6 +73,9 @@ Full e-commerce system allowing users to create storefronts, organize products i
 1. Client POSTs to `POST /api/store/cart/[storeId]` with `blockId`
 2. API verifies block exists in store and user is authenticated
 3. Creates `CartItem` (one per user per block — upsert on quantity)
+
+### Guest checkout
+Guest users (`User.status = "guest"`) can place orders via either checkout path without registering. The order is created under the guest `User.id`. On login or email verification, `mergeGuestToReal` transfers all guest orders to the real account atomically.
 
 ### Checkout (cart-based)
 1. Client POSTs to `POST /api/store/orders` with `storeId`, `addressId`

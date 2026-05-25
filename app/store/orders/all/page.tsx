@@ -15,6 +15,7 @@ type Collab = { id: string; role: string; requester: CollabPage; receiver: Colla
 type Order = {
   id: string; status: string; total: number; createdAt: string;
   deliveryStatus?: string | null;
+  vehicleId?: string | null;
   assignedToId?: string | null;
   deliveryNote?: string | null;
   partnerStatus?: string | null;
@@ -581,6 +582,22 @@ export default function AllOrdersPage() {
                   </div>
                 );
               })()}
+
+              {/* ── Track partner (shown when partner GPS is live) ── */}
+              {order.deliveryStatus === "out_for_delivery" && order.vehicleId &&
+                (order.partnerStatus === "accepted" || order.partnerStatus === "assigned") && (
+                <div className="mt-3 pt-3 border-t" style={{ borderColor: "#f0f0f0" }}>
+                  <a
+                    href={`/order/${order.id}/track`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold"
+                    style={{ background: "#0F766E", color: "#fff", textDecoration: "none" }}
+                  >
+                    📍 Track partner →
+                  </a>
+                </div>
+              )}
 
             </div>
           );

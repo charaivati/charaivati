@@ -26,7 +26,7 @@ status: active
 | Direction | Value |
 |---|---|
 | In | Authenticated user session (for write operations) |
-| In | pageType: `store | course | health-business | helping-initiative` |
+| In | pageType: `store | service | fleet | course | health-business | helping-initiative | community_group` — active types are `store`, `service`, `fleet`; others are gated |
 | In | Page metadata: title, description, avatarUrl |
 | Out | `Page` record with linked sub-model |
 | Out | Follow relationship |
@@ -79,7 +79,8 @@ status: active
 
 ## Database Models Used
 - `Page` — root record: ownerId, title, description, avatarUrl, status, type, pageType, viewCount
-- `Store` — linked 1:1 when `pageType: 'store'`
+- `Store` — linked 1:1 when `pageType: 'store'` or `pageType: 'service'` (same sub-model, different initiative type label)
+- `Store` — linked 1:1 when `pageType: 'fleet'` (delivery fleet; uses a hidden backing `Store` with service blocks only)
 - `Course` — linked 1:1 when `pageType: 'course'`
 - `HealthBusiness` — linked 1:1 when `pageType: 'health-business'` (`type: 'health'`)
 - `HelpingInitiative` — linked 1:1 when `pageType: 'helping'`

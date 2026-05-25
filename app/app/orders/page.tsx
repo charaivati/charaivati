@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
@@ -290,6 +290,17 @@ export default function OrdersPage() {
   const [requestsLoaded,setRequestsLoaded]= useState(false);
   const [loading,       setLoading]       = useState(true);
   const [reqLoading,    setReqLoading]    = useState(false);
+  const sseRef = useRef<EventSource | null>(null);
+
+  const refreshBuyerOrders = useCallback(async () => {
+    try {
+      const res = await fetch("/api/store/orders", { credentials: "include" });
+      if (res.ok) {
+        const buyer = await res.json();
+        setBuyerOrders(Array.isArray(buyer) ? buyer : []);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -303,6 +314,36 @@ export default function OrdersPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // SSE subscription — refresh buyer orders when any notification arrives
+  useEffect(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      const es = new EventSource("/api/notifications/stream");
+      sseRef.current = es;
+      es.onmessage = () => { refreshBuyerOrders(); };
+      es.onerror = () => {
+        es.close();
+        retryTimer = setTimeout(connect, 10000);
+      };
+    }
+    connect();
+
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        sseRef.current?.close();
+        connect();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      sseRef.current?.close();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshBuyerOrders]);
 
   // Lazy-load requests when tab is first opened
   useEffect(() => {

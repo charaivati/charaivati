@@ -306,7 +306,32 @@ Env: `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` (used by both client and server — the
 
 ---
 
-## 7. Unprotected Routes
+## 7. Feature Area Starting Points
+
+Quick reference for jumping into a specific area. Read the linked doc before touching the code.
+
+| Feature area | Primary entry files | Reference |
+|---|---|---|
+| **Store** (products, sections, banners) | `app/store/[id]/page.tsx`, `app/api/store/` | `docs/modules/store.md` |
+| **Order management** (owner) | `app/store/[id]/orders/page.tsx`, `app/store/orders/all/page.tsx` | `docs/modules/store.md` § Key Pages |
+| **Checkout** (cart + Buy Now) | `components/store/QuickOrderModal.tsx`, `app/api/store/orders/quick/route.ts` | `CLAUDE.md` § Buy Now / Quick Order UX |
+| **Guest checkout** | `lib/mergeGuest.ts`, `app/api/user/magic/route.ts` | `CLAUDE.md` § Guest Account Merge |
+| **Fleet initiative** | `app/fleet/[pageId]/page.tsx`, `app/api/fleet/[pageId]/route.ts` | `CLAUDE.md` § Fleet Initiative Type |
+| **Workflow** (order fulfillment steps) | `lib/workflow/`, `components/earn/WorkflowTab.tsx` | `CLAUDE.md` § Store Initiative System |
+| **Delivery** (partner GPS, partner dashboard) | `app/earn/deliveries/page.tsx`, `components/earn/DeliveriesClient.tsx` | `docs/modules/transport.md` |
+| **Order tracking** (buyer live map) | `app/order/[id]/track/page.tsx`, `app/api/transport/vehicles/route.ts` | `docs/modules/transport.md` |
+| **In-app notifications** (bell + SSE) | `components/notifications/NotificationBell.tsx`, `app/api/notifications/` | `docs/modules/notifications.md` |
+| **Initiative Hub** (owner dashboard) | `app/earn/initiative/[pageId]/page.tsx`, `components/earn/InitiativeTabs.tsx` | `CLAUDE.md` § Initiative Hub |
+| **Pricing / delivery cost** | `lib/workflow/calculateDeliveryCost.ts`, `lib/workflow/assignNextPartner.ts` | `CLAUDE.md` § Store Initiative System |
+| **Partners / Collaboration** | `app/api/collaboration/`, `components/earn/PartnersTab.tsx` | `docs/modules/collaboration.md` |
+| **Auth** (login, register, sessions) | `lib/session.ts`, `app/api/auth/`, `app/api/user/` | `docs/modules/auth.md` |
+| **Invoice** (PDF, sign, download) | `lib/invoice/`, `app/api/orders/[orderId]/invoice/` | `CLAUDE.md` § Invoice System |
+
+**Initiative types** — active: `store`, `service`, `fleet`. Gated but built: `health`, `learning`, `helping`, `community_group`. Toggle: `ACTIVE_INITIATIVE_TYPES` in `app/app/initiatives/page.tsx:54`.
+
+---
+
+## 8. Unprotected Routes
 
 The following routes have **no server-side auth enforcement** of any kind — neither middleware nor manual API checks gate them by default:
 
@@ -322,7 +347,7 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 ---
 
-## 8. Coding Conventions Observed
+## 9. Coding Conventions Observed
 
 **API routes**
 - All routes are in `app/api/` as `route.ts` files
@@ -357,7 +382,7 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 ---
 
-## 9. Forbidden Modifications
+## 10. Forbidden Modifications
 
 **Do not touch without full understanding:**
 
@@ -381,7 +406,7 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 ---
 
-## 9a. Known Production Risks
+## 10a. Known Production Risks
 
 | Risk | Location | Action Required Before Launch |
 |---|---|---|
@@ -393,7 +418,7 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 ---
 
-## 10. Security
+## 11. Security
 
 A full static security audit is at [docs/SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
@@ -411,7 +436,7 @@ See `docs/SECURITY_AUDIT.md` for the full 28-finding report with file references
 
 ---
 
-## 11. Glossary
+## 12. Glossary
 
 | Term | Meaning |
 |---|---|

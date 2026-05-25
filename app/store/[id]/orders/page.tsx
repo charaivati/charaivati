@@ -866,6 +866,8 @@ export default function StoreOrdersPage() {
                 <div className="mt-3 pt-3 border-t" style={{ borderColor: "#f0f0f0" }}>
                   <a
                     href={`/order/${order.id}/track`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold"
                     style={{ background: "#0F766E", color: "#fff", textDecoration: "none" }}
                   >

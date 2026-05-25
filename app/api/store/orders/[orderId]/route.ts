@@ -19,7 +19,7 @@ export async function PATCH(
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    include: { store: true },
+    include: { store: true, user: { select: { id: true, status: true } } },
   });
 
   if (!order || order.store.ownerId !== user.id)
@@ -43,6 +43,29 @@ export async function PATCH(
       body: `Order #${orderId.slice(-8).toUpperCase()} has been placed`,
       link: "/store/orders/all",
     }).catch(() => {});
+    // Notify the buyer their order was confirmed
+    if (order.userId && order.user?.status !== "guest") {
+      createNotification({
+        userId: order.userId,
+        type: "order_confirmed",
+        title: "Order confirmed",
+        body: `Your order from ${order.store.name} has been confirmed and is being prepared.`,
+        link: `/app/orders`,
+      }).catch(() => {});
+    }
+  }
+
+  if (status === "cancelled") {
+    // Notify the buyer their order was cancelled
+    if (order.userId && order.user?.status !== "guest") {
+      createNotification({
+        userId: order.userId,
+        type: "order_cancelled",
+        title: "Order cancelled",
+        body: `Your order from ${order.store.name} has been cancelled.`,
+        link: `/app/orders`,
+      }).catch(() => {});
+    }
   }
 
   return NextResponse.json(updated);

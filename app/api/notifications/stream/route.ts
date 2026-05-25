@@ -62,6 +62,12 @@ export async function GET(req: NextRequest) {
       // Send initial state immediately
       await poll();
 
+      // Close early for users with zero notifications — client falls back to 10s polling
+      if (prevLatestId === "") {
+        try { controller.close(); } catch {}
+        return;
+      }
+
       // Poll every 5 s for new notifications
       const pollTimer = setInterval(poll, 5000);
 

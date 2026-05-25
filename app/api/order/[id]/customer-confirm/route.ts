@@ -24,6 +24,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       parentOrderId: true,
       storeId: true,
       store: { select: { ownerId: true } },
+      user: { select: { status: true } },
     },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -48,6 +49,17 @@ export async function POST(req: NextRequest, { params }: Params) {
       title: "Order delivered",
       body: `Customer confirmed receipt of Order #${orderId.slice(-8).toUpperCase()}`,
       link: order.storeId ? `/store/${order.storeId}/orders/delivered` : "/store/orders/all",
+    }).catch(() => {});
+  }
+
+  // Notify the buyer that their order is confirmed as delivered
+  if (order.userId && order.user?.status !== "guest") {
+    createNotification({
+      userId: order.userId,
+      type: "delivery_complete",
+      title: "Order delivered",
+      body: `Your order #${orderId.slice(-6).toUpperCase()} has been delivered. Thank you!`,
+      link: `/app/orders`,
     }).catch(() => {});
   }
 
