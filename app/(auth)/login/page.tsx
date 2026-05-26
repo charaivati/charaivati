@@ -116,6 +116,11 @@ function AuthForm() {
   const [phoneMessage, setPhoneMessage] = useState("");
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  // Verify-pending collapse state
+  const [verifyCollapsed, setVerifyCollapsed] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+  const [resendVerifyMessage, setResendVerifyMessage] = useState("");
+
   useEffect(() => {
     if (cooldown > 0) {
       const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
@@ -129,6 +134,13 @@ function AuthForm() {
       return () => clearTimeout(timer);
     }
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (step !== "verify-pending") return;
+    setVerifyCollapsed(false);
+    const timer = setTimeout(() => setVerifyCollapsed(true), 4000);
+    return () => clearTimeout(timer);
+  }, [step]);
 
   async function checkStatus(checkEmail?: string) {
     const e = checkEmail ?? email;
@@ -373,6 +385,29 @@ function AuthForm() {
     if (ok) setResendCooldown(30);
   }
 
+  async function handleResendVerification() {
+    if (resendingVerification) return;
+    setResendingVerification(true);
+    setResendVerifyMessage("");
+    try {
+      const res = await fetch("/api/auth/send-magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, redirect: redirectTo }),
+      });
+      if (!res.ok) {
+        setResendVerifyMessage("failed");
+      } else {
+        setResendVerifyMessage("sent");
+        setTimeout(() => setResendVerifyMessage(""), 3000);
+      }
+    } catch {
+      setResendVerifyMessage("failed");
+    } finally {
+      setResendingVerification(false);
+    }
+  }
+
   async function handleOtpVerify() {
     const code = otpDigits.join("");
     if (code.length < 6) {
@@ -431,29 +466,31 @@ function AuthForm() {
           <p className="text-gray-400">{t("auth-welcome-subtitle", "Sign in or create an account to continue")}</p>
         </div>
 
-        {/* Email / Phone Mode Toggle */}
-        <div className="flex rounded-lg bg-white/5 border border-white/10 p-1 gap-1 mb-4">
-          <button
-            onClick={() => switchMode("email")}
-            className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
-              loginMode === "email"
-                ? "bg-indigo-600 text-white"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            Email
-          </button>
-          <button
-            onClick={() => switchMode("phone")}
-            className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
-              loginMode === "phone"
-                ? "bg-indigo-600 text-white"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
-            Phone
-          </button>
-        </div>
+        {/* Email / Phone Mode Toggle — hidden after registration succeeds */}
+        {step !== "verify-pending" && (
+          <div className="flex rounded-lg bg-white/5 border border-white/10 p-1 gap-1 mb-4">
+            <button
+              onClick={() => switchMode("email")}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
+                loginMode === "email"
+                  ? "bg-indigo-600 text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              Email
+            </button>
+            <button
+              onClick={() => switchMode("phone")}
+              className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
+                loginMode === "phone"
+                  ? "bg-indigo-600 text-white"
+                  : "text-gray-400 hover:text-white"
+              }`}
+            >
+              Phone
+            </button>
+          </div>
+        )}
 
         {/* Email Flow */}
         {loginMode === "email" && (
@@ -672,7 +709,7 @@ function AuthForm() {
             )}
 
             {/* Verify Pending Step */}
-            {step === "verify-pending" && (
+            {step === "verify-pending" && !verifyCollapsed && (
               <div className="bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm text-center space-y-3">
                 <p className="text-sm text-gray-200 leading-relaxed">
                   Account created! Check your inbox — we&apos;ve sent a verification link to{" "}
@@ -680,6 +717,25 @@ function AuthForm() {
                   your account and continue.
                 </p>
                 <p className="text-xs text-gray-500">Already verified? Sign in above.</p>
+              </div>
+            )}
+
+            {step === "verify-pending" && verifyCollapsed && (
+              <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
+                <span className="text-sm text-gray-300">📧 Verify your email to continue</span>
+                <button
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification}
+                  className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 whitespace-nowrap transition"
+                >
+                  {resendingVerification
+                    ? "Sending..."
+                    : resendVerifyMessage === "sent"
+                    ? "✅ Sent!"
+                    : resendVerifyMessage === "failed"
+                    ? "❌ Failed"
+                    : "Resend"}
+                </button>
               </div>
             )}
           </>

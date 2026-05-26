@@ -240,7 +240,7 @@ export default function AppShellLayout({
                       ) : (
                         <>
                           <a
-                            href="/store/account"
+                            href={`/user/${user.id}`}
                             style={{
                               display: "block",
                               padding: "10px 16px",
