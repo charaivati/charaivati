@@ -514,7 +514,7 @@ export default function OrdersPage() {
                           {o.items.length > 2 ? ` +${o.items.length - 2} more` : ""}
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
                             {o.agreedAmount != null
                               ? `₹${o.agreedAmount.toLocaleString("en-IN")} agreed`
                               : `₹${o.total.toLocaleString("en-IN")}`}
