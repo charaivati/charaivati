@@ -356,7 +356,11 @@ export default function OrdersPage() {
       .finally(() => setReqLoading(false));
   }, [activeTab, requestsLoaded]);
 
-  const trackingOrders = buyerOrders.filter((o) => o.deliveryStatus === "out_for_delivery");
+  // Assignment sub-orders (parentOrderId set) are fulfillment tasks for the user, not purchases.
+  // Regular purchases stay in My Orders; assignments move to Store Orders.
+  const assignmentOrders  = buyerOrders.filter((o) => !!o.parentOrderId);
+  const regularBuyerOrders = buyerOrders.filter((o) => !o.parentOrderId);
+  const trackingOrders = regularBuyerOrders.filter((o) => o.deliveryStatus === "out_for_delivery");
   const pendingRequests = requests.filter((q) => q.status === "pending" || q.status === "submitted");
 
   function statusLabel(status: string) {
@@ -427,29 +431,16 @@ export default function OrdersPage() {
 
           /* ── MY ORDERS ─────────────────────────────────────────────────── */
           ) : activeTab === "my" ? (
-            buyerOrders.length === 0 ? (
+            regularBuyerOrders.length === 0 ? (
               <div style={{ textAlign: "center", color: "#64748B", padding: 48, fontSize: 14 }}>
                 {t("app-orders-empty-my", "No orders yet.")}
               </div>
             ) : (
-              buyerOrders.map((o) => (
+              regularBuyerOrders.map((o) => (
                 <div key={o.id} style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <div style={{ fontWeight: 600, fontSize: 14, color: "#111827" }}>
-                        {o.store?.name ?? "Store"}
-                      </div>
-                      {/* PART 4 — sub-order badge */}
-                      {o.parentOrderId && (
-                        <span style={{ fontSize: 10, fontWeight: 700, background: "#FEF3C7", color: "#92400E", padding: "1px 6px", borderRadius: 99, whiteSpace: "nowrap" }}>
-                          Assignment
-                        </span>
-                      )}
-                      {o.subOrderType && (
-                        <span style={{ fontSize: 10, color: "#6B7280", background: "#F1F5F9", padding: "1px 6px", borderRadius: 6 }}>
-                          {o.subOrderType}
-                        </span>
-                      )}
+                    <div style={{ fontWeight: 600, fontSize: 14, color: "#111827" }}>
+                      {o.store?.name ?? "Store"}
                     </div>
                     <StatusBadge
                       status={o.deliveryStatus ?? o.status}
@@ -458,42 +449,17 @@ export default function OrdersPage() {
                       label={statusLabel(o.deliveryStatus ?? o.status)}
                     />
                   </div>
-                  {o.parentOrderId && o.subOrderType === "delivery" && (
-                    <div style={{ fontSize: 13, fontWeight: 700, color: "#16A34A", marginBottom: 6 }}>
-                      {o.agreedAmount != null
-                        ? `₹${o.agreedAmount.toLocaleString("en-IN")} agreed fee`
-                        : "Fee not set"}
-                    </div>
-                  )}
                   <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>
                     {o.items.slice(0, 2).map((i) => `${i.title} x${i.quantity}`).join(", ")}
                     {o.items.length > 2 ? ` +${o.items.length - 2} more` : ""}
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>
-                        {o.agreedAmount != null
-                          ? `₹${o.agreedAmount.toLocaleString("en-IN")} agreed`
-                          : `₹${o.total.toLocaleString("en-IN")}`}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      {o.parentOrderId && o.subOrderType !== "delivery" && (
-                        <Link href={`/order/${o.parentOrderId}/track`} style={{ fontSize: 12, color: "#64748B", textDecoration: "none" }}>
-                          Parent →
-                        </Link>
-                      )}
-                      {o.subOrderType === "delivery" && (
-                        <Link href="/earn/deliveries" style={{ fontSize: 12, color: "#fff", background: "#6366f1", padding: "4px 10px", borderRadius: 6, textDecoration: "none", fontWeight: 600 }}>
-                          Deliver 🚚
-                        </Link>
-                      )}
-                      {o.deliveryStatus === "out_for_delivery" && !o.parentOrderId && (
-                        <Link href={`/order/${o.id}/track`} style={{ fontSize: 12, color: "#fff", background: "#D85A30", padding: "4px 10px", borderRadius: 6, textDecoration: "none", fontWeight: 600 }}>
-                          {t("app-orders-track", "Track 📍")}
-                        </Link>
-                      )}
-                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600 }}>₹{o.total.toLocaleString("en-IN")}</span>
+                    {o.deliveryStatus === "out_for_delivery" && (
+                      <Link href={`/order/${o.id}/track`} style={{ fontSize: 12, color: "#fff", background: "#D85A30", padding: "4px 10px", borderRadius: 6, textDecoration: "none", fontWeight: 600 }}>
+                        {t("app-orders-track", "Track 📍")}
+                      </Link>
+                    )}
                   </div>
                 </div>
               ))
@@ -501,38 +467,110 @@ export default function OrdersPage() {
 
           /* ── STORE ORDERS ───────────────────────────────────────────────── */
           ) : activeTab === "store" ? (
-            sellerOrders.length === 0 ? (
+            sellerOrders.length === 0 && assignmentOrders.length === 0 ? (
               <div style={{ textAlign: "center", color: "#64748B", padding: 48, fontSize: 14 }}>
                 {t("app-orders-empty-store", "No store orders yet.")}
               </div>
             ) : (
               <>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-                  <Link href="/store/orders/all" style={{ fontSize: 12, color: "#185FA5", fontWeight: 600, textDecoration: "none" }}>
-                    {t("app-orders-manage-all", "Manage all orders →")}
-                  </Link>
-                </div>
-                {sellerOrders.map((o) => (
-                  <div key={o.id} style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, background: "#F8FAFC", color: "#64748B", padding: "2px 8px", borderRadius: 99, border: "0.5px solid #e2e8f0" }}>
-                        {o.store?.name ?? "Store"}
-                      </span>
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                        <StatusBadge status={o.deliveryStatus ?? "pending"} colorMap={DELIVERY_COLOR} bgMap={DELIVERY_BG} label={statusLabel(o.deliveryStatus ?? "pending")} />
-                        {o.assignedToId && o.partnerStatus && (
-                          <StatusBadge status={o.partnerStatus} colorMap={PARTNER_COLOR} label={PARTNER_LABEL[o.partnerStatus] ?? o.partnerStatus} />
-                        )}
-                      </div>
+                {/* Assignment sub-orders — delivery/service tasks assigned to this user */}
+                {assignmentOrders.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+                      Assignments
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontSize: 13, fontWeight: 600 }}>₹{o.total.toLocaleString("en-IN")}</span>
-                      <Link href={o.store?.slug ? `/store/${o.store.slug}/orders` : `/store/orders/all`} style={{ fontSize: 12, color: "#185FA5", fontWeight: 600, textDecoration: "none" }}>
-                        {t("app-orders-manage", "Manage →")}
+                    {assignmentOrders.map((o) => (
+                      <div key={o.id} style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <div style={{ fontWeight: 600, fontSize: 14, color: "#111827" }}>
+                              {o.store?.name ?? "Store"}
+                            </div>
+                            <span style={{ fontSize: 10, fontWeight: 700, background: "#FEF3C7", color: "#92400E", padding: "1px 6px", borderRadius: 99, whiteSpace: "nowrap" }}>
+                              Assignment
+                            </span>
+                            {o.subOrderType && (
+                              <span style={{ fontSize: 10, color: "#6B7280", background: "#F1F5F9", padding: "1px 6px", borderRadius: 6 }}>
+                                {o.subOrderType}
+                              </span>
+                            )}
+                          </div>
+                          <StatusBadge
+                            status={o.deliveryStatus ?? o.status}
+                            colorMap={o.deliveryStatus ? DELIVERY_COLOR : ORDER_COLOR}
+                            bgMap={o.deliveryStatus ? DELIVERY_BG : ORDER_BG}
+                            label={statusLabel(o.deliveryStatus ?? o.status)}
+                          />
+                        </div>
+                        {o.subOrderType === "delivery" && (
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#16A34A", marginBottom: 6 }}>
+                            {o.agreedAmount != null
+                              ? `₹${o.agreedAmount.toLocaleString("en-IN")} agreed fee`
+                              : "Fee not set"}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 12, color: "#64748B", marginBottom: 8 }}>
+                          {o.items.slice(0, 2).map((i) => `${i.title} x${i.quantity}`).join(", ")}
+                          {o.items.length > 2 ? ` +${o.items.length - 2} more` : ""}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>
+                            {o.agreedAmount != null
+                              ? `₹${o.agreedAmount.toLocaleString("en-IN")} agreed`
+                              : `₹${o.total.toLocaleString("en-IN")}`}
+                          </span>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            {o.subOrderType !== "delivery" && (
+                              <Link href={`/order/${o.parentOrderId}/track`} style={{ fontSize: 12, color: "#64748B", textDecoration: "none" }}>
+                                Parent →
+                              </Link>
+                            )}
+                            {o.subOrderType === "delivery" && (
+                              <Link href="/earn/deliveries" style={{ fontSize: 12, color: "#fff", background: "#6366f1", padding: "4px 10px", borderRadius: 6, textDecoration: "none", fontWeight: 600 }}>
+                                Deliver 🚚
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {sellerOrders.length > 0 && (
+                      <div style={{ borderTop: "0.5px solid #e2e8f0", margin: "8px 0 12px" }} />
+                    )}
+                  </>
+                )}
+
+                {/* Seller orders — stores owned by this user */}
+                {sellerOrders.length > 0 && (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                      <Link href="/store/orders/all" style={{ fontSize: 12, color: "#185FA5", fontWeight: 600, textDecoration: "none" }}>
+                        {t("app-orders-manage-all", "Manage all orders →")}
                       </Link>
                     </div>
-                  </div>
-                ))}
+                    {sellerOrders.map((o) => (
+                      <div key={o.id} style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, background: "#F8FAFC", color: "#64748B", padding: "2px 8px", borderRadius: 99, border: "0.5px solid #e2e8f0" }}>
+                            {o.store?.name ?? "Store"}
+                          </span>
+                          <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                            <StatusBadge status={o.deliveryStatus ?? "pending"} colorMap={DELIVERY_COLOR} bgMap={DELIVERY_BG} label={statusLabel(o.deliveryStatus ?? "pending")} />
+                            {o.assignedToId && o.partnerStatus && (
+                              <StatusBadge status={o.partnerStatus} colorMap={PARTNER_COLOR} label={PARTNER_LABEL[o.partnerStatus] ?? o.partnerStatus} />
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>₹{o.total.toLocaleString("en-IN")}</span>
+                          <Link href={o.store?.slug ? `/store/${o.store.slug}/orders` : `/store/orders/all`} style={{ fontSize: 12, color: "#185FA5", fontWeight: 600, textDecoration: "none" }}>
+                            {t("app-orders-manage", "Manage →")}
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
               </>
             )
 
