@@ -430,6 +430,39 @@ Cloud fallbacks are token-cost-sensitive — keep prompts lean (~400 tokens max)
 - `lib/ai/promptBuilder.ts` — assembles platform + user context + task prompt
 - `lib/ai/userContextBuilder.ts` — builds per-user context, cached in Redis
 
+## AI Context Files
+
+Philosophy and behavior context for the Charaivati AI lives in `/ai-context/` (gitignored — not in repo).
+Files use `[SECTION: name]...[/SECTION]` format parsed by `lib/ai/contextLoader.ts`.
+
+### Files
+- `PLATFORM.txt` — mission, 6 layers, philosophy
+- `DRIVES.txt` — 4 drive archetypes (Brahmin/Kshatriya/Vaishya/Shudra) and combinations
+- `RESPONSE_GUIDE.txt` — tone rules, energy gates, forbidden patterns
+- `INITIATIVES.txt` — store/service/fleet/helping initiative types and workflow
+
+### Periodic Review Instructions (for Claude Code)
+When asked to review AI context files:
+1. Read all four files in `/ai-context/`
+2. Check each section has content (warn if any `[SECTION]` block is empty)
+3. Check for navigation issues — sections that are too long (>300 words), ambiguous, or redundant
+4. Suggest structural improvements only — do NOT rewrite or change the philosophy content
+5. Check `lib/ai/contextLoader.ts` still parses all sections correctly
+6. Check `app/api/chat/route.ts` is still injecting platform context into system prompt
+7. Report: which sections are populated, which are empty, any structural issues found
+
+### Adding New Sections
+To add a new section to any file:
+1. Add `[SECTION: new_name]...[/SECTION]` block to the file
+2. No code changes needed — `contextLoader.ts` parses all sections automatically
+3. To use a specific section in a route: `loadSection('DRIVES.txt', 'builder')`
+
+### When to Update Context Files
+- New initiative type added → update `INITIATIVES.txt`
+- Drive archetype understanding deepens → update `DRIVES.txt`
+- AI tone feedback from users → update `RESPONSE_GUIDE.txt`
+- New layer becomes active → update `PLATFORM.txt`
+
 ## Testing
 
 `ALLOW_TEST_BYPASS=true` enables an `X-Test-UserId` header bypass in 5 API routes, letting a ts-node test script impersonate any user without a JWT. **Only present in `.env.local`. Never set in `.env`, `.env.production`, or Vercel env vars.**

@@ -3,37 +3,80 @@ import path from "path";
 
 const CONTEXT_DIR = path.join(process.cwd(), "ai-context");
 
-const FILES = {
-  PLATFORM:       "PLATFORM.txt",
-  DRIVES:         "DRIVES.txt",
-  RESPONSE_GUIDE: "RESPONSE_GUIDE.txt",
-  INITIATIVES:    "INITIATIVES.txt",
-} as const;
+// Module-level cache — values written once per server process, never evicted.
+// Key format: "filename:__raw__" for raw file text, "filename:sectionName" for parsed sections.
+const cache: Record<string, string> = {};
 
-// In-memory cache — populated once per server process
-const cache: Partial<Record<keyof typeof FILES, string>> = {};
+// ─── Internal helpers ──────────────────────────────────────────────────────────
 
-function readFile(key: keyof typeof FILES): string {
-  if (cache[key] !== undefined) return cache[key]!;
+function readRaw(filename: string): string {
+  const key = `${filename}:__raw__`;
+  if (key in cache) return cache[key];
   try {
-    const content = fs.readFileSync(path.join(CONTEXT_DIR, FILES[key]), "utf-8").trim();
+    const content = fs.readFileSync(path.join(CONTEXT_DIR, filename), "utf-8");
     cache[key] = content;
     return content;
-  } catch {
+  } catch (err) {
+    console.warn(`[contextLoader] Could not read ${filename}:`, (err as Error).message);
     cache[key] = "";
     return "";
   }
 }
 
-export function loadPlatformContext(): string {
-  const sections: string[] = [];
-  for (const key of ["PLATFORM", "DRIVES", "RESPONSE_GUIDE", "INITIATIVES"] as const) {
-    const content = readFile(key);
-    if (content) sections.push(`## ${key}\n${content}`);
+function parseSections(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const re = /\[SECTION:\s*(\w+)\]([\s\S]*?)\[\/SECTION\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    result[m[1].trim()] = m[2].trim();
   }
-  return sections.join("\n\n");
+  return result;
 }
 
+function formatFile(filename: string): string {
+  const raw = readRaw(filename);
+  if (!raw.trim()) return "";
+  const sections = parseSections(raw);
+  return Object.entries(sections)
+    .filter(([, v]) => v.length > 0)
+    .map(([name, content]) => `## [${name.toUpperCase()}]\n${content}`)
+    .join("\n\n");
+}
+
+// ─── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Concatenates all populated sections from PLATFORM.txt, DRIVES.txt, and
+ * RESPONSE_GUIDE.txt. Returns empty string when all files are empty.
+ */
+export function loadPlatformContext(): string {
+  const parts = [
+    formatFile("PLATFORM.txt"),
+    formatFile("DRIVES.txt"),
+    formatFile("RESPONSE_GUIDE.txt"),
+  ].filter(Boolean);
+  return parts.join("\n\n");
+}
+
+/**
+ * Returns the raw content of INITIATIVES.txt (all sections as-is).
+ * Empty string when file is missing or blank.
+ */
 export function loadInitiativeContext(): string {
-  return readFile("INITIATIVES");
+  return readRaw("INITIATIVES.txt").trim();
+}
+
+/**
+ * Returns the content of a single named section from any context file.
+ * Returns empty string if the file or section is missing.
+ *
+ * @example loadSection("DRIVES.txt", "builder")
+ */
+export function loadSection(filename: string, sectionName: string): string {
+  const key = `${filename}:${sectionName}`;
+  if (key in cache) return cache[key];
+  const sections = parseSections(readRaw(filename));
+  const result = sections[sectionName] ?? "";
+  cache[key] = result;
+  return result;
 }

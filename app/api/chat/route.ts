@@ -71,7 +71,7 @@ export async function POST(req: Request) {
   const currentSection = context?.currentSection ?? "Self";
 
   const platformContext = loadPlatformContext();
-  const systemPrompt = `${platformContext ? platformContext + "\n\n" : ""}You are Charaivati Guide. Help the user move forward in their life with clarity and purpose.
+  const systemPrompt = `${platformContext ? `--- PLATFORM CONTEXT ---\n${platformContext}\n--- END CONTEXT ---\n\n` : ""}You are Charaivati Guide. Help the user move forward in their life with clarity and purpose.
 You know this about the user:
 
 Drives: ${drives}
