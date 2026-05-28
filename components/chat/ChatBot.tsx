@@ -41,7 +41,6 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false }:
     setLoading(true);
 
     try {
-      console.log('[ChatBot] user state:', { isLoggedIn, currentSection, historyLength: messages.length });
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

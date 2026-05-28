@@ -290,14 +290,13 @@ One-shot AI flow that creates a complete store structure from a plain-English de
 - **CSP**: `https://images.unsplash.com` is added to `img-src` in `next.config.mjs`.
 
 ### Charaivati AI Chatbot (floating guide widget)
-A floating chat widget powered by a locally-running Ollama model. Visible to logged-in users on every page.
+A floating chat widget powered by `chatComplete()` in `app/api/aiClient.ts` — primary provider is local Ollama via Cloudflare tunnel (`https://ollama.charaivati.com`); fallback chain is OpenRouter → Groq → Vercel AI Gateway. Visible to logged-in users on every page.
 
 - **Widget**: `components/chat/ChatBot.tsx` — bottom-right floating bubble; opens a 380×520 dark panel. Props: `isLoggedIn: boolean` (gates rendering), `currentSection?: string` (passed to the API for context; defaults to `"Self"`).
-- **API route**: `POST /api/chat` — auth-gated (manual `getTokenFromRequest` + `verifySessionToken`). Loads `User.drives`, `Profile.goals`, `Profile.stepsToday`, `Profile.sleepHours`, and owned `Page` records server-side. Derives an `energyScore` (0–100) from step count + sleep hours. Builds a personalised system prompt, sends it along with `conversationHistory` (passed from client) to Ollama, returns `{ reply }`. Falls back to a canned message with `_fallback: true` if Ollama is unreachable (connection refused, timeout, non-200).
+- **API route**: `POST /api/chat` — auth-gated (manual `getTokenFromRequest` + `verifySessionToken`). Loads `User.drives`, `Profile.goals`, `Profile.stepsToday`, `Profile.sleepHours`, and owned `Page` records server-side. Derives an `energyScore` (0–100) from step count + sleep hours. Builds a personalised system prompt, calls `chatComplete({ model: CHAT_AI_MODEL, messages, maxTokens: 300, temperature: 0.7 })`, returns `{ reply }`. Falls back to a canned message with `_fallback: true` if all providers fail.
 - **Integration**: `ChatBot` is rendered directly in `app/layout.tsx` (root layout). The layout reads the session cookie server-side and passes `isLoggedIn` — no extra client fetch.
 - **Conversation history**: stored in `useState` only — not persisted to DB. Cleared by the "Clear chat" button in the panel header.
-- **Ollama call**: `POST {OLLAMA_URL}/api/chat` with `stream: false`. Messages: `[system, ...conversationHistory, { role: "user", content: message }]`. 30-second fetch timeout via `AbortSignal.timeout(30000)`.
-- **Environment**: `OLLAMA_URL` (default `http://localhost:11434`) and `OLLAMA_MODEL` (default `llama3.2`). Both optional — defaults kick in if not set.
+- **Environment**: `CHAT_AI_MODEL` (default `llama3:8b`) — the `model` param passed to `chatComplete()`; used by OpenRouter/Groq/Vercel fallbacks. Ollama always uses `OLLAMA_MODEL` regardless. `LOCAL_AI_ENABLED=true` + `OLLAMA_BASE_URL` must be set for Ollama to be the primary provider.
 
 ### Store Image Pool
 All store image uploads go through a two-layer dedup pipeline — **never call Cloudinary directly** from store upload forms.

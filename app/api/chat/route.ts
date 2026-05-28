@@ -6,9 +6,7 @@ import { chatComplete } from "@/app/api/aiClient";
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 
 export async function POST(req: Request) {
-  console.log('[chat] request received');
   const token = getTokenFromRequest(req);
-  console.log('[chat] token:', token ? 'present' : 'missing');
   const payload = await verifySessionToken(token);
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -24,7 +22,6 @@ export async function POST(req: Request) {
   }
 
   const userId = payload.userId;
-  console.log('[chat] userId:', userId);
 
   const [user, profile, pages] = await Promise.all([
     db.user.findUnique({
@@ -100,8 +97,7 @@ Never give generic motivational quotes. Be specific to what you know about them.
   try {
     const reply = await chatComplete({ model: CHAT_MODEL, messages, maxTokens: 300, temperature: 0.7 });
     return NextResponse.json({ reply });
-  } catch (err) {
-    console.error('[chat] error:', err);
+  } catch {
     return NextResponse.json({
       reply: "I'm having trouble connecting right now. Please try again in a moment.",
       _fallback: true,
