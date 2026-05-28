@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 import { db } from "@/lib/db";
 import { chatComplete } from "@/app/api/aiClient";
+import { loadPlatformContext } from "@/lib/ai/contextLoader";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 
@@ -69,7 +70,8 @@ export async function POST(req: Request) {
 
   const currentSection = context?.currentSection ?? "Self";
 
-  const systemPrompt = `You are Charaivati Guide. Help the user move forward in their life with clarity and purpose.
+  const platformContext = loadPlatformContext();
+  const systemPrompt = `${platformContext ? platformContext + "\n\n" : ""}You are Charaivati Guide. Help the user move forward in their life with clarity and purpose.
 You know this about the user:
 
 Drives: ${drives}
