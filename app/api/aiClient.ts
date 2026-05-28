@@ -1,6 +1,6 @@
 // app/api/aiClient.ts
 // Provider paths: OpenRouter → Groq → Vercel AI Gateway.
-// chatComplete: OpenRouter → Groq → Vercel.
+// chatComplete: (Ollama if LOCAL_AI_ENABLED) → OpenRouter → Groq → Vercel.
 // callAI:       Ollama → OpenRouter → Groq → Vercel.
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -17,6 +17,29 @@ export async function chatComplete({
   temperature?: number;
   jsonMode?: boolean;
 }): Promise<string> {
+  // 0 — Ollama (local, opt-in via LOCAL_AI_ENABLED=true + OLLAMA_BASE_URL)
+  if (process.env.LOCAL_AI_ENABLED === 'true' && process.env.OLLAMA_BASE_URL) {
+    try {
+      const ollamaModel = process.env.OLLAMA_MODEL ?? 'llama3:8b';
+      const ollamaBase = process.env.OLLAMA_BASE_URL.replace(/\/$/, '');
+      const res = await fetch(`${ollamaBase}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: ollamaModel, messages, stream: false }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => res.statusText);
+        throw new Error(`Ollama ${res.status}: ${text}`);
+      }
+      const data = await res.json();
+      const content = data.message?.content;
+      if (content) return content as string;
+      throw new Error('Ollama returned empty content');
+    } catch (err) {
+      console.warn('[aiClient] Ollama failed, trying OpenRouter:', err);
+    }
+  }
+
   // 1 — OpenRouter
   const orKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
   if (orKey) {

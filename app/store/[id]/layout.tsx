@@ -10,7 +10,7 @@ const BORDER = "#DDDDDD";
 const ACCENT = "#6366f1";
 
 function MobileProfileMenu() {
-  const { isOwner, storeId, userName, onOpenAddress, deliveryLabel, isGuest } = useStoreShell();
+  const { isOwner, storeId, userName, userId, onOpenAddress, deliveryLabel, isGuest } = useStoreShell();
   const pathname = usePathname();
 
   const [open, setOpen] = useState(false);
@@ -106,7 +106,7 @@ function MobileProfileMenu() {
             </a>
           ) : (
             <a
-              href="/store/account"
+              href={userId ? `/user/${userId}` : "/store/account"}
               style={{
                 display: "block",
                 padding: "10px 16px",
@@ -488,7 +488,7 @@ function StoreShellInner({ children }: { children: React.ReactNode }) {
   const params = useParams<{ id: string }>();
   const id = params?.id;
 
-  const { setStoreId, setUserName, setIsGuest, showNav } = useStoreShell();
+  const { setStoreId, setUserName, setUserId, setIsGuest, showNav } = useStoreShell();
 
   useEffect(() => {
     if (!id) return;
@@ -499,6 +499,7 @@ function StoreShellInner({ children }: { children: React.ReactNode }) {
       .then((r) => (r.ok ? r.json() : { user: null }))
       .then((d) => {
         setUserName(d.user?.name ?? d.user?.email ?? null);
+        setUserId(d.user?.id ?? null);
         setIsGuest(d.user?.status === "guest");
       })
       .catch(() => {});

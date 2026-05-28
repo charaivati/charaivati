@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 import { db } from "@/lib/db";
+import { chatComplete } from "@/app/api/aiClient";
+
+const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 
 export async function POST(req: Request) {
+  console.log('[chat] request received');
   const token = getTokenFromRequest(req);
+  console.log('[chat] token:', token ? 'present' : 'missing');
   const payload = await verifySessionToken(token);
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -19,6 +24,7 @@ export async function POST(req: Request) {
   }
 
   const userId = payload.userId;
+  console.log('[chat] userId:', userId);
 
   const [user, profile, pages] = await Promise.all([
     db.user.findUnique({
@@ -36,7 +42,6 @@ export async function POST(req: Request) {
     }),
   ]);
 
-  // Derive a simple energy score (0–100) from available health signals
   const stepsToday = profile?.stepsToday ?? 0;
   const sleepHours = profile?.sleepHours ?? 0;
   let energyScore = 50;
@@ -67,7 +72,7 @@ export async function POST(req: Request) {
 
   const currentSection = context?.currentSection ?? "Self";
 
-  const systemPrompt = `You are Charaivati — a personal guide helping the user live with purpose.
+  const systemPrompt = `You are Charaivati Guide. Help the user move forward in their life with clarity and purpose.
 You know this about the user:
 
 Drives: ${drives}
@@ -77,42 +82,28 @@ Active initiatives: ${initiativesStr}
 Current section: ${currentSection}
 
 Charaivati has 6 layers: Self → Society → State → Nation → Earth → Universe.
-The user is currently working on their own growth (Self layer).
 Speak like a wise, grounded mentor. Keep replies concise (3-5 sentences max unless the user asks for detail).
 Always connect advice back to the user's own drives and goals.
 Never give generic motivational quotes. Be specific to what you know about them.`;
 
-  const ollamaUrl = process.env.OLLAMA_URL ?? "http://localhost:11434";
-  const ollamaModel = process.env.OLLAMA_MODEL ?? "llama3.2";
+  const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
+    { role: "system", content: systemPrompt },
+    ...(Array.isArray(conversationHistory)
+      ? conversationHistory.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }))
+      : []),
+    { role: "user", content: message },
+  ];
 
   try {
-    const ollamaRes = await fetch(`${ollamaUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: ollamaModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          ...(Array.isArray(conversationHistory) ? conversationHistory : []),
-          { role: "user", content: message },
-        ],
-        stream: false,
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-
-    if (!ollamaRes.ok) {
-      throw new Error(`Ollama responded with status ${ollamaRes.status}`);
-    }
-
-    const data = await ollamaRes.json();
-    const reply = data.message?.content ?? "I couldn't generate a response.";
-
+    const reply = await chatComplete({ model: CHAT_MODEL, messages, maxTokens: 300, temperature: 0.7 });
     return NextResponse.json({ reply });
-  } catch {
+  } catch (err) {
+    console.error('[chat] error:', err);
     return NextResponse.json({
-      reply:
-        "I'm having trouble connecting right now. Please make sure Ollama is running and try again in a moment.",
+      reply: "I'm having trouble connecting right now. Please try again in a moment.",
       _fallback: true,
     });
   }

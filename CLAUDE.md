@@ -379,9 +379,57 @@ Image search (all optional — `lib/imageSearch.ts` skips missing providers and 
 - `PEXELS_KEY` — Pexels API key
 - `PIXABAY_KEY` — Pixabay API key
 
-Ollama / AI chatbot (both optional — defaults used if absent):
-- `OLLAMA_URL` — Base URL of the local Ollama server (default: `http://localhost:11434`)
-- `OLLAMA_MODEL` — Model name to use (default: `llama3.2`)
+## AI Architecture
+
+### Provider Chain
+`chatComplete()` in `app/api/aiClient.ts` tries providers in this order:
+1. **Ollama** (local) — if `LOCAL_AI_ENABLED=true` and `OLLAMA_BASE_URL` is set
+2. **OpenRouter** — if `OPENROUTER_API_KEY` is set
+3. **Groq** — if `Charaivati_groq` is set
+4. **Vercel AI Gateway** — if `Charaivati_Health` is set (final fallback)
+
+### Local AI Setup (Dev + Production)
+Ollama runs locally on the dev machine and is exposed permanently via Cloudflare Tunnel:
+- Tunnel URL: `https://ollama.charaivati.com`
+- Cloudflare service auto-starts on Windows boot
+- Ollama auto-starts via Windows Task Scheduler (`OllamaServe` task)
+- `OLLAMA_HOST=0.0.0.0` set as permanent Windows system env var
+
+### Environment Variables
+Local `.env.local`:
+```
+LOCAL_AI_ENABLED=true
+OLLAMA_BASE_URL=https://ollama.charaivati.com
+OLLAMA_MODEL=llama3:8b
+CHAT_AI_MODEL=llama3:8b
+```
+Vercel (production) — same vars, Ollama is the primary provider when the dev machine is on.
+When machine is off, falls back to OpenRouter → Groq → Vercel automatically.
+
+### Context Strategy
+Ollama calls are free — pass full user context:
+- All drives, all goals, full skill list
+- Energy score (derived from sleep + steps)
+- Health flags, fund independence score, network gaps
+- Active initiatives, current section
+- Full conversation history
+
+Cloud fallbacks are token-cost-sensitive — keep prompts lean (~400 tokens max).
+
+### Chatbot Widget
+- Component: `components/chat/ChatBot.tsx`
+- API route: `POST /api/chat`
+- Rendered in root `app/layout.tsx`, visible to all logged-in users
+- Conversation history in `useState` only — not persisted to DB
+- System prompt built from user profile data at request time
+
+### Planned: Context Layer
+`/ai-context/` directory (not yet built):
+- `PLATFORM.md` — Charaivati philosophy, 6-layer model
+- `DRIVES.md` — 4 drive archetypes in depth
+- `RESPONSE_GUIDE.md` — AI tone and behavior rules
+- `lib/ai/promptBuilder.ts` — assembles platform + user context + task prompt
+- `lib/ai/userContextBuilder.ts` — builds per-user context, cached in Redis
 
 ## Testing
 

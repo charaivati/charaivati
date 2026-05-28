@@ -461,3 +461,42 @@ See `docs/SECURITY_AUDIT.md` for the full 28-finding report with file references
 | **Session cookie** | `charaivati.session` (dev) / `__Host-session` (prod) — HTTP-only JWT |
 | **Sahayak** | Public help/support section under `(public)/sahayak` |
 | **pageType** | Discriminator on `Page`: `store`, `course`, `health-business`, `helping-initiative` |
+
+---
+
+## AI Setup
+
+### Local Ollama (primary provider)
+The dev machine runs Ollama locally, exposed via Cloudflare Tunnel at `https://ollama.charaivati.com`.
+Both local dev and Vercel production use this URL as the primary AI provider.
+
+**Auto-starts on boot** — no manual action needed:
+- `OllamaServe` scheduled task starts `ollama serve` at logon
+- `OLLAMA_HOST=0.0.0.0` is a permanent Windows system env var
+- Cloudflare tunnel runs as a Windows service (`cloudflared`)
+
+**To verify it's running:**
+```
+https://ollama.charaivati.com/api/tags
+```
+Should return JSON with available models (`gemma4:e4b`, `llama3:8b`).
+
+**If it's down** — check on the dev machine:
+1. Task Manager → check `ollama.exe` is running
+2. Services → check `Cloudflared` is running
+3. Manually: `ollama serve` in PowerShell
+
+### Models Available
+- `llama3:8b` — primary, used for chat and most AI routes
+- `gemma4:e4b` — alternative, larger context
+
+### Cloud Fallback Chain
+When Ollama is unreachable: OpenRouter → Groq → Vercel AI Gateway
+All keys are in Vercel env vars. No action needed — fallback is automatic.
+
+### Adding a New AI Route
+1. Import `chatComplete` from `@/app/api/aiClient`
+2. Use `CHAT_AI_MODEL` or add a new `*_AI_MODEL` env var
+3. Build system prompt with user context (drives, goals, energy)
+4. Fire single POST on explicit user action — don't auto-fire on load
+5. Add the env var to both `.env.local` and Vercel
