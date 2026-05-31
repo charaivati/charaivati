@@ -490,6 +490,24 @@ Should return JSON with available models (`gemma4:e2b`, `llama3:8b`).
 - `llama3:8b` — primary, used for chat and most AI routes
 - `gemma4:e2b` — alternative, larger context
 
+### Model Tiers
+Models map to tiers (`junior` / `assistant` / `senior` / `council`) that control UI labels in the chatbot widget. See `lib/ai/modelTiers.ts` for the full map and `getTierUI(modelName)` for label strings.
+
+`chatCompleteWithMeta()` in `app/api/aiClient.ts` wraps `chatComplete()` and also returns `{ source, coldStart, model }`. Use it when the calling route needs to know which provider actually responded. `POST /api/chat` uses this and forwards `tier`, `tierUI`, `source`, `coldStart`, and `localExpected` to the widget.
+
+The Ollama caller now has resilience built in: network errors fall through to cloud immediately; an empty response (model loading) waits 8 s and retries once before falling through.
+
+### Council Feature (Phase 1 — Deliberation)
+The Council is always user-triggered — no auto-routing. Entry points: (1) "⚖️ Ask the Council" button at the bottom (uses current input OR last user message, with tooltip if neither); (2) inline "Ask the Council" prompt below regular responses when `isCouncilWorthy(userMessage)` is true.
+
+`POST /api/council` streams NDJSON — sends one status + one position chunk per persona, then a final verdict chunk. The client reads the stream progressively: status lines appear one by one, persona cards render as each arrives, verdict+synthesis animate in when streaming completes. A [✕ Cancel] button is shown during streaming; cancels the fetch via AbortController. The route checks `req.signal.aborted` between each AI call.
+
+- **Phase 1** (current): 3 personas + verdict + synthesis. No further user interaction.
+- **Phase 2** (planned): user responds to one persona, drilling into a lens.
+- **Phase 3** (planned): voting/consensus — personas agree or object to proposed actions.
+
+See `CLAUDE.md` § Council Feature for the full structure, prompt design, and API shape.
+
 ### Cloud Fallback Chain
 When Ollama is unreachable: OpenRouter → Groq → Vercel AI Gateway
 All keys are in Vercel env vars. No action needed — fallback is automatic.

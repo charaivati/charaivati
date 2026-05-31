@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 import { db } from "@/lib/db";
-import { chatComplete } from "@/app/api/aiClient";
+import { chatCompleteWithMeta } from "@/app/api/aiClient";
 import { loadPlatformContext } from "@/lib/ai/contextLoader";
+import { getTier, getTierUI } from "@/lib/ai/modelTiers";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
@@ -113,13 +114,31 @@ Never give generic motivational quotes. Be specific to what you know about them.
     { role: "user", content: message },
   ];
 
+  const localExpected = process.env.LOCAL_AI_ENABLED === "true" && !!process.env.OLLAMA_BASE_URL;
+
   try {
-    console.log(`[chat] Calling chatComplete — model=${activeModel} timeout=${CHAT_TIMEOUT_MS}ms`);
-    const reply = await withChatTimeout(
-      chatComplete({ model: CHAT_MODEL, messages, maxTokens: 300, temperature: 0.7 })
+    console.log(`[chat] Calling chatCompleteWithMeta — model=${activeModel} timeout=${CHAT_TIMEOUT_MS}ms`);
+    const { content: reply, source, coldStart, model: usedModel } = await withChatTimeout(
+      chatCompleteWithMeta({ model: CHAT_MODEL, messages, maxTokens: 300, temperature: 0.7 })
     );
-    console.log(`[chat] Reply received in ${Date.now() - requestStart}ms (${reply.length} chars)`);
-    return NextResponse.json({ reply });
+    console.log(`[chat] Reply in ${Date.now() - requestStart}ms (${reply.length} chars) source=${source} coldStart=${coldStart} model=${usedModel}`);
+
+    const tier = getTier(usedModel);
+    const tierUI = getTierUI(usedModel);
+
+    const responsePayload: Record<string, unknown> = {
+      reply,
+      tier,
+      tierUI,
+      source,
+      coldStart,
+      localExpected,
+    };
+    if (process.env.NODE_ENV !== "production") {
+      responsePayload.model = usedModel;
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (err) {
     const elapsed = Date.now() - requestStart;
     console.error(`[chat] chatComplete failed after ${elapsed}ms`);

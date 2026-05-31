@@ -1,8 +1,29 @@
 // app/api/aiClient.ts
-// Provider paths: OpenRouter → Groq → Vercel AI Gateway.
-// chatComplete: (Ollama if LOCAL_AI_ENABLED) → OpenRouter → Groq → Vercel.
-// callAI:       Ollama → OpenRouter → Groq → Vercel.
+// chatComplete:         (Ollama if LOCAL_AI_ENABLED) → OpenRouter → Groq → Vercel. Returns string.
+// chatCompleteWithMeta: same chain, also returns source / coldStart / model metadata.
+// callAI:               Ollama → OpenRouter → Groq → Vercel (prompt-string entry point).
+
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+
+export interface ChatMeta {
+  source: 'local' | 'cloud';
+  coldStart: boolean;
+  model: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+export type AIProvider = "ollama" | "openrouter" | "groq" | "vercel";
+
+const OLLAMA_MODEL     = process.env.OLLAMA_MODEL     ?? "llama3:8b";
+const OLLAMA_BASE_URL  = process.env.OLLAMA_BASE_URL  ?? "http://127.0.0.1:11434";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
+const GROQ_MODEL       = process.env.GROQ_MODEL       ?? "llama-3.1-8b-instant";
+const VERCEL_MODEL     = process.env.VERCEL_MODEL     ?? "openai/gpt-4o-mini";
+const VERCEL_GATEWAY   = (process.env.VERCEL_AI_GATEWAY_URL ?? "https://ai-gateway.vercel.sh").replace(/\/$/, "");
+const TIMEOUT_MS       = 60_000;
+
+// ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function chatComplete({
   model,
@@ -17,94 +38,25 @@ export async function chatComplete({
   temperature?: number;
   jsonMode?: boolean;
 }): Promise<string> {
-  // 0 — Ollama (local, opt-in via LOCAL_AI_ENABLED=true + OLLAMA_BASE_URL)
-  if (process.env.LOCAL_AI_ENABLED === 'true' && process.env.OLLAMA_BASE_URL) {
-    const ollamaStart = Date.now();
-    try {
-      const ollamaModel = process.env.OLLAMA_MODEL ?? 'llama3:8b';
-      const ollamaBase = process.env.OLLAMA_BASE_URL.replace(/\/$/, '');
-      console.log(`[aiClient] Ollama request — model=${ollamaModel} url=${ollamaBase}/api/chat stream=false`);
-      const res = await fetch(`${ollamaBase}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: ollamaModel, messages, stream: false }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => res.statusText);
-        throw new Error(`Ollama HTTP ${res.status}: ${text}`);
-      }
-      const data = await res.json();
-      const content = data.message?.content;
-      if (content) {
-        console.log(`[aiClient] Ollama OK in ${Date.now() - ollamaStart}ms (${content.length} chars)`);
-        return content as string;
-      }
-      throw new Error(`Ollama returned empty content — raw: ${JSON.stringify(data).slice(0, 200)}`);
-    } catch (err) {
-      console.error(`[aiClient] Ollama failed after ${Date.now() - ollamaStart}ms:`, err);
-      console.warn('[aiClient] Falling through to OpenRouter');
-    }
-  }
-
-  // 1 — OpenRouter
-  const orKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
-  if (orKey) {
-    try {
-      const body: Record<string, unknown> = {
-        model,
-        messages,
-        max_tokens: maxTokens,
-        temperature,
-        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
-      };
-      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${orKey}`,
-          'Content-Type': 'application/json',
-          'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL ?? '',
-          'X-Title': process.env.OPENROUTER_APP_NAME ?? 'Charaivati',
-        },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`OpenRouter ${res.status}: ${text}`);
-      }
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      if (content) return content;
-      throw new Error('OpenRouter returned empty content');
-    } catch (err) {
-      console.warn('[chatComplete] OpenRouter failed, trying Groq:', err);
-    }
-  }
-
-  // 2 — Groq (uses its own model names, falls back to GROQ_MODEL)
-  const groqKey = process.env.Charaivati_groq?.trim() || undefined;
-  if (groqKey) {
-    try {
-      return await callGroqMessages(groqKey, GROQ_MODEL, messages, maxTokens, temperature);
-    } catch (err) {
-      console.warn('[chatComplete] Groq failed, trying Vercel:', err);
-    }
-  }
-
-  // 3 — Vercel AI Gateway
-  return callVercelMessages(model, messages, maxTokens, temperature);
+  const { content } = await chatCompleteInternal({ model, messages, maxTokens, temperature, jsonMode });
+  return content;
 }
 
-export type AIProvider = "ollama" | "openrouter" | "groq" | "vercel";
-
-const OLLAMA_MODEL    = process.env.OLLAMA_MODEL    ?? "llama3:8b";
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434";
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
-const GROQ_MODEL      = process.env.GROQ_MODEL      ?? "llama-3.1-8b-instant";
-const VERCEL_MODEL    = process.env.VERCEL_MODEL    ?? "openai/gpt-4o-mini";
-const VERCEL_GATEWAY  = (process.env.VERCEL_AI_GATEWAY_URL ?? "https://ai-gateway.vercel.sh").replace(/\/$/, "");
-const TIMEOUT_MS      = 60_000;
-
-// ─── Public API ───────────────────────────────────────────────────────────────
+export async function chatCompleteWithMeta({
+  model,
+  messages,
+  maxTokens = 300,
+  temperature = 0.4,
+  jsonMode = false,
+}: {
+  model: string;
+  messages: ChatMessage[];
+  maxTokens?: number;
+  temperature?: number;
+  jsonMode?: boolean;
+}): Promise<ChatMeta & { content: string }> {
+  return chatCompleteInternal({ model, messages, maxTokens, temperature, jsonMode });
+}
 
 export async function callAI({
   prompt,
@@ -173,7 +125,127 @@ export function safeJsonParse<T = unknown>(text: string): T {
   }
 }
 
-// ─── Providers ────────────────────────────────────────────────────────────────
+// ─── Ollama resilient caller ─────────────────────────────────────────────────
+
+async function callOllamaResilient(params: {
+  model: string;
+  messages: ChatMessage[];
+  ollamaBase: string;
+}): Promise<{ content: string; state: 'ok' | 'cold_start' | 'unavailable' }> {
+  const ATTEMPT_TIMEOUT = 8_000;
+
+  async function attempt(): Promise<{ content: string; status: 'ok' | 'network_error' | 'empty' }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT);
+    try {
+      const res = await fetch(`${params.ollamaBase}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: params.model, messages: params.messages, stream: false }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) return { content: '', status: 'empty' };
+      const data = await res.json().catch(() => null) as { message?: { content?: string } } | null;
+      const content = data?.message?.content ?? '';
+      if (!content) return { content: '', status: 'empty' };
+      return { content, status: 'ok' };
+    } catch {
+      clearTimeout(timer);
+      return { content: '', status: 'network_error' };
+    }
+  }
+
+  const first = await attempt();
+  if (first.status === 'ok') return { content: first.content, state: 'ok' };
+  if (first.status === 'network_error') return { content: '', state: 'unavailable' };
+
+  // Empty/malformed — wait and retry once (handles model cold-start loading)
+  await new Promise<void>(r => setTimeout(r, ATTEMPT_TIMEOUT));
+  const second = await attempt();
+  if (second.status === 'ok') return { content: second.content, state: 'cold_start' };
+  return { content: '', state: 'unavailable' };
+}
+
+// ─── Shared chatComplete implementation ──────────────────────────────────────
+
+async function chatCompleteInternal({
+  model,
+  messages,
+  maxTokens = 300,
+  temperature = 0.4,
+  jsonMode = false,
+}: {
+  model: string;
+  messages: ChatMessage[];
+  maxTokens?: number;
+  temperature?: number;
+  jsonMode?: boolean;
+}): Promise<ChatMeta & { content: string }> {
+  // 0 — Ollama (local, opt-in via LOCAL_AI_ENABLED=true + OLLAMA_BASE_URL)
+  if (process.env.LOCAL_AI_ENABLED === 'true' && process.env.OLLAMA_BASE_URL) {
+    const ollamaModel = process.env.OLLAMA_MODEL ?? 'llama3:8b';
+    const ollamaBase = process.env.OLLAMA_BASE_URL.replace(/\/$/, '');
+    console.log(`[aiClient] Ollama attempt — model=${ollamaModel} url=${ollamaBase}`);
+    const result = await callOllamaResilient({ model: ollamaModel, messages, ollamaBase });
+    if (result.state !== 'unavailable') {
+      console.log(`[aiClient] Ollama ${result.state} (${result.content.length} chars)`);
+      return { content: result.content, source: 'local', coldStart: result.state === 'cold_start', model: ollamaModel };
+    }
+    console.warn('[aiClient] Ollama unavailable, falling through to cloud');
+  }
+
+  // 1 — OpenRouter
+  const orKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
+  if (orKey) {
+    try {
+      const body: Record<string, unknown> = {
+        model: OPENROUTER_MODEL,
+        messages,
+        max_tokens: maxTokens,
+        temperature,
+        ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+      };
+      const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${orKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.NEXT_PUBLIC_SITE_URL ?? '',
+          'X-Title': process.env.OPENROUTER_APP_NAME ?? 'Charaivati',
+        },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`OpenRouter ${res.status}: ${text}`);
+      }
+      const data = await res.json();
+      const content = data.choices?.[0]?.message?.content;
+      if (content) return { content, source: 'cloud', coldStart: false, model: OPENROUTER_MODEL };
+      throw new Error('OpenRouter returned empty content');
+    } catch (err) {
+      console.warn('[chatComplete] OpenRouter failed, trying Groq:', err);
+    }
+  }
+
+  // 2 — Groq
+  const groqKey = process.env.Charaivati_groq?.trim() || undefined;
+  if (groqKey) {
+    try {
+      const content = await callGroqMessages(groqKey, GROQ_MODEL, messages, maxTokens, temperature);
+      return { content, source: 'cloud', coldStart: false, model: GROQ_MODEL };
+    } catch (err) {
+      console.warn('[chatComplete] Groq failed, trying Vercel:', err);
+    }
+  }
+
+  // 3 — Vercel AI Gateway
+  const content = await callVercelMessages(VERCEL_MODEL, messages, maxTokens, temperature);
+  return { content, source: 'cloud', coldStart: false, model: VERCEL_MODEL };
+}
+
+// ─── Providers (used by callAI) ───────────────────────────────────────────────
 
 async function callOllama(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
   const messages = [
@@ -232,7 +304,7 @@ async function callGroq(prompt: string, systemPrompt?: string, maxTokens = 800):
   return callGroqMessages(key, GROQ_MODEL, messages, maxTokens);
 }
 
-// callGroqMessages: messages entry point (used by chatComplete fallback)
+// callGroqMessages: messages entry point (used by chatCompleteInternal fallback)
 async function callGroqMessages(
   key: string,
   model: string,
@@ -264,7 +336,7 @@ async function callVercel(prompt: string, systemPrompt?: string, maxTokens = 800
   return callVercelMessages(VERCEL_MODEL, messages, maxTokens);
 }
 
-// callVercelMessages: messages entry point (used by chatComplete fallback)
+// callVercelMessages: messages entry point (used by chatCompleteInternal fallback)
 async function callVercelMessages(
   model: string,
   messages: ChatMessage[],

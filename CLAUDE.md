@@ -422,6 +422,77 @@ Cloud fallbacks are token-cost-sensitive — keep prompts lean (~400 tokens max)
 - Conversation history in `useState` only — not persisted to DB
 - System prompt built from user profile data at request time
 
+### Model Tiers (`lib/ai/modelTiers.ts`)
+Every model name maps to a tier that controls chatbot UI labels and provider-awareness metadata.
+
+| Tier | Models |
+|---|---|
+| `junior` | `gemma4:e2b`, `llama3:8b`, `openai/gpt-4o-mini` |
+| `assistant` | `gemma4:e4b`, `openai/gpt-4o` |
+| `senior` | `gemma4:26b-a4b` |
+| `council` | (reserved for multi-step deliberation flows) |
+
+`getTierUI(modelName)` returns a `TierUI` object with `label`, `responding`, `waiting`, `cloudFallback`, and `disclaimer` strings. `getTier(modelName)` returns the raw tier level. Unmapped models default to `junior`.
+
+`POST /api/chat` now returns `{ reply, tier, tierUI, source, coldStart, localExpected, model? }`:
+- `source`: `"local"` (Ollama) or `"cloud"` (fell through to OpenRouter/Groq/Vercel)
+- `coldStart`: `true` if Ollama returned empty on first attempt but succeeded on retry (model was loading)
+- `localExpected`: `true` when `LOCAL_AI_ENABLED=true` + `OLLAMA_BASE_URL` are set — lets the widget show "Local assistant unavailable" when `source === "cloud"`
+- `model`: present only in development (`NODE_ENV !== 'production'`)
+
+`chatCompleteWithMeta()` in `app/api/aiClient.ts` is the metadata-aware variant of `chatComplete()`. Use it in routes that need to know which provider responded. `chatComplete()` is unchanged for all other callers.
+
+**Ollama resilient caller** (`callOllamaResilient` in `aiClient.ts`):
+- First attempt: 8 s AbortController timeout
+- Timeout or connection error → `state: 'unavailable'`, falls through to cloud immediately
+- Empty/malformed response (model cold-starting) → wait 8 s, retry once
+- Retry succeeds → `state: 'cold_start'`; retry fails → `state: 'unavailable'`
+
+### Council Feature (`lib/ai/council*`, `app/api/council/route.ts`, `components/chat/CouncilView.tsx`)
+
+The Council is a multi-perspective deliberation mode for high-stakes decisions. Phase 1 — deliberation only, no voting.
+
+**Trigger**: always explicit — no auto-routing. Two entry points:
+1. **"⚖️ Ask the Council" button** (bottom of chat widget) — works for any message in the input
+2. **"Ask the Council" inline prompt** — appears below regular assistant responses when `isCouncilWorthy(userMessage)` is true; clicking it re-sends that question to `/api/council`
+
+`isCouncilWorthy()` is still imported in ChatBot — used only for the inline "go deeper" prompt display, never for auto-routing sends.
+
+**Four-file structure**:
+| File | Purpose |
+|---|---|
+| `lib/ai/councilTrigger.ts` | `isCouncilWorthy(msg)` — phrase matching; `COUNCIL_TRIGGERS` array for extension |
+| `lib/ai/councilPersonas.ts` | `COUNCIL_PERSONAS` map (guardian/seeker/builder); `buildPersonaPrompt()` builds `{ systemPrompt, prompt }` for `callAI` |
+| `app/api/council/route.ts` | POST `/api/council` — auth-gated; **NDJSON streaming**; Guardian+Builder local, Seeker+Verdict+Synthesis cloud; verdict+synthesis parallel |
+| `components/chat/CouncilView.tsx` | Progressive rendering; `_pending`/`_statusSteps` support; `onCancel` prop; framer-motion; exports `CouncilResponse`, `StatusStep` types |
+
+**Route — NDJSON streaming** (`Content-Type: application/x-ndjson`, abort-aware):
+
+Chunks sent in order: `status:2` → `position:guardian` → `status:3` → `position:seeker` → `status:4` → `position:builder` → `status:5` → `verdict` (which carries verdict+synthesis+trigger+tier). Error/abort: `{type:"aborted"}` or `{type:"error"}`. Abort detected via `req.signal.aborted` between calls. Verdict and synthesis are parallelized (`Promise.all`).
+
+**CouncilResponse** (updated interface):
+```typescript
+{ positions[], verdict, synthesis, trigger, tier:'council', _fallback?, _pending?, _statusSteps?: StatusStep[] }
+```
+
+**CouncilView progressive rendering**:
+- While `_pending`: status steps (active=bright/muted progression) + cards as they arrive + [✕ Cancel] via `onCancel` prop
+- After `_pending` false: verdict + synthesis animate in; status steps stay as muted journey record
+- Persona cards animate on mount individually (no stagger delay — stream provides natural timing)
+
+**ChatBot integration** (`components/chat/ChatBot.tsx`):
+- `dispatchCouncil(text, trigger, addUserMessage)` — reads NDJSON stream; updates pending message via `updatePendingCouncil()`; `councilAbortRef` tracks abort controller
+- `cancelCouncil()` calls `.abort()`; catch block in dispatchCouncil shows `"Council dismissed."`
+- **Fix 1**: "⚖️ Ask the Council" button uses `input.trim() || lastUserMessage`; `addUserMessage: true` when using input text, `false` when reusing last message (no duplicate bubble); disabled with tooltip when no target exists
+- **Fix 2**: `councilAbortRef = useRef<AbortController | null>` — cancel button rendered inside CouncilView via `onCancel` prop
+- **Fix 3**: `councilPending = messages.some(m => m.council?._pending)` — council loading state is inside CouncilView; regular 3-dot indicator only shows when `loading && !councilPending`
+- Inline "Ask the Council" prompt after regular responses calls `dispatchCouncil(originUserMessage, "manual", false)`
+
+**Phase roadmap**:
+- **Phase 1** (current): deliberation only — 3 personas + verdict + synthesis, no further user interaction
+- **Phase 2** (planned): user can respond to a specific persona, drilling deeper into one lens
+- **Phase 3** (planned): voting / consensus — personas "agree" or "object" to proposed actions; outcome written to user's goals
+
 ### Planned: Context Layer
 `/ai-context/` directory (not yet built):
 - `PLATFORM.md` — Charaivati philosophy, 6-layer model
