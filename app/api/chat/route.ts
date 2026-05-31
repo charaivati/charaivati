@@ -5,8 +5,24 @@ import { chatComplete } from "@/app/api/aiClient";
 import { loadPlatformContext } from "@/lib/ai/contextLoader";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
+const CHAT_TIMEOUT_MS = 30_000;
+
+function withChatTimeout<T>(promise: Promise<T>): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`chatComplete timed out after ${CHAT_TIMEOUT_MS}ms`)), CHAT_TIMEOUT_MS)
+    ),
+  ]);
+}
 
 export async function POST(req: Request) {
+  const requestStart = Date.now();
+  const localAiEnabled = process.env.LOCAL_AI_ENABLED === "true";
+  const activeModel = localAiEnabled ? OLLAMA_MODEL : CHAT_MODEL;
+  console.log(`[chat] Request started — model=${activeModel} localAI=${localAiEnabled}`);
+
   const token = getTokenFromRequest(req);
   const payload = await verifySessionToken(token);
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -69,6 +85,7 @@ export async function POST(req: Request) {
       : "none";
 
   const currentSection = context?.currentSection ?? "Self";
+  console.log(`[chat] userId=${userId} section=${currentSection} historyLen=${conversationHistory?.length ?? 0}`);
 
   const platformContext = loadPlatformContext();
   const systemPrompt = `${platformContext ? `--- PLATFORM CONTEXT ---\n${platformContext}\n--- END CONTEXT ---\n\n` : ""}You are Charaivati Guide. Help the user move forward in their life with clarity and purpose.
@@ -97,9 +114,22 @@ Never give generic motivational quotes. Be specific to what you know about them.
   ];
 
   try {
-    const reply = await chatComplete({ model: CHAT_MODEL, messages, maxTokens: 300, temperature: 0.7 });
+    console.log(`[chat] Calling chatComplete — model=${activeModel} timeout=${CHAT_TIMEOUT_MS}ms`);
+    const reply = await withChatTimeout(
+      chatComplete({ model: CHAT_MODEL, messages, maxTokens: 300, temperature: 0.7 })
+    );
+    console.log(`[chat] Reply received in ${Date.now() - requestStart}ms (${reply.length} chars)`);
     return NextResponse.json({ reply });
-  } catch {
+  } catch (err) {
+    const elapsed = Date.now() - requestStart;
+    console.error(`[chat] chatComplete failed after ${elapsed}ms`);
+    if (err instanceof Error) {
+      console.error(`[chat] Error name: ${err.name}`);
+      console.error(`[chat] Error message: ${err.message}`);
+      console.error(`[chat] Error stack:`, err.stack);
+    } else {
+      console.error("[chat] Non-Error thrown:", JSON.stringify(err, null, 2));
+    }
     return NextResponse.json({
       reply: "I'm having trouble connecting right now. Please try again in a moment.",
       _fallback: true,

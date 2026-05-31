@@ -19,9 +19,11 @@ export async function chatComplete({
 }): Promise<string> {
   // 0 — Ollama (local, opt-in via LOCAL_AI_ENABLED=true + OLLAMA_BASE_URL)
   if (process.env.LOCAL_AI_ENABLED === 'true' && process.env.OLLAMA_BASE_URL) {
+    const ollamaStart = Date.now();
     try {
       const ollamaModel = process.env.OLLAMA_MODEL ?? 'llama3:8b';
       const ollamaBase = process.env.OLLAMA_BASE_URL.replace(/\/$/, '');
+      console.log(`[aiClient] Ollama request — model=${ollamaModel} url=${ollamaBase}/api/chat stream=false`);
       const res = await fetch(`${ollamaBase}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -29,14 +31,18 @@ export async function chatComplete({
       });
       if (!res.ok) {
         const text = await res.text().catch(() => res.statusText);
-        throw new Error(`Ollama ${res.status}: ${text}`);
+        throw new Error(`Ollama HTTP ${res.status}: ${text}`);
       }
       const data = await res.json();
       const content = data.message?.content;
-      if (content) return content as string;
-      throw new Error('Ollama returned empty content');
+      if (content) {
+        console.log(`[aiClient] Ollama OK in ${Date.now() - ollamaStart}ms (${content.length} chars)`);
+        return content as string;
+      }
+      throw new Error(`Ollama returned empty content — raw: ${JSON.stringify(data).slice(0, 200)}`);
     } catch (err) {
-      console.warn('[aiClient] Ollama failed, trying OpenRouter:', err);
+      console.error(`[aiClient] Ollama failed after ${Date.now() - ollamaStart}ms:`, err);
+      console.warn('[aiClient] Falling through to OpenRouter');
     }
   }
 

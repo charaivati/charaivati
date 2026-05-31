@@ -479,7 +479,7 @@ Both local dev and Vercel production use this URL as the primary AI provider.
 ```
 https://ollama.charaivati.com/api/tags
 ```
-Should return JSON with available models (`gemma4:e4b`, `llama3:8b`).
+Should return JSON with available models (`gemma4:e2b`, `llama3:8b`).
 
 **If it's down** — check on the dev machine:
 1. Task Manager → check `ollama.exe` is running
@@ -488,7 +488,7 @@ Should return JSON with available models (`gemma4:e4b`, `llama3:8b`).
 
 ### Models Available
 - `llama3:8b` — primary, used for chat and most AI routes
-- `gemma4:e4b` — alternative, larger context
+- `gemma4:e2b` — alternative, larger context
 
 ### Cloud Fallback Chain
 When Ollama is unreachable: OpenRouter → Groq → Vercel AI Gateway
