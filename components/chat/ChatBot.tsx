@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { MessageCircle, X, Trash2, Send } from "lucide-react";
 import CouncilView, { type CouncilResponse, type CouncilPosition, type StatusStep } from "./CouncilView";
 import { isCouncilWorthy } from "@/lib/ai/councilTrigger";
@@ -25,16 +26,29 @@ interface Message {
   originUserMessage?: string;
 }
 
+const NUDGE_KEY = "charaivati.nudge.profile";
+const NUDGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 interface ChatBotProps {
   currentSection?: string;
   isLoggedIn?: boolean;
+  userId?: string;
+  userStatus?: string;
 }
 
-export default function ChatBot({ currentSection = "Self", isLoggedIn = false }: ChatBotProps) {
+export default function ChatBot({ currentSection = "Self", isLoggedIn = false, userId, userStatus }: ChatBotProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [nudgeVisible, setNudgeVisible] = useState(false);
+  const [nudgeExpanded, setNudgeExpanded] = useState(false);
+  const [nudgeUsername, setNudgeUsername] = useState("");
+  const [nudgePassword, setNudgePassword] = useState("");
+  const [nudgeError, setNudgeError] = useState("");
+  const [nudgeSaving, setNudgeSaving] = useState(false);
+  const [nudgeDone, setNudgeDone] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const councilAbortRef = useRef<AbortController | null>(null);
@@ -48,6 +62,71 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false }:
       inputRef.current?.focus();
     }
   }, [open, messages]);
+
+  useEffect(() => {
+    if (userStatus !== "guest" || !userId) return;
+    try {
+      const stored = localStorage.getItem(NUDGE_KEY);
+      if (stored) {
+        const ts = parseInt(stored, 10);
+        if (!isNaN(ts) && Date.now() - ts < NUDGE_TTL_MS) return;
+      }
+      setNudgeVisible(true);
+    } catch {
+      // localStorage unavailable — skip nudge
+    }
+  }, [userId, userStatus]);
+
+  function snoozeNudge() {
+    try { localStorage.setItem(NUDGE_KEY, String(Date.now())); } catch {}
+    setNudgeVisible(false);
+    setNudgeExpanded(false);
+  }
+
+  function collapseNudgeForm() {
+    setNudgeExpanded(false);
+    setNudgeUsername("");
+    setNudgePassword("");
+    setNudgeError("");
+  }
+
+  const nudgeUsernameValid = /^[a-zA-Z0-9_]{3,20}$/.test(nudgeUsername);
+
+  async function saveGuestUpgrade() {
+    if (nudgeSaving) return;
+    setNudgeError("");
+    if (!nudgeUsernameValid) {
+      setNudgeError("3–20 chars, letters, numbers, or underscores only.");
+      return;
+    }
+    if (nudgePassword.length < 8) {
+      setNudgeError("Password must be at least 8 characters.");
+      return;
+    }
+    setNudgeSaving(true);
+    try {
+      const res = await fetch("/api/user/guest-upgrade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: nudgeUsername, password: nudgePassword }),
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        // Stamp localStorage so nudge won't reappear even before server status propagates
+        try { localStorage.setItem(NUDGE_KEY, String(Date.now())); } catch {}
+        setNudgeDone(true);
+        setTimeout(() => setNudgeVisible(false), 3000);
+        // Refresh server components so layout re-reads DB (userStatus → "lite")
+        router.refresh();
+      } else {
+        setNudgeError(json.error ?? "Something went wrong. Try again.");
+      }
+    } catch {
+      setNudgeError("Network error. Try again.");
+    } finally {
+      setNudgeSaving(false);
+    }
+  }
 
   if (!isLoggedIn) return null;
 
@@ -309,6 +388,110 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false }:
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {nudgeVisible && (
+              <div
+                className="rounded-xl px-3 py-2.5"
+                style={{
+                  background: "rgba(251,191,36,0.07)",
+                  border: "1px solid rgba(251,191,36,0.2)",
+                }}
+              >
+                {nudgeDone ? (
+                  <p className="text-xs text-green-400 font-medium">
+                    ✓ Account secured. Welcome, {nudgeUsername}!
+                  </p>
+                ) : !nudgeExpanded ? (
+                  /* ── State 1: Collapsed ── */
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-yellow-400 font-medium leading-snug">
+                      Your progress isn&apos;t saved yet.
+                    </p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => setNudgeExpanded(true)}
+                        className="text-xs font-medium rounded-lg px-2.5 py-1 transition-colors"
+                        style={{
+                          background: "rgba(251,191,36,0.12)",
+                          border: "1px solid rgba(251,191,36,0.3)",
+                          color: "#fbbf24",
+                        }}
+                      >
+                        Secure Account
+                      </button>
+                      <button
+                        onClick={snoozeNudge}
+                        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                      >
+                        Later
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── State 2: Expanded form ── */
+                  <div className="space-y-2">
+                    <p className="text-xs text-yellow-400 font-medium">Secure your account</p>
+
+                    <div>
+                      <input
+                        type="text"
+                        value={nudgeUsername}
+                        onChange={(e) => { setNudgeUsername(e.target.value); setNudgeError(""); }}
+                        placeholder="Username"
+                        maxLength={20}
+                        autoComplete="username"
+                        className="w-full rounded-lg bg-gray-800 px-2.5 py-1.5 text-xs text-white placeholder-gray-500 outline-none transition-colors"
+                        style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+                        onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(251,191,36,0.4)")}
+                        onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
+                      />
+                      {nudgeUsername.length > 0 && !nudgeUsernameValid && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          3–20 chars, letters, numbers, or _
+                        </p>
+                      )}
+                    </div>
+
+                    <input
+                      type="password"
+                      value={nudgePassword}
+                      onChange={(e) => { setNudgePassword(e.target.value); setNudgeError(""); }}
+                      placeholder="Password (8+ chars)"
+                      autoComplete="new-password"
+                      className="w-full rounded-lg bg-gray-800 px-2.5 py-1.5 text-xs text-white placeholder-gray-500 outline-none transition-colors"
+                      style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+                      onFocus={(e) => (e.currentTarget.style.borderColor = "rgba(251,191,36,0.4)")}
+                      onBlur={(e) => (e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)")}
+                    />
+
+                    {nudgeError && (
+                      <p className="text-xs text-red-400">{nudgeError}</p>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={saveGuestUpgrade}
+                        disabled={nudgeSaving}
+                        className="flex-1 text-xs font-medium rounded-lg py-1.5 disabled:opacity-50 transition-colors"
+                        style={{
+                          background: "rgba(251,191,36,0.15)",
+                          border: "1px solid rgba(251,191,36,0.35)",
+                          color: "#fbbf24",
+                        }}
+                      >
+                        {nudgeSaving ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        onClick={collapseNudgeForm}
+                        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {messages.length === 0 && (
               <p className="text-center text-xs text-gray-500 mt-8">
                 Ask your guide anything about your goals, drives, or next steps.

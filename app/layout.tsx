@@ -5,6 +5,7 @@ import { headers, cookies } from "next/headers";
 import ClientProviders from "@/components/ClientProviders";
 import ChatBot from "@/components/chat/ChatBot";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/session";
+import { db } from "@/lib/db";
 
 export const metadata = {
   title: "Charaivati",
@@ -23,6 +24,21 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const sessionToken = ck.get(COOKIE_NAME)?.value;
   const sessionPayload = sessionToken ? await verifySessionToken(sessionToken) : null;
   const isLoggedIn = !!sessionPayload?.userId;
+
+  let chatUserId: string | undefined;
+  let chatUserStatus: string | undefined;
+  if (sessionPayload?.userId) {
+    try {
+      const u = await db.user.findUnique({
+        where: { id: sessionPayload.userId },
+        select: { id: true, status: true },
+      });
+      chatUserId = u?.id;
+      chatUserStatus = u?.status ?? undefined;
+    } catch {
+      // non-fatal — nudge simply won't show
+    }
+  }
 
   const bodyClass = `bg-black text-white min-h-screen antialiased${serverTheme === "dark" ? " dark" : ""}`;
 
@@ -66,7 +82,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           dangerouslySetInnerHTML={{ __html: inlineScript }}
         />
         <ClientProviders>{children}</ClientProviders>
-        <ChatBot isLoggedIn={isLoggedIn} />
+        <ChatBot isLoggedIn={isLoggedIn} userId={chatUserId} userStatus={chatUserStatus} />
       </body>
     </html>
   );
