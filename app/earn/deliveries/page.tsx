@@ -62,9 +62,9 @@ export default async function DeliveriesPage() {
   });
   const pageIds = ownedPages.map((p) => p.id);
 
-  // Accepted collaborations where one of the user's pages is the receiver.
+  // Accepted page-to-page collaborations where one of the user's pages is the receiver.
   const collabs = pageIds.length > 0 ? await prisma.collaboration.findMany({
-    where: { receiverId: { in: pageIds }, status: "accepted" },
+    where: { receiverPageId: { in: pageIds }, status: "accepted" },
     select: {
       id: true,
       role: true,
@@ -220,25 +220,73 @@ export default async function DeliveriesPage() {
       AND o."partnerStatus" IN ('assigned', 'accepted')
   `;
 
-  // Merge, deduplicate by id (collab orders take precedence, then block, then self).
+  // Orders assigned directly to this user via assignedToUserId (personal team-member assignment)
+  const rawPersonalOrders = await prisma.$queryRaw<RawOrder[]>`
+    SELECT
+      o.id,
+      o."deliveryStatus",
+      o."partnerStatus",
+      o."vehicleId",
+      o."assignedToId",
+      o."deliveryNote",
+      o.items,
+      o.total,
+      o."createdAt",
+      o."agreedAmount",
+      a.name      AS "addrName",
+      a.phone     AS "addrPhone",
+      a.line1,
+      a.city,
+      a.state,
+      a.pincode,
+      a.lat       AS "addrLat",
+      a.lng       AS "addrLng",
+      s.name      AS "storeName",
+      pa.line1    AS "pickupLine1",
+      pa.city     AS "pickupCity",
+      pa.state    AS "pickupState",
+      pa.pincode  AS "pickupPincode",
+      pa.lat      AS "pickupLat",
+      pa.lng      AS "pickupLng",
+      ou.phone    AS "ownerPhone",
+      (SELECT osp."stepId" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
+      (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
+    FROM "Order" o
+    JOIN "Address" a ON o."addressId" = a.id
+    JOIN "Store"   s ON o."storeId"   = s.id
+    LEFT JOIN "User"    ou ON ou.id = s."ownerId"
+    LEFT JOIN "Address" pa ON pa."userId" = ou.id AND pa."isDefault" = true
+    WHERE o."assignedToUserId" = ${userId}
+      AND o."partnerStatus" IN ('assigned', 'accepted')
+    ORDER BY o."createdAt" DESC
+  `;
+
+  // Merge, deduplicate by id (collab orders take precedence, then block, then self, then personal).
   const seenIds = new Set(rawCollabOrders.map((o) => o.id));
   const afterCollab = rawBlockOrders.filter((o) => !seenIds.has(o.id));
   afterCollab.forEach((o) => seenIds.add(o.id));
-  const mergedRaw = [
-    ...rawCollabOrders,
-    ...afterCollab,
-    ...rawSelfOrders.filter((o) => !seenIds.has(o.id)),
-  ];
+  const afterBlock = rawSelfOrders.filter((o) => !seenIds.has(o.id));
+  afterBlock.forEach((o) => seenIds.add(o.id));
+  const personalUnique = rawPersonalOrders.filter((o) => !seenIds.has(o.id));
+
+  const mergedRaw = [...rawCollabOrders, ...afterCollab, ...afterBlock, ...personalUnique];
+  const personalIds = new Set(personalUnique.map((o) => o.id));
   mergedRaw.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const orders: DeliveryOrder[] = mergedRaw.map((o) => {
-    const isSelf = o.assignedToId === userId;
+    const isSelf       = o.assignedToId === userId;
+    const isPersonal   = personalIds.has(o.id);
     return {
       ...o,
       items: o.items as DeliveryOrder["items"],
       createdAt: o.createdAt.toISOString(),
-      collabRole:     isSelf ? "self" : (collabMeta[o.assignedToId]?.role ?? "employee"),
+      collabRole:     isPersonal ? "employee" : isSelf ? "self" : (collabMeta[o.assignedToId]?.role ?? "employee"),
       requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? (o as any).storeName ?? "",
+      isPersonal,
     };
   });
 

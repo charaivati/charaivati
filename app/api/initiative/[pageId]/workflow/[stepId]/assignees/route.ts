@@ -41,7 +41,7 @@ export async function POST(
       status: "accepted",
       OR: [
         { requesterId: pageId },
-        { receiverId: pageId },
+        { receiverPageId: pageId },
         { initiativeId: pageId },
       ],
     },
@@ -51,8 +51,9 @@ export async function POST(
       teamRole: true,
       scope: true,
       requesterId: true,
-      requester: { select: { title: true, avatarUrl: true } },
-      receiver: { select: { title: true, avatarUrl: true } },
+      requester:    { select: { title: true, avatarUrl: true } },
+      receiverPage: { select: { title: true, avatarUrl: true } },
+      receiverUser: { select: { name: true, avatarUrl: true } },
     },
   });
 
@@ -87,7 +88,9 @@ export async function POST(
   });
 
   const displayName =
-    collab.requesterId === pageId ? collab.receiver.title : collab.requester.title;
+    collab.requesterId === pageId
+      ? (collab.receiverPage?.title ?? collab.receiverUser?.name ?? "Unknown")
+      : collab.requester.title;
 
   return NextResponse.json({ ...created, displayName, collaboration: collab }, { status: 201 });
 }

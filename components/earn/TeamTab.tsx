@@ -12,21 +12,26 @@ type MemberPage = {
   ownerId: string | null;
   owner: OwnerUser;
 };
+type FriendUser = { id: string; name: string | null; avatarUrl: string | null };
+
 type TeamMember = {
   id: string;
   requesterId: string;
-  receiverId: string;
+  receiverPageId: string | null;
+  receiverUserId: string | null;
   teamRole: string | null;
   customRole: string | null;
   requester: MemberPage;
-  receiver: MemberPage;
+  receiverPage: MemberPage | null;
+  receiverUser: FriendUser | null;
 };
+
 type PartnerCollab = {
   id: string;
   requesterId: string;
   role: string;
-  requester: { id: string; title: string; avatarUrl: string | null };
-  receiver:  { id: string; title: string; avatarUrl: string | null };
+  requester:    { id: string; title: string; avatarUrl: string | null };
+  receiverPage: { id: string; title: string; avatarUrl: string | null } | null;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -58,6 +63,26 @@ function teamRolePill(teamRole: string | null): string {
     case "employee":   return "bg-gray-800 text-gray-300 border border-gray-700";
     default:           return "bg-gray-800 text-gray-400 border border-gray-700";
   }
+}
+
+function getMemberDisplay(
+  member: TeamMember,
+  pageId: string
+): { title: string; avatarUrl: string | null; subtitle: string | null } {
+  if (member.receiverUserId && member.receiverUser) {
+    return {
+      title:    member.receiverUser.name ?? "User",
+      avatarUrl: member.receiverUser.avatarUrl,
+      subtitle: null,
+    };
+  }
+  const page = member.requesterId === pageId ? member.receiverPage : member.requester;
+  if (!page) return { title: "Unknown", avatarUrl: null, subtitle: null };
+  return {
+    title:    page.title,
+    avatarUrl: page.avatarUrl,
+    subtitle: page.owner?.name ?? null,
+  };
 }
 
 function Spinner() {
@@ -92,19 +117,23 @@ interface TeamTabProps {
 }
 
 export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
-  const [members,    setMembers]    = useState<TeamMember[]>([]);
-  const [partners,   setPartners]   = useState<PartnerCollab[]>([]);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState<string | null>(null);
-  const [actioning,  setActioning]  = useState<Set<string>>(new Set());
-  const [flash,      setFlash]      = useState<{ msg: string; ok: boolean } | null>(null);
+  const [members,   setMembers]   = useState<TeamMember[]>([]);
+  const [partners,  setPartners]  = useState<PartnerCollab[]>([]);
+  const [friends,   setFriends]   = useState<FriendUser[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [error,     setError]     = useState<string | null>(null);
+  const [actioning, setActioning] = useState<Set<string>>(new Set());
+  const [flash,     setFlash]     = useState<{ msg: string; ok: boolean } | null>(null);
 
   // Modal state
-  const [showModal,       setShowModal]       = useState(false);
-  const [selectedCollab,  setSelectedCollab]  = useState("");
-  const [selectedRole,    setSelectedRole]    = useState<TeamRoleValue>("employee");
-  const [customRoleText,  setCustomRoleText]  = useState("");
-  const [submitting,      setSubmitting]      = useState(false);
+  const [showModal,      setShowModal]      = useState(false);
+  const [inviteTab,      setInviteTab]      = useState<"partners" | "friends">("partners");
+  const [selectedCollab, setSelectedCollab] = useState("");
+  const [selectedFriend, setSelectedFriend] = useState("");
+  const [friendSearch,   setFriendSearch]   = useState("");
+  const [selectedRole,   setSelectedRole]   = useState<TeamRoleValue>("employee");
+  const [customRoleText, setCustomRoleText] = useState("");
+  const [submitting,     setSubmitting]     = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,8 +142,9 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
       const res = await fetch(`/api/initiative/${pageId}/team`, { credentials: "include" });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setMembers(data.members ?? []);
+      setMembers(data.members  ?? []);
       setPartners(data.partners ?? []);
+      setFriends(data.friends  ?? []);
     } catch {
       setError("Failed to load team.");
     } finally {
@@ -137,22 +167,27 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
     });
   }
 
-  // Which page in this collaboration is the team member (not the initiative's page)?
-  function getMemberPage(member: TeamMember): MemberPage {
-    return member.requesterId === pageId ? member.receiver : member.requester;
-  }
-
   async function handleRemove(member: TeamMember) {
     setActioned(member.id, true);
     try {
-      const res = await fetch(`/api/initiative/${pageId}/team/${member.id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scope: "partner", teamRole: null, customRole: null, initiativeId: null,
-        }),
-      });
+      let res: Response;
+      if (member.receiverUserId) {
+        // User-type collab: DELETE the record entirely
+        res = await fetch(`/api/initiative/${pageId}/team/${member.id}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+      } else {
+        // Page-type collab: demote back to partner scope
+        res = await fetch(`/api/initiative/${pageId}/team/${member.id}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scope: "partner", teamRole: null, customRole: null, initiativeId: null,
+          }),
+        });
+      }
       if (res.ok) {
         setMembers((prev) => prev.filter((m) => m.id !== member.id));
         showFlash("Member removed from team", true);
@@ -166,7 +201,7 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
     }
   }
 
-  async function handleInvite() {
+  async function handleInvitePartner() {
     if (!selectedCollab) return;
     setSubmitting(true);
     try {
@@ -182,10 +217,7 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
         }),
       });
       if (res.ok) {
-        setShowModal(false);
-        setSelectedCollab("");
-        setSelectedRole("employee");
-        setCustomRoleText("");
+        closeModal();
         await load();
         showFlash("Team member added", true);
       } else {
@@ -199,9 +231,47 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
     }
   }
 
+  async function handleInviteFriend() {
+    if (!selectedFriend) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/initiative/${pageId}/team/invite-user`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId:     selectedFriend,
+          teamRole:   selectedRole,
+          customRole: selectedRole === "custom" ? customRoleText.trim() || null : null,
+        }),
+      });
+      if (res.ok) {
+        closeModal();
+        await load();
+        showFlash("Team member added", true);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showFlash((d as { error?: string }).error ?? "Failed to add member", false);
+      }
+    } catch {
+      showFlash("Failed to add member", false);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function openModal() {
+    // Default to the tab that has something available
+    setInviteTab(availablePartners.length > 0 ? "partners" : "friends");
+    setShowModal(true);
+  }
+
   function closeModal() {
     setShowModal(false);
     setSelectedCollab("");
+    setSelectedFriend("");
+    setFriendSearch("");
+    setInviteTab("partners");
     setSelectedRole("employee");
     setCustomRoleText("");
   }
@@ -223,8 +293,15 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
     );
   }
 
-  const memberIds = new Set(members.map((m) => m.id));
-  const availablePartners = partners.filter((p) => !memberIds.has(p.id));
+  const memberCollabIds  = new Set(members.map((m) => m.id));
+  const availablePartners = partners.filter((p) => !memberCollabIds.has(p.id));
+  const canInvite        = availablePartners.length > 0 || friends.length > 0;
+
+  const filteredFriends = friendSearch
+    ? friends.filter((f) =>
+        (f.name ?? "").toLowerCase().includes(friendSearch.toLowerCase())
+      )
+    : friends;
 
   return (
     <div className="space-y-4">
@@ -245,8 +322,8 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
         </p>
         {canEdit && (
           <button
-            onClick={() => setShowModal(true)}
-            disabled={availablePartners.length === 0}
+            onClick={openModal}
+            disabled={!canInvite}
             className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             + Invite Member
@@ -258,9 +335,9 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
       {members.length === 0 && (
         <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/40 text-center text-sm text-gray-500">
           No team members yet.
-          {canEdit && availablePartners.length === 0 && (
+          {canEdit && !canInvite && (
             <p className="text-xs mt-1 text-gray-600">
-              Connect partners first in the Partners tab.
+              Connect partners or add friends first to invite team members.
             </p>
           )}
         </div>
@@ -270,21 +347,20 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
       {members.length > 0 && (
         <div className="space-y-2">
           {members.map((member) => {
-            const page  = getMemberPage(member);
-            const user  = page.owner;
-            const isBusy = actioning.has(member.id);
+            const display = getMemberDisplay(member, pageId);
+            const isBusy  = actioning.has(member.id);
 
             return (
               <div
                 key={member.id}
                 className="flex items-center gap-3 p-3 rounded-xl border border-gray-800 bg-gray-900/60"
               >
-                <Avatar title={page.title} avatarUrl={page.avatarUrl} />
+                <Avatar title={display.title} avatarUrl={display.avatarUrl} />
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-white truncate">{page.title}</p>
-                  {user?.name && (
-                    <p className="text-xs text-gray-400 truncate">{user.name}</p>
+                  <p className="text-sm font-medium text-white truncate">{display.title}</p>
+                  {display.subtitle && (
+                    <p className="text-xs text-gray-400 truncate">{display.subtitle}</p>
                   )}
                   <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium ${teamRolePill(member.teamRole)}`}>
                     {teamRoleLabel(member.teamRole, member.customRole)}
@@ -315,7 +391,8 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
           onClick={(e) => e.target === e.currentTarget && closeModal()}
         >
           <div className="bg-gray-900 rounded-2xl w-full max-w-sm mx-4 p-6 border border-gray-700 shadow-2xl">
-            <div className="flex items-center justify-between mb-5">
+            {/* Modal header */}
+            <div className="flex items-center justify-between mb-4">
               <h2 className="text-white font-semibold">Invite Team Member</h2>
               <button
                 onClick={closeModal}
@@ -325,28 +402,103 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
               </button>
             </div>
 
-            <div className="space-y-4">
-              {/* Partner selector */}
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Select partner</label>
-                <select
-                  value={selectedCollab}
-                  onChange={(e) => setSelectedCollab(e.target.value)}
-                  className="w-full p-2.5 rounded-lg bg-gray-950 border border-gray-700 text-sm text-white outline-none"
-                >
-                  <option value="">— Choose a partner —</option>
-                  {availablePartners.map((p) => {
-                    const partnerPage = p.requesterId === pageId ? p.receiver : p.requester;
-                    return (
-                      <option key={p.id} value={p.id}>
-                        {partnerPage.title} · {p.role.replace(/_/g, " ")}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
+            {/* Tab switcher */}
+            <div className="flex border-b border-gray-800 mb-4 -mx-6 px-6">
+              <button
+                onClick={() => setInviteTab("partners")}
+                className={`text-sm pb-2 mr-5 font-medium transition-colors ${
+                  inviteTab === "partners"
+                    ? "text-white border-b-2 border-indigo-500"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                From Partners
+              </button>
+              <button
+                onClick={() => setInviteTab("friends")}
+                className={`text-sm pb-2 font-medium transition-colors ${
+                  inviteTab === "friends"
+                    ? "text-white border-b-2 border-indigo-500"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+              >
+                Invite Friend
+              </button>
+            </div>
 
-              {/* Role selector */}
+            <div className="space-y-4">
+              {inviteTab === "partners" ? (
+                /* ── Partners tab ── */
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Select partner</label>
+                  {availablePartners.length === 0 ? (
+                    <p className="text-xs text-gray-600 py-2">
+                      No partners available. Connect partners in the Partners tab first.
+                    </p>
+                  ) : (
+                    <select
+                      value={selectedCollab}
+                      onChange={(e) => setSelectedCollab(e.target.value)}
+                      className="w-full p-2.5 rounded-lg bg-gray-950 border border-gray-700 text-sm text-white outline-none"
+                    >
+                      <option value="">— Choose a partner —</option>
+                      {availablePartners.map((p) => {
+                        const partnerPage = p.requesterId === pageId ? p.receiverPage : p.requester;
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {partnerPage?.title ?? "Unknown"} · {p.role.replace(/_/g, " ")}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
+                </div>
+              ) : (
+                /* ── Friends tab ── */
+                <div className="space-y-2">
+                  <label className="block text-xs text-gray-500 mb-1">Select a friend</label>
+                  {friends.length === 0 ? (
+                    <p className="text-xs text-gray-600 py-2">
+                      No friends to invite yet. Add friends from the Society tab.
+                    </p>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        value={friendSearch}
+                        onChange={(e) => setFriendSearch(e.target.value)}
+                        placeholder="Search by name…"
+                        className="w-full p-2 rounded-lg bg-gray-950 border border-gray-700 text-sm text-white placeholder-gray-600 outline-none"
+                      />
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {filteredFriends.length === 0 ? (
+                          <p className="text-xs text-gray-500 py-2 text-center">No matches.</p>
+                        ) : (
+                          filteredFriends.map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              onClick={() => setSelectedFriend(f.id)}
+                              className={`w-full flex items-center gap-2 p-2 rounded-lg text-left transition-colors ${
+                                selectedFriend === f.id
+                                  ? "bg-indigo-900/50 border border-indigo-700"
+                                  : "bg-gray-950 border border-gray-800 hover:border-gray-600"
+                              }`}
+                            >
+                              <Avatar title={f.name ?? "?"} avatarUrl={f.avatarUrl} />
+                              <span className="text-sm text-white truncate">
+                                {f.name ?? "Unknown"}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Role selector — shared by both tabs */}
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Team role</label>
                 <select
@@ -360,7 +512,6 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
                 </select>
               </div>
 
-              {/* Custom role text (shown only when "custom" is selected) */}
               {selectedRole === "custom" && (
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Custom role title</label>
@@ -383,8 +534,11 @@ export default function TeamTab({ pageId, canEdit }: TeamTabProps) {
                   Cancel
                 </button>
                 <button
-                  onClick={handleInvite}
-                  disabled={submitting || !selectedCollab}
+                  onClick={inviteTab === "partners" ? handleInvitePartner : handleInviteFriend}
+                  disabled={
+                    submitting ||
+                    (inviteTab === "partners" ? !selectedCollab : !selectedFriend)
+                  }
                   className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
                 >
                   {submitting && <Spinner />}

@@ -36,7 +36,19 @@ type Order = {
 };
 
 type CollabPage = { id: string; title: string; pageType: string };
-type Collab = { id: string; role: string; requester: CollabPage; receiver: CollabPage };
+type Collab = {
+  id: string; role: string;
+  requester: CollabPage;
+  receiver?: CollabPage;       // page-to-page (old field name, API may still return this)
+  receiverPage?: CollabPage;   // page-to-page (new field name)
+};
+type TeamUserMember = {
+  id: string;
+  receiverUserId: string | null;
+  teamRole: string | null;
+  customRole: string | null;
+  receiverUser: { id: string; name: string | null; avatarUrl: string | null } | null;
+};
 
 type InvoiceState = {
   genStatus: "idle" | "loading" | "done" | "error";
@@ -569,6 +581,11 @@ export default function StoreOrdersPage() {
 
   // Collaboration partners for this store
   const [partners, setPartners] = useState<Collab[]>([]);
+  // User-type team members for direct assignment
+  const [teamMembers, setTeamMembers] = useState<TeamUserMember[]>([]);
+  // Per-order selected value in the assignment dropdown (e.g. "collab:xxx" | "user:xxx" | "")
+  const [assignSelects, setAssignSelects] = useState<Record<string, string>>({});
+  const [assigning, setAssigning] = useState<string | null>(null);
   // Initiative (page) linked to this store — used for workflow state A link
   const [initiativeId, setInitiativeId] = useState<string | null>(null);
 
@@ -629,22 +646,32 @@ export default function StoreOrdersPage() {
     return () => { es?.close(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load store pageId → accepted outbound partners + capture initiativeId
+  // Load store pageId → accepted outbound partners + team members + capture initiativeId
   useEffect(() => {
     fetch(`/api/store/${id}`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((store) => {
-        if (store?.pageId) setInitiativeId(store.pageId);
         if (!store?.pageId) return;
-        return fetch(
+        setInitiativeId(store.pageId);
+        // Partner page collabs
+        fetch(
           `/api/collaboration?pageId=${store.pageId}&direction=out&status=accepted`,
           { credentials: "include" }
         )
           .then((r) => r.ok ? r.json() : [])
-          .then((collabs: Collab[]) => setPartners(collabs));
+          .then((collabs: Collab[]) => setPartners(collabs))
+          .catch(() => {});
+        // User-type team members (for direct employee assignment)
+        fetch(`/api/initiative/${store.pageId}/team`, { credentials: "include" })
+          .then((r) => r.ok ? r.json() : { members: [] })
+          .then((data: { members?: TeamUserMember[] }) => {
+            const userMembers = (data.members ?? []).filter((m) => !!m.receiverUserId);
+            setTeamMembers(userMembers);
+          })
+          .catch(() => {});
       })
       .catch(() => {});
-  }, [id]);
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function setInv(orderId: string, patch: Partial<InvoiceState>) {
     setInvoiceStates((prev) => ({ ...prev, [orderId]: { ...prev[orderId], ...patch } }));
@@ -701,6 +728,27 @@ export default function StoreOrdersPage() {
       setTimeout(() => setToast(null), 4000);
     }
     setSelfAssigning(null);
+  }
+
+  async function handleAssignDelivery(orderId: string, value: string) {
+    if (!value) return;
+    setAssigning(orderId);
+    const isUser = value.startsWith("user:");
+    const targetId = value.replace(/^(user:|collab:)/, "");
+    const body = isUser ? { userId: targetId } : { assignedToId: targetId };
+    const res = await fetch(`/api/order/${orderId}/delivery`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      setAssignedTos((prev) => ({ ...prev, [orderId]: isUser ? null : targetId }));
+      setPartnerStatuses((prev) => ({ ...prev, [orderId]: "assigned" }));
+      setToast(isUser ? "Team member assigned — they will see it in Deliveries" : "Partner assigned");
+      setTimeout(() => setToast(null), 3500);
+    }
+    setAssigning(null);
   }
 
   if (loading) return (
@@ -873,6 +921,55 @@ export default function StoreOrdersPage() {
                   >
                     📍 Track partner →
                   </a>
+                </div>
+              )}
+
+              {/* ── Manual delivery assignment ── */}
+              {order.status === "confirmed" && (partners.length > 0 || teamMembers.length > 0) && (
+                <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+                  <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>ASSIGN DELIVERY</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <select
+                      value={assignSelects[order.id] ?? ""}
+                      onChange={(e) => setAssignSelects((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                      className="text-xs rounded-md px-2 py-1.5 flex-1 min-w-0"
+                      style={{ border: "1px solid #DDDDDD", color: "#0F1111", background: "#fff" }}
+                    >
+                      <option value="">— Choose assignee —</option>
+                      {partners.length > 0 && (
+                        <optgroup label="Partner Businesses">
+                          {partners.map((p) => {
+                            const page = p.receiverPage ?? p.receiver;
+                            return (
+                              <option key={p.id} value={`collab:${p.id}`}>
+                                {page?.title ?? "Unknown"} · {p.role.replace(/_/g, " ")}
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                      )}
+                      {teamMembers.length > 0 && (
+                        <optgroup label="Team Members">
+                          {teamMembers.map((m) => (
+                            <option key={m.id} value={`user:${m.receiverUserId}`}>
+                              {m.receiverUser?.name ?? "Member"} · {m.teamRole ?? "Employee"}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                    <button
+                      disabled={!assignSelects[order.id] || assigning === order.id}
+                      onClick={() => handleAssignDelivery(order.id, assignSelects[order.id] ?? "")}
+                      className="text-xs px-3 py-1.5 rounded-md font-medium shrink-0"
+                      style={{
+                        background: A.accent, color: "#fff", cursor: "pointer",
+                        opacity: (!assignSelects[order.id] || assigning === order.id) ? 0.5 : 1,
+                      }}
+                    >
+                      {assigning === order.id ? "…" : "Assign"}
+                    </button>
+                  </div>
                 </div>
               )}
 

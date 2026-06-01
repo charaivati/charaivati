@@ -46,6 +46,8 @@ export type DeliveryOrder = {
   pickupLat: number | null;
   pickupLng: number | null;
   ownerPhone: string | null;
+  /** true when assigned via Order.assignedToUserId (direct personal assignment) */
+  isPersonal?: boolean;
 };
 
 // ── Order card ────────────────────────────────────────────────────────────────
@@ -80,9 +82,16 @@ function OrderCard({
       <div className="flex items-start justify-between gap-3 mb-4">
         <div>
           <p className="text-white font-semibold text-sm">{order.storeName}</p>
-          <span className="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 capitalize">
-            {order.collabRole.replace(/_/g, " ")}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap mt-1">
+            <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800 capitalize">
+              {order.collabRole.replace(/_/g, " ")}
+            </span>
+            {order.isPersonal && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-purple-900/50 text-purple-300 border border-purple-700 font-medium">
+                Assigned to you personally
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
           {isAssigned && (

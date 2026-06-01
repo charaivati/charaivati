@@ -22,8 +22,8 @@ async function fetchCollab(id: string) {
   return prisma.collaboration.findUnique({
     where: { id },
     include: {
-      requester: { select: { id: true, title: true, pageType: true, ownerId: true } },
-      receiver:  { select: { id: true, title: true, pageType: true, ownerId: true } },
+      requester:    { select: { id: true, title: true, pageType: true, ownerId: true } },
+      receiverPage: { select: { id: true, title: true, pageType: true, ownerId: true } },
     },
   });
 }
@@ -38,8 +38,8 @@ async function resolveAssignedCollab(
   const collab = await fetchCollab(assignedToId);
   if (!collab) return { isPartner: false, collab: null };
   const partnerPage =
-    collab.requesterId === storePageId ? collab.receiver : collab.requester;
-  return { isPartner: partnerPage.ownerId === userId, collab };
+    collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+  return { isPartner: (partnerPage?.ownerId ?? null) === userId, collab };
 }
 
 // ── PATCH ─────────────────────────────────────────────────────────────────────
@@ -53,11 +53,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const order = await (prisma.order as any).findUnique({
+  const order = await (prisma as any).order.findUnique({
     where: { id },
     select: {
       userId: true,
       assignedToId: true,
+      assignedToUserId: true,
+      deliveryStatus: true,
       items: true,
       store: { select: { ownerId: true, pageId: true } },
       user: { select: { status: true } },
@@ -70,9 +72,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     ? { isPartner: false }
     : await resolveAssignedCollab(order.assignedToId, order.store.pageId, user.id);
 
-  // Check if user is a block-assigned employee (items JSON references a delivery block with assignedUserId = user.id)
+  // Direct employee: assigned via assignedToUserId (user-type team member)
+  const isDirectEmployee = !isOwner && !isPartner && order.assignedToUserId === user.id;
+
+  // Block-assigned employee: item JSON references a delivery block with assignedUserId = user.id
   let isBlockEmployee = false;
-  if (!isOwner && !isPartner) {
+  if (!isOwner && !isPartner && !isDirectEmployee) {
     const items = (order.items as { blockId?: string }[] | null) ?? [];
     const blockIds = items.map((i) => i.blockId).filter((b): b is string => !!b);
     if (blockIds.length > 0) {
@@ -84,7 +89,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
   }
 
-  if (!isOwner && !isPartner && !isBlockEmployee)
+  if (!isOwner && !isPartner && !isBlockEmployee && !isDirectEmployee)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
@@ -93,17 +98,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (deliveryStatus !== undefined && !DELIVERY_STATUSES.includes(deliveryStatus))
     return NextResponse.json({ error: "Invalid deliveryStatus" }, { status: 400 });
 
-  // ── Complete delivery — universal (owner, collab partner, block employee) ──
-  // Placed before the partner gate so owners delivering themselves can also call it.
+  // ── Complete delivery — universal (owner, collab partner, direct employee, block employee) ──
   if (partnerAction === "complete") {
-    const updated = await prisma.order.update({
+    const updated = await (prisma as any).order.update({
       where: { id },
       data: { partnerStatus: "completed", vehicleId: null },
     });
 
-    // Block-based employees bypass the step confirm API (auth gap there); advance the
-    // active OSP here instead. Collab partners call step confirm before this action —
-    // their OSP is already advanced, so this branch is intentionally skipped for them.
     if (isBlockEmployee) {
       const activeOSP = await prisma.orderStepProgress.findFirst({
         where: { orderId: id, status: "active" },
@@ -123,12 +124,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json(updated);
   }
 
-  // ── Partner / block-employee actions ──────────────────────────────────────
-  if ((isPartner || isBlockEmployee) && !isOwner) {
-    // Accept / Reject assignment — collab partners only
-    if (isPartner) {
+  // ── Partner / direct-employee / block-employee actions ────────────────────
+  if ((isPartner || isBlockEmployee || isDirectEmployee) && !isOwner) {
+    // Accept / Reject — collab partners and direct employees
+    if (isPartner || isDirectEmployee) {
       if (partnerAction === "accept") {
-        const updated = await (prisma.order as any).update({
+        const updated = await (prisma as any).order.update({
           where: { id },
           data: { partnerStatus: "accepted" },
         });
@@ -136,12 +137,28 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
 
       if (partnerAction === "reject") {
+        if (isDirectEmployee) {
+          // Clear the direct-user assignment; owner must reassign manually
+          await (prisma as any).order.update({
+            where: { id },
+            data: { assignedToUserId: null, partnerStatus: null, requiresAttention: true },
+          });
+          createNotification({
+            userId: order.store.ownerId,
+            type: "workflow_attention",
+            title: "Team member rejected delivery",
+            body: `Order #${id.slice(-8).toUpperCase()} — assigned employee rejected. Please reassign.`,
+            link: `/store/${order.storeId}/orders`,
+          }).catch(() => {});
+          return NextResponse.json({ partnerStatus: null, assignedToUserId: null, requiresAttention: true });
+        }
+
+        // Collab partner reject — cycle to next assignee
         const activeOSP = await prisma.orderStepProgress.findFirst({
           where: { orderId: id, status: "active" },
           select: { id: true, stepId: true },
         });
 
-        // Clear current assignment before cycling
         await prisma.order.update({
           where: { id },
           data: { partnerStatus: "rejected", assignedToId: null },
@@ -162,7 +179,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           }
         }
 
-        // No active OSP or no assignees configured — flag for owner attention
         await prisma.order.update({
           where: { id },
           data: { requiresAttention: true },
@@ -186,7 +202,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         { status: 400 }
       );
 
-    // Validate vehicleId exists when being set.
     if (vehicleId != null) {
       const vehicle = await (prisma as any).vehicle.findUnique({
         where: { id: vehicleId },
@@ -200,18 +215,33 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (deliveryStatus !== undefined) data.deliveryStatus = deliveryStatus;
     if ("vehicleId" in body) data.vehicleId = vehicleId ?? null;
 
-    // Auto-set partnerStatus on terminal states
-    if (deliveryStatus === "delivered") {
+    // When a direct employee starts GPS (sets vehicleId), auto-advance deliveryStatus to
+    // "out_for_delivery" so the customer's tracking map activates — mirrors the workflow-
+    // driven advancement that collab partners receive via the OSP confirm flow.
+    const NON_DELIVERY_STATUSES = new Set(["pending", "confirmed", "processing"]);
+    if (
+      isDirectEmployee &&
+      "vehicleId" in body &&
+      vehicleId != null &&
+      deliveryStatus === undefined &&
+      NON_DELIVERY_STATUSES.has(order.deliveryStatus ?? "")
+    ) {
+      data.deliveryStatus = "out_for_delivery";
+    }
+
+    if (deliveryStatus === "delivered" || data.deliveryStatus === "delivered") {
       data.vehicleId = null;
       data.partnerStatus = "completed";
-    } else if (deliveryStatus === "cancelled") {
+    } else if (deliveryStatus === "cancelled" || data.deliveryStatus === "cancelled") {
       data.vehicleId = null;
       data.partnerStatus = null;
     }
 
-    const updated = await (prisma.order as any).update({ where: { id }, data });
+    const updated = await (prisma as any).order.update({ where: { id }, data });
 
-    if (deliveryStatus === "out_for_delivery" && order.userId && order.user?.status !== "guest") {
+    // Fire buyer notification for any path that results in out_for_delivery
+    const effectiveDeliveryStatus = (data.deliveryStatus as string | undefined) ?? deliveryStatus;
+    if (effectiveDeliveryStatus === "out_for_delivery" && order.userId && order.user?.status !== "guest") {
       createNotification({
         userId: order.userId,
         type: "out_for_delivery",
@@ -226,9 +256,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   // ── Owner actions ──────────────────────────────────────────────────────────
 
-  // Owner delivers the order themselves — appears in their own /earn/deliveries dashboard
   if (partnerAction === "self_assign") {
-    const updated = await (prisma.order as any).update({
+    const updated = await (prisma as any).order.update({
       where: { id },
       data: { assignedToId: user.id, partnerStatus: "accepted" },
     });
@@ -242,7 +271,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json(updated);
   }
 
-  // Assign an internal delivery block (and its employee) to a sub-order
   if (partnerAction === "assign_block") {
     const { blockId } = body as { blockId?: string };
     if (!blockId) return NextResponse.json({ error: "blockId required" }, { status: 400 });
@@ -262,7 +290,6 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (block.serviceType !== "delivery")
       return NextResponse.json({ error: "Not a delivery block" }, { status: 400 });
 
-    // Fetch current items so we can update the first item's blockId/title
     const currentOrder = await (prisma as any).order.findUnique({
       where:  { id },
       select: { items: true, agreedAmount: true, total: true },
@@ -278,14 +305,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const updated = await (prisma as any).order.update({
       where: { id },
       data: {
-        assignedToId:   blockId,   // block used as internal delivery reference
+        assignedToId:   blockId,
         partnerStatus:  "accepted",
         deliveryStatus: "processing",
         items:          updatedItems,
       },
     });
 
-    // Notify the assigned employee if one is set on the block
     if (block.assignedUserId) {
       await createNotification({
         userId: block.assignedUserId,
@@ -294,6 +320,51 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         body:   `Order #${id.slice(-8).toUpperCase()} — ₹${updated.agreedAmount ?? updated.total}`,
         link:   "/earn/deliveries",
       });
+    }
+
+    return NextResponse.json(updated);
+  }
+
+  // ── Owner: assign to a team member user directly ───────────────────────────
+  if ("userId" in body) {
+    const targetUserId = (body as { userId: string | null }).userId;
+
+    if (targetUserId != null) {
+      const storePageId = order.store.pageId;
+      // Verify this user is an accepted team-scope member of the initiative
+      const teamCollab = await prisma.collaboration.findFirst({
+        where: {
+          requesterId:    storePageId ?? undefined,
+          receiverUserId: targetUserId,
+          scope:          "team",
+          status:         "accepted",
+        },
+        select: { id: true },
+      });
+      if (!teamCollab)
+        return NextResponse.json(
+          { error: "User is not an accepted team member of this initiative" },
+          { status: 400 }
+        );
+    }
+
+    const updated = await (prisma as any).order.update({
+      where: { id },
+      data: {
+        assignedToUserId: targetUserId ?? null,
+        assignedToId:     null,           // clear any collab-based assignment
+        partnerStatus:    targetUserId != null ? "assigned" : null,
+      },
+    });
+
+    if (targetUserId) {
+      createNotification({
+        userId: targetUserId,
+        type:   "order_assigned",
+        title:  "Delivery assigned to you",
+        body:   `Order #${id.slice(-8).toUpperCase()} from ${order.store.pageId ?? "store"}`,
+        link:   "/earn/deliveries",
+      }).catch(() => {});
     }
 
     return NextResponse.json(updated);
@@ -309,18 +380,18 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: "Vehicle not found" }, { status: 404 });
   }
 
-  // Validate assignedToId if being set.
+  // Validate assignedToId (collab-based partner assignment) if being set.
   if (assignedToId != null) {
     const collab = await prisma.collaboration.findUnique({
       where: { id: assignedToId },
-      select: { status: true, requesterId: true, receiverId: true },
+      select: { status: true, requesterId: true, receiverPageId: true },
     });
     if (!collab)
       return NextResponse.json({ error: "Collaboration not found" }, { status: 404 });
     if (collab.status !== "accepted")
       return NextResponse.json({ error: "Collaboration is not accepted" }, { status: 400 });
     const storePageId = order.store.pageId;
-    if (storePageId !== collab.requesterId && storePageId !== collab.receiverId)
+    if (storePageId !== collab.requesterId && storePageId !== collab.receiverPageId)
       return NextResponse.json(
         { error: "Collaboration does not belong to this store's page" },
         { status: 400 }
@@ -331,21 +402,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (deliveryStatus !== undefined) data.deliveryStatus = deliveryStatus;
 
   if ("assignedToId" in body) {
-    data.assignedToId = assignedToId ?? null;
-    // Setting a partner → mark as awaiting acceptance; clearing → reset
-    data.partnerStatus = assignedToId != null ? "assigned" : null;
+    data.assignedToId     = assignedToId ?? null;
+    data.assignedToUserId = null;   // clear any user-type assignment
+    data.partnerStatus    = assignedToId != null ? "assigned" : null;
   }
 
   if ("deliveryNote" in body) data.deliveryNote = deliveryNote ?? null;
   if ("vehicleId" in body) data.vehicleId = vehicleId ?? null;
 
-  // Cleanup on terminal delivery states
   if (deliveryStatus === "delivered" || deliveryStatus === "cancelled") {
-    data.vehicleId = null;
+    data.vehicleId    = null;
     data.partnerStatus = null;
   }
 
-  const updated = await (prisma.order as any).update({ where: { id }, data });
+  const updated = await (prisma as any).order.update({ where: { id }, data });
 
   if (deliveryStatus === "out_for_delivery" && order.userId && order.user?.status !== "guest") {
     createNotification({
@@ -366,7 +436,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const order = await (prisma.order as any).findUnique({
+  const order = await (prisma as any).order.findUnique({
     where: { id },
     select: {
       id: true,
@@ -374,6 +444,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       deliveryStatus: true,
       partnerStatus: true,
       assignedToId: true,
+      assignedToUserId: true,
       deliveryNote: true,
       vehicleId: true,
       items: true,
@@ -398,19 +469,22 @@ export async function GET(req: NextRequest, { params }: Params) {
     order.store.pageId,
     user.id
   );
+  const isDirectEmployee = order.assignedToUserId === user.id;
 
-  if (!isOwner && !isPartner && !isBuyer)
+  if (!isOwner && !isPartner && !isBuyer && !isDirectEmployee)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const assignedCollab = collab
     ? {
-        id: collab.id,
-        role: collab.role,
-        status: collab.status,
+        id:          collab.id,
+        role:        collab.role,
+        status:      collab.status,
         requesterId: collab.requesterId,
-        receiverId:  collab.receiverId,
-        requester: { title: collab.requester.title, pageType: collab.requester.pageType },
-        receiver:  { title: collab.receiver.title,  pageType: collab.receiver.pageType  },
+        receiverPageId: collab.receiverPageId,
+        requester:    { title: collab.requester.title,    pageType: collab.requester.pageType },
+        receiverPage: collab.receiverPage
+          ? { title: collab.receiverPage.title, pageType: collab.receiverPage.pageType }
+          : null,
       }
     : null;
 

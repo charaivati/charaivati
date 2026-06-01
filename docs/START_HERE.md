@@ -128,9 +128,9 @@ The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. Th
 
 ## 5. Database Model Relationships (Critical)
 
-`Page` is a **polymorphic container**. One `Page` row backs a Store, Course, HealthBusiness, or HelpingInitiative. The `pageType` field determines which sub-model exists. `Page` also has `collaborationsIn` and `collaborationsOut` relations to the `Collaboration` model — Page-to-Page partnership links.
+`Page` is a **polymorphic container**. One `Page` row backs a Store, Course, HealthBusiness, or HelpingInitiative. The `pageType` field determines which sub-model exists. `Page` also has `collaborationsIn` and `collaborationsOut` relations to the `Collaboration` model — Page-to-Page and Page-to-User partnership links.
 
-`Collaboration` connects two `Page` records with a `role` (`delivery_partner | supplier | employee | marketing | other`) and `status` (`pending | accepted | rejected | cancelled`). Unique on `[requesterId, receiverId, role]`. Both FK sides cascade-delete when the Page is deleted.
+`Collaboration` has two member types: **Page-to-page** (`receiverPageId` set — delivery partners, suppliers, external collaborators) and **Page-to-user** (`receiverUserId` set — employees, personal team members added via friend-invite). `role` is the collaboration kind (`delivery_partner | supplier | employee | marketing | other`); `status` is `pending | accepted | rejected | cancelled`. Unique on `[requesterId, receiverPageId, role]` and `[requesterId, receiverUserId, role]`. Exactly one of `receiverPageId`/`receiverUserId` must be set — enforced at API level. All FK sides cascade-delete. `Page` has `collaborationsIn`/`collaborationsOut`; `User` has `receivedCollaborations`.
 
 `StoreBlock` is **dual-purpose**: it is a product in a store and a lesson in a course. `actionType` determines behavior; `access: free | paid` controls gating.
 
@@ -198,7 +198,12 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 3. Incoming pending requests shown with Accept/Reject buttons (PATCH)
 4. Invite form: search stores by name → `GET /api/store/search?q=` (debounced 300ms) → pick from dropdown → select role → send (POST)
 5. `POST /api/collaboration` resolves Store IDs and slugs to their linked Page automatically
-6. PATCH response must include `requester`/`receiver` page fields — frontend reads `.title` for optimistic state update
+6. PATCH response must include `requester`/`receiverPage` page fields — frontend reads `.title` for optimistic state update
+
+### Team tab — two invite paths
+- **From Partners**: promotes an accepted partner-scope page-to-page Collaboration to `scope="team"` via `PATCH /api/initiative/[pageId]/team/[collaborationId]`
+- **Invite Friend**: creates a new `scope="team"` Collaboration with `receiverUserId` (page-to-user) via `POST /api/initiative/[pageId]/team/invite-user { userId, teamRole, customRole? }` — requires the target to be an accepted friend of the page owner. `status="accepted"` on creation (no request flow). Removing calls `DELETE /api/initiative/[pageId]/team/[collaborationId]`.
+- Team member cards render both types: `receiverUserId` set → show `receiverUser.name`/`avatarUrl`; otherwise show `receiverPage.title`/`avatarUrl`.
 
 ### Delivery Tracking (order fulfillment with live GPS)
 1. Owner selects an accepted Collaboration partner in the order management UI (`/store/[id]/orders`) — `PATCH /api/order/[id]/delivery { assignedToId: collabId }`

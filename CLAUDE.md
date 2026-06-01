@@ -215,42 +215,36 @@ The `Order` model has five delivery scalar fields (added via `db push`, no migra
 | Field | Type | Default | Purpose |
 |---|---|---|---|
 | `deliveryStatus` | `String` | `"pending"` | Delivery pipeline: `pending → confirmed → processing → out_for_delivery → delivered` (or `cancelled` at any point) |
-| `assignedToId` | `String?` | `null` | `Collaboration.id` of the partner assigned to deliver — **not a FK**, stored as a plain string. `null` = owner delivers themselves |
+| `assignedToId` | `String?` | `null` | `Collaboration.id` of the partner assigned to deliver — **not a FK**, stored as a plain string. Mutually exclusive with `assignedToUserId`. |
+| `assignedToUserId` | `String?` | `null` | `User.id` of a team member directly assigned for delivery (user-type assignment, no collab ID). Mutually exclusive with `assignedToId`. |
 | `deliveryNote` | `String?` | `null` | Free-text instructions from owner to delivery person |
-| `vehicleId` | `String?` | `null` | `Vehicle.id` of the partner's active GPS broadcast — set automatically when the partner clicks "Start GPS" in the deliveries dashboard; cleared to null when unlinked |
-| `partnerStatus` | `String?` | `null` | Partner acceptance state: `null` = unassigned, `"assigned"` = owner assigned (awaiting partner acceptance), `"accepted"` = partner accepted, `"rejected"` = partner declined (owner must reassign), `"completed"` = partner delivered |
+| `vehicleId` | `String?` | `null` | `Vehicle.id` of the partner's active GPS broadcast — set automatically when the delivery person clicks "Start GPS"; cleared to null when unlinked |
+| `partnerStatus` | `String?` | `null` | Partner acceptance state: `null` = unassigned, `"assigned"` = owner assigned (awaiting acceptance), `"accepted"` = accepted, `"rejected"` = declined (owner must reassign), `"completed"` = delivered |
 
-**Partner acceptance flow** (new):
-1. Owner assigns a partner via the dropdown → API auto-sets `partnerStatus = "assigned"`
-2. Partner sees the order in `/earn/deliveries` with an amber "New Assignment" badge
-3. Partner clicks **Accept Delivery** → `PATCH { partnerAction: "accept" }` → `partnerStatus = "accepted"`
-4. OR clicks **Reject** → `PATCH { partnerAction: "reject" }` → `partnerStatus = "rejected"`, `assignedToId = null` (order disappears from partner dashboard; owner must reassign)
-5. Accepted partner waits for `deliveryStatus = "out_for_delivery"`, then can start GPS
-6. Partner marks delivered → `PATCH { deliveryStatus: "delivered" }` → server sets `partnerStatus = "completed"`, `vehicleId = null`
+**Two assignment paths for delivery:**
+- **Partner page (collab-based)**: `PATCH { assignedToId: collabId }` — sets `assignedToId`, clears `assignedToUserId`. Auth: `partnerPage.ownerId === session.userId` grants delivery access.
+- **Team member (user-based)**: `PATCH { userId }` — sets `assignedToUserId`, clears `assignedToId`. Validated: the target user must have an accepted `scope=team` Collaboration with `receiverUserId = userId` for this store's initiative page. Both paths set `partnerStatus = "assigned"`.
 
-**`PATCH /api/order/[id]/delivery`**
-- Store owner: can update `deliveryStatus`, `assignedToId`, `deliveryNote`, `vehicleId`. Setting `assignedToId` → API auto-sets `partnerStatus = "assigned"`. Clearing it → `partnerStatus = null`. Terminal `deliveryStatus` (delivered/cancelled) also clears `vehicleId` and `partnerStatus`.
-- Assigned delivery partner: can send `{ partnerAction: "accept" | "reject" }` or update `deliveryStatus` / `vehicleId`. Reject also clears `assignedToId`. Marking delivered auto-sets `partnerStatus = "completed"`.
+**GPS flow is identical for both assignment types.** The employee/partner accepts → `partnerStatus = "accepted"` → GPS button appears in `/earn/deliveries` → Broadcaster creates a `Vehicle` row → `PATCH { vehicleId }` links it to the order. For user-assigned employees (`isDirectEmployee`), setting `vehicleId` **automatically advances `deliveryStatus` to `"out_for_delivery"`** (if the current status is pending/confirmed/processing) so the customer's tracking map activates. Collab partners get `out_for_delivery` via the workflow OSP confirm instead. Both paths fire an `out_for_delivery` buyer notification.
+
+**`PATCH /api/order/[id]/delivery` — authorization gate (three principals)**
+1. **Store owner** (`store.ownerId === userId`): all fields — `deliveryStatus`, `assignedToId`, `userId`, `deliveryNote`, `vehicleId`, all `partnerAction` values.
+2. **Collab partner** (`assignedToId` Collaboration's `partnerPage.ownerId === userId`): `partnerAction: "accept" | "reject" | "complete"`, `deliveryStatus`, `vehicleId`. Reject triggers next-partner cycling via `assignNextPartner`.
+3. **Direct employee** (`assignedToUserId === userId`): same as collab partner. Reject clears `assignedToUserId` and sets `requiresAttention = true`.
 - Buyer: no PATCH access.
 
 **`GET /api/order/[id]/delivery`**
-- Allowed for: store owner, assigned delivery partner (via Collaboration lookup), or the order's buyer.
-- Returns: `id, deliveryStatus, partnerStatus, assignedToId, deliveryNote, vehicleId, items, total, createdAt, address` + `assignedCollab` (partner page titles + role, or null).
-- Does NOT expose `store.ownerId`, `store.pageId`, or the buyer's `userId` to callers.
-
-**Partner auth logic**: `assignedToId` is a `Collaboration.id`. The API fetches the Collaboration, determines which page is the store's page (via `store.pageId`), and treats the other page as the partner page. Auth passes if `partnerPage.ownerId === session.userId`.
+- Allowed for: store owner, assigned collab partner, directly assigned user (`assignedToUserId`), or the order's buyer.
+- Returns: `id, deliveryStatus, partnerStatus, assignedToId, assignedToUserId, deliveryNote, vehicleId, items, total, createdAt, address` + `assignedCollab` (has `receiverPage` field, not `receiver`; null for user-assigned orders).
 
 **Owner order management UI** (`app/store/[id]/orders/page.tsx`):
-- Delivery status bar (5 steps, **read-only display**, Cancel button is the only clickable action) — reflects `deliveryStatus`; the workflow system drives progression, not manual clicks.
-- Assignment dropdown (visible from `confirmed` onward) — lists accepted outbound collaboration partners. Still functional for manual override outside the workflow system.
-- WorkflowSection renders in 4 states: (A) no initiative, (B) pending order, (C) active step with Confirm/Quote controls, (D) rejection panel. See `### Store Order Pages` above.
-- `partnerStatus` badge shown read-only below the assignment dropdown.
-- Delivery note textarea with explicit Save button.
+- **"ASSIGN DELIVERY" section** (visible when order is `confirmed` and partners or team members exist) — grouped `<select>` with `<optgroup>` for "Partner Businesses" (collab-based) and "Team Members" (direct user assignments). Submits `PATCH { assignedToId }` or `PATCH { userId }` based on selection.
+- WorkflowSection renders in 4 states: (A) no initiative, (B) pending order, (C) active step with Confirm/Quote controls, (D) rejection panel.
 
-**Partner delivery dashboard** (`app/earn/deliveries/page.tsx`):
-- Server component with cookie auth (same pattern as initiative page).
-- Finds all accepted collaborations where session user's pages are the **receiver**.
-- Queries orders with `assignedToId IN (collabIds) AND partnerStatus IN ('assigned', 'accepted')` via raw SQL; includes active workflow step ID via a subquery on `OrderStepProgress`.
+**Partner/employee delivery dashboard** (`app/earn/deliveries/page.tsx`):
+- Server component with cookie auth.
+- Finds orders via three paths: (1) `assignedToId IN (collabIds)` — collab partner assignments; (2) LATERAL join on items JSON — block-employee assignments; (3) `assignedToUserId = userId` — direct personal assignments.
+- Direct-assignment orders carry `isPersonal: true` → `DeliveriesClient` shows a purple "Assigned to you personally" badge.
 - Renders `DeliveriesClient` (`components/earn/DeliveriesClient.tsx`) — cards differ by `partnerStatus`: amber Accept/Reject UI for `"assigned"`, green GPS + **Confirm Delivery** UI for `"accepted"`. GPS start modal auto-fills the partner's name and phone from their user profile.
 - Every card (both states) shows a **PICK UP FROM** section above the delivery address: store name, owner's default `Address` row as a pickup location proxy (lat/lng or text-search fallback → Google Maps), and a `tel:` link to the owner's phone. Shows "Contact store owner for pickup location" if the owner has no default address. This is a temporary proxy — see TODO comment in `DeliveriesClient.tsx`; replace with `Store.address` once that field is added to the schema.
 - Accepted-state cards additionally show a full-width **"🗺️ Navigate to delivery"** button above GPS/Confirm controls. Precise-pin link (`https://maps.google.com/?q={lat},{lng}`) when `Address.lat/lng` are set; text-search fallback (`https://maps.google.com/?q=encodeURIComponent(...)`) when not. Both pickup and delivery navigation links open `target="_blank"`.
@@ -264,13 +258,17 @@ The `Order` model has five delivery scalar fields (added via `db push`, no migra
 - When `partnerStatus === "completed"` (partner confirmed delivery): shows "Confirm you received this order?" prompt. On click → `POST /api/order/[id]/customer-confirm` → `deliveryStatus = "delivered"`, `partnerStatus = "completed"`. Shows thank-you state afterward.
 
 ### Collaboration / Partners
-Page-to-Page partnership system. Both sides of a collaboration are `Page` records (not Users). The `Collaboration` model links two Pages with a role and status.
+Partnership system. The requester is always a `Page`; the receiver is either a `Page` (page-to-page) or a `User` (page-to-user). The `Collaboration` model links a requesting Page to a receiving Page or User with a role and status.
 
-- **Model**: `Collaboration` — `requesterId` (Page), `receiverId` (Page), `role` (string enum: `delivery_partner | supplier | employee | marketing | other`), `status` (`pending | accepted | rejected | cancelled`), optional `message` and `metadata`. Unique on `[requesterId, receiverId, role]`. Both FKs cascade-delete.
-- **`Page` model now has** `collaborationsOut` (`@relation("CollabRequester")`) and `collaborationsIn` (`@relation("CollabReceiver")`)
+- **Collaboration supports two member types:**
+  - **Page-to-page**: `receiverPageId` set (delivery partners, suppliers, external collaborators)
+  - **Page-to-user**: `receiverUserId` set (employees, personal team members)
+  - Both use the same `scope`/`teamRole`/`status` fields. Exactly one of `receiverPageId` or `receiverUserId` must be set — enforced at API level, not DB level.
+- **Model**: `Collaboration` — `requesterId` (Page), `receiverPageId` (Page, optional), `receiverUserId` (User, optional), `role` (string enum: `delivery_partner | supplier | employee | marketing | other`), `status` (`pending | accepted | rejected | cancelled`), optional `message` and `metadata`. Unique on `[requesterId, receiverPageId, role]` and `[requesterId, receiverUserId, role]`. All FK sides cascade-delete.
+- **`Page` model** has `collaborationsOut` (`@relation("CollabRequester")`) and `collaborationsIn` (`@relation("CollabReceiver")`); **`User` model** has `receivedCollaborations` (`@relation("CollabReceiverUser")`)
 - **Auth**: requester ownership checked on POST (requester page must be owned by session user); receiver ownership checked for accept/reject; requester ownership for cancel; either side for DELETE.
-- **Receiver resolution**: `POST /api/collaboration` accepts a Store ID, store slug, or Page ID as `receiverId` — it resolves store → its linked `pageId` automatically. Returns 404 if no Page can be found. This means stores with `pageId: null` cannot participate.
-- **PATCH must include page relations**: `prisma.collaboration.update` must include `requester`/`receiver` in the response or the frontend will crash reading `.title` off `undefined`.
+- **Receiver resolution**: `POST /api/collaboration` accepts a Store ID, store slug, Page ID, or User ID as `receiverId` — it resolves store → its linked `pageId` automatically for page-to-page collabs. Returns 404 if no Page or User can be found.
+- **PATCH must include page relations**: `prisma.collaboration.update` must include `requester`/`receiverPage` in the response or the frontend will crash reading `.title` off `undefined`.
 
 | Method | Route | Auth check |
 |---|---|---|
@@ -723,6 +721,14 @@ UI: `components/notifications/NotificationBell.tsx` — bell icon in `app/app/la
 | Workflow | `components/earn/WorkflowTab.tsx` | canEdit = founder / co_founder |
 
 `canEdit` is derived in `InitiativeTabs` by fetching `GET /api/initiative/[pageId]/team` and reading `userTeamRole`. `null` (owner without explicit team record) → `canEdit = true`.
+
+**Team tab — two invite paths:**
+- **From Partners** (existing): promotes an accepted partner-scope `Collaboration` (page-to-page) to `scope="team"` via `PATCH /api/initiative/[pageId]/team/[collaborationId]`.
+- **Invite Friend** (new): directly creates a `scope="team"` `Collaboration` with `receiverUserId` set via `POST /api/initiative/[pageId]/team/invite-user { userId, teamRole, customRole? }`. Only friends of the page owner are eligible. The collaboration is created with `status="accepted"` (no request flow needed). Removing a user-type team member calls `DELETE /api/initiative/[pageId]/team/[collaborationId]` (not PATCH, since there's no partner scope to demote back to).
+
+**Team member card rendering** — cards check `member.receiverUserId`: if set, shows the `receiverUser.name` and `receiverUser.avatarUrl` (user-type); otherwise shows `receiverPage.title` and `receiverPage.avatarUrl` (page-type, existing behaviour).
+
+**`GET /api/initiative/[pageId]/team` response** now includes `friends: FriendUser[]` — the owner's accepted friends not already added as user-type team members. Used to populate the "Invite Friend" tab in the modal.
 
 **Fleet initiative type** — when `pageType === "fleet"`, `InitiativeTabs` renders a dedicated `FleetTabs` branch (Overview / 🚛 Services / Partners / Workflow) instead of the standard Store tab. The "Services" tab renders `components/earn/FleetEditor.tsx`.
 

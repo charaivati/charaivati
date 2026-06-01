@@ -77,6 +77,8 @@ model User {
   communityMemberships    CommunityMembership[]  @relation("UserMemberships")
   healthBookings          HealthBooking[]
   notifications           Notification[]
+  receivedCollaborations  Collaboration[]  @relation("CollabReceiverUser")
+  assignedOrders          Order[]          @relation("OrderAssignedUser")
 
   @@index([email])
   @@index([phone])
@@ -1163,7 +1165,10 @@ model HelpingMetric {
 model Collaboration {
   id           String   @id @default(cuid())
   requesterId  String
-  receiverId   String
+  /// Page-to-page collab — set when the receiver is a Page (delivery partners, suppliers, external collaborators)
+  receiverPageId   String?
+  /// Page-to-user collab — set when the receiver is a User (employees, personal team members)
+  receiverUserId   String?
   /// "delivery_partner" | "supplier" | "employee" | "marketing" | "other"
   role         String
   /// "pending" | "accepted" | "rejected" | "cancelled"
@@ -1183,13 +1188,16 @@ model Collaboration {
   costPerKg        Float?  // fee per kg of total order weight
   costPerKgPerKm   Float?  // fee per kg per km of delivery distance
   costPerItemPerKm Float?  // fee per item per km of delivery distance
-  receiver      Page                   @relation("CollabReceiver", fields: [receiverId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  receiverPage  Page?                  @relation("CollabReceiver", fields: [receiverPageId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  receiverUser  User?                  @relation("CollabReceiverUser", fields: [receiverUserId], references: [id], onDelete: Cascade)
   requester     Page                   @relation("CollabRequester", fields: [requesterId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   stepAssignees WorkflowStepAssignee[]
 
-  @@unique([requesterId, receiverId, role])
+  @@unique([requesterId, receiverPageId, role])
+  @@unique([requesterId, receiverUserId, role])
   @@index([requesterId])
-  @@index([receiverId])
+  @@index([receiverPageId])
+  @@index([receiverUserId])
   @@index([status])
 }
 
@@ -1336,9 +1344,12 @@ model Order {
   subOrderType      String?
   /// The agreed fee for this sub-order (quote amount or fixed assignment fee)
   agreedAmount      Float?
+  /// Direct employee assignment — User.id of a team member (receiverUserId collab). Mutually exclusive with assignedToId.
+  assignedToUserId  String?
   address           Address             @relation(fields: [addressId], references: [id])
   store             Store               @relation(fields: [storeId], references: [id])
   user              User                @relation(fields: [userId], references: [id])
+  assignedToUser    User?               @relation("OrderAssignedUser", fields: [assignedToUserId], references: [id])
   quotes            Quote[]
   orderSteps        OrderStepProgress[]
   parentOrder       Order?              @relation("SubOrders", fields: [parentOrderId], references: [id], onDelete: SetNull, onUpdate: Cascade)

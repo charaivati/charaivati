@@ -33,7 +33,7 @@ export async function GET(
         status: "accepted",
         OR: [
           { requesterId: pageId, scope: "team", teamRole: "founder" },
-          { receiverId: pageId, scope: "team", teamRole: "founder" },
+          { receiverPageId: pageId, scope: "team", teamRole: "founder" },
         ],
       },
       select: { id: true },
@@ -53,14 +53,13 @@ export async function GET(
     });
   }
 
-  // Available assignees: any accepted collab involving this page
-  // (includes partner, team, third_party — all scopes are valid step assignees)
+  // Available assignees: any accepted collab involving this page (all scopes)
   const collabs = await prisma.collaboration.findMany({
     where: {
       status: "accepted",
       OR: [
         { requesterId: pageId },
-        { receiverId: pageId },
+        { receiverPageId: pageId },
         { initiativeId: pageId },
       ],
     },
@@ -71,9 +70,10 @@ export async function GET(
       customRole: true,
       scope: true,
       requesterId: true,
-      receiverId: true,
-      requester: { select: { title: true } },
-      receiver:  { select: { title: true } },
+      receiverPageId: true,
+      requester:    { select: { title: true } },
+      receiverPage: { select: { title: true } },
+      receiverUser: { select: { name: true } },
     },
   });
 
@@ -83,7 +83,10 @@ export async function GET(
     teamRole: c.teamRole,
     customRole: c.customRole,
     scope: c.scope,
-    displayName: c.requesterId === pageId ? c.receiver.title : c.requester.title,
+    displayName:
+      c.requesterId === pageId
+        ? (c.receiverPage?.title ?? c.receiverUser?.name ?? "Unknown")
+        : c.requester.title,
   }));
 
   const assigneeMap = new Map(assignees.map((a) => [a.id, a]));
@@ -102,8 +105,9 @@ export async function GET(
               teamRole: true,
               scope: true,
               requesterId: true,
-              requester: { select: { title: true, avatarUrl: true } },
-              receiver: { select: { title: true, avatarUrl: true } },
+              requester:    { select: { title: true, avatarUrl: true } },
+              receiverPage: { select: { title: true, avatarUrl: true } },
+              receiverUser: { select: { name: true, avatarUrl: true } },
             },
           },
         },
@@ -114,7 +118,7 @@ export async function GET(
   for (const row of stepAssigneeRows) {
     const displayName =
       row.collaboration.requesterId === pageId
-        ? row.collaboration.receiver.title
+        ? (row.collaboration.receiverPage?.title ?? row.collaboration.receiverUser?.name ?? "Unknown")
         : row.collaboration.requester.title;
     const list = assigneesByStep.get(row.stepId) ?? [];
     list.push({ ...row, displayName });

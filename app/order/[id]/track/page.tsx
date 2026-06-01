@@ -40,8 +40,10 @@ type OrderData = {
   };
   assignedCollab: {
     role: string;
-    requester: { title: string };
-    receiver:  { title: string };
+    requester:    { title: string };
+    receiverPage: { title: string } | null;
+    /** @deprecated field renamed to receiverPage — kept for backward compat with stale responses */
+    receiver?:    { title: string };
   } | null;
 };
 
@@ -276,7 +278,7 @@ export default function TrackOrderPage() {
           <div className="bg-white rounded-xl p-5 shadow-sm border border-gray-200">
             <p className="text-xs font-semibold text-gray-400 mb-2">DELIVERY PARTNER</p>
             <p className="text-sm text-gray-800 font-medium">
-              {order.assignedCollab.receiver.title}
+              {order.assignedCollab.receiverPage?.title ?? order.assignedCollab.receiver?.title ?? ""}
             </p>
             <p className="text-xs text-gray-400 capitalize">
               {order.assignedCollab.role.replace(/_/g, " ")}
