@@ -13,13 +13,13 @@ export async function PATCH(
   const collab = await prisma.collaboration.findUnique({
     where: { id },
     select: {
-      requester: { select: { ownerId: true } },
-      receiver:  { select: { ownerId: true } },
+      requester:    { select: { ownerId: true } },
+      receiverPage: { select: { ownerId: true } },
     },
   });
   if (!collab) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (collab.requester.ownerId !== user.id && collab.receiver.ownerId !== user.id) {
+  if (collab.requester.ownerId !== user.id && collab.receiverPage?.ownerId !== user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

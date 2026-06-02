@@ -36,15 +36,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const collab = await prisma.collaboration.findUnique({
       where: { id: step.assigneeId },
       include: {
-        requester: { select: { ownerId: true } },
-        receiver:  { select: { ownerId: true } },
+        requester:    { select: { ownerId: true } },
+        receiverPage: { select: { ownerId: true } },
       },
     });
     if (collab) {
       const storePageId = order.store.pageId;
       const partnerPage =
-        storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
-      isAssignee = partnerPage.ownerId === user.id;
+        storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+      isAssignee = partnerPage?.ownerId === user.id;
     }
   }
 
@@ -59,15 +59,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       const wsaCollabs = await prisma.collaboration.findMany({
         where: { id: { in: collabIds } },
         include: {
-          requester: { select: { ownerId: true } },
-          receiver:  { select: { ownerId: true } },
+          requester:    { select: { ownerId: true } },
+          receiverPage: { select: { ownerId: true } },
         },
       });
       const storePageId = order.store.pageId;
       for (const collab of wsaCollabs) {
         const partnerPage =
-          storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
-        if (partnerPage.ownerId === user.id) {
+          storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+        if (partnerPage?.ownerId === user.id) {
           isAssignee = true;
           break;
         }
@@ -113,14 +113,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       const collab = await prisma.collaboration.findUnique({
         where: { id: nextStep.assigneeId },
         include: {
-          requester: { select: { ownerId: true } },
-          receiver:  { select: { ownerId: true } },
+          requester:    { select: { ownerId: true } },
+          receiverPage: { select: { ownerId: true } },
         },
       });
       if (!collab) return;
       const storePageId = order.store.pageId;
-      const partnerPage = storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
-      if (!partnerPage.ownerId) return;
+      const partnerPage = storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+      if (!partnerPage?.ownerId) return;
       const notifLink = collab.role === "delivery_partner"
         ? "/earn/deliveries"
         : "/app/orders?tab=my";

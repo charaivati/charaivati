@@ -33,15 +33,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const collab = await prisma.collaboration.findUnique({
       where: { id: step.assigneeId },
       include: {
-        requester: { select: { ownerId: true } },
-        receiver:  { select: { ownerId: true } },
+        requester:    { select: { ownerId: true } },
+        receiverPage: { select: { ownerId: true } },
       },
     });
     if (collab) {
       const storePageId = order.store.pageId;
       const partnerPage =
-        storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
-      isAssignee = partnerPage.ownerId === user.id;
+        storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+      isAssignee = partnerPage?.ownerId === user.id;
     }
   }
 

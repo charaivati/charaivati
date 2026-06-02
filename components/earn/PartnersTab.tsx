@@ -7,12 +7,13 @@ type StoreResult = { id: string; name: string; slug: string | null; pageId: stri
 type Collab = {
   id: string;
   requesterId: string;
-  receiverId: string;
+  receiverPageId: string | null;
+  receiverUserId: string | null;
   role: string;
   status: string;
   message: string | null;
   requester: CollabPage;
-  receiver: CollabPage;
+  receiverPage: CollabPage | null;
 };
 type ActiveCollab = Collab & { direction: "in" | "out" };
 
@@ -223,7 +224,7 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
   }
 
   function partnerPage(c: ActiveCollab): CollabPage {
-    return c.direction === "in" ? c.requester : c.receiver;
+    return c.direction === "in" ? c.requester : (c.receiverPage ?? c.requester);
   }
 
   return (

@@ -37,8 +37,8 @@ export async function assignNextPartner({
         collaboration: {
           select: {
             requesterId: true,
-            requester: { select: { ownerId: true } },
-            receiver:  { select: { ownerId: true } },
+            requester:    { select: { ownerId: true } },
+            receiverPage: { select: { ownerId: true } },
           },
         },
       },
@@ -171,7 +171,7 @@ export async function assignNextPartner({
   const collab = nextAssignee.collaboration;
   const storePageId = orderData.store.pageId;
   const partnerPage =
-    storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
+    storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
   const partnerUserId = partnerPage?.ownerId as string | undefined;
   if (!partnerUserId) return { assigned: false, escalated: false };
 
