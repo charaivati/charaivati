@@ -1,4 +1,4 @@
-import { redirect } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
@@ -35,11 +35,7 @@ export default async function InitiativePage({
     prisma.page.findUnique({
       where: { id: pageId },
       include: {
-        course: true,
-        helpingInitiative: true,
         healthBusiness: true,
-        collaborationsIn: { include: { requester: true } },
-        collaborationsOut: { include: { receiver: true } },
       },
     }),
     prisma.store.findFirst({ where: { pageId } }),
@@ -50,7 +46,8 @@ export default async function InitiativePage({
     }),
   ]);
 
-  if (!page || page.ownerId !== userId) redirect("/earn");
+  if (!page) notFound();
+  if (page.ownerId !== userId) redirect("/earn");
 
   const badge = {
     label: kindLabel({ type: page.type, pageType: page.pageType }),
