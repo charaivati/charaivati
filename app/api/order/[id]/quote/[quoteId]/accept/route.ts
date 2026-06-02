@@ -62,16 +62,16 @@ export async function POST(req: NextRequest, { params }: Params) {
       const collab = await prisma.collaboration.findUnique({
         where: { id: quote.requestedPartyId },
         include: {
-          requester: { select: { ownerId: true } },
-          receiver:  { select: { ownerId: true } },
+          requester:    { select: { ownerId: true } },
+          receiverPage: { select: { ownerId: true } },
         },
       });
       if (!collab) return;
       const storePageId = order.store.pageId;
       const partnerPage = storePageId && collab.requesterId === storePageId
-        ? collab.receiver
+        ? collab.receiverPage
         : collab.requester;
-      if (!partnerPage.ownerId) return;
+      if (!partnerPage?.ownerId) return;
 
       const step = await prisma.workflowStep.findUnique({
         where: { id: quote.stepId },

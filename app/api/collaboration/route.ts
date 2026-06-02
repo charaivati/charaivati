@@ -48,15 +48,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const existing = await prisma.collaboration.findUnique({
-    where: { requesterId_receiverId_role: { requesterId, receiverId: resolvedReceiverId, role } },
+  const existing = await prisma.collaboration.findFirst({
+    where: { requesterId, receiverPageId: resolvedReceiverId, role },
   });
   if (existing) return NextResponse.json({ error: "Collaboration request already exists" }, { status: 409 });
 
   const collaboration = await prisma.collaboration.create({
     data: {
       requesterId,
-      receiverId: resolvedReceiverId,
+      receiverPageId: resolvedReceiverId,
       role,
       message: message ?? null,
       status: "pending",
@@ -84,14 +84,14 @@ export async function GET(req: NextRequest) {
   if (!page) return NextResponse.json({ error: "Page not found" }, { status: 404 });
   if (page.ownerId !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const where: Record<string, unknown> = direction === "in" ? { receiverId: pageId } : { requesterId: pageId };
+  const where: Record<string, unknown> = direction === "in" ? { receiverPageId: pageId } : { requesterId: pageId };
   if (statusFilter !== "all") where.status = statusFilter;
 
   const collaborations = await prisma.collaboration.findMany({
     where,
     include: {
-      requester: { select: PAGE_SELECT },
-      receiver: { select: PAGE_SELECT },
+      requester:    { select: PAGE_SELECT },
+      receiverPage: { select: PAGE_SELECT },
     },
     orderBy: { createdAt: "desc" },
   });

@@ -70,8 +70,8 @@ export async function triggerQuoteRequests(
     const collab = await prisma.collaboration.findUnique({
       where: { id: collabId },
       include: {
-        requester: { select: { id: true, ownerId: true } },
-        receiver:  { select: { id: true, ownerId: true } },
+        requester:    { select: { id: true, ownerId: true } },
+        receiverPage: { select: { id: true, ownerId: true } },
       },
     });
     if (!collab) continue;
@@ -83,8 +83,8 @@ export async function triggerQuoteRequests(
 
     // Determine partner userId for chat
     const partnerPage =
-      storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
-    const partnerUserId = partnerPage.ownerId;
+      storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+    const partnerUserId = partnerPage?.ownerId;
     const ownerUserId   = order.store.ownerId;
     if (!partnerUserId || partnerUserId === ownerUserId) continue;
 

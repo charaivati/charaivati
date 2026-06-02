@@ -246,14 +246,14 @@ export async function GET(req: NextRequest) {
     ])];
     const partyCodes = allCollabIds.length > 0 ? await prisma.collaboration.findMany({
       where: { id: { in: allCollabIds } },
-      select: { id: true, requesterId: true, requester: { select: { title: true } }, receiver: { select: { title: true } } },
+      select: { id: true, requesterId: true, requester: { select: { title: true } }, receiverPage: { select: { title: true } } },
     }) : [];
     const partyMap = new Map(partyCodes.map((c) => [c.id, c]));
 
     function partyName(collabId: string): string {
       const c = partyMap.get(collabId);
       if (!c) return "Unknown";
-      return storePageId && c.requesterId === storePageId ? c.receiver.title : c.requester.title;
+      return storePageId && c.requesterId === storePageId ? (c.receiverPage?.title ?? "Unknown") : c.requester.title;
     }
 
     // requiresAttention + quoteSummary + agreedAmount (new columns — raw SQL)

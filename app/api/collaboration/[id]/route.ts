@@ -5,15 +5,16 @@ import getServerUser from "@/lib/serverAuth";
 const COLLAB_SELECT = {
   id: true,
   requesterId: true,
-  receiverId: true,
+  receiverPageId: true,
+  receiverUserId: true,
   role: true,
   status: true,
   message: true,
   metadata: true,
   createdAt: true,
   updatedAt: true,
-  requester: { select: { ownerId: true } },
-  receiver: { select: { ownerId: true } },
+  requester:    { select: { ownerId: true } },
+  receiverPage: { select: { ownerId: true } },
 } as const;
 
 export async function PATCH(
@@ -41,7 +42,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   } else {
-    if (collab.receiver.ownerId !== user.id) {
+    if (collab.receiverPage?.ownerId !== user.id) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
   }
@@ -50,8 +51,8 @@ export async function PATCH(
     where: { id },
     data: { status },
     include: {
-      requester: { select: { id: true, title: true, pageType: true, avatarUrl: true } },
-      receiver:  { select: { id: true, title: true, pageType: true, avatarUrl: true } },
+      requester:    { select: { id: true, title: true, pageType: true, avatarUrl: true } },
+      receiverPage: { select: { id: true, title: true, pageType: true, avatarUrl: true } },
     },
   });
 
@@ -73,7 +74,7 @@ export async function DELETE(
   if (!collab) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const ownsRequester = collab.requester.ownerId === user.id;
-  const ownsReceiver = collab.receiver.ownerId === user.id;
+  const ownsReceiver = collab.receiverPage?.ownerId === user.id;
   if (!ownsRequester && !ownsReceiver) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

@@ -34,8 +34,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   const collab = await prisma.collaboration.findUnique({
     where: { id: quote.requestedPartyId },
     include: {
-      requester: { select: { ownerId: true } },
-      receiver:  { select: { ownerId: true } },
+      requester:    { select: { ownerId: true } },
+      receiverPage: { select: { ownerId: true } },
     },
   });
   if (!collab) return NextResponse.json({ error: "Collaboration not found" }, { status: 404 });
@@ -46,9 +46,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   });
   const storePageId = order?.store.pageId;
   const partnerPage =
-    storePageId && collab.requesterId === storePageId ? collab.receiver : collab.requester;
+    storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
 
-  if (partnerPage.ownerId !== user.id)
+  if (partnerPage?.ownerId !== user.id)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Update this quote
@@ -71,14 +71,14 @@ export async function POST(req: NextRequest, { params }: Params) {
   const collabs = await prisma.collaboration.findMany({
     where: { id: { in: collabIds } },
     include: {
-      requester: { select: { id: true, title: true } },
-      receiver:  { select: { id: true, title: true } },
+      requester:    { select: { id: true, title: true } },
+      receiverPage: { select: { id: true, title: true } },
     },
   });
   const nameMap = new Map(
     collabs.map((c) => [
       c.id,
-      storePageId && c.requesterId === storePageId ? c.receiver.title : c.requester.title,
+      storePageId && c.requesterId === storePageId ? c.receiverPage?.title : c.requester.title,
     ])
   );
 
