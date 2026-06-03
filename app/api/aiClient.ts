@@ -360,6 +360,41 @@ async function callVercelMessages(
   return content as string;
 }
 
+// ─── Companion context injection ─────────────────────────────────────────────
+
+function getActiveHobbies(hobbies: unknown): string {
+  if (!hobbies) return 'none recorded'
+  try {
+    const arr = Array.isArray(hobbies) ? hobbies : JSON.parse(hobbies as string)
+    const active = arr.filter((h: any) => h?.frequency === 'active').map((h: any) => h?.name).filter(Boolean)
+    return active.length ? active.join(', ') : 'none recorded'
+  } catch {
+    return 'none recorded'
+  }
+}
+
+export function buildCompanionContext(profile: {
+  arcStage: number
+  energyState?: string | null
+  primaryDrive?: string | null
+  driveConfirmedByUser?: boolean
+  dailyAvailableHours?: number | null
+  peakWindow?: string | null
+  hobbies?: unknown
+  healthFlags?: string[]
+} | null): string {
+  if (!profile || profile.arcStage === 0) return ''
+
+  return `\n\n--- USER COMPANION PROFILE ---
+Energy state: ${profile.energyState ?? 'unknown'}
+Drive type: ${profile.primaryDrive ?? 'not yet discovered'}${profile.driveConfirmedByUser ? ' (confirmed)' : ' (inferred)'}
+Available time: ${profile.dailyAvailableHours ? profile.dailyAvailableHours + ' hours/day' : 'unknown'}, peak: ${profile.peakWindow ?? 'unknown'}
+Active hobbies: ${getActiveHobbies(profile.hobbies)}
+Arc stage: ${profile.arcStage}
+Health flags: ${profile.healthFlags?.length ? profile.healthFlags.join(', ') : 'none noted'}
+--- END PROFILE ---`
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

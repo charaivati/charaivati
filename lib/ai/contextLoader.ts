@@ -67,6 +67,15 @@ export function loadInitiativeContext(): string {
 }
 
 /**
+ * Returns the full raw text of any file in ai-context/.
+ * For files that do not use [SECTION:] blocks (e.g. COMPANION_PHILOSOPHY.txt).
+ * Uses the same module-level cache as all other loaders.
+ */
+export function loadRawFile(filename: string): string {
+  return readRaw(filename);
+}
+
+/**
  * Returns the content of a single named section from any context file.
  * Returns empty string if the file or section is missing.
  *

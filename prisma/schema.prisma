@@ -79,6 +79,7 @@ model User {
   notifications           Notification[]
   receivedCollaborations  Collaboration[]  @relation("CollabReceiverUser")
   assignedOrders          Order[]          @relation("OrderAssignedUser")
+  companionProfile        UserCompanionProfile?
 
   @@index([email])
   @@index([phone])
@@ -411,6 +412,8 @@ model StoreBlock {
   maxDistanceKm  Float?
   serviceType    String           @default("product")
   linkedPostId   String?
+  imageProvider  String?
+  imageQuality   Int              @default(0)
   section        StoreSection?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subsection     StoreSubsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
   cartItems      CartItem[]
@@ -1615,4 +1618,74 @@ enum GoalStatus {
   ACTIVE
   ARCHIVED
   COMPLETED
+}
+
+model UserCompanionProfile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // TIME
+  dailyAvailableHours Float?
+  peakWindow          String?
+  workPattern         String?
+
+  // HEALTH
+  healthFlags         String[]
+  energyState         String?
+  lastEnergyUpdate    DateTime?
+
+  // DRIVE
+  primaryDrive        String?
+  secondaryDrive      String?
+  driveConfidence     Float?
+  driveConfirmedByUser Boolean  @default(false)
+
+  // HOBBIES
+  hobbies             Json?
+
+  // LOCATION
+  country             String?
+  stateRegion         String?
+  district            String?
+  shareLocation       Boolean  @default(false)
+
+  // IDEAS
+  companionIdeas      Json?
+
+  // SESSION STATE
+  arcStage            Int      @default(0)
+  lastSessionAt       DateTime?
+  nudgeDueAt          DateTime?
+  sessionCount        Int      @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model ImageCache {
+  id          String   @id @default(cuid())
+  query       String   @unique
+  imageUrl    String
+  provider    String
+  quality     Int      @default(0)
+  usageCount  Int      @default(1)
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime @updatedAt
+}
+
+model GuardrailEvent {
+  id             String   @id @default(cuid())
+  userId         String?
+  sessionId      String?
+  /// INPUT_BLOCKED | INPUT_WARNED | OUTPUT_BLOCKED
+  eventType      String
+  userMessage    String   @db.Text
+  reason         String
+  matchedPattern String
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  @@index([eventType])
+  @@index([createdAt])
 }

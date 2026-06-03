@@ -287,14 +287,53 @@ One-shot AI flow that creates a complete store structure from a plain-English de
 - **Trigger — direct store visit**: `fetchStore` in `app/store/[id]/page.tsx` checks `data.isOwner && data.sections.length === 0 && !sessionStorage.get(setup_skipped_${id})` → `window.location.replace(/store/${id}/setup)`. Catches any navigation path, not just the EarningTab button.
 - **CSP**: `https://images.unsplash.com` is added to `img-src` in `next.config.mjs`.
 
+### Menu Parse Feature
+Two-route API that creates a complete store from a restaurant menu photo.
+
+#### `POST /api/store/parse-menu` (multipart/form-data)
+Accepts `image: File` + `storeId: string`. Returns `{ parsed, flags, lowConfidenceItems }`.
+
+**Two-step LLM chain:**
+1. **Extractor** — calls Ollama `/api/chat` directly with `model: llava:7b` and the image as base64 in the `images` array. `chatComplete()` is not used here because it does not support multimodal input. Returns raw JSON matching `{ storeName, sections[{ title, items[{ title, description, price, searchQuery }] }], phone, address, hours }`.
+2. **Validator** — calls Anthropic API directly (HTTP, no SDK) with `claude-haiku-4-5-20251001`. Adds `confidence` (0–1) per item and a `flags` array. Items with confidence < 0.5 are surfaced in `lowConfidenceItems` but are **not removed** — the caller decides.
+
+Requires env vars: `OLLAMA_BASE_URL` (Ollama must have `llava:7b` loaded), `OPENROUTER_API_KEY` (for Step 2 validator via `chatComplete`).
+
+#### `POST /api/store/parse-menu/apply` (JSON)
+Accepts `{ storeId, parsed: { sections } }`. Resolves images, builds sections + blocks in a Prisma transaction, returns `{ success, sectionCount, blockCount }`.
+
+- Images are resolved via `lib/imageCache.ts` `resolveImage()` — items 0 and 1 are prioritised (resolved before the rest), remaining items in batches of 5 via `Promise.all`.
+- Block creation sets `mediaUrl`, `imageProvider`, `imageQuality` (new fields on `StoreBlock`).
+- Layout auto-derives from item count: `"1"` (1 item) → 1 column, `"1-1"` → 2, `"1-1-1"` → 3+.
+- Does **not** call `/api/store/ai-setup/apply` via HTTP — replicates the Prisma transaction directly so the new image fields can be written in the same call.
+
+#### ImageCache model (`prisma/schema.prisma`)
+Deduplicates image provider calls. Keyed by **normalised query** (lowercase, alphanumeric + spaces only). Fields: `id`, `query (unique)`, `imageUrl`, `provider`, `quality (0–3)`, `usageCount`, `createdAt`, `lastUsedAt`. Quality scale: unsplash=3, pexels=2, pixabay=1, picsum=0.
+
+`lib/imageCache.ts` exports:
+- `resolveImage(query)` — check cache first; fetch + save on miss.
+- `resolveImageFresh(query)` — always fetches from providers (used by cron upgrade). Updates cache.
+
+Provider detection is URL-based (pattern match on response URL) since `lib/imageSearch.ts` returns only the URL string.
+
+#### Cron: `GET /api/cron/upgrade-images`
+Vercel cron runs daily at 02:00 UTC (`vercel.json`). Requires `Authorization: Bearer ${CRON_SECRET}`.
+
+Finds up to 20 `StoreBlock` rows where `imageQuality < 2` AND `imageProvider != 'user'`, ordered by the owning store's `createdAt DESC`. For each block, looks up the original query via `ImageCache.imageUrl` match, calls `resolveImageFresh`, and updates the block only if `newQuality > currentQuality`. Hard-stops when Unsplash API calls in this run reach 15 (well within the 50/hour free tier). Returns `{ upgraded, skipped }`.
+
+#### New env vars
+- `MENU_VALIDATOR_MODEL` — optional; overrides the model string passed to `chatComplete()` for the Step 2 validator (default `"anthropic/claude-haiku-4-5"`). Note: `chatComplete()` routes through `OPENROUTER_API_KEY` and uses `OPENROUTER_MODEL` for the actual API call — this env var documents intent and is available for when `chatCompleteInternal` is updated to respect the caller's model param.
+- `CRON_SECRET` — required to authenticate the upgrade-images cron endpoint
+
 ### Charaivati AI Chatbot (floating guide widget)
 A floating chat widget powered by `chatComplete()` in `app/api/aiClient.ts` — primary provider is local Ollama via Cloudflare tunnel (`https://ollama.charaivati.com`); fallback chain is OpenRouter → Groq → Vercel AI Gateway. Visible to logged-in users on every page.
 
 - **Widget**: `components/chat/ChatBot.tsx` — bottom-right floating bubble; opens a 380×520 dark panel. Props: `isLoggedIn: boolean` (gates rendering), `currentSection?: string` (passed to the API for context; defaults to `"Self"`).
-- **API route**: `POST /api/chat` — auth-gated (manual `getTokenFromRequest` + `verifySessionToken`). Loads `User.drives`, `Profile.goals`, `Profile.stepsToday`, `Profile.sleepHours`, and owned `Page` records server-side. Derives an `energyScore` (0–100) from step count + sleep hours. Builds a personalised system prompt, calls `chatComplete({ model: CHAT_AI_MODEL, messages, maxTokens: 300, temperature: 0.7 })`, returns `{ reply }`. Falls back to a canned message with `_fallback: true` if all providers fail.
+- **API route**: `POST /api/chat` — auth-gated (manual `getTokenFromRequest` + `verifySessionToken`). Loads `Profile`, active `Page` records, and `UserCompanionProfile` server-side. Derives `energyScore` (0–100) from steps + sleep. Builds a layered system prompt, calls `chatCompleteWithMeta()`, returns `{ reply, tier, tierUI, source, coldStart, localExpected }`. Falls back to a canned message with `_fallback: true` if all providers fail. **System prompt order** (each block omitted when empty/inapplicable): (1) companion profile block — `arcStage > 0` only; (2) arc stage instruction from `getArcInstruction()` — `isCompanionSession` only; (3) `loadPlatformContext()` — `PLATFORM.txt` + `DRIVES.txt` + `RESPONSE_GUIDE.txt`, always; (4) `loadInitiativeContext()` — `INITIATIVES.txt`, always; (5) hardcoded user data (drives, goals, energy, initiatives); (6) `loadRawFile("COMPANION_PHILOSOPHY.txt")` — `isCompanionSession` only. `isCompanionSession` is derived server-side from `getArcInstruction()` in `lib/companion/arcStateMachine.ts` — true when `arcStage < 7`, nudge is due, or first session. Gated on companion profile existing with `arcStage > 0`.
 - **Integration**: `ChatBot` is rendered directly in `app/layout.tsx` (root layout). The layout reads the session cookie server-side and passes `isLoggedIn` — no extra client fetch.
 - **Conversation history**: stored in `useState` only — not persisted to DB. Cleared by the "Clear chat" button in the panel header.
 - **Environment**: `CHAT_AI_MODEL` (default `llama3:8b`) — the `model` param passed to `chatComplete()`; used by OpenRouter/Groq/Vercel fallbacks. Ollama always uses `OLLAMA_MODEL` regardless. `LOCAL_AI_ENABLED=true` + `OLLAMA_BASE_URL` must be set for Ollama to be the primary provider.
+- **Companion mode** — opens the widget **in place** on whatever page the user is already on; no navigation. Two triggers: (1) dispatch `new Event("charaivati:open-companion")` on `window` from any component — the widget listens in a `useEffect` and responds by setting `isCompanionMode = true` and `open = true`; (2) `?mode=companion` URL param (kept for backwards compat with bookmarked URLs). Visual changes in companion mode: header reads "Check-in with Charaivati", panel uses `stone-900` background, input placeholder is "What's on your mind?", empty-state body reads "Let's take a few minutes to check in." After each successful chat reply, fires a fire-and-forget `POST /api/companion/session { message }` (cookie auth, no userId in body) to update `UserCompanionProfile`. The companion nudge banner on `/app/home` uses `window.dispatchEvent(new Event("charaivati:open-companion"))` — the user stays on the home page. There is no dedicated `/chat` page.
 
 ### Store Image Pool
 All store image uploads go through a two-layer dedup pipeline — **never call Cloudinary directly** from store upload forms.
@@ -318,7 +357,7 @@ All store image uploads go through a two-layer dedup pipeline — **never call C
 - `components/health/` — health profile modals
 - `components/transport/` — live vehicle tracking map; `Broadcaster` uses `useGeolocation` hook (not `navigator.geolocation` directly)
 - `components/earn/` — Initiative Hub shell (`InitiativeTabs.tsx`), Partners tab (`PartnersTab.tsx`), delivery dashboard client (`DeliveriesClient.tsx` — Mark Delivered button + GPS modal with Broadcaster), Team tab (`TeamTab.tsx`), Workflow tab (`WorkflowTab.tsx` — sortable step list with per-step assignee management)
-- `components/shared/` — reusable non-domain components: `AddressForm.tsx` (address form with GPS, pincode auto-geocode, drag-pin map), `MapPicker.tsx` (Leaflet drag-pin map, always loaded client-side via `dynamic(..., { ssr: false })`)
+- `components/shared/` — reusable non-domain components: `AddressForm.tsx` (address form with GPS, pincode auto-geocode, drag-pin map), `MapPicker.tsx` (Leaflet drag-pin map, always loaded client-side via `dynamic(..., { ssr: false })`), `StatusMessages.tsx` (cycles through a `messages: string[]` array with a fade transition every `intervalMs` ms; default 1500 ms; used in menu parse + apply loading states and intended for chatbot reuse)
 
 ### Loading State Conventions
 

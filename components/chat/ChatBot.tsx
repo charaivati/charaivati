@@ -49,12 +49,30 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
   const [nudgeError, setNudgeError] = useState("");
   const [nudgeSaving, setNudgeSaving] = useState(false);
   const [nudgeDone, setNudgeDone] = useState(false);
+  const [isCompanionMode, setIsCompanionMode] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const councilAbortRef = useRef<AbortController | null>(null);
 
   // Derived — true when a streaming council message is in flight
   const councilPending = messages.some((m) => m.council?._pending === true);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // URL param path (kept for backwards compat with any bookmarked /chat?mode=companion)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mode") === "companion") {
+      setIsCompanionMode(true);
+      setOpen(true);
+    }
+    // In-place trigger: any component on the page can fire this event
+    function handleOpenCompanion() {
+      setIsCompanionMode(true);
+      setOpen(true);
+    }
+    window.addEventListener("charaivati:open-companion", handleOpenCompanion);
+    return () => window.removeEventListener("charaivati:open-companion", handleOpenCompanion);
+  }, []);
 
   useEffect(() => {
     if (open) {
@@ -304,6 +322,14 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
           originUserMessage: text,
         },
       ]);
+      if (isCompanionMode) {
+        fetch("/api/companion/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text }),
+          credentials: "include",
+        }).catch(() => {});
+      }
     } catch {
       setMessages([...next, { role: "assistant", content: "Something went wrong. Please try again." }]);
     } finally {
@@ -361,12 +387,14 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-20 right-6 z-50 flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
+          className={`fixed bottom-20 right-6 z-50 flex flex-col rounded-xl shadow-2xl ${isCompanionMode ? "border border-stone-700 bg-stone-900" : "border border-gray-800 bg-gray-950"}`}
           style={{ width: 380, height: 540 }}
         >
           {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
-            <span className="text-sm font-semibold text-white">Charaivati Guide</span>
+          <div className={`flex items-center justify-between px-4 py-3 ${isCompanionMode ? "border-b border-stone-700" : "border-b border-gray-800"}`}>
+            <span className="text-sm font-semibold text-white">
+              {isCompanionMode ? "Check-in with Charaivati" : "Charaivati Guide"}
+            </span>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setMessages([])}
@@ -494,7 +522,9 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
 
             {messages.length === 0 && (
               <p className="text-center text-xs text-gray-500 mt-8">
-                Ask your guide anything about your goals, drives, or next steps.
+                {isCompanionMode
+                  ? "Let's take a few minutes to check in."
+                  : "Ask your guide anything about your goals, drives, or next steps."}
               </p>
             )}
 
@@ -576,7 +606,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKey}
-                placeholder="Ask your guide…"
+                placeholder={isCompanionMode ? "What's on your mind?" : "Ask your guide…"}
                 rows={1}
                 className="flex-1 resize-none rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-indigo-500 max-h-24 overflow-y-auto"
                 style={{ lineHeight: "1.5" }}

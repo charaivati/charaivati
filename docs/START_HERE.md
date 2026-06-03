@@ -132,7 +132,7 @@ The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. Th
 
 `Collaboration` has two member types: **Page-to-page** (`receiverPageId` set — delivery partners, suppliers, external collaborators) and **Page-to-user** (`receiverUserId` set — employees, personal team members added via friend-invite). `role` is the collaboration kind (`delivery_partner | supplier | employee | marketing | other`); `status` is `pending | accepted | rejected | cancelled`. Unique on `[requesterId, receiverPageId, role]` and `[requesterId, receiverUserId, role]`. Exactly one of `receiverPageId`/`receiverUserId` must be set — enforced at API level. All FK sides cascade-delete. `Page` has `collaborationsIn`/`collaborationsOut`; `User` has `receivedCollaborations`.
 
-`StoreBlock` is **dual-purpose**: it is a product in a store and a lesson in a course. `actionType` determines behavior; `access: free | paid` controls gating.
+`StoreBlock` is **dual-purpose**: it is a product in a store and a lesson in a course. `actionType` determines behavior; `access: free | paid` controls gating. Two additive fields were added for the Menu Parse feature: `imageProvider String?` (`"unsplash"` / `"pexels"` / `"pixabay"` / `"picsum"` / `"user"`) and `imageQuality Int @default(0)` (0–3 scale). The cron upgrade job (`/api/cron/upgrade-images`) uses these to progressively improve low-quality images.
 
 `Tab` rows are canonical navigation entries. `UserTab` stores sparse per-user overrides (visibility, position, custom title). Do not hardcode tab names — always resolve from DB.
 
@@ -501,6 +501,25 @@ Models map to tiers (`junior` / `assistant` / `senior` / `council`) that control
 `chatCompleteWithMeta()` in `app/api/aiClient.ts` wraps `chatComplete()` and also returns `{ source, coldStart, model }`. Use it when the calling route needs to know which provider actually responded. `POST /api/chat` uses this and forwards `tier`, `tierUI`, `source`, `coldStart`, and `localExpected` to the widget.
 
 The Ollama caller now has resilience built in: network errors fall through to cloud immediately; an empty response (model loading) waits 8 s and retries once before falling through.
+
+### Companion System (Phase 1 — Foundation)
+The Companion is a periodic AI-initiated conversation layer that builds a `UserCompanionProfile` for each user over time. It tracks five pillars: Time, Health/Energy, Drive type, Hobbies, and Location. Profile data is injected into every chat system prompt for personalised responses.
+
+Key files:
+- `lib/companion/signalParser.ts` — extracts structured signals (health flags, drive signals, time signals) from raw chat text
+- `lib/companion/arcStateMachine.ts` — manages arc progression (stages 0–7+) and produces the stage instruction injected into AI system prompts
+- `app/api/companion/session/route.ts` — `POST` updates the profile from a message, advances arc stage, recomputes energy state
+- `app/api/companion/nudge/route.ts` — `GET` checks if a check-in is due; returns nudge message + schedules next nudge based on energy state
+- `app/api/aiClient.ts` — `buildCompanionContext()` builds the profile block injected into all chat system prompts
+- `ai-context/COMPANION_PHILOSOPHY.txt` — AI instruction file for companion session behaviour
+
+Arc stages: 0 (invite) → 1 (time) → 2 (health) → 3 (drive) → 4 (hobbies) → 5 (location) → 6 (ideas) → 7+ (ongoing check-ins)
+
+Energy states: `charged` / `grounded` / `stretched` / `depleted` — controls suggestion density and tone.
+
+**Phase 2** (not yet built): nudge banner UI, companion session visual distinction in chat.
+**Phase 3**: energy state display in Personal tab, hobbies on public profile.
+**Phase 4**: friend matching (`lib/companion/friendMatcher.ts`), location geocoding.
 
 ### Council Feature (Phase 1 — Deliberation)
 The Council is always user-triggered — no auto-routing. Entry points: (1) "⚖️ Ask the Council" button at the bottom (uses current input OR last user message, with tooltip if neither); (2) inline "Ask the Council" prompt below regular responses when `isCouncilWorthy(userMessage)` is true.
