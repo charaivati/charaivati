@@ -486,16 +486,19 @@ Both local dev and Vercel production use this URL as the primary AI provider.
 ```
 https://ollama.charaivati.com/api/tags
 ```
-Should return JSON with available models (`gemma4:e2b`, `llama3:8b`).
+Should return JSON with available models (`gemma4:e2b`, `llama3:8b`, `llava:7b`).
 
 **If it's down** — check on the dev machine:
 1. Task Manager → check `ollama.exe` is running
 2. Services → check `Cloudflared` is running
 3. Manually: `ollama serve` in PowerShell
 
+**Ollama version: v0.30.4.** Do not downgrade — v0.21.x crashes on vision requests (llava).
+
 ### Models Available
 - `llama3:8b` — primary, used for chat and most AI routes
 - `gemma4:e2b` — alternative, larger context
+- `llava:7b` — vision model; required by `POST /api/store/parse-menu` (menu photo → JSON extraction)
 
 ### Model Tiers
 Models map to tiers (`junior` / `assistant` / `senior` / `council`) that control UI labels in the chatbot widget. See `lib/ai/modelTiers.ts` for the full map and `getTierUI(modelName)` for label strings.

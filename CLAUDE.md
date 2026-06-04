@@ -299,6 +299,8 @@ Accepts `image: File` + `storeId: string`. Returns `{ parsed, flags, lowConfiden
 
 Requires env vars: `OLLAMA_BASE_URL` (Ollama must have `llava:7b` loaded), `OPENROUTER_API_KEY` (for Step 2 validator via `chatComplete`).
 
+**Status (2026-06-04):** End-to-end pipeline tested and working. `llava:7b` is installed on the Ollama machine. Ollama v0.30.4+ required — v0.21.x crashes on any vision request with `"model runner has unexpectedly stopped"`.
+
 #### `POST /api/store/parse-menu/apply` (JSON)
 Accepts `{ storeId, parsed: { sections } }`. Resolves images, builds sections + blocks in a Prisma transaction, returns `{ success, sectionCount, blockCount }`.
 
@@ -436,6 +438,14 @@ Ollama runs locally on the dev machine and is exposed permanently via Cloudflare
 - Cloudflare service auto-starts on Windows boot
 - Ollama auto-starts via Windows Task Scheduler (`OllamaServe` task)
 - `OLLAMA_HOST=0.0.0.0` set as permanent Windows system env var
+- **Current version: v0.30.4** (upgraded from v0.21.2 on 2026-06-04 — v0.21.x had a crash bug with llava vision queries)
+
+### Installed Models
+| Model | Size | Purpose |
+|---|---|---|
+| `llama3:8b` | 4.7 GB | Primary chat + most AI routes |
+| `gemma4:e2b` | 7.2 GB | Alternative, larger context |
+| `llava:7b` | 4.7 GB | Vision model — menu parse extractor (`POST /api/store/parse-menu` Step 1) |
 
 ### Environment Variables
 Local `.env.local`:
