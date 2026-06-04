@@ -470,8 +470,8 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-20 right-6 z-50 flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
-          style={{ width: 380, height: 540 }}
+          className="fixed bottom-20 inset-x-2 sm:inset-x-auto sm:right-6 sm:w-[380px] z-50 flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
+          style={{ height: 540 }}
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">

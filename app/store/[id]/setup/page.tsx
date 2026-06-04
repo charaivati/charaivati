@@ -174,8 +174,13 @@ export default function StoreSetupPage() {
         credentials: "include",
         body: fd,
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed");
+      let json: any;
+      try {
+        json = await res.json();
+      } catch {
+        throw new Error("Image too large or server error — try a smaller photo (under 4 MB)");
+      }
+      if (!res.ok) throw new Error(json.error ?? "Server error — please try again");
 
       const parsed: ParseResult = json.parsed;
       const lci: string[] = json.lowConfidenceItems ?? [];
