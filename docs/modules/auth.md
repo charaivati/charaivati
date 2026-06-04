@@ -162,6 +162,108 @@ Guests have a real `User` row (`status: "guest"`, no email). On authentication a
 - `VerificationToken` — email address verification (separate from login)
 - `AuditLog` — login events (TODO: verify if currently written)
 
+---
+
+## Feature A — Email Friend Invite
+
+### Overview
+Authenticated users (`active` or `lite` status) can invite anyone by email via `POST /api/invite`. The system never leaks whether an email is registered — both branches return the same generic success message. The server silently decides which email to send based on whether the address is already an account.
+
+### Token security
+- Raw token: `createToken(32)` from `lib/token.ts` (crypto-random, 43-char base64url)
+- Only `sha256(rawToken)` is stored in the `Invite` table (`tokenHash`); the raw token is only ever in the email URL
+- Token travels in URL **path** (`/claim/{token}`), never as a query parameter
+- `Referrer-Policy: no-referrer` is set for `/claim/*` in `next.config.mjs` to prevent path leakage
+- Single-use: claim atomically sets `Invite.status = "claimed"` — a replayed link is dead
+- TTL: 7 days (invites are not security-critical tokens; 15-min verification TTL would be unusable)
+- Max 5 failed claim attempts per `tokenHash` before the invite is permanently rejected
+
+### Server-side branching (no enumeration)
+1. **Email not registered** → create a shell `User` (`status: "invited"`, no password), create `Invite` row, send join email with claim link
+2. **Email already registered** → send a silent security notice ("someone tried to invite this address"), log the attempt; no invite created, no visible difference to caller
+
+### Rate limiting
+- Max 10 invites per inviter per 24 hours (`checkRateLimit("invite:{inviterId}", 10, 86400)`)
+- Error shown only when the cap is hit — all in-budget calls return the generic success message
+
+### Claim flow (`app/claim/[token]/page.tsx`)
+1. Server Component hashes the path token, looks up `Invite` (status=pending, not expired, attempts<5)
+2. Invalid/expired: shows neutral error page; does **not** say why
+3. Valid: renders "Join Charaivati" page. User clicks button → Server Action `claimInvite(rawToken)`
+4. Server Action: atomic transaction — `Invite.status → claimed`, `User.status → lite`, `User.contactVerified → true`, `User.emailVerified → true`. Creates session token. Sets cookie. Redirects to `/self`.
+5. No password is set in this flow — the account is a lite magic-link account
+
+### Key files
+| File | Role |
+|---|---|
+| `app/api/invite/route.ts` | `POST /api/invite` — create invite, send email |
+| `app/claim/[token]/page.tsx` | Claim landing — server-validates token |
+| `app/claim/[token]/actions.ts` | `claimInvite()` server action — atomic claim + session |
+| `app/claim-error/page.tsx` | Neutral error page for invalid/expired links |
+| `components/social/FriendRequestsBox.tsx` | Exports `InviteFriend` widget — email input + send button |
+
+---
+
+## Feature B — Admin Direct-Create
+
+### Overview
+Admins (emails listed in `ADMIN_EMAILS` env var, comma-separated) can create accounts at `/admin/users`. Accounts are created as `lite` status with a temporary password. `mustChangePassword = true` forces a password change on the user's first login.
+
+### Access gating
+- `ADMIN_EMAILS` env var (comma-separated list of email addresses)
+- Server re-checks `user.email ∈ ADMIN_EMAILS` inside the route — client-side admin flags are never trusted
+- Any email not in the list gets 403
+
+### Created account properties
+| Field | Value |
+|---|---|
+| `status` | `"lite"` |
+| `emailVerified` | `false` |
+| `contactVerified` | `false` — inbox not proven; Earn-layer actions are blocked until verified |
+| `mustChangePassword` | `true` — cleared on first successful password change |
+| `createdByAdminId` | Admin's `User.id` — logged server-side |
+| `passwordHash` | bcrypt hash of the temp password the admin typed |
+
+### First-login enforcement
+- `POST /api/user/login` reads `user.mustChangePassword`
+- If `true`: response includes `{ mustChangePassword: true, redirect: "/change-password" }`
+- Login page (or calling client) must redirect to `/change-password` instead of `/self`
+- `/change-password` page calls `POST /api/user/change-password` which clears `mustChangePassword` on success
+
+### Key files
+| File | Role |
+|---|---|
+| `app/api/admin/users/route.ts` | `POST /api/admin/users` — ADMIN_EMAILS gated user creation |
+| `app/admin/users/page.tsx` | Admin UI — email + temp password form |
+| `app/api/user/change-password/route.ts` | `POST /api/user/change-password` — forced and voluntary password change |
+| `app/(auth)/change-password/page.tsx` | Force-change password page |
+
+---
+
+## `contactVerified` and Earn-layer gating
+
+`contactVerified = true` means the user's inbox ownership has been cryptographically proven (they clicked an emailed link). Two sources set it to `true`:
+- Invite claim (clicking the claim link in the join email)
+- Standard email verification via magic link (`GET /api/user/magic`)
+
+Admin-created accounts have `contactVerified = false` until a separate verification step (OTP or re-verification — not yet built).
+
+Use `requireVerifiedContact(req)` from `lib/requireVerifiedContact.ts` to gate Earn-layer money actions (store payout setup, GST invoicing). Returns `null` (allowed) or a `NextResponse` with 403.
+
+```ts
+const block = await requireVerifiedContact(req);
+if (block) return block;
+```
+
+Future work: OTP-based contactVerified flip for admin-created accounts; invite revocation UI; bulk admin import.
+
+---
+
+## Social recovery (2-of-3) — NOT YET BUILT
+When the social recovery feature is built, it must enforce: **at least 3 trusted contacts** must exist before recovery can activate. A single party (admin, inviter, or friend) must never be sufficient. Implement the minimum-contacts gate in the recovery activation route, not just in the UI.
+
+---
+
 ## Risks & Fragile Areas
 - `COOKIE_NAME` is environment-conditional. A mismatch between dev/prod env causes silent auth failure.
 - `JWT_SECRET` falls back to a hardcoded insecure string in dev. A missing prod secret throws at startup.

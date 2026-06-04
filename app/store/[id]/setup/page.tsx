@@ -62,6 +62,7 @@ export default function StoreSetupPage() {
 
   // ── Menu image path state ────────────────────────────────────────────────────
   const menuFileRef                   = useRef<HTMLInputElement>(null);
+  const warmupFiredRef                = useRef(false);
   const [menuImage, setMenuImage]     = useState<File | null>(null);
   const [menuPreview, setMenuPreview] = useState<string | null>(null);
   const [parsing, setParsing]         = useState(false);
@@ -620,7 +621,13 @@ export default function StoreSetupPage() {
 
                 {/* Upload button */}
                 <button
-                  onClick={() => menuFileRef.current?.click()}
+                  onClick={() => {
+                    if (!warmupFiredRef.current) {
+                      warmupFiredRef.current = true;
+                      fetch("/api/store/warm-vision", { method: "POST", credentials: "include" }).catch(() => {});
+                    }
+                    menuFileRef.current?.click();
+                  }}
                   style={{
                     width: "100%", padding: "12px", borderRadius: 12,
                     background: "#fff", color: A.text,

@@ -196,7 +196,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
 
     /* 3) Credential checks (Prisma + verifyPassword) */
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      // select is not used here so all fields including mustChangePassword are available
+    });
     if (!user || !user.passwordHash) {
       // increment fail counter
       const failKey = `login:fail:${email}`;
@@ -288,8 +291,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       console.error("[login] guest merge block error:", e);
     }
 
+    // If admin created this account, force a password change before anything else
+    const mustChange = (user as any).mustChangePassword === true;
+
     // successful response
-    let res = NextResponse.json({ ok: true, redirect: "/self", preferredLanguage: user.preferredLanguage ?? "en" });
+    let res = NextResponse.json({
+      ok: true,
+      redirect: mustChange ? "/change-password" : "/self",
+      preferredLanguage: user.preferredLanguage ?? "en",
+      mustChangePassword: mustChange,
+    });
 
     // helper to set the cookie (should set HttpOnly/secure depending on env)
     res = setSessionCookie(res, token);

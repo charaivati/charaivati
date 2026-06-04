@@ -318,12 +318,17 @@ Two-route API that creates a complete store from a restaurant menu photo.
 Accepts `image: File` + `storeId: string`. Returns `{ parsed, flags, lowConfidenceItems }`.
 
 **Two-step LLM chain:**
-1. **Extractor** — calls Ollama `/api/chat` directly with `model: llava:7b` and the image as base64 in the `images` array. `chatComplete()` is not used here because it does not support multimodal input. Returns raw JSON matching `{ storeName, sections[{ title, items[{ title, description, price, searchQuery }] }], phone, address, hours }`.
+1. **Extractor** — calls Ollama `/api/chat` directly with `model: MENU_VISION_MODEL ?? "llava:7b"` and the image as base64 in the `images` array. `chatComplete()` is not used here because it does not support multimodal input. Returns raw JSON matching `{ storeName, sections[{ title, items[{ title, description, price, searchQuery }] }], phone, address, hours }`. **Timeout: 120 s** (raised from 60 s — llava:7b cold-loads in 60–90 s on a 6 GB GPU; the old 60 s timeout raced the model load). `keep_alive: "10m"` keeps the model resident after the first request.
 2. **Validator** — calls Anthropic API directly (HTTP, no SDK) with `claude-haiku-4-5-20251001`. Adds `confidence` (0–1) per item and a `flags` array. Items with confidence < 0.5 are surfaced in `lowConfidenceItems` but are **not removed** — the caller decides.
 
 Requires env vars: `OLLAMA_BASE_URL` (Ollama must have `llava:7b` loaded), `OPENROUTER_API_KEY` (for Step 2 validator via `chatComplete`).
 
 **Status (2026-06-04):** End-to-end pipeline tested and working. `llava:7b` is installed on the Ollama machine. Ollama v0.30.4+ required — v0.21.x crashes on any vision request with `"model runner has unexpectedly stopped"`.
+
+#### `POST /api/store/warm-vision` (auth-guarded)
+Pre-warms the vision model so the first parse-menu request doesn't wait for the cold-load. Fires a minimal `model: MENU_VISION_MODEL ?? "llava:7b"` generate request to Ollama (`prompt: "ok"`, `keep_alive: "10m"`) and returns `{ warming: true }` immediately without waiting for Ollama to finish — the load runs async. Uses a 10 s timeout on the outgoing fetch; any error is silently swallowed and returns `{ warming: false }`. Never throws — failure must not affect the upload UI.
+
+**Client trigger**: `app/store/[id]/setup/page.tsx` fires a fire-and-forget POST to this endpoint the first time the user clicks "Upload menu image", guarded by a `warmupFiredRef` so it fires at most once per page session. This gives llava:7b a ~60–90 s head start before the user selects and submits the photo.
 
 #### `POST /api/store/parse-menu/apply` (JSON)
 Accepts `{ storeId, parsed: { sections } }`. Resolves images, builds sections + blocks in a Prisma transaction, returns `{ success, sectionCount, blockCount }`.

@@ -1,7 +1,83 @@
 "use client";
 // components/social/FriendRequestsBox.tsx
 import React, { useEffect, useState } from "react";
-import { UserCheck, UserX, Clock } from "lucide-react";
+import { UserCheck, UserX, Clock, Mail } from "lucide-react";
+
+// ---------------------------------------------------------------------------
+// InviteFriend — standalone invite-by-email widget
+// Server always returns the same message regardless of whether the email exists.
+// ---------------------------------------------------------------------------
+export function InviteFriend() {
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<"idle" | "loading" | "sent" | "error">("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+
+  async function sendInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setStatus("loading");
+    setErrorMsg("");
+    try {
+      const res = await fetch("/api/invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (res.status === 429) {
+        setStatus("error");
+        setErrorMsg(d.error ?? "You've reached the invite limit for today.");
+        return;
+      }
+      if (!res.ok) {
+        setStatus("error");
+        setErrorMsg(d.error ?? "Something went wrong.");
+        return;
+      }
+      setStatus("sent");
+      setEmail("");
+    } catch {
+      setStatus("error");
+      setErrorMsg("Network error. Please try again.");
+    }
+  }
+
+  if (status === "sent") {
+    return (
+      <div className="flex items-center gap-2 p-3 rounded-xl bg-gray-800/60 border border-gray-700/50 text-sm text-green-400">
+        <Mail className="w-4 h-4 shrink-0" />
+        If they&apos;re not already on Charaivati, they&apos;ll get an email to join.
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={sendInvite} className="flex flex-col gap-2">
+      <p className="text-xs text-gray-400">Invite a friend by email</p>
+      <div className="flex gap-2">
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => { setEmail(e.target.value); setStatus("idle"); }}
+          placeholder="friend@example.com"
+          required
+          className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+        />
+        <button
+          type="submit"
+          disabled={status === "loading"}
+          className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium disabled:opacity-50 transition-colors shrink-0"
+        >
+          {status === "loading" ? "…" : "Invite"}
+        </button>
+      </div>
+      {status === "error" && (
+        <p className="text-xs text-red-400">{errorMsg}</p>
+      )}
+    </form>
+  );
+}
 
 type IncomingReq = {
   id: string;

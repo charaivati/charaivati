@@ -65,11 +65,12 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llava:7b",
+        model: process.env.MENU_VISION_MODEL ?? "llava:7b",
         messages: [{ role: "user", content: EXTRACTOR_SYSTEM, images: [base64Image] }],
         stream: false,
+        keep_alive: "10m",
       }),
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(120_000),
     });
 
     if (!ollamaRes.ok) {
@@ -82,7 +83,8 @@ export async function POST(req: NextRequest) {
     if (!rawJson.trim()) throw new Error("Ollama returned empty content");
   } catch (err) {
     console.error("[parse-menu] Step 1 (vision) failed:", err);
-    return NextResponse.json({ error: "Menu extraction failed — ensure llava:7b is loaded in Ollama" }, { status: 502 });
+    const visionModel = process.env.MENU_VISION_MODEL ?? "llava:7b";
+    return NextResponse.json({ error: `Menu extraction failed — ensure ${visionModel} is loaded in Ollama` }, { status: 502 });
   }
 
   // ─── Step 2: validation via chatComplete (OpenRouter → Groq → Vercel) ───────

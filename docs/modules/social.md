@@ -96,6 +96,20 @@ Manages user-to-user relationships (friends, circles), social content (posts, fe
 | POST | /api/posts/[id]/dislike | Dislike post |
 | GET | /api/social/limits | Check rate limits for post creation |
 
+## Email Friend Invite
+
+The `InviteFriend` component (exported from `components/social/FriendRequestsBox.tsx`) is a standalone widget for inviting non-users by email. It calls `POST /api/invite` and always shows the same generic success message regardless of whether the email is registered — enumeration prevention is fully server-side. See `docs/modules/auth.md` § Feature A for the full invite flow.
+
+| Route | Action |
+|---|---|
+| `POST /api/invite` | Create invite — sends join email or security notice |
+| `GET /claim/{token}` | Claim landing page (server component) |
+| `POST /claim/{token}` (Server Action) | Atomic claim — upgrades shell user, creates session |
+
+**Placing the widget:** Import `{ InviteFriend }` from `components/social/FriendRequestsBox.tsx` and render it anywhere a social or friends UI exists.
+
+---
+
 ## Key Components
 
 | Component | Role |
@@ -103,7 +117,7 @@ Manages user-to-user relationships (friends, circles), social content (posts, fe
 | `components/FriendButton.tsx` | Add/remove friend toggle button |
 | `components/FriendsList.tsx` | Renders accepted friends list |
 | `components/FriendRequestsPanel.tsx` | Full friend requests management panel |
-| `components/social/FriendRequestsBox.tsx` | Compact notification-style requests box |
+| `components/social/FriendRequestsBox.tsx` | Compact friend requests box + exports `InviteFriend` widget |
 | `components/CirclesPanel.tsx` | Circle CRUD and member management UI |
 
 ## Database Models Used

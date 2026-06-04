@@ -83,6 +83,14 @@ const nextConfig = {
       },
 
       {
+        // Prevent the invite token in the URL path from leaking via Referer header
+        source: "/claim/:token*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+        ],
+      },
+
+      {
         source: "/api/social/proxy",
         headers: [
           {

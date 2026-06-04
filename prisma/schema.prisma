@@ -34,6 +34,9 @@ model User {
   shortBio                String?
   title                   String?
   preferredLanguage       String?              @default("en")
+  contactVerified         Boolean              @default(false)
+  mustChangePassword      Boolean              @default(false)
+  createdByAdminId        String?
   addresses               Address[]
   aiGoals                 AiGoal[]
   billingProfiles         BillingProfile[]
@@ -80,6 +83,7 @@ model User {
   receivedCollaborations  Collaboration[]  @relation("CollabReceiverUser")
   assignedOrders          Order[]          @relation("OrderAssignedUser")
   companionProfile        UserCompanionProfile?
+  sentInvites             Invite[]             @relation("InviteSender")
 
   @@index([email])
   @@index([phone])
@@ -1690,4 +1694,30 @@ model GuardrailEvent {
 
   @@index([eventType])
   @@index([createdAt])
+}
+
+/// Email friend-invite — one row per invite sent. Shell user created on send; claimed on link click.
+model Invite {
+  id            String    @id @default(cuid())
+  /// SHA-256(rawToken) — raw token is in the invite email URL only, never stored
+  tokenHash     String    @unique
+  /// Normalized email (trim + lowercase) of the invited person
+  email         String
+  /// User.id of the person who sent the invite
+  inviterId     String
+  /// User.id of the shell user created for the invited email (null until created)
+  shellUserId   String?
+  /// User.id filled once the invite is claimed
+  claimedUserId String?   @unique
+  /// "pending" | "claimed" | "expired" | "revoked"
+  status        String    @default("pending")
+  /// Number of failed claim attempts (bad token, timing attack guard)
+  attempts      Int       @default(0)
+  expiresAt     DateTime
+  claimedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  inviter       User      @relation("InviteSender", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([email, status])
+  @@index([inviterId])
 }
