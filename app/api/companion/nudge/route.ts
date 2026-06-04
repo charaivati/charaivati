@@ -19,6 +19,8 @@ const NUDGE_DAYS: Record<string, number> = {
   charged:   2,
 }
 
+// READ-ONLY — no side effects, does not advance nudgeDueAt.
+// Call this on page load to check whether to show the red dot.
 export async function GET(req: Request) {
   const token = getTokenFromRequest(req)
   const payload = await verifySessionToken(token)
@@ -33,19 +35,50 @@ export async function GET(req: Request) {
 
   const now = new Date()
   const nudgeDue = !profile.nudgeDueAt || new Date(profile.nudgeDueAt) <= now
-
-  const dayOfWeek = now.getDay()
-  const message = nudgeDue ? NUDGE_MESSAGES[dayOfWeek] : null
-
-  // Update nudgeDueAt when nudge is due
-  if (nudgeDue) {
-    const daysToAdd = NUDGE_DAYS[profile.energyState ?? 'grounded'] ?? 3
-    const nextNudge = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000)
-    await (db as any).userCompanionProfile.update({
-      where: { userId },
-      data: { nudgeDueAt: nextNudge, updatedAt: new Date() },
-    })
-  }
+  const message = nudgeDue ? NUDGE_MESSAGES[now.getDay()] : null
 
   return NextResponse.json({ nudgeDue, message })
+}
+
+// ACKNOWLEDGE — advances nudgeDueAt. Call this when the user opens the
+// companion OR dismisses the nudge banner. Idempotent: safe to call
+// twice (if nudgeDueAt is already in the future, returns early with no write).
+export async function POST(req: Request) {
+  const token = getTokenFromRequest(req)
+  const payload = await verifySessionToken(token)
+  if (!payload) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const userId = payload.userId
+  const now = new Date()
+
+  let profile = await (db as any).userCompanionProfile.findUnique({ where: { userId } })
+
+  // Idempotent: if nudge is already scheduled in the future, do nothing.
+  if (profile?.nudgeDueAt && new Date(profile.nudgeDueAt) > now) {
+    return NextResponse.json({ acknowledged: true, nextNudgeAt: profile.nudgeDueAt })
+  }
+
+  if (!profile) {
+    const { randomUUID } = await import('crypto')
+    const daysToAdd = NUDGE_DAYS['grounded']
+    const nextNudge = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000)
+    profile = await (db as any).userCompanionProfile.create({
+      data: {
+        id: `c${randomUUID().replace(/-/g, '').slice(0, 24)}`,
+        userId,
+        nudgeDueAt: nextNudge,
+      },
+    })
+    return NextResponse.json({ acknowledged: true, nextNudgeAt: nextNudge })
+  }
+
+  const daysToAdd = NUDGE_DAYS[profile.energyState ?? 'grounded'] ?? 3
+  const nextNudge = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000)
+
+  await (db as any).userCompanionProfile.update({
+    where: { userId },
+    data: { nudgeDueAt: nextNudge, updatedAt: now },
+  })
+
+  return NextResponse.json({ acknowledged: true, nextNudgeAt: nextNudge })
 }

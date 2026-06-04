@@ -54,25 +54,70 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const councilAbortRef = useRef<AbortController | null>(null);
 
+  // ─── Companion nudge red-dot state ────────────────────────────────────────
+  // nudgePendingRef mirrors the state value so event-listener closures (captured
+  // at mount) can always read the current value without stale-closure issues.
+  const [nudgePending, setNudgePending] = useState(false);
+  const nudgePendingRef      = useRef(false);
+  const nudgeAcknowledgedRef = useRef(false);  // single-fire guard per pending window
+  const companionOpenedRef   = useRef(false);  // true once companion has been activated
+  const openedFromNudgeRef   = useRef(false);  // true when companion opened because nudge was pending
+  const greetingSeededRef    = useRef(false);  // true once the waiting greeting has been injected
+
   // Derived — true when a streaming council message is in flight
   const councilPending = messages.some((m) => m.council?._pending === true);
 
+  // ─── Acknowledge helper ────────────────────────────────────────────────────
+  // Uses refs only — safe to call from event-listener closures defined at mount.
+  // Strict guard: no-op if nudge is not currently pending or already acknowledged.
+  function acknowledgeNudge() {
+    if (!nudgePendingRef.current || nudgeAcknowledgedRef.current) return;
+    nudgeAcknowledgedRef.current = true;
+    nudgePendingRef.current = false;
+    setNudgePending(false);
+    fetch("/api/companion/nudge", { method: "POST", credentials: "include" }).catch(() => {});
+  }
+
+  // ─── Unified open-companion entry point ───────────────────────────────────
+  // fromNudge = true  → seeds the waiting greeting (bubble + banner)
+  // fromNudge = false → companion mode only, no greeting (bookmarked URL)
+  function openCompanion(fromNudge: boolean) {
+    if (fromNudge) openedFromNudgeRef.current = true;
+    companionOpenedRef.current = true;
+    setIsCompanionMode(true);
+    setOpen(true);
+    acknowledgeNudge();
+  }
+
+  // ─── Companion mode + nudge-acknowledged event listener ───────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
-    // URL param path (kept for backwards compat with any bookmarked /chat?mode=companion)
+    // URL param path (backwards compat — no nudge greeting for direct URL access)
     const params = new URLSearchParams(window.location.search);
     if (params.get("mode") === "companion") {
-      setIsCompanionMode(true);
-      setOpen(true);
+      openCompanion(false);
     }
-    // In-place trigger: any component on the page can fire this event
-    function handleOpenCompanion() {
-      setIsCompanionMode(true);
-      setOpen(true);
-    }
+    // Banner fires this — always implies a nudge was pending
+    function handleOpenCompanion() { openCompanion(true); }
+    // Banner dismiss button fires this to clear the dot without opening the widget
+    function handleNudgeAcknowledged() { acknowledgeNudge(); }
     window.addEventListener("charaivati:open-companion", handleOpenCompanion);
-    return () => window.removeEventListener("charaivati:open-companion", handleOpenCompanion);
+    window.addEventListener("charaivati:nudge-acknowledged", handleNudgeAcknowledged);
+    return () => {
+      window.removeEventListener("charaivati:open-companion", handleOpenCompanion);
+      window.removeEventListener("charaivati:nudge-acknowledged", handleNudgeAcknowledged);
+    };
   }, []);
+
+  // ─── Seed the waiting greeting on first companion open from a nudge ───────
+  useEffect(() => {
+    if (!open || !isCompanionMode || !openedFromNudgeRef.current || greetingSeededRef.current) return;
+    setMessages(prev => {
+      if (prev.length > 0) return prev; // ongoing conversation — never inject mid-thread
+      greetingSeededRef.current = true;
+      return [{ role: "assistant" as const, content: "Hey — got a few minutes to catch up? If now's not a good time, just close this and we'll talk again later." }];
+    });
+  }, [open, isCompanionMode]);
 
   useEffect(() => {
     if (open) {
@@ -81,6 +126,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
     }
   }, [open, messages]);
 
+  // ─── Guest account-upgrade nudge (existing, unchanged) ────────────────────
   useEffect(() => {
     if (userStatus !== "guest" || !userId) return;
     try {
@@ -94,6 +140,26 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
       // localStorage unavailable — skip nudge
     }
   }, [userId, userStatus]);
+
+  // ─── Companion nudge check (read-only GET, non-guest logged-in users) ─────
+  useEffect(() => {
+    if (!isLoggedIn || !userId || userStatus === "guest") return;
+    fetch("/api/companion/nudge", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.nudgeDue) return;
+        // Reset for this new pending window
+        nudgeAcknowledgedRef.current = false;
+        nudgePendingRef.current = true;
+        if (companionOpenedRef.current) {
+          // Companion was already opened before fetch completed — acknowledge immediately
+          acknowledgeNudge();
+        } else {
+          setNudgePending(true);
+        }
+      })
+      .catch(() => {});
+  }, [isLoggedIn, userId, userStatus]);
 
   function snoozeNudge() {
     try { localStorage.setItem(NUDGE_KEY, String(Date.now())); } catch {}
@@ -376,22 +442,39 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
       {/* Floating bubble */}
       {!open && (
         <button
-          onClick={() => setOpen(true)}
+          onClick={() => nudgePendingRef.current ? openCompanion(true) : setOpen(true)}
           aria-label="Open Charaivati guide"
           className="fixed bottom-20 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-lg hover:bg-indigo-500 transition-colors"
         >
           <MessageCircle className="h-6 w-6 text-white" />
+          {nudgePending && (
+            <span
+              aria-label="New message from guide"
+              style={{
+                position: "absolute",
+                top: 2,
+                right: 2,
+                width: 11,
+                height: 11,
+                borderRadius: "50%",
+                background: "#ef4444",
+                border: "2px solid #4f46e5",
+                display: "block",
+                pointerEvents: "none",
+              }}
+            />
+          )}
         </button>
       )}
 
       {/* Chat panel */}
       {open && (
         <div
-          className={`fixed bottom-20 right-6 z-50 flex flex-col rounded-xl shadow-2xl ${isCompanionMode ? "border border-stone-700 bg-stone-900" : "border border-gray-800 bg-gray-950"}`}
+          className="fixed bottom-20 right-6 z-50 flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
           style={{ width: 380, height: 540 }}
         >
           {/* Header */}
-          <div className={`flex items-center justify-between px-4 py-3 ${isCompanionMode ? "border-b border-stone-700" : "border-b border-gray-800"}`}>
+          <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
             <span className="text-sm font-semibold text-white">
               {isCompanionMode ? "Check-in with Charaivati" : "Charaivati Guide"}
             </span>

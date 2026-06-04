@@ -427,6 +427,8 @@ The following routes have **no server-side auth enforcement** of any kind — ne
 
 A full static security audit is at [docs/SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
+**AI Guardrails** — every `POST /api/chat` request runs a three-layer check (input scan → hardened system prompt → output scan). Blocked events are persisted to the `GuardrailEvent` DB table and emailed to `ADMIN_ALERT_EMAIL`. Admin dashboard: `/admin/security` (requires session user email === `ADMIN_EMAIL` env var). Full spec: [docs/AI_SECURITY.md](AI_SECURITY.md).
+
 **Critical issues that must be fixed before further public launch:**
 
 | Priority | File | Issue |
@@ -509,7 +511,7 @@ Key files:
 - `lib/companion/signalParser.ts` — extracts structured signals (health flags, drive signals, time signals) from raw chat text
 - `lib/companion/arcStateMachine.ts` — manages arc progression (stages 0–7+) and produces the stage instruction injected into AI system prompts
 - `app/api/companion/session/route.ts` — `POST` updates the profile from a message, advances arc stage, recomputes energy state
-- `app/api/companion/nudge/route.ts` — `GET` checks if a check-in is due; returns nudge message + schedules next nudge based on energy state
+- `app/api/companion/nudge/route.ts` — `GET` is **read-only**: checks `nudgeDueAt`, returns `{ nudgeDue, message }`, no writes. `POST` is the **acknowledge** action: advances `nudgeDueAt` (energy-state-based delay), idempotent. The ChatBot widget calls GET on mount to show/hide the red dot; calls POST when companion opens or banner is dismissed.
 - `app/api/aiClient.ts` — `buildCompanionContext()` builds the profile block injected into all chat system prompts
 - `ai-context/COMPANION_PHILOSOPHY.txt` — AI instruction file for companion session behaviour
 
@@ -517,7 +519,7 @@ Arc stages: 0 (invite) → 1 (time) → 2 (health) → 3 (drive) → 4 (hobbies)
 
 Energy states: `charged` / `grounded` / `stretched` / `depleted` — controls suggestion density and tone.
 
-**Phase 2** (not yet built): nudge banner UI, companion session visual distinction in chat.
+**Phase 2** (built): red dot on chat bubble; nudge banner on `/app/home`; both entry points open companion mode in place with a seeded greeting already visible in the widget — no navigation, no separate page. Tapping the red-dot bubble calls `openCompanion(true)`; banner "Let's chat" dispatches `charaivati:open-companion`. Both produce identical UX: companion mode + seeded greeting + nudge acknowledged.
 **Phase 3**: energy state display in Personal tab, hobbies on public profile.
 **Phase 4**: friend matching (`lib/companion/friendMatcher.ts`), location geocoding.
 

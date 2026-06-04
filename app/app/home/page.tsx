@@ -346,8 +346,19 @@ export default function HomePage() {
   const [localPosts, setLocalPosts]     = useState<LocalPost[]>([]);
   const [userPincode, setUserPincode]   = useState<string | null>(null);
   const [noPincode, setNoPincode]       = useState(false);
-  const [companionNudge, setCompanionNudge] = useState<string | null>(null);
-  const [companionDismissed, setCompanionDismissed] = useState(false);
+  const [companionBanner, setCompanionBanner] = useState<string | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Companion nudge check — runs once when returning user is confirmed
+  useEffect(() => {
+    if (loadState !== "returning") return;
+    fetch("/api/companion/nudge", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null)
+      .then(data => {
+        if (data?.nudgeDue && data?.message) setCompanionBanner(data.message);
+      });
+  }, [loadState]);
 
   useEffect(() => {
     Promise.all([
@@ -359,9 +370,7 @@ export default function HomePage() {
         .then((r) => (r.ok ? r.json() : null)).catch(() => null),
       fetch("/api/posts/local", { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      fetch("/api/companion/nudge", { credentials: "include" })
-        .then((r) => (r.ok ? r.json() : null)).catch(() => null),
-    ]).then(([meData, ordersData, pagesData, localData, nudgeData]) => {
+    ]).then(([meData, ordersData, pagesData, localData]) => {
       const u: User | null = meData?.user ?? null;
       setUser(u);
 
@@ -384,10 +393,6 @@ export default function HomePage() {
         setLocalPosts(localData.posts ?? []);
         setUserPincode(localData.userPincode ?? null);
         if (!localData.userPincode) setNoPincode(true);
-      }
-
-      if (nudgeData?.nudgeDue && nudgeData?.message) {
-        setCompanionNudge(nudgeData.message);
       }
 
       setLoadState("returning");
@@ -459,43 +464,35 @@ export default function HomePage() {
         </header>
 
         {/* Companion nudge banner */}
-        {companionNudge && !companionDismissed && (
+        {companionBanner && !bannerDismissed && (
           <div style={{
             margin: "10px 16px 0",
-            background: "#FEFCE8",
-            border: "1px solid #FDE68A",
-            borderRadius: 10,
-            padding: "10px 12px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 10,
+            background: "#FEFCE8", border: "1px solid #FDE68A",
+            borderRadius: 10, padding: "10px 12px",
+            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
           }}>
             <span style={{ fontSize: 13, color: "#78350F", flex: 1, lineHeight: 1.4 }}>
-              {companionNudge}
+              {companionBanner}
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
               <button
                 onClick={() => window.dispatchEvent(new Event("charaivati:open-companion"))}
                 style={{
-                  fontSize: 12, fontWeight: 600,
-                  color: "#92400E",
-                  background: "#FDE68A",
-                  padding: "4px 10px",
-                  borderRadius: 6,
-                  border: "none",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
+                  fontSize: 12, fontWeight: 600, color: "#92400E",
+                  background: "#FDE68A", padding: "4px 10px",
+                  borderRadius: 6, border: "none", cursor: "pointer", whiteSpace: "nowrap",
                 }}
               >
                 Let&apos;s chat
               </button>
               <button
-                onClick={() => setCompanionDismissed(true)}
+                onClick={() => {
+                  setBannerDismissed(true);
+                  window.dispatchEvent(new Event("charaivati:nudge-acknowledged"));
+                }}
                 style={{
-                  background: "none", border: "none",
-                  cursor: "pointer", color: "#B45309",
-                  fontSize: 18, lineHeight: 1, padding: "0 2px",
+                  background: "none", border: "none", cursor: "pointer",
+                  color: "#B45309", fontSize: 18, lineHeight: 1, padding: "0 2px",
                 }}
                 aria-label="Dismiss"
               >
