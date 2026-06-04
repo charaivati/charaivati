@@ -369,7 +369,7 @@ function WorkflowSection({
         <p className="text-xs font-semibold mb-1" style={{ color: A.textMuted }}>WORKFLOW</p>
         <p className="text-xs" style={{ color: A.textMuted }}>
           No workflow set up.{" "}
-          <a href={`/earn/initiative/${initiativeId}`} style={{ color: A.accent, textDecoration: "underline" }}>
+          <a href="/earn" style={{ color: A.accent, textDecoration: "underline" }}>
             Go to your Initiative → Workflow tab
           </a>{" "}
           to configure steps.
@@ -859,15 +859,21 @@ export default function StoreOrdersPage() {
                 </div>
                 <div>
                   <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>CUSTOMER</p>
-                  <p className="text-xs" style={{ color: A.text }}>{order.user.name ?? "—"}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>{order.user.email ?? "—"}</p>
+                  <p className="text-xs" style={{ color: A.text }}>{order.user?.name ?? "—"}</p>
+                  <p className="text-xs" style={{ color: A.textMuted }}>{order.user?.email ?? "—"}</p>
                 </div>
                 <div>
                   <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>DELIVERY</p>
-                  <p className="text-xs" style={{ color: A.text }}>{order.address.name}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>{order.address.line1}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>{order.address.city}, {order.address.state} {order.address.pincode}</p>
-                  <p className="text-xs" style={{ color: A.textMuted }}>📞 {order.address.phone}</p>
+                  {order.address ? (
+                    <>
+                      <p className="text-xs" style={{ color: A.text }}>{order.address.name}</p>
+                      <p className="text-xs" style={{ color: A.textMuted }}>{order.address.line1}</p>
+                      <p className="text-xs" style={{ color: A.textMuted }}>{order.address.city}, {order.address.state} {order.address.pincode}</p>
+                      <p className="text-xs" style={{ color: A.textMuted }}>📞 {order.address.phone}</p>
+                    </>
+                  ) : (
+                    <p className="text-xs" style={{ color: A.textMuted }}>Address unavailable</p>
+                  )}
                 </div>
               </div>
 
