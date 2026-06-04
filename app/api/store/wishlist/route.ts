@@ -24,9 +24,26 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "desc" },
   });
 
-  const slugs = await getStoreSlugs([...new Set(items.map((i) => i.storeId))]);
+  const storeIds = [...new Set(items.map((i) => i.storeId))];
+  const slugs = await getStoreSlugs(storeIds);
+
+  const statusRows = storeIds.length > 0
+    ? await prisma.$queryRaw<{ id: string; acceptingOrders: boolean }[]>`
+        SELECT id, "acceptingOrders" FROM "Store" WHERE id = ANY(${storeIds}::text[])
+      `
+    : [];
+  const statusMap: Record<string, boolean> = {};
+  for (const r of statusRows) statusMap[r.id] = r.acceptingOrders;
+
   return NextResponse.json(
-    items.map((i) => ({ ...i, store: { ...i.store, slug: slugs[i.storeId] ?? null } }))
+    items.map((i) => ({
+      ...i,
+      store: {
+        ...i.store,
+        slug: slugs[i.storeId] ?? null,
+        acceptingOrders: statusMap[i.storeId] ?? true,
+      },
+    }))
   );
 }
 

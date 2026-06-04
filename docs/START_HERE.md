@@ -228,10 +228,13 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 
 Image env vars (all optional — `lib/imageSearch.ts` skips missing providers): `UNSPLASH_ACCESS_KEY`, `PEXELS_KEY`, `PIXABAY_KEY`. Picsum is the guaranteed no-key fallback so images are never `null`.
 
+### Store Open/Closed (`Store.acceptingOrders`)
+Every store has a manual `acceptingOrders Boolean @default(false)` toggle. New stores are **closed by default**. Owner flips it from `StoreHero` (store page) or the Initiative Hub Store tab. Both order routes (`POST /api/store/orders` and `POST /api/store/orders/quick`) return 422 with `"This store isn't taking orders right now."` when the store is closed — this is the authoritative guard. Buyer-facing: green "Taking orders" pill or amber "Not taking orders right now" banner on store page and section pages; Buy buttons are greyed out. `Store.hoursText String?` is a display-only string (set by menu parser or owner); not parsed or enforced.
+
 ### Store Purchase Flow — Cart (standard)
 1. User browses `/store/[id]` — sections and blocks fetched
 2. `POST /api/store/cart/[storeId]` — add block to cart; "Add to Cart" button flashes "✓ Added" for 2 seconds
-3. `POST /api/store/orders` — checkout, creates `Order` with JSON snapshot of items, clears cart
+3. `POST /api/store/orders` — checkout, creates `Order` with JSON snapshot of items, clears cart; **rejected with 422 if store is closed**
 4. Order status progresses: `pending → confirmed → shipped → delivered`
 
 ### Store Purchase Flow — Buy Now (express)

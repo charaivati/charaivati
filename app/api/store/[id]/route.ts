@@ -49,11 +49,17 @@ export async function GET(
 
   if (!store) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Fetch slug via raw SQL — safe with stale Prisma client
-  const slugRow = await prisma.$queryRaw<{ slug: string | null }[]>`
-    SELECT slug FROM "Store" WHERE id = ${storeId} LIMIT 1
+  // Fetch new fields via raw SQL — safe with stale Prisma client
+  const extraRow = await prisma.$queryRaw<{
+    slug: string | null;
+    acceptingOrders: boolean;
+    hoursText: string | null;
+  }[]>`
+    SELECT slug, "acceptingOrders", "hoursText" FROM "Store" WHERE id = ${storeId} LIMIT 1
   `;
-  const slug = slugRow[0]?.slug ?? null;
+  const slug = extraRow[0]?.slug ?? null;
+  const acceptingOrders = extraRow[0]?.acceptingOrders ?? false;
+  const hoursText = extraRow[0]?.hoursText ?? null;
 
   let pageType = "store";
   if (store.pageId) {
@@ -88,6 +94,8 @@ export async function GET(
   return NextResponse.json({
     ...store,
     slug,
+    acceptingOrders,
+    hoursText,
     sections: processedSections,
     filters,
     globalBanner,
@@ -110,19 +118,29 @@ export async function PATCH(
   if (store.ownerId !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json();
-  const { name, description, deliveryFee, freeDeliveryAbove } = body;
+  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText } = body;
 
   const data: Record<string, unknown> = {};
   if (name?.trim()) data.name = name.trim();
   if (description !== undefined) data.description = description?.trim() || null;
   if ("deliveryFee" in body) data.deliveryFee = deliveryFee != null ? Number(deliveryFee) : null;
   if ("freeDeliveryAbove" in body) data.freeDeliveryAbove = freeDeliveryAbove != null ? Number(freeDeliveryAbove) : null;
+  if ("acceptingOrders" in body) data.acceptingOrders = Boolean(acceptingOrders);
+  if ("hoursText" in body) data.hoursText = typeof hoursText === "string" ? hoursText.trim() || null : null;
 
   const updated = await prisma.store.update({
     where: { id },
-    data,
-    select: { id: true, name: true, description: true, slug: true, deliveryFee: true, freeDeliveryAbove: true },
+    data: data as any,
+    select: { id: true, name: true, description: true, slug: true, deliveryFee: true, freeDeliveryAbove: true } as any,
   });
 
-  return NextResponse.json(updated);
+  const extraRow = await prisma.$queryRaw<{ acceptingOrders: boolean; hoursText: string | null }[]>`
+    SELECT "acceptingOrders", "hoursText" FROM "Store" WHERE id = ${id} LIMIT 1
+  `;
+
+  return NextResponse.json({
+    ...updated,
+    acceptingOrders: extraRow[0]?.acceptingOrders ?? false,
+    hoursText: extraRow[0]?.hoursText ?? null,
+  });
 }

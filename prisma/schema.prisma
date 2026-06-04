@@ -264,6 +264,8 @@ model Store {
   slug              String?          @unique
   deliveryFee       Float?
   freeDeliveryAbove Float?
+  acceptingOrders   Boolean          @default(false)
+  hoursText         String?
   billingProfiles BillingProfile[]
   cartItems       CartItem[]
   orders          Order[]

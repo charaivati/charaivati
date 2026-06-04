@@ -46,7 +46,7 @@ type WishlistItem = {
     price: number | null;
     mediaUrl: string | null;
   };
-  store: { id: string; slug?: string | null; name: string };
+  store: { id: string; slug?: string | null; name: string; acceptingOrders?: boolean };
 };
 
 type QuickItem = {
@@ -447,24 +447,35 @@ export default function SavedPage() {
                         {item.store.name}
                       </a>
                       <div style={{ display: "flex", gap: 5, marginTop: 8 }}>
-                        <button
-                          onClick={() => setQuickOrder({
-                            blockId: item.block.id,
-                            title: item.block.title,
-                            price: item.block.price ?? 0,
-                            quantity: 1,
-                            imageUrl: item.block.mediaUrl,
-                            storeId: item.store.id,
-                            storeName: item.store.name,
-                          })}
-                          style={{
-                            flex: 1, padding: "5px 0", borderRadius: 6,
-                            fontSize: 11, fontWeight: 600, cursor: "pointer",
-                            background: "#FFA41C", border: "1px solid #FF8F00", color: "#111",
-                          }}
-                        >
-                          {t("app-saved-buy-now", "Buy Now")}
-                        </button>
+                        {(() => {
+                          const storeClosed = item.store.acceptingOrders === false;
+                          return (
+                            <button
+                              onClick={storeClosed ? undefined : () => setQuickOrder({
+                                blockId: item.block.id,
+                                title: item.block.title,
+                                price: item.block.price ?? 0,
+                                quantity: 1,
+                                imageUrl: item.block.mediaUrl,
+                                storeId: item.store.id,
+                                storeName: item.store.name,
+                              })}
+                              disabled={storeClosed}
+                              title={storeClosed ? "Store is closed" : undefined}
+                              style={storeClosed ? {
+                                flex: 1, padding: "5px 0", borderRadius: 6,
+                                fontSize: 11, fontWeight: 600, cursor: "not-allowed",
+                                background: "#F3F4F6", border: "1px solid #E5E7EB", color: "#9CA3AF",
+                              } : {
+                                flex: 1, padding: "5px 0", borderRadius: 6,
+                                fontSize: 11, fontWeight: 600, cursor: "pointer",
+                                background: "#FFA41C", border: "1px solid #FF8F00", color: "#111",
+                              }}
+                            >
+                              {storeClosed ? "Closed" : t("app-saved-buy-now", "Buy Now")}
+                            </button>
+                          );
+                        })()}
                         <button
                           onClick={() => toggleWishlist(item.blockId, item.store.id)}
                           disabled={removing}

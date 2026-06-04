@@ -748,12 +748,13 @@ function VisibilityToggle({ blockId, current, onChange }: {
   );
 }
 
-function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishlist, isWishlisted, ratingData, isOwner, isLoggedIn, onRate, onVisibilityChange }: {
+function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishlist, isWishlisted, ratingData, isOwner, isLoggedIn, onRate, onVisibilityChange, storeClosed }: {
   block: Block; editMode: boolean; onRemove?: () => void;
   onAddToCart?: (qty: number) => void; onBuyNow?: (qty: number) => void; onWishlist?: () => void; isWishlisted?: boolean;
   ratingData?: RatingData; isOwner?: boolean; isLoggedIn?: boolean;
   onRate?: (productId: string, rating: number) => void;
   onVisibilityChange?: (blockId: string, v: string) => void;
+  storeClosed?: boolean;
 }) {
   const [added, setAdded] = useState(false);
   const [qty, setQty] = useState(1);
@@ -823,16 +824,27 @@ function ProductCard({ block, editMode, onRemove, onAddToCart, onBuyNow, onWishl
         )}
         {!editMode && (
           <div className="mt-3 flex gap-2">
-            <button onClick={handleAddToCart}
+            <button
+              onClick={storeClosed ? undefined : handleAddToCart}
+              disabled={storeClosed}
+              title={storeClosed ? "Store is closed" : undefined}
               className="text-xs font-medium px-3 py-2 rounded-md flex-1 transition-all"
-              style={added
+              style={storeClosed
+                ? { background: "#F3F4F6", color: "#9CA3AF", border: "1px solid #E5E7EB", cursor: "not-allowed" }
+                : added
                 ? { background: "#10B981", color: "#fff", border: "1px solid #059669" }
                 : { background: A.accent, color: "#fff", border: `1px solid ${A.accentHover}` }}>
-              {added ? "✓ Added" : "Add to Cart"}
+              {storeClosed ? "Store closed" : added ? "✓ Added" : "Add to Cart"}
             </button>
-            <button onClick={() => onBuyNow?.(qty)} className="text-xs font-medium px-3 py-2 rounded-md"
-              style={{ background: "#FFA41C", border: "1px solid #FF8F00", color: "#111" }}>
-              Buy Now
+            <button
+              onClick={storeClosed ? undefined : () => onBuyNow?.(qty)}
+              disabled={storeClosed}
+              title={storeClosed ? "Store is closed" : undefined}
+              className="text-xs font-medium px-3 py-2 rounded-md"
+              style={storeClosed
+                ? { background: "#F3F4F6", color: "#9CA3AF", border: "1px solid #E5E7EB", cursor: "not-allowed" }
+                : { background: "#FFA41C", border: "1px solid #FF8F00", color: "#111" }}>
+              {storeClosed ? "Closed" : "Buy Now"}
             </button>
           </div>
         )}
@@ -860,6 +872,8 @@ export default function SectionPage() {
   const [isOwner, setIsOwner] = useState(false);
   const [storeDeliveryFee, setStoreDeliveryFee] = useState<number | null>(null);
   const [storeFreeDeliveryAbove, setStoreFreeDeliveryAbove] = useState<number | null>(null);
+  const [storeAcceptingOrders, setStoreAcceptingOrders] = useState<boolean>(true);
+  const [storeHoursText, setStoreHoursText] = useState<string | null>(null);
   const [sectionTitle, setSectionTitle] = useState("");
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [loading, setLoading] = useState(true);
@@ -891,6 +905,8 @@ export default function SectionPage() {
         setIsOwner(!!data.isOwner);
         setStoreDeliveryFee(data.deliveryFee ?? null);
         setStoreFreeDeliveryAbove(data.freeDeliveryAbove ?? null);
+        setStoreAcceptingOrders(data.acceptingOrders ?? true);
+        setStoreHoursText(data.hoursText ?? null);
         const found = (data.sections ?? []).find((s: any) => s.id === sectionId);
         if (found) {
           setSectionTitle(found.title);
@@ -1030,6 +1046,21 @@ export default function SectionPage() {
         <a href={`/store/${storeSlug ?? (storeId || id)}`} className="text-sm hover:underline mb-4 block" style={{ color: "#6366f1" }}>
           ← Back to store
         </a>
+
+        {/* Store status banner */}
+        {storeAcceptingOrders ? (
+          <div className="mb-3 px-3 py-1.5 rounded-md inline-flex items-center gap-1.5" style={{ background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
+            <span style={{ color: "#16A34A", fontSize: 12, fontWeight: 600 }}>● Taking orders</span>
+          </div>
+        ) : (
+          <div className="mb-3 px-3 py-2 rounded-md" style={{ background: "#FFFBEB", border: "1px solid #FDE68A" }}>
+            <span style={{ color: "#92400E", fontSize: 12, fontWeight: 600 }}>
+              Not taking orders right now
+              {storeHoursText ? ` · Hours: ${storeHoursText}` : ""}
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-1">
           <h1 className="text-xl font-bold" style={{ color: A.text }}>{sectionTitle}</h1>
           {editMode && isOwner && (
@@ -1062,6 +1093,7 @@ export default function SectionPage() {
                 isLoggedIn={currentUser !== null}
                 onRate={handleRate}
                 onVisibilityChange={isOwner ? handleVisibilityChange : undefined}
+                storeClosed={!isOwner && !storeAcceptingOrders}
               />
             ))}
           </div>

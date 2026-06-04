@@ -54,9 +54,11 @@ export default function InitiativeTabs({
     return <CommunityGroupTabs pageId={pageId} ownerPages={ownerPages} />;
   }
 
-  const [activeTab,   setActiveTab]   = useState<Tab>("overview");
-  const [openingStore,setOpeningStore] = useState(false);
-  const [canEdit,     setCanEdit]     = useState(true);
+  const [activeTab,       setActiveTab]       = useState<Tab>("overview");
+  const [openingStore,    setOpeningStore]     = useState(false);
+  const [canEdit,         setCanEdit]         = useState(true);
+  const [storeOpen,       setStoreOpen]       = useState<boolean | null>(null);
+  const [togglingOrders,  setTogglingOrders]  = useState(false);
 
   // Fetch team role to determine edit permissions (founder / co_founder = can edit)
   useEffect(() => {
@@ -85,6 +87,34 @@ export default function InitiativeTabs({
         { id: "partners", label: "Partners" },
         { id: "workflow", label: "Workflow" },
       ];
+
+  useEffect(() => {
+    if (activeTab !== "store" || !storeId || storeOpen !== null) return;
+    fetch(`/api/store/${storeId}`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d) setStoreOpen(d.acceptingOrders ?? false); })
+      .catch(() => {});
+  }, [activeTab, storeId]);
+
+  async function handleToggleOrders() {
+    if (!storeId || togglingOrders) return;
+    const next = !(storeOpen ?? false);
+    setStoreOpen(next);
+    setTogglingOrders(true);
+    try {
+      const res = await fetch(`/api/store/${storeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ acceptingOrders: next }),
+      });
+      if (!res.ok) setStoreOpen(!next);
+    } catch {
+      setStoreOpen(!next);
+    } finally {
+      setTogglingOrders(false);
+    }
+  }
 
   async function handleOpenStore() {
     setOpeningStore(true);
@@ -194,22 +224,53 @@ export default function InitiativeTabs({
 
       {/* Store */}
       {activeTab === "store" && (
-        <div>
+        <div className="space-y-4">
           {pageType === "helping" ? (
             <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/50 text-center text-gray-400">
               Helping initiatives don&apos;t have a store.
             </div>
           ) : storeId ? (
-            <a
-              href={`/store/${storeSlug ?? storeId}`}
-              className="flex items-center justify-between p-4 rounded-xl border border-emerald-800/60 bg-emerald-900/20 hover:bg-emerald-900/40 transition-colors"
-            >
-              <div>
-                <p className="font-medium text-emerald-300">{storeName ?? "Your Store"}</p>
-                <p className="text-sm text-gray-400 mt-0.5">View and manage your store</p>
+            <>
+              <a
+                href={`/store/${storeSlug ?? storeId}`}
+                className="flex items-center justify-between p-4 rounded-xl border border-emerald-800/60 bg-emerald-900/20 hover:bg-emerald-900/40 transition-colors"
+              >
+                <div>
+                  <p className="font-medium text-emerald-300">{storeName ?? "Your Store"}</p>
+                  <p className="text-sm text-gray-400 mt-0.5">View and manage your store</p>
+                </div>
+                <span className="text-emerald-400">→</span>
+              </a>
+
+              {/* Taking orders toggle */}
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-gray-800 bg-gray-900/50">
+                <button
+                  onClick={handleToggleOrders}
+                  disabled={togglingOrders || storeOpen === null}
+                  style={{
+                    position: "relative", width: 44, height: 24, borderRadius: 12,
+                    background: storeOpen ? "#22C55E" : "#4B5563",
+                    border: "none", cursor: togglingOrders ? "default" : "pointer",
+                    opacity: storeOpen === null ? 0.5 : 1, flexShrink: 0, transition: "background 0.2s",
+                  }}
+                  aria-label={storeOpen ? "Stop taking orders" : "Start taking orders"}
+                >
+                  <span style={{
+                    position: "absolute", top: 2, left: storeOpen ? 22 : 2, width: 20, height: 20,
+                    borderRadius: "50%", background: "#fff", transition: "left 0.2s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                  }} />
+                </button>
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    {storeOpen ? "Taking orders" : "Not taking orders"}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {storeOpen ? "Customers can place orders." : "Customers can see your store but can't order yet."}
+                  </p>
+                </div>
               </div>
-              <span className="text-emerald-400">→</span>
-            </a>
+            </>
           ) : (
             <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/50 text-center space-y-4">
               <p className="text-gray-400">No store set up yet.</p>

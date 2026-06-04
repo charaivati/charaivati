@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
 
   const { storeId, parsed } = body as {
     storeId: string;
-    parsed: { sections: ParsedSection[] };
+    parsed: { sections: ParsedSection[]; hours?: string };
   };
 
   const store = await prisma.store.findUnique({ where: { id: storeId }, select: { ownerId: true, name: true } });
@@ -156,6 +156,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[parse-menu/apply] transaction failed:", err);
     return NextResponse.json({ error: "Failed to create store structure" }, { status: 500 });
+  }
+
+  if (parsed.hours?.trim()) {
+    await prisma.$executeRaw`
+      UPDATE "Store" SET "hoursText" = ${parsed.hours.trim()} WHERE id = ${storeId}
+    `;
   }
 
   return NextResponse.json({ success: true, sectionCount, blockCount });

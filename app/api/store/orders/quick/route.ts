@@ -28,6 +28,12 @@ export async function POST(req: NextRequest) {
 
   const store = await db.store.findUnique({ where: { id: storeId } });
   if (!store) return NextResponse.json({ error: "Store not found" }, { status: 404 });
+  const storeStatusRow = await db.$queryRaw<{ acceptingOrders: boolean }[]>`
+    SELECT "acceptingOrders" FROM "Store" WHERE id = ${storeId} LIMIT 1
+  `;
+  if (!storeStatusRow[0]?.acceptingOrders) {
+    return NextResponse.json({ error: "This store isn't taking orders right now." }, { status: 422 });
+  }
 
   const orderItems: QuickItem[] = items.map((i: QuickItem) => ({
     blockId: i.blockId,

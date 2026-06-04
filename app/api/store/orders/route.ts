@@ -40,9 +40,12 @@ export async function POST(req: NextRequest) {
   }));
 
   const itemsTotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const cartStoreRow = await prisma.$queryRaw<{ deliveryFee: number | null; freeDeliveryAbove: number | null }[]>`
-    SELECT "deliveryFee", "freeDeliveryAbove" FROM "Store" WHERE id = ${storeId} LIMIT 1
+  const cartStoreRow = await prisma.$queryRaw<{ deliveryFee: number | null; freeDeliveryAbove: number | null; acceptingOrders: boolean }[]>`
+    SELECT "deliveryFee", "freeDeliveryAbove", "acceptingOrders" FROM "Store" WHERE id = ${storeId} LIMIT 1
   `;
+  if (!cartStoreRow[0] || !cartStoreRow[0].acceptingOrders) {
+    return NextResponse.json({ error: "This store isn't taking orders right now." }, { status: 422 });
+  }
   const cartFee = cartStoreRow[0]?.deliveryFee ?? null;
   const cartFreeAbove = cartStoreRow[0]?.freeDeliveryAbove ?? null;
   const cartDeliveryFee = cartFee != null && (cartFreeAbove == null || itemsTotal < cartFreeAbove) ? cartFee : 0;

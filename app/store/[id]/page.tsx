@@ -85,6 +85,8 @@ type Store = {
   sections: Section[];
   deliveryFee?: number | null;
   freeDeliveryAbove?: number | null;
+  acceptingOrders?: boolean;
+  hoursText?: string | null;
 };
 
 
@@ -604,13 +606,30 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
   );
 }
 
-function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
+function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner, onToggleOrders }: {
   store: Store; totalBlocks: number;
   isPinned: boolean; onPin: () => void; isOwner: boolean;
+  onToggleOrders?: () => void;
 }) {
+  const open = store.acceptingOrders ?? false;
   return (
     <div className="w-full" style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
       {store.bannerUrl && <img src={store.bannerUrl} alt="banner" className="w-full h-40 sm:h-56 object-cover" />}
+
+      {/* Status banner — shown to all visitors */}
+      {open ? (
+        <div className="px-3 py-1.5 flex items-center gap-1.5" style={{ background: "#F0FDF4", borderBottom: "1px solid #BBF7D0" }}>
+          <span style={{ color: "#16A34A", fontSize: 12, fontWeight: 600 }}>● Taking orders</span>
+        </div>
+      ) : (
+        <div className="px-3 py-1.5 flex items-center gap-1.5" style={{ background: "#FFFBEB", borderBottom: "1px solid #FDE68A" }}>
+          <span style={{ color: "#92400E", fontSize: 12, fontWeight: 600 }}>
+            Not taking orders right now
+            {store.hoursText ? ` · Hours: ${store.hoursText}` : ""}
+          </span>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-3 py-3 flex items-center gap-3">
         <div className="w-12 h-12 rounded-full overflow-hidden" style={{ background: "#fff", border: `1px solid ${A.border}` }}>
           {store.avatarUrl && <img src={store.avatarUrl} alt="avatar" className="w-full h-full object-cover" />}
@@ -653,6 +672,34 @@ function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner }: {
           )}
         </div>
       </div>
+
+      {/* Owner-only: taking orders toggle */}
+      {isOwner && onToggleOrders && (
+        <div className="px-3 pb-3 flex items-center gap-3" style={{ borderTop: `1px solid ${A.border}`, paddingTop: 10 }}>
+          <button
+            onClick={onToggleOrders}
+            style={{
+              position: "relative", width: 44, height: 24, borderRadius: 12, cursor: "pointer",
+              background: open ? "#22C55E" : "#D1D5DB", border: "none", transition: "background 0.2s", flexShrink: 0,
+            }}
+            aria-label={open ? "Stop taking orders" : "Start taking orders"}
+          >
+            <span style={{
+              position: "absolute", top: 2, left: open ? 22 : 2, width: 20, height: 20,
+              borderRadius: "50%", background: "#fff", transition: "left 0.2s",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            }} />
+          </button>
+          <div>
+            <span className="text-sm font-semibold" style={{ color: A.text }}>
+              {open ? "Taking orders" : "Not taking orders"}
+            </span>
+            <p className="text-xs mt-0.5" style={{ color: A.textMuted }}>
+              {open ? "Customers can place orders." : "Customers can see your store but can't order yet."}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1103,6 +1150,23 @@ export default function StorePage() {
     if (res.ok) { const data = await res.json(); setWishlist((prev) => { const next = new Set(prev); if (data.wishlisted) next.add(blockId); else next.delete(blockId); return next; }); }
   }
 
+  async function handleToggleOrders() {
+    if (!store) return;
+    const next = !(store.acceptingOrders ?? false);
+    setStore({ ...store, acceptingOrders: next });
+    try {
+      const res = await fetch(`/api/store/${store.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ acceptingOrders: next }),
+      });
+      if (!res.ok) setStore({ ...store, acceptingOrders: !next });
+    } catch {
+      setStore({ ...store, acceptingOrders: !next });
+    }
+  }
+
   async function handlePinStore() {
     if (!store) return;
     const res = await fetch("/api/store/pinned", {
@@ -1182,7 +1246,7 @@ export default function StorePage() {
         <>
           <FilterBar filters={storeFilters} activeFilterId={activeFilterId} onFilterChange={setActiveFilterId} editMode={editMode && store.isOwner} onEditFilters={() => setShowManageFilters(true)} />
           <BannerZone banner={activeBanner} globalBanner={globalBanner} editMode={editMode && store.isOwner} onEdit={() => setShowManageFilters(true)} />
-          <StoreHero store={store} totalBlocks={totalBlocks} isPinned={isPinned} onPin={handlePinStore} isOwner={store.isOwner} />
+          <StoreHero store={store} totalBlocks={totalBlocks} isPinned={isPinned} onPin={handlePinStore} isOwner={store.isOwner} onToggleOrders={store.isOwner ? handleToggleOrders : undefined} />
         </>
       )}
 
