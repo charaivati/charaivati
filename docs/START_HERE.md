@@ -156,6 +156,35 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 
 **Registration flow** — `POST /api/user/register` sends a verification email and returns 200 without setting a session. The login page enters `verify-pending` state (no redirect). User clicks email link → `GET /api/user/magic` → `/verified` page → "Sign in to continue →" → `/login` (pre-filled) → password → session cookie set → redirect to original destination.
 
+### Friend invite flow (Feature A)
+1. Authenticated user POSTs `{ email }` to `POST /api/invite` (max 10/24h)
+2. Server **always** returns the same generic success message — no enumeration
+3. If email is unregistered: creates shell user (`status: "invited"`), creates `Invite` row, sends join email with `https://charaivati.com/claim/{rawToken}` (token in path, never query string; `Referrer-Policy: no-referrer` set)
+4. If email is already registered: sends silent security notice to that address, logs attempt — no invite created
+5. Recipient clicks claim link → `app/claim/[token]/page.tsx` (server component validates token)
+6. Invalid/expired (or attempts ≥ 5): shows neutral error page (no reason disclosed)
+7. Valid: renders "Join" page → user clicks → Server Action `claimInvite()` → atomic transaction: `Invite.status → claimed`, shell `User.status → lite`, `contactVerified → true`, `emailVerified → true` → session issued → redirect `/self`
+
+### Admin direct-create (Feature B)
+1. Admin (email in `ADMIN_EMAILS` env var) POSTs `{ email, tempPassword }` to `POST /api/admin/users`
+2. Server re-checks admin gate server-side — client flags not trusted
+3. Creates user: `status: "lite"`, `mustChangePassword: true`, `contactVerified: false`, `createdByAdminId: <admin.id>`; hashes temp password
+4. Every creation logged server-side (adminId + targetEmail + timestamp)
+5. On user's first login: `{ mustChangePassword: true, redirect: "/change-password" }` is returned
+6. `/change-password` → `POST /api/user/change-password` → clears `mustChangePassword`, user proceeds normally
+
+### User status values
+| Status | Meaning |
+|---|---|
+| `"guest"` | Anonymous user with no email; created automatically for anonymous browsing |
+| `"invited"` | Shell user created when an invite email is sent; no password |
+| `"lite"` | Account after invite claim or admin-create — limited access until more verification |
+| `"active"` | Full account — email verified via standard registration flow |
+
+### `contactVerified` vs `emailVerified`
+- `emailVerified`: set when the user clicks any emailed link (verify-email, magic link, invite claim)
+- `contactVerified`: set only when inbox ownership is proven via a **clicked emailed link** (invite claim, magic link). NOT set for admin-created accounts. Used to gate Earn-layer money actions via `lib/requireVerifiedContact.ts`.
+
 ### Guest-to-real merge (fires automatically on login and email verification)
 1. Guest browses as a `User` with `status: "guest"` and no email
 2. On **register**, the guest session cookie is read and `guestId` is embedded in `MagicLink.meta`
@@ -334,6 +363,7 @@ Quick reference for jumping into a specific area. Read the linked doc before tou
 | **Partners / Collaboration** | `app/api/collaboration/`, `components/earn/PartnersTab.tsx` | `docs/modules/collaboration.md` |
 | **Auth** (login, register, sessions) | `lib/session.ts`, `app/api/auth/`, `app/api/user/` | `docs/modules/auth.md` |
 | **Invoice** (PDF, sign, download) | `lib/invoice/`, `app/api/orders/[orderId]/invoice/` | `CLAUDE.md` § Invoice System |
+| **Business idea evaluation** (BIZDOC) | `app/(business)/business/idea/page.tsx`, `app/api/business/idea/`, `app/api/business/questions/` | `CLAUDE.md` § Claude Code prompt workflow; seed: `npm run seed:questions` |
 
 **Initiative types** — active: `store`, `service`, `fleet`. Gated but built: `health`, `learning`, `helping`, `community_group`. Toggle: `ACTIVE_INITIATIVE_TYPES` in `app/app/initiatives/page.tsx:54`.
 

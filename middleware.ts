@@ -18,6 +18,13 @@ export async function middleware(req: NextRequest) {
   const token = req.cookies.get(COOKIE_NAME)?.value;
   const payload = await verifySessionToken(token);
 
+  // ── 0. mustChangePassword gate ───────────────────────────────────────────
+  // Embedded in the JWT at login time. If set, block all page navigation until
+  // the user completes /change-password. Exempt /change-password itself to avoid a loop.
+  if (payload?.mustChangePassword === true && !pathname.startsWith("/change-password")) {
+    return NextResponse.redirect(new URL("/change-password", req.url));
+  }
+
   // ── 1. Language gate ─────────────────────────────────────────────────────
   // Unauthenticated requests to any page outside the skip list must have
   // the "lang" cookie set (written by LanguageProvider on language selection).

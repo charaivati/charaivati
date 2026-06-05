@@ -224,11 +224,12 @@ Admins (emails listed in `ADMIN_EMAILS` env var, comma-separated) can create acc
 | `createdByAdminId` | Admin's `User.id` — logged server-side |
 | `passwordHash` | bcrypt hash of the temp password the admin typed |
 
-### First-login enforcement
-- `POST /api/user/login` reads `user.mustChangePassword`
-- If `true`: response includes `{ mustChangePassword: true, redirect: "/change-password" }`
-- Login page (or calling client) must redirect to `/change-password` instead of `/self`
-- `/change-password` page calls `POST /api/user/change-password` which clears `mustChangePassword` on success
+### First-login enforcement (server-side — cannot be bypassed)
+- `mustChangePassword` is baked into the session JWT at login time (computed before `createSessionToken` in `app/api/user/login/route.ts`).
+- `middleware.ts` reads the flag from the JWT and redirects **every page request** to `/change-password` until the flag is cleared — the only exempt path is `/change-password` itself.
+- `POST /api/user/login` also returns `{ mustChangePassword: true, redirect: "/change-password" }` for the client to display appropriately.
+- `POST /api/user/change-password` clears the DB flag AND re-issues the session cookie with `mustChangePassword` omitted, so the middleware stops redirecting immediately after the call returns.
+- Voluntary password change: same route, requires `currentPassword` when `mustChangePassword` is `false`.
 
 ### Key files
 | File | Role |
@@ -254,6 +255,14 @@ Use `requireVerifiedContact(req)` from `lib/requireVerifiedContact.ts` to gate E
 const block = await requireVerifiedContact(req);
 if (block) return block;
 ```
+
+Currently guarded routes (money actions only):
+- `POST /api/store/billing-profiles` — create billing profile (store payout / GST setup)
+- `PATCH /api/store/billing-profiles/[profileId]` — update billing profile
+- `POST /api/orders/[orderId]/invoice` — generate invoice PDF
+- `POST /api/orders/[orderId]/invoice/sign` — upload signed invoice
+
+GET, DELETE billing-profile and invoice/download are not guarded (read/view/proxy, not money-moving).
 
 Future work: OTP-based contactVerified flip for admin-created accounts; invite revocation UI; bulk admin import.
 

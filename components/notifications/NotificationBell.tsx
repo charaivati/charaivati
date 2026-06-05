@@ -196,7 +196,8 @@ export default function NotificationBell() {
           <div style={{
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
+            justifyContent: "center",
+            gap: 8,
             padding: "10px 14px",
             borderBottom: "1px solid #F3F4F6",
             flexShrink: 0,
@@ -228,7 +229,7 @@ export default function NotificationBell() {
                   style={{
                     display: "block",
                     width: "100%",
-                    textAlign: "left",
+                    textAlign: "center",
                     padding: "10px 14px",
                     borderBottom: "1px solid #F9FAFB",
                     background: n.read ? "#FAFAFA" : "#fff",
@@ -240,8 +241,8 @@ export default function NotificationBell() {
                     opacity: readingId === n.id ? 0.6 : 1,
                   }}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: n.read ? "#6B7280" : "#111827", flex: 1 }}>
+                  <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: n.read ? "#6B7280" : "#111827" }}>
                       {n.title}
                     </span>
                     <span style={{ fontSize: 10, color: "#9CA3AF", flexShrink: 0 }}>
@@ -267,7 +268,7 @@ export default function NotificationBell() {
           </div>
 
           {/* Footer */}
-          <div style={{ borderTop: "1px solid #F3F4F6", padding: "8px 14px", flexShrink: 0 }}>
+          <div style={{ borderTop: "1px solid #F3F4F6", padding: "8px 14px", flexShrink: 0, textAlign: "center" }}>
             <Link
               href="/app/notifications"
               onClick={() => setOpen(false)}

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { triggerQuoteRequests } from "./triggerQuoteRequests";
 import { assignNextPartner } from "./assignNextPartner";
-import { createNotification } from "@/lib/notifications/createNotification";
+import { ensureOwnerAssignee } from "./ensureOwnerAssignee";
 
 export async function advanceToNextStep(
   orderId: string,
@@ -68,24 +68,18 @@ export async function advanceToNextStep(
         data: { assignedToId: nextStep.assigneeId, partnerStatus: "assigned" },
       });
     } else {
-      // No assignees at all — make it visible to the owner
-      const orderForNotif = await prisma.order.findUnique({
-        where: { id: orderId },
-        select: { store: { select: { ownerId: true } } },
+      // No assignees configured — auto-assign the store owner so the order proceeds
+      await ensureOwnerAssignee(current.initiativeId, nextStep.id);
+      const osp = await (prisma as any).orderStepProgress.findFirst({
+        where: { orderId, stepId: nextStep.id },
+        select: { id: true },
       });
-      const ownerId = orderForNotif?.store.ownerId;
-      if (ownerId) {
-        await (prisma as any).order.update({
-          where: { id: orderId },
-          data: { requiresAttention: true },
+      if (osp) {
+        await (prisma as any).orderStepProgress.update({
+          where: { id: osp.id },
+          data: { currentAssigneeId: null, cycleCount: 0, lastFeeMultiplier: 1.0 },
         });
-        await createNotification({
-          userId: ownerId,
-          type: "workflow_attention",
-          title: "Workflow step needs attention",
-          body: `Step '${nextStep.name}' has no assignees configured. Please assign manually or update your workflow.`,
-          link: current.initiativeId ? `/earn/initiative/${current.initiativeId}` : "/store/orders/all",
-        });
+        await assignNextPartner({ orderId, stepId: nextStep.id, ospId: osp.id });
       }
     }
   } else {

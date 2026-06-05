@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "backfill:section-types": "ts-node scripts/backfill-section-types.ts",
+    "seed:questions": "npx ts-node --project tsconfig.scripts.json prisma/seedIdeaQuestionsWithScores.ts",
     "vercel-build": "npx prisma migrate deploy && npx prisma generate && next build",
     "postinstall": "prisma generate"
   },

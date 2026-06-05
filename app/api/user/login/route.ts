@@ -269,9 +269,14 @@ export async function POST(req: Request): Promise<NextResponse> {
       inMemoryDel(`login:lock:${email}`);
     }
 
+    // Compute mustChange before creating the token so the flag is embedded in the JWT.
+    // The middleware reads it from the JWT to enforce server-side on every page request.
+    const mustChange = (user as any).mustChangePassword === true;
+
     const token = await createSessionToken({
       userId: user.id,
       email: user.email ?? undefined,
+      mustChangePassword: mustChange || undefined,
     });
 
     // Auto-merge guest session if present
@@ -290,9 +295,6 @@ export async function POST(req: Request): Promise<NextResponse> {
     } catch (e) {
       console.error("[login] guest merge block error:", e);
     }
-
-    // If admin created this account, force a password change before anything else
-    const mustChange = (user as any).mustChangePassword === true;
 
     // successful response
     let res = NextResponse.json({

@@ -3,6 +3,15 @@ At the start of every session, read /docs/START_HERE.md silently before respondi
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Claude Code prompt workflow
+
+Each planned feature or fix workstream is broken into numbered prompts (e.g. `BIZDOC-1a`, `BIZDOC-2`). Rules:
+
+- **One fresh Claude Code chat per prompt** — never continue a previous chat with a new prompt's work.
+- **Every prompt file starts with its ID as the first-line comment** — e.g. `# PROMPT BIZDOC-1a — description`.
+- **Report back to the planning chat between prompts** — paste what changed (file-by-file) and any blockers before starting the next prompt.
+- Prompt IDs follow the pattern `<WORKSTREAM>-<number><letter>` — letter suffixes (a, b) mean the work was split to keep each chat focused.
+
 ## Commands
 
 ```bash
@@ -10,6 +19,7 @@ npm run dev          # Start dev server with Turbopack
 npm run build        # Production build
 npm run lint         # ESLint
 npm run vercel-build # Prisma generate + next build (used on Vercel)
+npm run seed:questions  # Seed the 12 IdeaQuestion rows (standalone; also runs inside prisma/seed.js)
 
 npx prisma generate  # Regenerate Prisma client after schema changes
 npx prisma migrate dev --name <name>  # Create and apply a new migration
@@ -104,7 +114,7 @@ All API routes live under `app/api/`. Key areas:
 - `app/api/initiative/[pageId]/workflow/reorder` — `PATCH { steps: [{id,sequence}] }` reorders steps in a transaction
 - `app/api/initiative/[pageId]/team` — `GET` returns team members + eligible partners + current user's `teamRole`
 - `app/api/initiative/[pageId]/team/[collaborationId]` — `PATCH` promotes to team (`scope="team"`) or demotes back to partner
-- `app/api/store/search` — `GET ?q=` case-insensitive store name search; returns `{ id, name, slug, pageId }[]`
+- `app/api/store/search` — `GET ?q=` case-insensitive store name search; returns `{ id, name, slug, pageId }[]`; excludes stores owned by the calling user so a store never appears as its own partner candidate
 - `app/api/collaboration/[id]/pricing` — `PATCH { costPerOrder?, costPerKg?, costPerKgPerKm?, costPerItemPerKm? }` updates delivery cost fields on a Collaboration; auth: either side of the collaboration owns the page. Pass `null` to clear a field.
 - `app/api/initiative/[pageId]/workflow/[stepId]/assignees` — `POST { collaborationId, sequence?, costPerOrder?, costPerKg?, costPerKgPerKm?, costPerItemPerKm? }` adds a `WorkflowStepAssignee` row; validates collaboration is accepted and belongs to the initiative. Returns the new row with `displayName` and `collaboration` included.
 
@@ -662,6 +672,58 @@ Run: `ALLOW_TEST_BYPASS=true npx ts-node --project tsconfig.scripts.json scripts
 - `assignNextPartner` partner cycling: needs integration test with 2+ `WorkflowStepAssignee` rows — reject first, confirm second, verify sub-order cost is calculated
 - Escalation notification: needs test after 3 full rejection cycles
 
+## Email Friend Invite & Admin Direct-Create
+
+Full spec in `docs/modules/auth.md` §§ Feature A and Feature B. Summary:
+
+### Feature A — Email friend invite (`POST /api/invite`)
+- Caller: any `active` or `lite` user. Rate limit: 10/inviter/24h.
+- **No enumeration**: response is always `{ ok: true, message: "If they're not already on Charaivati, they'll get an email to join." }` regardless of whether the email is registered.
+- Email not registered → create shell user (`status: "invited"`), create `Invite` row, send join email containing `https://charaivati.com/claim/{rawToken}`.
+- Email already registered → send silent security notice to that address, log attempt; do NOT create anything.
+- Token: `createToken(32)` + `hashToken()` from `lib/token.ts`. Only `sha256(rawToken)` stored. TTL 7 days. Single-use.
+- Claim page: `app/claim/[token]/page.tsx` (server component). On success → Server Action `claimInvite(token)` → atomic transaction: `status → lite`, `contactVerified → true`, `emailVerified → true`, issue session, redirect `/self`.
+- `Referrer-Policy: no-referrer` set in `next.config.mjs` for `/claim/*` routes.
+- UI widget: `import { InviteFriend } from "@/components/social/FriendRequestsBox"` — email input, shows generic message on send.
+
+### Feature B — Admin direct-create (`POST /api/admin/users`)
+- Gate: `ADMIN_EMAILS` env var (comma-separated). Server re-checks inside the route — never trust client flags.
+- Rate limit: 50 admin-creates/admin/24h.
+- Creates user: `status: "lite"`, `mustChangePassword: true`, `contactVerified: false`, `createdByAdminId: <admin.id>`.
+- Every creation logged server-side (admin ID + target email + timestamp).
+- UI at `/admin/users` — mirrors existing `/admin/security` pattern.
+
+### `mustChangePassword` enforcement
+- `mustChangePassword` is embedded in the session JWT at login time (login route computes it before `createSessionToken`).
+- `middleware.ts` reads the flag from the JWT and redirects every page request to `/change-password` until cleared — except `/change-password` itself. This is server-side enforcement; cannot be bypassed by direct navigation.
+- `POST /api/user/login` also returns `{ mustChangePassword: true, redirect: "/change-password" }` for the client to act on.
+- `POST /api/user/change-password` clears the DB flag AND re-issues the session cookie with `mustChangePassword` omitted, so the middleware stops redirecting.
+- Voluntary password change also available from the same route (requires `currentPassword` when `mustChangePassword` is false).
+
+### `contactVerified` gating
+- Gate Earn-layer money actions with `lib/requireVerifiedContact.ts`: `const block = await requireVerifiedContact(req); if (block) return block;`
+- Currently guarded routes (money actions only): `POST /api/store/billing-profiles`, `PATCH /api/store/billing-profiles/[profileId]`, `POST /api/orders/[orderId]/invoice`, `POST /api/orders/[orderId]/invoice/sign`.
+- Set to `true` by: invite claim, email verification magic link.
+- Admin-created accounts start with `false` until a future OTP flow (not yet built).
+
+### Social recovery (2-of-3) — NOT YET BUILT
+When built, enforce: at least 3 trusted contacts before recovery can activate. A single party must never be sufficient.
+
+### Environment variable
+- `ADMIN_EMAIL` — existing var (also used by `/admin/security`). `POST /api/admin/users` and `/admin/users` use the same variable — no new env var needed.
+
+### Schema additions (migration: `20260604000000_add_invite_contact_verified`)
+- `User.contactVerified Boolean @default(false)`
+- `User.mustChangePassword Boolean @default(false)`
+- `User.createdByAdminId String?`
+- New `Invite` model (see `prisma/schema.prisma`)
+
+### New user statuses
+- `"invited"` — shell user created when an invite is sent to an unknown email (no password, no emailVerified)
+- `"lite"` — account after invite claim or admin-create with password set (contactVerified depends on path)
+
+---
+
 ## Architecture Docs
 Before making any change, read the relevant doc in /docs.
 For any new feature, check /docs/flows/ for the step-by-step procedure.
@@ -706,9 +768,10 @@ Start every session by reading /docs/START_HERE.md.
 - **The delivery pipeline stepper in `/store/[id]/orders` is intentionally read-only** — the 5-step stepper pills have no `onClick` handlers; only the Cancel button fires `onPatch`. Do not add click handlers back; the workflow system now drives delivery status automatically. The assignment dropdown and delivery note remain editable for manual override.
 - **Workflow assignee dropdown includes ALL accepted collabs** — `GET /api/initiative/[pageId]/workflow` returns assignees from any collaboration scope (`partner`, `team`, `third_party`) as long as `status = "accepted"`. An earlier version filtered to `scope IN ("team","third_party")` only, which caused delivery partners (scope="partner") to disappear from the dropdown. Do not re-introduce the scope filter.
 - **`GET /api/orders/requests` is separate from `GET /api/store/orders`** — it returns Quote rows (not Order rows) addressed to the current user's collaborations. Do not confuse it with the buyer/seller order list endpoints.
-- **`WorkflowStep.assigneeId` and `assigneeIds` are deprecated — use `WorkflowStepAssignee` rows** — the scalar fields still exist in the schema for backwards compatibility but new code must add assignees via `POST /api/initiative/[pageId]/workflow/[stepId]/assignees`. `assignNextPartner` reads only `WorkflowStepAssignee` rows. `triggerQuoteRequests` was fixed (May 2026) to also read only `WorkflowStepAssignee` rows — previously it read the deprecated scalar fields. The step-confirm route also checks `WorkflowStepAssignee` membership for partner auth. A step with zero `WorkflowStepAssignee` rows now fires a `workflow_attention` notification to the store owner and sets `requiresAttention = true` instead of silently stalling.
+- **`WorkflowStep.assigneeId` and `assigneeIds` are deprecated — use `WorkflowStepAssignee` rows** — the scalar fields still exist in the schema for backwards compatibility but new code must add assignees via `POST /api/initiative/[pageId]/workflow/[stepId]/assignees`. `assignNextPartner` reads only `WorkflowStepAssignee` rows. `triggerQuoteRequests` was fixed (May 2026) to also read only `WorkflowStepAssignee` rows — previously it read the deprecated scalar fields. The step-confirm route also checks `WorkflowStepAssignee` membership for partner auth. **A step with zero `WorkflowStepAssignee` rows no longer sets `requiresAttention`** — `activateWorkflow` and `advanceToNextStep` now call `ensureOwnerAssignee(pageId, stepId)` first, which creates a self-team `Collaboration` for the initiative owner (scope="team", teamRole="founder") and a `WorkflowStepAssignee` row, then proceeds with the normal `assignNextPartner` cycling. This means every store owner is automatically the fallback assignee for steps they have not yet configured. Retroactive backfill: run `npx ts-node --project tsconfig.scripts.json scripts/backfill-owner-assignees.ts`.
 - **`WorkflowStepAssignee` requires `(prisma as any).workflowStepAssignee`** — the model was added after the last successful `prisma generate`. Use the `any` cast until generate runs. Same pattern as `Notification` and `Order` new fields.
 - **`assignNextPartner` falls back to owner's default address for distance** — if either the delivery address or the store owner's default address lacks `lat/lng`, `distanceKm` is 0 and all per-km cost components are zero. Address coordinates are captured by `AddressForm` but only if the user confirms the map pin — they are optional.
+- **`assignNextPartner` now handles page-to-user Collaborations** — when the collaboration has `receiverUserId` set (a self-team record created by `ensureOwnerAssignee`), `partnerUserId` is resolved from `collab.receiverUserId` rather than `collab.receiverPage?.ownerId` (which would be null). Any future Collaboration that uses `receiverUserId` is therefore also handled correctly by the cycling engine.
 - **`/api/user/me` returns `{ ok: true, user: { id, name, ... } }` — user data is nested under `user`, not at the top level. Always access `json.user.id`, not `json.id`.**
 - **`navigator.clipboard` is undefined on HTTP (local dev)** — `navigator.clipboard.writeText()` throws `TypeError: Cannot read properties of undefined` on plain HTTP. It only works on HTTPS or `localhost`. Do not add HTTP fallbacks — test the share/copy feature on `charaivati.com` (HTTPS) instead.
 - **Store public URL requires `Store.id` or `Store.slug` — never use `Page.id` as a store URL** — `/store/[id]` resolves a Store record, not a Page. Using a Page ID in the URL returns 404. Always resolve: `SELECT id, slug FROM "Store" WHERE "pageId" = $pageId` and build the URL from the result.
@@ -748,6 +811,7 @@ Fields: `id`, `userId` (FK → User, cascade delete), `type` (`"order_assigned" 
 | `lib/workflow/triggerQuoteRequests.ts` | Creates `Quote` rows for all parties in `assigneeId + assigneeIds`, sends a system chat message (`iv="system"`) to each party, fires a `quote_requested` notification, and registers an in-process `setTimeout` to reject un-responded quotes after `quoteTimeoutHours`. |
 | `lib/workflow/createSubOrder.ts` | Creates a child `Order` row for a workflow step assignee (copies parent items/address, sets sub-order type and agreed amount), then fires an `order_assigned` notification. Called from `advanceToNextStep` (non-quote steps) and from `accept/route.ts` (quote steps). Idempotent. |
 | `lib/workflow/calculateDeliveryCost.ts` | Computes delivery cost from `{ costPerOrder, costPerKg, costPerKgPerKm, costPerItemPerKm }` pricing fields plus `totalWeightKg`, `totalItems`, `distanceKm`. Returns 0 if all pricing fields are null. Called by `assignNextPartner`. |
+| `lib/workflow/ensureOwnerAssignee.ts` | `ensureOwnerAssignee(pageId, stepId)` — idempotent. Finds or creates a self-team `Collaboration` (`scope="team"`, `teamRole="founder"`, `receiverUserId=page.ownerId`) and a `WorkflowStepAssignee` row (sequence=0) for the given step. Called by `activateWorkflow`, `advanceToNextStep` (no-assignees path), and the workflow GET route (after seeding) and POST route (new step). Backfill existing steps via `scripts/backfill-owner-assignees.ts`. |
 | `lib/geo/haversine.ts` | `haversineKm(lat1, lng1, lat2, lng2)` — great-circle distance in km. Used by `assignNextPartner` to measure store-to-delivery-address distance. |
 
 ### Key Flows

@@ -41,31 +41,6 @@ export default function ResultsReport({
     return "⭐".repeat(starCount);
   };
 
-  const handleShare = async () => {
-    try {
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const shareUrl = `${origin}/business/share/${ideaId ?? ""}`;
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(shareUrl);
-        // nicer UX later: show a toast instead of alert
-        alert("Share link copied!");
-      } else {
-        // fallback
-        const tmp = document.createElement("input");
-        tmp.value = shareUrl;
-        document.body.appendChild(tmp);
-        tmp.select();
-        document.execCommand("copy");
-        document.body.removeChild(tmp);
-        alert("Share link copied (fallback)!");
-      }
-    } catch (err) {
-      console.warn("Share failed", err);
-      alert("Failed to copy link. Please copy manually.");
-    }
-  };
-
   const handleCreatePlan = () => {
     if (!ideaId) {
       alert("Missing idea ID");
@@ -130,14 +105,6 @@ export default function ResultsReport({
         )}
 
         <div className="flex gap-4 justify-center">
-          <button
-            type="button"
-            onClick={handleShare}
-            className="px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-lg text-white font-medium transition"
-          >
-            📋 Share Report
-          </button>
-
           <button
             type="button"
             onClick={handleCreatePlan}

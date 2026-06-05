@@ -11,16 +11,15 @@ export default function AdminUsersPage() {
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Verify admin status by probing the endpoint (403 = not admin, 400 = admin but bad input)
+  // Verify admin status: 400 = admin (passed gate, bad input), 401/403 = not admin
   useEffect(() => {
     fetch("/api/admin/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({}), // empty body → 400 (bad input) if admin, 403/401 if not
-    }).then((r) => {
-      setIsAdmin(r.status !== 401 && r.status !== 403);
-    }).catch(() => setIsAdmin(false));
+      body: JSON.stringify({}),
+    }).then((r) => setIsAdmin(r.status === 400 || r.status === 409 || r.status === 200))
+      .catch(() => setIsAdmin(false));
   }, []);
 
   async function create(e: React.FormEvent) {

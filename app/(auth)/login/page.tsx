@@ -138,7 +138,7 @@ function AuthForm() {
   useEffect(() => {
     if (step !== "verify-pending") return;
     setVerifyCollapsed(false);
-    const timer = setTimeout(() => setVerifyCollapsed(true), 4000);
+    const timer = setTimeout(() => setStep("login"), 4000);
     return () => clearTimeout(timer);
   }, [step]);
 
@@ -717,25 +717,6 @@ function AuthForm() {
                   your account and continue.
                 </p>
                 <p className="text-xs text-gray-500">Already verified? Sign in above.</p>
-              </div>
-            )}
-
-            {step === "verify-pending" && verifyCollapsed && (
-              <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
-                <span className="text-sm text-gray-300">📧 Verify your email to continue</span>
-                <button
-                  onClick={handleResendVerification}
-                  disabled={resendingVerification}
-                  className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-50 whitespace-nowrap transition"
-                >
-                  {resendingVerification
-                    ? "Sending..."
-                    : resendVerifyMessage === "sent"
-                    ? "✅ Sent!"
-                    : resendVerifyMessage === "failed"
-                    ? "❌ Failed"
-                    : "Resend"}
-                </button>
               </div>
             )}
           </>

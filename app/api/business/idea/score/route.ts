@@ -1,7 +1,7 @@
 // app/api/business/idea/score/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import getServerUser from "@/lib/serverAuth";
+import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 
 interface Option {
   value: string;
@@ -167,6 +167,23 @@ export async function POST(request: NextRequest) {
         { error: "ideaId and responses required" },
         { status: 400 }
       );
+    }
+
+    const token = getTokenFromRequest(request);
+    const payload = token ? await verifySessionToken(token) : null;
+    const sessionUserId = payload?.userId ?? null;
+
+    const idea = await prisma.businessIdea.findUnique({
+      where: { id: ideaId },
+      select: { userId: true },
+    });
+
+    if (!idea) {
+      return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+    }
+
+    if (idea.userId && idea.userId !== sessionUserId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const questions = await prisma.ideaQuestion.findMany();

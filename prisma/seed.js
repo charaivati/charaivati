@@ -447,6 +447,41 @@ async function importCsvTabsIfPresent(createdLevels) {
 }
 
 /* ----------------------
+   IdeaQuestion seed
+   ---------------------- */
+
+async function seedIdeaQuestions() {
+  const existing = await prisma.ideaQuestion.count();
+  if (existing >= 12) {
+    console.log(`IdeaQuestion already has ${existing} rows — skipping.`);
+    return;
+  }
+
+  console.log("Seeding IdeaQuestion with 12 questions...");
+  await prisma.ideaQuestion.deleteMany({});
+
+  const questions = [
+    { order: 1, text: "What problem are you solving? (In one sentence)", type: "text", category: "problem", scoringDim: "problemClarity", randomizeOptions: false, helpText: "Be specific. E.g., 'Students waste 2 hours daily finding affordable study materials'", examples: "Problems, not solutions" },
+    { order: 2, text: "Who suffers from this problem? (Who is your customer?)", type: "text", category: "market", scoringDim: "targetAudience", randomizeOptions: false, helpText: "Age, profession, location, income level, etc.", examples: "College students in metro cities, small shopkeepers, etc." },
+    { order: 3, text: "How big is this problem? (How many people have it?)", type: "select", category: "market", scoringDim: "marketNeed", randomizeOptions: true, options: [{ value: "small", label: "< 10,000 people", score: -1 }, { value: "medium", label: "10,000 - 1 lakh", score: 0 }, { value: "large", label: "1 lakh - 10 lakh", score: 1 }, { value: "xlarge", label: "> 10 lakh", score: 2 }], helpText: "Be honest about the market size", examples: "Think about: India population, but filtered to your segment" },
+    { order: 4, text: "How are people currently solving this problem?", type: "text", category: "market", scoringDim: "uniqueValue", randomizeOptions: false, helpText: "Existing solutions, workarounds, or 'doing nothing'", examples: "They use Google search, hire consultants, manually track, DIY solutions" },
+    { order: 5, text: "How is your solution different? (What's your unfair advantage?)", type: "select", category: "market", scoringDim: "uniqueValue", randomizeOptions: true, options: [{ value: "cheaper", label: "10x cheaper", score: 2 }, { value: "faster", label: "100x faster", score: 2 }, { value: "easier", label: "Much easier to use", score: 1 }, { value: "personal", label: "More personalized", score: 1 }, { value: "similar", label: "Similar to existing solutions", score: -1 }, { value: "unsure", label: "Not sure yet", score: -2 }], helpText: "Speed, cost, quality, access, or convenience?", examples: "Better experience, AI-powered, exclusive access, etc." },
+    { order: 6, text: "Do you know anyone facing this problem? (Have you talked to them?)", type: "select", category: "market", scoringDim: "marketNeed", randomizeOptions: true, options: [{ value: "no", label: "No, not yet", score: -2 }, { value: "yes_informal", label: "Yes, informal chat", score: 1 }, { value: "yes_formal", label: "Yes, structured interviews (5+)", score: 2 }], helpText: "Real customer feedback is gold. Even 5 conversations matter more than 1000 assumptions.", examples: "Talk to friends, family, or strangers in target demographic" },
+    { order: 7, text: "Can you build this? (Honestly)", type: "select", category: "feasibility", scoringDim: "feasibility", randomizeOptions: true, options: [{ value: "no_skills", label: "No, I don't have skills", score: -2 }, { value: "partially", label: "Partially, need help", score: 0 }, { value: "yes", label: "Yes, I can build it", score: 2 }, { value: "can_hire", label: "No, but can hire someone", score: 1 }], helpText: "This is about YOU right now. Not if you hire a team later.", examples: "Code, manufacture, design, write content, etc." },
+    { order: 8, text: "How much will it cost to build an MVP? (First working version)", type: "select", category: "feasibility", scoringDim: "feasibility", randomizeOptions: true, options: [{ value: "free", label: "Free / ₹0-5,000", score: 2 }, { value: "low", label: "₹5,000 - ₹50,000", score: 1 }, { value: "medium", label: "₹50,000 - ₹5,00,000", score: 0 }, { value: "high", label: "> ₹5,00,000", score: -1 }], helpText: "Include your time as cost. Can you afford this?", examples: "Server, tools, materials, freelancers, your sweat equity" },
+    { order: 9, text: "How will you make money? (Business model)", type: "select", category: "monetization", scoringDim: "monetization", randomizeOptions: true, options: [{ value: "subscription", label: "Subscription / Membership", score: 2 }, { value: "commission", label: "Commission / Marketplace", score: 1 }, { value: "freemium", label: "Freemium (Free + Paid)", score: 1 }, { value: "licensing", label: "Licensing / B2B", score: 1 }, { value: "ads", label: "Ads", score: 0 }, { value: "unsure", label: "Not sure yet", score: -2 }], helpText: "How do you charge customers? Be realistic.", examples: "Monthly fee, per transaction fee, % of sales, one-time purchase" },
+    { order: 10, text: "Can customers actually pay for this?", type: "select", category: "monetization", scoringDim: "monetization", randomizeOptions: true, options: [{ value: "no", label: "No, it's too niche/poor market", score: -2 }, { value: "maybe", label: "Maybe, if priced right", score: 0 }, { value: "yes", label: "Yes, they're already paying competitors", score: 2 }], helpText: "Would you actually pay for this? Has someone else already validated this market?", examples: "Ask 3 people: 'Would you pay ₹X for this?' Look at competitors." },
+    { order: 11, text: "What's your biggest risk right now?", type: "text", category: "feasibility", scoringDim: "feasibility", randomizeOptions: false, helpText: "Be honest: market risk, technical risk, regulatory, competition, etc.", examples: "Competition from big players, customer acquisition, regulatory hurdles, technology complexity" },
+    { order: 12, text: "What's the ONE thing you need to validate this idea in the next 30 days?", type: "text", category: "market", scoringDim: "marketNeed", randomizeOptions: false, helpText: "Interview 5 customers? Build MVP? Get first paying customer? Biggest blocker?", examples: "Talk to 10 potential customers, build prototype, get first sale, get vendor quotes" },
+  ];
+
+  for (const q of questions) {
+    await prisma.ideaQuestion.create({ data: q });
+  }
+  console.log(`IdeaQuestion seeded (12 rows).`);
+}
+
+/* ----------------------
    main
    ---------------------- */
 
@@ -463,6 +498,8 @@ async function main() {
 
   // import other-locale translations if provided in prisma/data/tab-translations.csv
   await importTabTranslationsCSVIfPresent();
+
+  await seedIdeaQuestions();
 
   console.log("Seeding complete ✅");
 }

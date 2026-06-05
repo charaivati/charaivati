@@ -57,7 +57,6 @@ export default function IdeaBatchPage(): React.ReactElement {
   const [visibleQuestions, setVisibleQuestions] = useState<BusinessQuestion[]>([]);
   const [questionsLoading, setQuestionsLoading] = useState<boolean>(true);
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
-  const autoStartedRef = useRef<boolean>(false);
   const [enableAutoScroll, setEnableAutoScroll] = useState<boolean>(false);
 
   const [state, setState] = useState<IdeaState>({
@@ -127,45 +126,6 @@ export default function IdeaBatchPage(): React.ReactElement {
       alive = false;
     };
   }, []);
-
-  /* -------------------- Auto-create idea (optional) -------------------- */
-  useEffect(() => {
-    if (questionsLoading || autoStartedRef.current) return;
-
-    autoStartedRef.current = true;
-
-    (async () => {
-      try {
-        const res = await fetch("/api/business/idea", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: "Student",
-            description: "Testing my idea",
-            userEmail: "test@charaivati.com",
-            userPhone: "",
-          }),
-        });
-
-        if (!res.ok) {
-          console.error("Auto-start create idea failed:", res.status);
-          return;
-        }
-
-        const idea = await res.json();
-        setState((prev) => ({
-          ...prev,
-          ideaId: idea.id,
-          title: "Student",
-          description: "Testing my idea",
-          email: "test@charaivati.com",
-          phone: "",
-        }));
-      } catch (error) {
-        console.error("Error auto-starting:", error);
-      }
-    })();
-  }, [questionsLoading]);
 
   /* ==================== BRANCHING LOGIC ====================
      Build visibleQuestions from allQuestions + state.responses
@@ -431,12 +391,33 @@ export default function IdeaBatchPage(): React.ReactElement {
 
   /* -------------------- Render -------------------- */
 
+  if (!state.ideaId) {
+    return (
+      <StartScreenBatch
+        onStart={handleStartIdea}
+        loading={state.loading}
+        error={state.error}
+      />
+    );
+  }
+
   if (questionsLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
         <div className="text-center">
           <p className="text-white text-xl mb-4">Loading questions...</p>
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto" />
+        </div>
+      </div>
+    );
+  }
+
+  if (allQuestions.length === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+        <div className="text-center max-w-md">
+          <p className="text-white text-xl mb-2">Questions are being set up</p>
+          <p className="text-slate-400 text-sm">The evaluation questions haven&apos;t been loaded yet. Please try refreshing in a moment.</p>
         </div>
       </div>
     );
@@ -471,12 +452,6 @@ export default function IdeaBatchPage(): React.ReactElement {
                 className="px-3 py-1.5 rounded-lg text-xs bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 hover:text-white border border-slate-700 transition flex items-center gap-1.5"
               >
                 ← Back to Earn Tab
-              </a>
-              <a
-                href="/business/plan/new"
-                className="px-3 py-1.5 rounded-lg text-xs bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 hover:text-white border border-blue-600/40 transition flex items-center gap-1.5"
-              >
-                Skip to Business Plan →
               </a>
             </div>
 

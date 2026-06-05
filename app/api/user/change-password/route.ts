@@ -5,7 +5,7 @@
 // Clears mustChangePassword on success.
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
+import { getTokenFromRequest, verifySessionToken, createSessionToken, setSessionCookie } from "@/lib/session";
 import { hashPassword, verifyPassword } from "@/lib/hash";
 
 export async function POST(req: Request) {
@@ -65,5 +65,10 @@ export async function POST(req: Request) {
     data: { passwordHash: newHash, mustChangePassword: false },
   });
 
-  return NextResponse.json({ ok: true });
+  // Re-issue the session token without mustChangePassword so the middleware
+  // stops redirecting on the next page navigation.
+  const newToken = await createSessionToken({ userId: user.id });
+  let res = NextResponse.json({ ok: true });
+  res = setSessionCookie(res, newToken);
+  return res;
 }

@@ -41,7 +41,6 @@ model User {
   aiGoals                 AiGoal[]
   billingProfiles         BillingProfile[]
   businessIdeas           BusinessIdea[]       @relation("UserBusinessIdeas")
-  businessPlans           BusinessPlan[]       @relation("UserBusinessPlans")
   cartItems               CartItem[]
   chatConvsA              ChatConversation[]   @relation("ChatConvA")
   chatConvsB              ChatConversation[]   @relation("ChatConvB")
@@ -787,29 +786,6 @@ model FeatureFlag {
   updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 }
 
-model BusinessPlan {
-  id             String    @id @default(uuid())
-  title          String
-  ownerEmail     String?
-  ownerPhone     String?
-  ownerUserId    String?
-  ownerVerified  Boolean   @default(false)
-  retrievalToken String    @unique
-  dataJson       Json
-  pdfPath        String?
-  status         String    @default("draft")
-  ipAddress      String?
-  userAgent      String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  expiresAt      DateTime?
-  ownerUser      User?     @relation("UserBusinessPlans", fields: [ownerUserId], references: [id])
-
-  @@index([ownerEmail])
-  @@index([ownerPhone])
-  @@index([createdAt])
-  @@index([ownerUserId])
-}
 
 model Otp {
   id         String   @id @default(uuid())
@@ -828,31 +804,50 @@ model Otp {
 }
 
 model BusinessIdea {
-  id             String         @id @default(uuid())
+  id             String             @id @default(uuid())
   title          String
   description    String
   userEmail      String?
   userPhone      String?
   userId         String?
-  problemClarity Int            @default(0)
-  marketNeed     Int            @default(0)
-  targetAudience Int            @default(0)
-  uniqueValue    Int            @default(0)
-  feasibility    Int            @default(0)
-  monetization   Int            @default(0)
+  guestSessionId String?
+  problemClarity Int                @default(0)
+  marketNeed     Int                @default(0)
+  targetAudience Int                @default(0)
+  uniqueValue    Int                @default(0)
+  feasibility    Int                @default(0)
+  monetization   Int                @default(0)
   responses      Json
-  status         String         @default("draft")
-  shareToken     String?        @unique
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  status         String             @default("draft")
+  shareToken     String?            @unique
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
   expiresAt      DateTime?
-  businessPlanId String?
-  user           User?          @relation("UserBusinessIdeas", fields: [userId], references: [id])
-  ideaResponses  IdeaResponse[] @relation("IdeaResponses")
+  user           User?              @relation("UserBusinessIdeas", fields: [userId], references: [id])
+  ideaResponses  IdeaResponse[]     @relation("IdeaResponses")
+  documents      BusinessDocument[] @relation("IdeaDocuments")
 
   @@index([userEmail])
   @@index([userId])
+  @@index([guestSessionId])
   @@index([status])
+}
+
+model BusinessDocument {
+  id         String       @id @default(uuid())
+  ideaId     String
+  type       String
+  title      String       @default("")
+  content    Json
+  status     String       @default("DRAFT")
+  shareToken String?      @unique
+  pdfUrl     String?
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+  idea       BusinessIdea @relation("IdeaDocuments", fields: [ideaId], references: [id], onDelete: Cascade)
+
+  @@unique([ideaId, type])
+  @@index([ideaId])
 }
 
 model IdeaQuestion {

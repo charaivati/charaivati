@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { ensureOwnerAssignee } from "@/lib/workflow/ensureOwnerAssignee";
 
 async function verifyOwner(pageId: string, userId: string) {
   const page = await prisma.page.findUnique({
@@ -51,6 +52,9 @@ export async function GET(
       where: { initiativeId: pageId },
       orderBy: { sequence: "asc" },
     });
+
+    // Guarantee each seeded step has at least the owner as assignee
+    await Promise.all(steps.map((s) => ensureOwnerAssignee(pageId, s.id)));
   }
 
   // Available assignees: any accepted collab involving this page (all scopes)
@@ -160,6 +164,9 @@ export async function POST(
       assigneeType: "team_member",
     },
   });
+
+  // Auto-assign the owner so the step is never left empty
+  await ensureOwnerAssignee(pageId, step.id);
 
   return NextResponse.json({ ...step, assignees: [], assignee: null }, { status: 201 });
 }

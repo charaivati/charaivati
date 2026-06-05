@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
   const stores = await prisma.store.findMany({
     where: {
       name: { contains: q, mode: "insensitive" },
+      ownerId: { not: user.id },
     },
     select: { id: true, name: true, slug: true, pageId: true },
     take: 10,

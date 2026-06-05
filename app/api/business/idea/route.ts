@@ -3,11 +3,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { title, description, userEmail, userPhone, userId } = body;
+    const { title, description, userEmail, userPhone } = body;
 
     if (!title || !description) {
       return NextResponse.json(
@@ -15,6 +16,10 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const token = getTokenFromRequest(request);
+    const payload = token ? await verifySessionToken(token) : null;
+    const sessionUserId = payload?.userId ?? null;
 
     const shareToken = Math.random().toString(36).substring(2, 15);
 
@@ -24,7 +29,7 @@ export async function POST(request: NextRequest) {
         description,
         userEmail,
         userPhone,
-        userId,
+        userId: sessionUserId,
         shareToken,
         responses: {},
       },
@@ -84,6 +89,23 @@ export async function PUT(request: NextRequest) {
         { error: "ideaId is required" },
         { status: 400 }
       );
+    }
+
+    const token = getTokenFromRequest(request);
+    const payload = token ? await verifySessionToken(token) : null;
+    const sessionUserId = payload?.userId ?? null;
+
+    const existing = await prisma.businessIdea.findUnique({
+      where: { id: ideaId },
+      select: { userId: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: "Idea not found" }, { status: 404 });
+    }
+
+    if (existing.userId && existing.userId !== sessionUserId) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const updatedIdea = await prisma.businessIdea.update({

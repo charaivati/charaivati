@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import getServerUser from "@/lib/serverAuth";
+import { requireVerifiedContact } from "@/lib/requireVerifiedContact";
 
 const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
 
 export async function PATCH(req: NextRequest, { params }: { params: { profileId: string } }) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const block = await requireVerifiedContact(req);
+  if (block) return block;
 
   const existing = await db.billingProfile.findUnique({ where: { id: params.profileId } });
   if (!existing || existing.userId !== user.id) {

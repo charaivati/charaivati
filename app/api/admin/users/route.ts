@@ -1,6 +1,6 @@
 // app/api/admin/users/route.ts
 // Feature B — admin direct-create path.
-// Restricted to emails in ADMIN_EMAILS env var (comma-separated).
+// Restricted to the email in ADMIN_EMAIL env var (same var used by /admin/security).
 // Creates a lite user with a temporary password; mustChangePassword = true.
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
@@ -8,15 +8,7 @@ import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 import { hashPassword } from "@/lib/hash";
 import { checkRateLimit } from "@/lib/rateLimit";
 
-function getAdminEmails(): Set<string> {
-  const raw = process.env.ADMIN_EMAILS ?? "";
-  return new Set(
-    raw
-      .split(",")
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean)
-  );
-}
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? process.env.ADMIN_ALERT_EMAIL;
 
 export async function POST(req: Request) {
   const token = getTokenFromRequest(req);
@@ -30,8 +22,7 @@ export async function POST(req: Request) {
     where: { id: payload.userId },
     select: { id: true, email: true },
   });
-  const adminEmails = getAdminEmails();
-  if (!admin?.email || !adminEmails.has(admin.email.toLowerCase())) {
+  if (!ADMIN_EMAIL || !admin?.email || admin.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

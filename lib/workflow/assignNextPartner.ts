@@ -36,9 +36,10 @@ export async function assignNextPartner({
         costPerItemPerKm: true,
         collaboration: {
           select: {
-            requesterId: true,
-            requester:    { select: { ownerId: true } },
-            receiverPage: { select: { ownerId: true } },
+            requesterId:    true,
+            receiverUserId: true,
+            requester:      { select: { ownerId: true } },
+            receiverPage:   { select: { ownerId: true } },
           },
         },
       },
@@ -168,11 +169,17 @@ export async function assignNextPartner({
   });
 
   // Determine partner's userId from the Collaboration
+  // Handles both page-to-page (receiverPage) and page-to-user (receiverUserId) collabs
   const collab = nextAssignee.collaboration;
   const storePageId = orderData.store.pageId;
-  const partnerPage =
-    storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
-  const partnerUserId = partnerPage?.ownerId as string | undefined;
+  let partnerUserId: string | undefined;
+  if (storePageId && collab.requesterId === storePageId) {
+    // Our page is the requester — partner is the receiver (page or direct user)
+    partnerUserId = collab.receiverPage?.ownerId ?? collab.receiverUserId ?? undefined;
+  } else {
+    // Partner's page is the requester
+    partnerUserId = collab.requester?.ownerId;
+  }
   if (!partnerUserId) return { assigned: false, escalated: false };
 
   // Update order with new assignment

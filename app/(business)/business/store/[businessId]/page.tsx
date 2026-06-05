@@ -1524,7 +1524,7 @@ export default function StoreSetupPage() {
             {!isLearning && (
               <>
                 <a href="/business/idea" className="text-xs px-3 py-1.5 rounded-lg border border-[#1E1E1E] text-[#6B7280] hover:text-white hover:border-[#2E2E2E] transition-colors">Evaluate</a>
-                <a href="/business/plan/new" className="text-xs px-3 py-1.5 rounded-lg border border-[#1E1E1E] text-[#6B7280] hover:text-white hover:border-[#2E2E2E] transition-colors">Business Plan</a>
+                <a href="/business/idea" className="text-xs px-3 py-1.5 rounded-lg border border-[#1E1E1E] text-[#6B7280] hover:text-white hover:border-[#2E2E2E] transition-colors">Business Plan</a>
               </>
             )}
             <a href="/self?tab=earn" className="text-xs px-3 py-1.5 rounded-lg border border-[#1E1E1E] text-[#6B7280] hover:text-white hover:border-[#2E2E2E] transition-colors">

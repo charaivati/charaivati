@@ -80,7 +80,8 @@ export async function GET(req: NextRequest) {
       }),
       prisma.user.update({
         where: { id: record.userId },
-        data: { verified: true, emailVerified: true },
+        // contactVerified: inbox ownership proven by clicking an emailed link
+        data: { verified: true, emailVerified: true, contactVerified: true } as any,
       }),
     ]);
 

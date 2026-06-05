@@ -3,6 +3,7 @@ import { v2 as cloudinary } from "cloudinary";
 import { db } from "@/lib/db";
 import getServerUser from "@/lib/serverAuth";
 import { createNotification } from "@/lib/notifications/createNotification";
+import { requireVerifiedContact } from "@/lib/requireVerifiedContact";
 
 export async function POST(
   req: NextRequest,
@@ -11,6 +12,9 @@ export async function POST(
   const { orderId } = await params;
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const block = await requireVerifiedContact(req);
+  if (block) return block;
 
   const order = await db.order.findUnique({
     where: { id: orderId },

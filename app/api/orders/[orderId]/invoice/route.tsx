@@ -6,6 +6,7 @@ import getServerUser from "@/lib/serverAuth";
 import { generateInvoiceNumber } from "@/lib/invoice/generateInvoiceNumber";
 import { InvoiceDocument } from "@/lib/invoice/InvoiceDocument";
 import type { InvoiceDocumentProps } from "@/lib/invoice/InvoiceDocument";
+import { requireVerifiedContact } from "@/lib/requireVerifiedContact";
 
 function fmtDate(d: Date): string {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
@@ -18,6 +19,9 @@ export async function POST(
   const { orderId } = await params;
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const block = await requireVerifiedContact(req);
+  if (block) return block;
 
   // 1. Fetch order
   const order = await db.order.findUnique({
