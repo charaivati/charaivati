@@ -48,6 +48,12 @@ export async function GET(
       prisma.workflowStep.create({ data: { initiativeId: pageId, name: "Dispatch & Deliver",sequence: 3, assigneeType: "team_member", assigneeId: fId } }),
     ]);
 
+    // Mark the last seeded step as delivery — raw SQL since column is new
+    await prisma.$executeRaw`
+      UPDATE "WorkflowStep" SET "activityType" = 'delivery'
+      WHERE "initiativeId" = ${pageId} AND sequence = 3
+    `;
+
     steps = await prisma.workflowStep.findMany({
       where: { initiativeId: pageId },
       orderBy: { sequence: "asc" },
@@ -129,8 +135,17 @@ export async function GET(
     assigneesByStep.set(row.stepId, list);
   }
 
+  // Fetch activityType via raw SQL — new column not in stale Prisma client
+  const activityTypeRows = stepIds.length > 0
+    ? await prisma.$queryRaw<{ id: string; activityType: string }[]>`
+        SELECT id, "activityType" FROM "WorkflowStep" WHERE id = ANY(${stepIds}::text[])
+      `
+    : [];
+  const activityTypeByStep = new Map(activityTypeRows.map((r) => [r.id, r.activityType]));
+
   const stepsWithAssignee = steps.map((s) => ({
     ...s,
+    activityType: activityTypeByStep.get(s.id) ?? "normal",
     assignee: s.assigneeId ? (assigneeMap.get(s.assigneeId) ?? null) : null,
     assignees: assigneesByStep.get(s.id) ?? [],
   }));

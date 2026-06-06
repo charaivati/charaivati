@@ -62,11 +62,12 @@ type WorkflowStep = {
   assignmentMode: string;
   quoteRequired: boolean;
   quoteTimeoutHours: number;
+  activityType: string;
   assignees: StepAssignee[];
 };
 
 type StepPatch = Partial<
-  Pick<WorkflowStep, "name" | "assigneeId" | "assigneeType" | "quoteRequired" | "quoteTimeoutHours" | "assignmentMode">
+  Pick<WorkflowStep, "name" | "assigneeId" | "assigneeType" | "quoteRequired" | "quoteTimeoutHours" | "assignmentMode" | "activityType">
 >;
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -372,6 +373,7 @@ function StepCard({
   }
 
   const assignmentMode = step.assignmentMode ?? "sequential";
+  const activityType   = step.activityType   ?? "normal";
 
   return (
     <div
@@ -452,6 +454,33 @@ function StepCard({
               {mode === "sequential" ? "Sequential" : "First to Accept"}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Step type selector */}
+      {canEdit && (
+        <div className="space-y-1.5">
+          <div className="flex gap-1.5">
+            {(["normal", "delivery"] as const).map((type) => (
+              <button
+                key={type}
+                disabled={isSaving}
+                onClick={() => activityType !== type && onUpdate(step.id, { activityType: type })}
+                className={`flex-1 text-xs py-2 rounded-full transition-colors disabled:opacity-50 ${
+                  activityType === type
+                    ? type === "delivery" ? "bg-emerald-700 text-white" : "bg-[#534AB7] text-white"
+                    : "bg-gray-800 text-gray-400"
+                }`}
+              >
+                {type === "normal" ? "Normal work" : "Delivery (GPS)"}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-600">
+            {activityType === "delivery"
+              ? "Delivery steps assign a courier and share live GPS with the customer."
+              : "Normal steps just need a completion tap."}
+          </p>
         </div>
       )}
 
@@ -538,6 +567,7 @@ export default function WorkflowTab({ pageId, canEdit = true }: { pageId: string
           ...s,
           assignees: s.assignees ?? [],
           assignmentMode: s.assignmentMode ?? "sequential",
+          activityType: s.activityType ?? "normal",
         }))
       );
       setAvailableCollabs(data.assignees ?? []);
@@ -603,7 +633,7 @@ export default function WorkflowTab({ pageId, canEdit = true }: { pageId: string
         const step = await res.json();
         setSteps((prev) => [
           ...prev,
-          { ...step, assignees: step.assignees ?? [], assignmentMode: step.assignmentMode ?? "sequential" },
+          { ...step, assignees: step.assignees ?? [], assignmentMode: step.assignmentMode ?? "sequential", activityType: step.activityType ?? "normal" },
         ]);
       }
     } finally {

@@ -1,7 +1,7 @@
 ---
 module: business
 type: api + component
-source: app/api/business/, components/business/
+source: app/api/business/, components/business/, app/(business)/business/
 depends_on: [database, auth]
 used_by: [pages]
 stability: stable
@@ -11,101 +11,236 @@ status: active
 # Module: Business
 
 ## Purpose
-Provides tools for evaluating business ideas and generating business plans. The idea evaluator runs users through a scored questionnaire; the plan generator uses AI to produce a structured document. Both support anonymous (token-based) and authenticated access.
+Provides tools for evaluating business ideas and building per-idea business documents (SWOT, Business Model Canvas, 3-Year Financials). The idea evaluator uses an adaptive AI-driven turn-by-turn conversation with a local Interviewer + cloud Assessor cross-check (BIZDOC-3). Both the evaluator and plan page support anonymous (guest-session cookie) and authenticated access.
 
 ## Responsibilities
-- Serve and manage the idea question bank (`IdeaQuestion`)
-- Accept user answers and score them per dimension
-- Real-time live scoring during answer entry
-- Generate shareable business idea evaluation reports
-- Create, retrieve, and AI-generate business plan documents
-- AI analysis of existing business plans
+- Adaptive AI conversation: one question per turn, local Interviewer + cloud Assessor cross-check, probe cap
+- Serve and manage the idea question bank (`IdeaQuestion`) as the base question menu
+- Accept user answers and score them per dimension (AI-driven, not keyword matching)
+- Live sidebar updated per turn with provisional scores and provenance badges
+- Generate final verdict (cloud Assessor) with per-dimension provenance display
+- Create and AI-draft per-idea `BusinessDocument` records (SWOT, BMC, FINANCIALS)
+- Claim guest-session ideas on login/verification (re-parent to real userId)
+
+## Adaptive Evaluation Engine (BIZDOC-3)
+
+### Three-role architecture
+
+| Role | Model | When called |
+|---|---|---|
+| **Interviewer** | Local (Ollama via `chatComplete()`) | Every turn — scores answer, checks confidence |
+| **Assessor** | Cloud (OpenRouter → Groq → Vercel via `callAI({ provider:"openrouter" })`) | When local confidence < `CONFIDENCE_THRESHOLD`, once per dimension + final verdict |
+| **Cross-check** | Server logic | After both local + assessor score exist: if disagreement > `DISAGREEMENT_THRESHOLD`, queue one probe |
+
+### Tunable thresholds — `lib/business/interviewConfig.ts`
+
+| Constant | Default | Meaning |
+|---|---|---|
+| `CONFIDENCE_THRESHOLD` | `0.55` | Local confidence below this triggers cloud Assessor for the dimension |
+| `DISAGREEMENT_THRESHOLD` | `1.0` | `|local - assessor|` above this triggers one disagreement probe |
+| `MAX_PROBES_PER_DIM` | `2` | Max extra follow-up probes per dimension beyond base questions |
+| `LOCAL_TIMEOUT_MS` | `12_000` | Timeout for local Interviewer call |
+| `ASSESSOR_TIMEOUT_MS` | `20_000` | Timeout for cloud Assessor call |
+
+**To tune:** Adjust these exports in `lib/business/interviewConfig.ts`. Check real interview transcripts to calibrate. A `CONFIDENCE_THRESHOLD` that is too high triggers the cloud too often; too low lets vague answers slip through.
+
+### Probe cap prevents infinite loops
+
+`state.probeCount[dim]` tracks extra probes per dimension. When `probeCount[dim] >= MAX_PROBES_PER_DIM`, no more probes are added regardless of disagreement. The Assessor's score (if available) stands as the final score for that dimension. If the Assessor is also unavailable, the local provisional score is used.
+
+### Sector detection
+
+`detectSector(title, description)` in `interviewConfig.ts` classifies the idea into one of: `food | craft | education | delivery | service | retail | digital | health | general`. Sector is stored in `interviewState.sector` and used to select sector-tuned probe variants (e.g. food → FSSAI/spoilage/footfall; service → repeat clients/capacity).
+
+### Graceful degradation
+
+If Ollama is unavailable, `chatComplete()` falls through to cloud automatically. The interview state records `localUnavailable = true`. When `localUnavailable` is set:
+- No cloud Assessor is triggered (cloud was already used for the Interviewer — redundant)
+- `dimProvenance` stays `"local_estimate"` for all dimensions
+- The tier label in `TurnResponse` becomes `"cloud-degraded"`
+- The UI shows: `"Quick evaluation — senior review unavailable"` on each assistant turn
+- The `ResultsReport` shows a yellow badge: `"Quick Evaluation — senior review unavailable"`
+
+### Rail-guided questions
+
+The engine does NOT allow the AI to freely invent questions. The 12 seeded `IdeaQuestion` rows are the base menu. The server deterministically advances through them (`interviewState.currentIndex`). The AI only adds to the `probeQueue` by selecting from `PROBE_TEMPLATES` in `interviewConfig.ts` — a static, auditable list.
+
+### Provenance display
+
+- `dimProvenance[dim]`: `"local_estimate"` or `"senior_reviewed"`
+- Shown in `LiveScoreDashboard`: `✦` = senior reviewed, `~` = local estimate
+- Shown in `ResultsReport`: per-dimension badge + overall tier banner
+- Stored on `BusinessIdea.dimProvenance` (JSONB)
+
+### State persistence
+
+Three new JSONB fields on `BusinessIdea` (added via Neon migration):
+- `transcript` — `ConversationTurn[]` — the full conversation (user + assistant turns with dim and questionKey)
+- `dimProvenance` — `Record<dim, "local_estimate" | "senior_reviewed">` — current provenance per dimension
+- `interviewState` — `InterviewState` — engine state (currentIndex, sector, probeQueue, probeCount, provisionalScores, assessorScores, assessorRun, done, localUnavailable)
+
+### Key lib files
+
+| File | Purpose |
+|---|---|
+| `lib/business/interviewConfig.ts` | All static config: thresholds, PROBE_TEMPLATES (sector-tuned), sector detection, prompt builders, state types |
+| `lib/business/runInterviewer.ts` | `runInterviewer(dim, questionText, answer, sector)` → `{ score, confidence, followUpNeeded, source }` |
+| `lib/business/runAssessor.ts` | `runAssessor(dim, ...)` → `AssessorResult | null`; `runFinalVerdict(...)` → `FinalVerdictResult` |
+
+## Ownership Model
+
+Ideas and their documents have a two-track ownership model:
+
+| User type | How ownership is stored | Auth check |
+|---|---|---|
+| Logged-in | `BusinessIdea.userId` | session token must match |
+| Guest | `BusinessIdea.guestSessionId` | `biz-guest` HTTP-only cookie must match |
+
+**Guest persistence**: when a guest creates an idea (POST /api/business/idea without a session), a random UUID is written to `BusinessIdea.guestSessionId` and set as the `biz-guest` cookie (HttpOnly, 1-year, Secure in prod). The cookie persists across page loads. Clearing cookies orphans the ideas.
+
+**Claim on login/verification**: on successful login (`POST /api/user/login`) and email verification (`GET /api/user/magic`), the `biz-guest` cookie is read and `claimGuestIdeas(guestSessionId, userId)` is called. This atomically sets `userId` on all ideas with that `guestSessionId` where `userId IS NULL`. Idempotent — already-claimed ideas are skipped.
+
+**Manual claim**: `POST /api/business/claim-guest-ideas` (auth required) — for retroactive recovery.
+
+## Document Types
+
+`BusinessDocument.type` is a string with these defined values:
+
+| Value | Panel | Status |
+|---|---|---|
+| `SWOT` | SWOT Analysis | Active |
+| `BMC` | Business Model Canvas | Active |
+| `FINANCIALS` | 3-Year Financial Plan | Active |
+| `PROPOSAL` | Full Proposal | Reserved (not yet built) |
+| `COMPETITOR` | Competitor Study | Coming soon (UI entry point exists, no template) |
+
+`@@unique([ideaId, type])` — one document per type per idea.
+
+## AI Document Assist
+
+`POST /api/business/documents/generate` calls `chatComplete()` from `app/api/aiClient.ts` using the standard provider chain (Ollama → OpenRouter → Groq → Vercel). System context is loaded from `ai-context/BUSINESS_AI_PHILOSOPHY.txt` via `loadRawFile()`. Prompts are intentionally minimal stubs — real sector-aware intelligence and financial prefill come in BIZDOC-3/-4.
+
+**Output shape per type:**
+- `SWOT` → `{ strengths, weaknesses, opportunities, threats }` (JSON)
+- `BMC` → `{ keyPartners, keyActivities, keyResources, valuePropositions, customerRelationships, channels, customerSegments, costStructure, revenueStreams }` (JSON)
+- `FINANCIALS` → `{ year1, year2, year3 }` each `{ revenue, cogs, operatingCosts, marketingCosts, otherCosts }` (JSON, INR string values)
+
+The client merges the AI content into the current form state and schedules a save — the AI never overwrites what the user already typed; it fills only the populated fields.
 
 ## Inputs & Outputs
 
 | Direction | Value |
 |---|---|
-| In | Optional user session (anonymous access supported via share token) |
+| In | Optional user session OR `biz-guest` cookie |
 | In | Business idea: title, description |
 | In | Answers to idea questions (per `IdeaQuestion.id`) |
-| In | Business plan content for analysis |
+| In | Document content (SWOT / BMC / Financials JSON) |
 | Out | `BusinessIdea` record with per-dimension scores |
 | Out | Real-time score update during live scoring |
 | Out | Shareable report (via `shareToken`) |
-| Out | `BusinessPlan` document (AI-generated or user-authored) |
-| Out | Retrieval token for plan access without auth |
+| Out | `BusinessDocument` records upserted per type |
+| Out | AI-generated draft content for any active document type |
 
-## Dependencies
-- **auth** — optional; idea and plan records support both authenticated (`userId`) and anonymous (`ownerEmail`, `ownerPhone`) ownership
-- **database** — BusinessIdea, IdeaQuestion, IdeaResponse, BusinessPlan models
+## PDF System (BIZDOC-2)
 
-## Reverse Dependencies (what breaks if this changes)
-- `IdeaQuestion.scoringDim` maps each question to one of the scoring dimensions (problemClarity, marketNeed, targetAudience, uniqueValue, feasibility, monetization). Changing dimension names breaks the scoring aggregation logic.
-- `BusinessIdea.shareToken` and `BusinessPlan.retrievalToken` are the only access mechanism for anonymous users. If token generation logic changes, existing shared links break.
-- `IdeaQuestion.dependsOn` implements conditional question logic. Changing its structure breaks the questionnaire flow in the UI.
-- `BusinessPlan.expiresAt` controls plan TTL. If expiry logic is removed, plans accumulate indefinitely.
+Reuses the exact `@react-pdf/renderer` + Cloudinary stack from `app/api/orders/[orderId]/invoice/`. No new PDF library.
 
-## Runtime Flow
+**Renderer components**: `lib/business/BusinessDocumentPdf.tsx` — exports `SWOTPdf`, `BMCPdf`, `FinancialsPdf`. All use `@react-pdf/renderer` primitives (`Document`, `Page`, `View`, `Text`, `StyleSheet`) matching the invoice component pattern.
 
-### Idea evaluation
-1. Client fetches question bank from `GET /api/business/questions`
-2. User answers questions; client calls `POST /api/business/idea/score-live` after each answer for real-time feedback
-3. On completion, client POSTs to `POST /api/business/idea/score` for final scoring
-4. API computes per-dimension scores from `IdeaResponse` records
-5. Saves scores to `BusinessIdea` (6 dimensions as separate fields)
-6. Returns scored idea with a `shareToken` for public sharing
+**Upload helper**: `lib/business/uploadDocumentPdf.ts` — `uploadDocumentPdf(buffer, docId)`. Mirrors the `upload_stream` pattern from the invoice route. Key differences from invoices:
+- `type: "upload"` (not `"authenticated"`) — PDF URLs are publicly readable, consistent with the public share page
+- folder: `biz-docs/`, public_id: `{docId}`
+- Raw Cloudinary URL is never sent directly to the browser — always proxied via server routes
 
-### Plan creation
-1. Client POSTs to `POST /api/business/plan/create` with plan content
-2. API creates `BusinessPlan` with a unique `retrievalToken` and `expiresAt`
-3. Client can call `POST /api/business/plan/generate` to have AI fill in the plan
-4. Client can call `POST /api/business/plan/analyze` for AI feedback on existing content
+**pdfUrl invalidation on save**: `PUT /api/business/documents` sets `pdfUrl: null` on every content save. This forces re-generation on the next download. The pdfUrl field acts as a one-use cache — generate-on-download if null, return cached URL if set.
 
-### Anonymous retrieval
-1. Anyone with a `retrievalToken` can GET `GET /api/business/plan/[token]`
-2. No auth required — token is the sole access control mechanism
+**Generation flow**:
+1. Plan page clicks "↓ PDF" → `GET /api/business/documents/pdf/download?ideaId=&type=`
+2. Route checks ownership (session-OR-cookie), finds doc by `(ideaId, type)`
+3. If `pdfUrl` is set: proxy Cloudinary URL as `attachment`; if null: render + upload + save `pdfUrl`, then proxy
+4. Client receives PDF as `application/pdf` with `Content-Disposition: attachment`
+
+**Share page PDF download**: `GET /api/business/share/[token]/pdf` — no auth, token is access. Same render-or-proxy logic.
+
+## Share Link System (BIZDOC-2)
+
+**Minting**: `POST /api/business/share { ideaId, type }` — auth required (ownership guard). Returns `{ shareToken }`. Idempotent — minting twice returns the same token.
+
+**Token**: `randomUUID()` (128-bit random, crypto.randomUUID). Unguessable. Not sequential.
+
+**Public document fetch**: `GET /api/business/share/[token]` — no auth. Returns only the matched document's `type`, `title`, `content`, `status`, `pdfUrl`, `updatedAt`. Deliberately excludes `ideaId`, `shareToken`, and all idea ownership fields.
+
+**Safety**: A token exposes exactly one document. Other documents of the same idea are inaccessible unless they have their own shareToken. Mint/revoke is owner-only. There is currently no revoke endpoint — to remove public access, use the DB directly or delete the shareToken field.
+
+**Share page**: `app/(business)/business/share/[token]/page.tsx` — server component, no auth, renders content read-only. Shows "↓ Download PDF" button pointing to `/api/business/share/[token]/pdf`.
+
+**Plan page UX**: "🔗 Share" button → mints token (if not set) → copies share URL to clipboard. Share URL strip shown below the type dropdown when a token exists for the active type.
 
 ## Key API Routes
 
-| Method | Route | Action |
-|---|---|---|
-| GET | /api/business/questions | Fetch question bank |
-| POST | /api/business/idea | Create idea |
-| GET | /api/business/idea | List user's ideas |
-| POST | /api/business/idea/score | Final scoring |
-| POST | /api/business/idea/score-live | Real-time per-answer score |
-| POST | /api/business/plan/create | Create plan |
-| GET | /api/business/plan | List user's plans |
-| GET | /api/business/plan/[token] | Retrieve plan by token (no auth) |
-| POST | /api/business/plan/generate | AI-generate plan content |
-| POST | /api/business/plan/analyze | AI analyze plan |
+| Method | Route | Auth | Action |
+|---|---|---|---|
+| GET | /api/business/questions | None | Fetch question bank |
+| POST | /api/business/idea | None | Create idea; sets `biz-guest` cookie for guests |
+| GET | /api/business/idea | None | Fetch idea by ID or shareToken |
+| PUT | /api/business/idea | Session or cookie | Update responses/status |
+| POST | /api/business/idea/score | None | Final scoring |
+| POST | /api/business/idea/score-live | None | Real-time per-answer score |
+| GET | /api/business/documents?ideaId= | Session or cookie | List all documents |
+| PUT | /api/business/documents | Session or cookie | Upsert document (invalidates pdfUrl) |
+| POST | /api/business/documents/generate | Session or cookie | AI draft for a document type |
+| GET | /api/business/documents/pdf/download | Session or cookie | Download PDF (generates if needed) |
+| POST | /api/business/documents/pdf | Session or cookie | Pre-generate + cache pdfUrl |
+| POST | /api/business/share | Session or cookie | Mint shareToken for a document |
+| GET | /api/business/share/[token] | **None (public)** | Fetch document by shareToken |
+| GET | /api/business/share/[token]/pdf | **None (public)** | Stream PDF for share page |
+| POST | /api/business/claim-guest-ideas | Session | Claim guest ideas for logged-in user |
+
+## Key Helpers
+
+| File | Purpose |
+|---|---|
+| `lib/business/claimGuestIdeas.ts` | `claimGuestIdeas(guestSessionId, userId)` — atomic updateMany; idempotent |
+| `lib/business/BusinessDocumentPdf.tsx` | `@react-pdf/renderer` components: `SWOTPdf`, `BMCPdf`, `FinancialsPdf` |
+| `lib/business/uploadDocumentPdf.ts` | `uploadDocumentPdf(buffer, docId)` — Cloudinary upload_stream helper |
 
 ## Key Components
 
 | Component | Role |
 |---|---|
-| `components/business/StartScreen.tsx` | Entry point — prompts user to begin idea evaluation |
-| `components/business/StartScreenBatch.tsx` | Batch question entry variant |
-| `components/business/QuestionCard.tsx` | Single question display with answer input |
-| `components/business/CollapsibleQuestionCard.tsx` | Collapsible version for review |
+| `components/business/StartScreenBatch.tsx` | Entry point — prompts user to begin idea evaluation |
+| `components/business/CollapsibleQuestionCard.tsx` | Collapsible question card with answer input |
 | `components/business/LiveScoreDashboard.tsx` | Real-time score display per dimension |
 | `components/business/ResultsReport.tsx` | Final scored report with dimension breakdown |
+| `app/(business)/business/plan/[ideaId]/page.tsx` | Plan builder — type dropdown, SWOT/BMC/Financials panels, AI draft, PDF download, Share button, DB persistence |
+| `app/(business)/business/share/[token]/page.tsx` | Public read-only share page — no auth, renders doc content + PDF download link |
 
 ## Database Models Used
-- `BusinessIdea` — idea record: title, description, 6 score fields, shareToken, expiresAt, status
+- `BusinessIdea` — idea record: title, description, 6 score fields, shareToken, guestSessionId, userId
+- `BusinessDocument` — typed document per idea: type, content (Json), status, `@@unique([ideaId, type])`
 - `IdeaQuestion` — question bank: text, type, category, scoringDim, dependsOn logic, options JSON
 - `IdeaResponse` — user answer per question: answer, score, feedback
-- `BusinessPlan` — plan document: title, dataJson, pdfPath, retrievalToken, expiresAt, status
+- **`BusinessPlan` — retired** (model removed from schema; table preserved in DB but unused; data access via Prisma client no longer possible)
+
+## BMC Layout
+
+The Business Model Canvas uses a 5-column grid:
+- **Row 1** (5 cols): Key Partners | Key Activities | Value Propositions (row-span 2) | Customer Relationships | Customer Segments (row-span 2)
+- **Row 2** (cols 1–2, 4): Key Resources | (empty) | — | Channels | —
+- **Row 3** (2 cols spanning full width): Cost Structure | Revenue Streams
+
+The `md:row-span-2` spans on Value Propositions and Customer Segments are implemented via separate grid rows (not CSS `grid-row`). The second row only renders 2 explicitly placed cells (Key Resources at col 1, Channels at col 4 of a 5-col grid).
+
+## AI Context Governance
+
+`ai-context/BUSINESS_AI_PHILOSOPHY.txt` governs all AI behaviour in this module. It defines audience (informal workers, first-time founders in Bharat), stance (honest, sector-grounded, local-framed), per-document guidance (SWOT internal/external distinction, financial prefill honesty), and context-slicing rules (send only what the task needs). Do not change AI tone or rating behaviour without updating this file first.
 
 ## Risks & Fragile Areas
-- Anonymous access via `retrievalToken` and `shareToken` has no rate limiting or brute-force protection observed. TODO: Confirm whether tokens are sufficiently long/random to resist enumeration.
-- `BusinessPlan.dataJson` is an untyped JSON field. AI-generated content is stored as-is — malformed AI responses can corrupt plan data.
-- `BusinessPlan.expiresAt` is set at creation. There is no background job observed to clean up expired plans. TODO: Confirm whether expired plans are cleaned up and how.
-- `IdeaQuestion.dependsOn` controls conditional rendering. Its exact JSON shape is unclear. TODO: Confirm the schema of this field.
-- AI calls for plan generation and analysis are not clearly rate-limited. Unprotected endpoints can be expensive under load.
-- `pdfPath` on `BusinessPlan` suggests PDF export capability. TODO: Confirm whether PDF generation is implemented.
+- `BusinessDocument.content` is untyped JSON. Shape is enforced only by the UI and the AI generate route — no DB-level validation.
+- Guest ideas are orphaned if the user clears their cookies before logging in. No recovery path exists without the original `guestSessionId`.
+- The `biz-guest` cookie is separate from the main `charaivati.session` cookie. The claim logic reads it from the Cookie header using a regex (login route uses `Request` not `NextRequest`).
+- AI generate prompts are intentionally minimal stubs. Do not add full sector-aware intelligence here — that belongs in BIZDOC-3/-4 so context can be tested independently.
 
 ## Backlinks
 - [[database.md]] — model definitions
-- [[auth.md]] — optional session for idea/plan ownership
-- [[pages.md]] — business ideas/plans may be linked to Page records (TODO: confirm)
+- [[auth.md]] — session handling, guest merge pattern

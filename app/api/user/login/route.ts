@@ -296,6 +296,21 @@ export async function POST(req: Request): Promise<NextResponse> {
       console.error("[login] guest merge block error:", e);
     }
 
+    // Claim any business ideas created under the biz-guest cookie
+    try {
+      const cookieHeader = req.headers.get("cookie") ?? "";
+      const bizGuestMatch = cookieHeader.match(/(?:^|;\s*)biz-guest=([^;]+)/);
+      const bizGuestId = bizGuestMatch ? decodeURIComponent(bizGuestMatch[1]) : null;
+      if (bizGuestId) {
+        const { claimGuestIdeas } = await import("@/lib/business/claimGuestIdeas");
+        await claimGuestIdeas(bizGuestId, user.id).catch((e) =>
+          console.error("[login] biz guest claim failed, continuing:", e)
+        );
+      }
+    } catch (e) {
+      console.error("[login] biz guest claim block error:", e);
+    }
+
     // successful response
     let res = NextResponse.json({
       ok: true,

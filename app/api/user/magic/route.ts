@@ -113,6 +113,19 @@ export async function GET(req: NextRequest) {
       console.error("[magic] guest merge block error:", e);
     }
 
+    // Claim business ideas created under the biz-guest cookie
+    try {
+      const bizGuestId = req.cookies.get("biz-guest")?.value ?? null;
+      if (bizGuestId) {
+        const { claimGuestIdeas } = await import("@/lib/business/claimGuestIdeas");
+        await claimGuestIdeas(bizGuestId, record.userId).catch((e) =>
+          console.error("[magic] biz guest claim failed, continuing:", e)
+        );
+      }
+    } catch (e) {
+      console.error("[magic] biz guest claim block error:", e);
+    }
+
     const loginUrl = new URL("/verified", req.nextUrl.origin);
     if (record.user?.email) loginUrl.searchParams.set("email", String(record.user.email));
     loginUrl.searchParams.set("redirect", safeRedirect);

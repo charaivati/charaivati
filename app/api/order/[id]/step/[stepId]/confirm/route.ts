@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { advanceToNextStep } from "@/lib/workflow/advanceToNextStep";
-import { createNotification } from "@/lib/notifications/createNotification";
+import { assignNextPartner } from "@/lib/workflow/assignNextPartner";
 
 type Params = { params: Promise<{ id: string; stepId: string }> };
 
@@ -28,11 +28,47 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   });
   if (!step) return NextResponse.json({ error: "Step not found" }, { status: 404 });
 
+  // Fetch activityType via raw SQL — new column not in stale Prisma client
+  const activityRaw = await prisma.$queryRaw<{ activityType: string }[]>`
+    SELECT "activityType" FROM "WorkflowStep" WHERE id = ${stepId}
+  `;
+  const activityType = activityRaw[0]?.activityType ?? "normal";
+
   const isOwner = order.store.ownerId === user.id;
 
-  // Check if caller is the step's assignee (Collaboration partner)
+  // Auth: WorkflowStepAssignee rows are the primary check (new system)
   let isAssignee = false;
-  if (step.assigneeId) {
+  const wsaRows = await (prisma as any).workflowStepAssignee.findMany({
+    where: { stepId },
+    select: { collaborationId: true },
+  }) as { collaborationId: string }[];
+
+  if (wsaRows.length > 0) {
+    const collabIds = wsaRows.map((r: { collaborationId: string }) => r.collaborationId);
+    const wsaCollabs = await prisma.collaboration.findMany({
+      where: { id: { in: collabIds } },
+      include: {
+        requester:    { select: { ownerId: true } },
+        receiverPage: { select: { ownerId: true } },
+      },
+    });
+    const storePageId = order.store.pageId;
+    for (const collab of wsaCollabs) {
+      if ((collab as any).receiverUserId === user.id) {
+        isAssignee = true;
+        break;
+      }
+      const partnerPage =
+        storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+      if (partnerPage?.ownerId === user.id) {
+        isAssignee = true;
+        break;
+      }
+    }
+  }
+
+  // Fallback: deprecated scalar assigneeId
+  if (!isOwner && !isAssignee && step.assigneeId) {
     const collab = await prisma.collaboration.findUnique({
       where: { id: step.assigneeId },
       include: {
@@ -48,40 +84,15 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
   }
 
-  // Fallback: check WorkflowStepAssignee rows (new system)
-  if (!isOwner && !isAssignee) {
-    const wsaRows = await (prisma as any).workflowStepAssignee.findMany({
-      where: { stepId },
-      select: { collaborationId: true },
-    }) as { collaborationId: string }[];
-    if (wsaRows.length > 0) {
-      const collabIds = wsaRows.map((r: { collaborationId: string }) => r.collaborationId);
-      const wsaCollabs = await prisma.collaboration.findMany({
-        where: { id: { in: collabIds } },
-        include: {
-          requester:    { select: { ownerId: true } },
-          receiverPage: { select: { ownerId: true } },
-        },
-      });
-      const storePageId = order.store.pageId;
-      for (const collab of wsaCollabs) {
-        const partnerPage =
-          storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
-        if (partnerPage?.ownerId === user.id) {
-          isAssignee = true;
-          break;
-        }
-      }
-    }
-  }
-
-  if (!isOwner && !isAssignee)
+  // Delivery steps can only be confirmed by the store owner (dispatch hasn't happened yet)
+  const authorizedToConfirm = activityType === "delivery" ? isOwner : (isOwner || isAssignee);
+  if (!authorizedToConfirm)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Verify the OSP row is active before confirming
   const osp = await prisma.orderStepProgress.findUnique({
     where: { orderId_stepId: { orderId, stepId } },
-    select: { status: true },
+    select: { id: true, status: true },
   });
   if (!osp) return NextResponse.json({ error: "Step progress not found" }, { status: 404 });
   if (osp.status !== "active")
@@ -90,49 +101,27 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // Confirm this step
   await prisma.orderStepProgress.update({
     where: { orderId_stepId: { orderId, stepId } },
-    data:  { status: "confirmed", confirmedAt: new Date() },
+    data: { status: "confirmed", confirmedAt: new Date() },
   });
 
-  // Advance to next step (or mark delivered)
-  await advanceToNextStep(orderId, stepId);
+  if (activityType === "delivery") {
+    // Delivery dispatch: set deliveryStatus and cycle through assignees to find a partner
+    await prisma.order.update({
+      where: { id: orderId },
+      data: { deliveryStatus: "out_for_delivery" },
+    });
 
-  // Fire-and-forget: notify the next step's assignee
-  (async () => {
-    try {
-      const currentStep = await prisma.workflowStep.findUnique({
-        where: { id: stepId },
-        select: { initiativeId: true, sequence: true },
-      });
-      if (!currentStep) return;
-      const nextStep = await prisma.workflowStep.findFirst({
-        where: { initiativeId: currentStep.initiativeId, sequence: { gt: currentStep.sequence } },
-        orderBy: { sequence: "asc" },
-        select: { name: true, assigneeId: true },
-      });
-      if (!nextStep?.assigneeId) return;
-      const collab = await prisma.collaboration.findUnique({
-        where: { id: nextStep.assigneeId },
-        include: {
-          requester:    { select: { ownerId: true } },
-          receiverPage: { select: { ownerId: true } },
-        },
-      });
-      if (!collab) return;
-      const storePageId = order.store.pageId;
-      const partnerPage = storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
-      if (!partnerPage?.ownerId) return;
-      const notifLink = collab.role === "delivery_partner"
-        ? "/earn/deliveries"
-        : "/app/orders?tab=my";
-      await createNotification({
-        userId: partnerPage.ownerId,
-        type: "order_assigned",
-        title: "New assignment",
-        body: `You have been assigned to step "${nextStep.name}" for Order #${orderId.slice(-8).toUpperCase()}`,
-        link: notifLink,
-      });
-    } catch {}
-  })();
+    // Reset cycling state so assignNextPartner starts from the top of the list
+    await (prisma as any).orderStepProgress.update({
+      where: { id: osp.id },
+      data: { currentAssigneeId: null, cycleCount: 0, lastFeeMultiplier: 1.0 },
+    });
+
+    await assignNextPartner({ orderId, stepId, ospId: osp.id });
+  } else {
+    // Normal step: advance workflow to next step
+    await advanceToNextStep(orderId, stepId);
+  }
 
   return NextResponse.json({ ok: true });
 }

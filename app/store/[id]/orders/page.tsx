@@ -12,8 +12,8 @@ const A = {
 type OrderItem = { blockId: string; title: string; price: number; quantity: number };
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
 type QuoteEntry  = { id: string; stepId: string; partyName: string; amount: number | null; status: string };
-type ActiveStep  = { stepId: string; stepName: string; assigneeName: string | null; quoteRequired: boolean };
-type StepStatus  = { stepId: string; stepName: string; sequence: number; quoteRequired: boolean; ospStatus: string };
+type ActiveStep  = { stepId: string; stepName: string; assigneeName: string | null; quoteRequired: boolean; activityType?: string | null };
+type StepStatus  = { stepId: string; stepName: string; sequence: number; quoteRequired: boolean; ospStatus: string; activityType?: string | null };
 type QueueStep   = { stepId: string; stepName: string };
 type Order = {
   id: string; status: string; total: number; createdAt: string;
@@ -305,18 +305,19 @@ function WorkflowSection({
     startQueue([{ stepId: activeStep.stepId, stepName: activeStep.stepName }]);
   }
 
-  // Build fast-track queue: all pending/active non-quote steps in sequence
+  // Build fast-track queue: normal non-quote steps only — delivery steps are EXCLUDED
+  // (delivery steps require a deliberate "Confirm Dispatch" — never auto-confirmed)
   function startFastTrack() {
     const queue = allSteps
-      .filter((s) => !s.quoteRequired && (s.ospStatus === "active" || s.ospStatus === "pending"))
+      .filter((s) => !s.quoteRequired && s.activityType !== "delivery" && (s.ospStatus === "active" || s.ospStatus === "pending"))
       .sort((a, b) => a.sequence - b.sequence)
       .map((s) => ({ stepId: s.stepId, stepName: s.stepName }));
     if (queue.length > 0) startQueue(queue);
   }
 
-  // How many non-quote steps remain (active + pending)
-  const remainingNonQuoteSteps = allSteps.filter(
-    (s) => !s.quoteRequired && (s.ospStatus === "active" || s.ospStatus === "pending")
+  // Normal non-quote steps remaining (delivery excluded from count and fast-track)
+  const remainingNormalSteps = allSteps.filter(
+    (s) => !s.quoteRequired && s.activityType !== "delivery" && (s.ospStatus === "active" || s.ospStatus === "pending")
   ).length;
 
   useEffect(() => { setLocalQuotes(quotes); }, [quotes]);
@@ -487,27 +488,32 @@ function WorkflowSection({
           )}
 
           {/* Confirm / Fast-track buttons */}
-          <div className="flex items-center gap-2 flex-wrap pt-0.5">
-            {!activeStep.quoteRequired && (
-              <button
-                onClick={startConfirmStep}
-                className="text-xs px-3 py-1.5 rounded-md font-medium"
-                style={{ background: "#10B981", color: "#fff", cursor: "pointer" }}
-              >
-                Confirm Step ✓
-              </button>
-            )}
-            {remainingNonQuoteSteps > 1 && (
-              <button
-                onClick={startFastTrack}
-                className="text-xs px-3 py-1.5 rounded-md font-medium"
-                style={{ background: "#1D4ED8", color: "#fff", cursor: "pointer" }}
-                title={`Auto-confirm ${remainingNonQuoteSteps} pending steps (5s cancel window each)`}
-              >
-                ⚡ Complete All ({remainingNonQuoteSteps})
-              </button>
-            )}
-          </div>
+          {(() => {
+            const isDelivery = activeStep.activityType === "delivery";
+            return (
+              <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                {!activeStep.quoteRequired && (
+                  <button
+                    onClick={startConfirmStep}
+                    className="text-xs px-3 py-1.5 rounded-md font-medium"
+                    style={{ background: isDelivery ? "#0F766E" : "#10B981", color: "#fff", cursor: "pointer" }}
+                  >
+                    {isDelivery ? "Confirm Dispatch 🚚" : "Mark Complete ✓"}
+                  </button>
+                )}
+                {!isDelivery && remainingNormalSteps > 1 && (
+                  <button
+                    onClick={startFastTrack}
+                    className="text-xs px-3 py-1.5 rounded-md font-medium"
+                    style={{ background: "#1D4ED8", color: "#fff", cursor: "pointer" }}
+                    title={`Auto-confirm ${remainingNormalSteps} normal steps (5s cancel window each). Stops before delivery.`}
+                  >
+                    ⚡ Complete All ({remainingNormalSteps})
+                  </button>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -930,52 +936,59 @@ export default function StoreOrdersPage() {
                 </div>
               )}
 
-              {/* ── Manual delivery assignment ── */}
+              {/* ── Manual delivery assignment (override / secondary path) ── */}
               {order.status === "confirmed" && (partners.length > 0 || teamMembers.length > 0) && (
                 <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
-                  <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>ASSIGN DELIVERY</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <select
-                      value={assignSelects[order.id] ?? ""}
-                      onChange={(e) => setAssignSelects((prev) => ({ ...prev, [order.id]: e.target.value }))}
-                      className="text-xs rounded-md px-2 py-1.5 flex-1 min-w-0"
-                      style={{ border: "1px solid #DDDDDD", color: "#0F1111", background: "#fff" }}
+                  <details>
+                    <summary
+                      className="text-xs cursor-pointer select-none"
+                      style={{ color: A.textMuted }}
                     >
-                      <option value="">— Choose assignee —</option>
-                      {partners.length > 0 && (
-                        <optgroup label="Partner Businesses">
-                          {partners.map((p) => {
-                            const page = p.receiverPage ?? p.receiver;
-                            return (
-                              <option key={p.id} value={`collab:${p.id}`}>
-                                {page?.title ?? "Unknown"} · {p.role.replace(/_/g, " ")}
+                      Reassign / assign manually ›
+                    </summary>
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      <select
+                        value={assignSelects[order.id] ?? ""}
+                        onChange={(e) => setAssignSelects((prev) => ({ ...prev, [order.id]: e.target.value }))}
+                        className="text-xs rounded-md px-2 py-1.5 flex-1 min-w-0"
+                        style={{ border: "1px solid #DDDDDD", color: "#0F1111", background: "#fff" }}
+                      >
+                        <option value="">— Choose assignee —</option>
+                        {partners.length > 0 && (
+                          <optgroup label="Partner Businesses">
+                            {partners.map((p) => {
+                              const page = p.receiverPage ?? p.receiver;
+                              return (
+                                <option key={p.id} value={`collab:${p.id}`}>
+                                  {page?.title ?? "Unknown"} · {p.role.replace(/_/g, " ")}
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+                        {teamMembers.length > 0 && (
+                          <optgroup label="Team Members">
+                            {teamMembers.map((m) => (
+                              <option key={m.id} value={`user:${m.receiverUserId}`}>
+                                {m.receiverUser?.name ?? "Member"} · {m.teamRole ?? "Employee"}
                               </option>
-                            );
-                          })}
-                        </optgroup>
-                      )}
-                      {teamMembers.length > 0 && (
-                        <optgroup label="Team Members">
-                          {teamMembers.map((m) => (
-                            <option key={m.id} value={`user:${m.receiverUserId}`}>
-                              {m.receiverUser?.name ?? "Member"} · {m.teamRole ?? "Employee"}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-                    <button
-                      disabled={!assignSelects[order.id] || assigning === order.id}
-                      onClick={() => handleAssignDelivery(order.id, assignSelects[order.id] ?? "")}
-                      className="text-xs px-3 py-1.5 rounded-md font-medium shrink-0"
-                      style={{
-                        background: A.accent, color: "#fff", cursor: "pointer",
-                        opacity: (!assignSelects[order.id] || assigning === order.id) ? 0.5 : 1,
-                      }}
-                    >
-                      {assigning === order.id ? "…" : "Assign"}
-                    </button>
-                  </div>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      <button
+                        disabled={!assignSelects[order.id] || assigning === order.id}
+                        onClick={() => handleAssignDelivery(order.id, assignSelects[order.id] ?? "")}
+                        className="text-xs px-3 py-1.5 rounded-md font-medium shrink-0"
+                        style={{
+                          background: A.accent, color: "#fff", cursor: "pointer",
+                          opacity: (!assignSelects[order.id] || assigning === order.id) ? 0.5 : 1,
+                        }}
+                      >
+                        {assigning === order.id ? "…" : "Assign"}
+                      </button>
+                    </div>
+                  </details>
                 </div>
               )}
 

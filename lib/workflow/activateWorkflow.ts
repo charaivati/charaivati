@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { triggerQuoteRequests } from "./triggerQuoteRequests";
-import { assignNextPartner } from "./assignNextPartner";
+import { assignNormalStep } from "./assignNormalStep";
 import { ensureOwnerAssignee } from "./ensureOwnerAssignee";
 
 export async function activateWorkflow(orderId: string): Promise<void> {
@@ -34,31 +34,36 @@ export async function activateWorkflow(orderId: string): Promise<void> {
     data: { status: "active", activatedAt: new Date() },
   });
 
-  if (!first.quoteRequired) {
-    const assigneeCount = await (prisma as any).workflowStepAssignee.count({
-      where: { stepId: first.id },
-    });
-
-    if (assigneeCount > 0) {
-      const osp = await prisma.orderStepProgress.findUnique({
-        where: { orderId_stepId: { orderId, stepId: first.id } },
-        select: { id: true },
-      });
-      if (osp) {
-        await assignNextPartner({ orderId, stepId: first.id, ospId: osp.id });
-      }
-    } else {
-      // No assignees configured — auto-assign the store owner so the order proceeds
-      await ensureOwnerAssignee(initiativeId, first.id);
-      const osp = await prisma.orderStepProgress.findUnique({
-        where: { orderId_stepId: { orderId, stepId: first.id } },
-        select: { id: true },
-      });
-      if (osp) {
-        await assignNextPartner({ orderId, stepId: first.id, ospId: osp.id });
-      }
-    }
-  } else {
+  if (first.quoteRequired) {
     await triggerQuoteRequests(orderId, first);
+    return;
   }
+
+  // Fetch activityType via raw SQL — new column not in stale Prisma client
+  const activityRaw = await prisma.$queryRaw<{ activityType: string }[]>`
+    SELECT "activityType" FROM "WorkflowStep" WHERE id = ${first.id}
+  `;
+  const activityType = activityRaw[0]?.activityType ?? "normal";
+
+  if (activityType === "delivery") {
+    // Delivery step: just active — confirm route handles dispatch via assignNextPartner
+    return;
+  }
+
+  // Normal step: assign first assignee and notify (no sub-order)
+  const assigneeCount = await (prisma as any).workflowStepAssignee.count({
+    where: { stepId: first.id },
+  });
+
+  const osp = await prisma.orderStepProgress.findUnique({
+    where: { orderId_stepId: { orderId, stepId: first.id } },
+    select: { id: true },
+  });
+  if (!osp) return;
+
+  if (assigneeCount === 0) {
+    await ensureOwnerAssignee(initiativeId, first.id);
+  }
+
+  await assignNormalStep(orderId, first.id, osp.id, initiativeId);
 }

@@ -259,6 +259,15 @@ export async function GET(req: NextRequest) {
       return storePageId && c.requesterId === storePageId ? (c.receiverPage?.title ?? "Unknown") : c.requester.title;
     }
 
+    // activityType for all steps — new column, must use raw SQL
+    const allStepIdsForActivity = [...new Set(allOSPs.map((osp) => osp.stepId))];
+    const activityTypeRows = allStepIdsForActivity.length > 0
+      ? await prisma.$queryRaw<{ id: string; activityType: string }[]>`
+          SELECT id, "activityType" FROM "WorkflowStep" WHERE id = ANY(${allStepIdsForActivity}::text[])
+        `
+      : [];
+    const stepActivityTypeMap = new Map(activityTypeRows.map((r) => [r.id, r.activityType]));
+
     // requiresAttention + quoteSummary + agreedAmount (new columns — raw SQL)
     const wfRows = orderIds.length > 0 ? await prisma.$queryRaw<
       { id: string; requiresAttention: boolean; quoteSummary: unknown; agreedAmount: number | null }[]
@@ -294,6 +303,7 @@ export async function GET(req: NextRequest) {
           stepName:      osp.step.name,
           assigneeName:  osp.step.assigneeId ? partyName(osp.step.assigneeId) : null,
           quoteRequired: osp.step.quoteRequired,
+          activityType:  stepActivityTypeMap.get(osp.stepId) ?? "normal",
         } : null,
         quotes: orderQuotes.map((q) => ({
           id:        q.id,
@@ -310,6 +320,7 @@ export async function GET(req: NextRequest) {
             sequence:      osp.step.sequence,
             quoteRequired: osp.step.quoteRequired,
             ospStatus:     osp.status,
+            activityType:  stepActivityTypeMap.get(osp.stepId) ?? "normal",
           })),
         subOrders: (subOrdersByParent[o.id] ?? []).map((s) => ({
           id:           s.id,

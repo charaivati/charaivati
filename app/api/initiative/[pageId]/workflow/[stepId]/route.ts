@@ -47,15 +47,30 @@ export async function PATCH(
     }
   }
 
-  if (Object.keys(data).length === 0)
+  // activityType handled separately via raw SQL — new column not in stale Prisma client
+  const newActivityType =
+    body.activityType === "normal" || body.activityType === "delivery"
+      ? (body.activityType as string)
+      : null;
+
+  if (Object.keys(data).length === 0 && !newActivityType)
     return NextResponse.json({ error: "No valid fields" }, { status: 400 });
 
-  const updated = await prisma.workflowStep.update({
-    where: { id: stepId },
-    data,
-  });
+  if (Object.keys(data).length > 0) {
+    await prisma.workflowStep.update({ where: { id: stepId }, data });
+  }
 
-  return NextResponse.json(updated);
+  if (newActivityType) {
+    await prisma.$executeRaw`
+      UPDATE "WorkflowStep" SET "activityType" = ${newActivityType} WHERE id = ${stepId}
+    `;
+  }
+
+  const updated = await prisma.workflowStep.findUnique({ where: { id: stepId } });
+  const atRow = await prisma.$queryRaw<{ activityType: string }[]>`
+    SELECT "activityType" FROM "WorkflowStep" WHERE id = ${stepId}
+  `;
+  return NextResponse.json({ ...updated, activityType: atRow[0]?.activityType ?? "normal" });
 }
 
 export async function DELETE(

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { triggerQuoteRequests } from "./triggerQuoteRequests";
-import { assignNextPartner } from "./assignNextPartner";
+import { assignNormalStep } from "./assignNormalStep";
 import { ensureOwnerAssignee } from "./ensureOwnerAssignee";
 
 export async function advanceToNextStep(
@@ -19,13 +19,10 @@ export async function advanceToNextStep(
   });
 
   const nextStep = allSteps.find((s) => s.sequence > current.sequence);
-
   if (!nextStep) {
-    // Last step was confirmed — customer receipt confirmation sets "delivered"
+    // Last step confirmed — customer receipt confirmation sets "delivered"
     return;
   }
-
-  const isLastStep = !allSteps.some((s) => s.sequence > nextStep.sequence);
 
   // Activate next OSP row (may not exist if steps were added after activation)
   await prisma.orderStepProgress.updateMany({
@@ -33,56 +30,41 @@ export async function advanceToNextStep(
     data: { status: "active", activatedAt: new Date() },
   });
 
-  if (!nextStep.quoteRequired) {
-    // Terminal step → hand off to delivery GPS tracking
-    if (isLastStep) {
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { deliveryStatus: "out_for_delivery" },
-      });
-    }
-
-    const assigneeCount = await (prisma as any).workflowStepAssignee.count({
-      where: { stepId: nextStep.id },
-    });
-
-    if (assigneeCount > 0) {
-      const osp = await (prisma as any).orderStepProgress.findFirst({
-        where: { orderId, stepId: nextStep.id },
-        select: { id: true },
-      });
-
-      if (osp) {
-        // Reset cycling state for a fresh start on this step
-        await (prisma as any).orderStepProgress.update({
-          where: { id: osp.id },
-          data: { currentAssigneeId: null, cycleCount: 0, lastFeeMultiplier: 1.0 },
-        });
-
-        await assignNextPartner({ orderId, stepId: nextStep.id, ospId: osp.id });
-      }
-    } else if (nextStep.assigneeId) {
-      // Single fixed assignee — set directly without going through the cycling engine
-      await prisma.order.update({
-        where: { id: orderId },
-        data: { assignedToId: nextStep.assigneeId, partnerStatus: "assigned" },
-      });
-    } else {
-      // No assignees configured — auto-assign the store owner so the order proceeds
-      await ensureOwnerAssignee(current.initiativeId, nextStep.id);
-      const osp = await (prisma as any).orderStepProgress.findFirst({
-        where: { orderId, stepId: nextStep.id },
-        select: { id: true },
-      });
-      if (osp) {
-        await (prisma as any).orderStepProgress.update({
-          where: { id: osp.id },
-          data: { currentAssigneeId: null, cycleCount: 0, lastFeeMultiplier: 1.0 },
-        });
-        await assignNextPartner({ orderId, stepId: nextStep.id, ospId: osp.id });
-      }
-    }
-  } else {
+  if (nextStep.quoteRequired) {
     await triggerQuoteRequests(orderId, nextStep);
+    return;
   }
+
+  // Fetch activityType via raw SQL — new column not in stale Prisma client
+  const activityRaw = await prisma.$queryRaw<{ activityType: string }[]>`
+    SELECT "activityType" FROM "WorkflowStep" WHERE id = ${nextStep.id}
+  `;
+  const activityType = activityRaw[0]?.activityType ?? "normal";
+
+  if (activityType === "delivery") {
+    // Delivery step: just activate OSP — confirm route handles dispatch via assignNextPartner
+    return;
+  }
+
+  // Normal step: assign first assignee and notify (no sub-order, no deliveryStatus change)
+  const assigneeCount = await (prisma as any).workflowStepAssignee.count({
+    where: { stepId: nextStep.id },
+  });
+
+  const osp = await (prisma as any).orderStepProgress.findFirst({
+    where: { orderId, stepId: nextStep.id },
+    select: { id: true },
+  });
+  if (!osp) return;
+
+  await (prisma as any).orderStepProgress.update({
+    where: { id: osp.id },
+    data: { currentAssigneeId: null, cycleCount: 0, lastFeeMultiplier: 1.0 },
+  });
+
+  if (assigneeCount === 0) {
+    await ensureOwnerAssignee(current.initiativeId, nextStep.id);
+  }
+
+  await assignNormalStep(orderId, nextStep.id, osp.id, current.initiativeId);
 }

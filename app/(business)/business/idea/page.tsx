@@ -3,534 +3,370 @@
 import React, { useEffect, useRef, useState } from "react";
 import ResultsReport from "@/components/business/ResultsReport";
 import StartScreenBatch from "@/components/business/StartScreenBatch";
-import CollapsibleQuestionCard from "@/components/business/CollapsibleQuestionCard";
 import LiveScoreDashboard from "@/components/business/LiveScoreDashboard";
 
-/* -------------------- Types (renamed to avoid collisions) -------------------- */
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-interface BusinessOption {
-  id?: string;
-  value: string;
-  label: string;
-  score?: number;
-  nextQuestionId?: string;
+interface Provisional {
+  scores: Record<string, number>;
+  provenance: Record<string, "local_estimate" | "senior_reviewed">;
+  assessorReasons: Record<string, string>;
+  overallScore: number;
 }
 
-interface BusinessQuestion {
-  id: string;
-  order: number;
-  text: string;
-  type: string;
-  category?: string;
-  options?: BusinessOption[]; // optional, never null
-  helpText?: string;
-  examples?: string;
-  randomizeOptions?: boolean;
+interface TurnResponse {
+  question: string;
+  questionKey: string;
+  dim: string;
+  done: boolean;
+  provisional: Provisional;
+  tier: string;
+  turnNum: number;
 }
 
-interface LiveScore {
+interface FinalResult {
   scores: Record<string, number>;
   overallScore: number;
-  report: any;
-  answeredCount: number;
+  report: { verdict: string; nextSteps: string[]; rating: number };
+  tier: "senior" | "local";
+  dimProvenance: Record<string, "local_estimate" | "senior_reviewed">;
 }
 
-interface IdeaState {
-  ideaId: string | null;
-  title: string;
-  description: string;
-  email: string;
-  phone: string;
-  responses: Record<string, string>;
-  scores: Record<string, number>;
-  overallScore: number;
-  report: any;
-  loading: boolean;
-  submitted: boolean;
-  error?: string;
+interface ConvTurn {
+  role: "user" | "assistant";
+  content: string;
+  tier?: string;
+  dim?: string;
 }
 
-/* -------------------- Component -------------------- */
+// ─── Component ───────────────────────────────────────────────────────────────
 
-export default function IdeaBatchPage(): React.ReactElement {
-  const [allQuestions, setAllQuestions] = useState<BusinessQuestion[]>([]);
-  const [visibleQuestions, setVisibleQuestions] = useState<BusinessQuestion[]>([]);
-  const [questionsLoading, setQuestionsLoading] = useState<boolean>(true);
-  const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
-  const [enableAutoScroll, setEnableAutoScroll] = useState<boolean>(false);
+export default function IdeaPage() {
+  // Idea creation state
+  const [ideaId, setIdeaId] = useState<string | null>(null);
+  const [ideaTitle, setIdeaTitle] = useState("");
+  const [ideaDescription, setIdeaDescription] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | undefined>(undefined);
 
-  const [state, setState] = useState<IdeaState>({
-    ideaId: null,
-    title: "",
-    description: "",
-    email: "",
-    phone: "",
-    responses: {},
+  // Interview state
+  const [conversation, setConversation] = useState<ConvTurn[]>([]);
+  const [currentQuestion, setCurrentQuestion] = useState<string>("");
+  const [currentDim, setCurrentDim] = useState<string>("");
+  const [userInput, setUserInput] = useState("");
+  const [interviewing, setInterviewing] = useState(false);
+  const [interviewDone, setInterviewDone] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+
+  // Sidebar / results
+  const [provisional, setProvisional] = useState<Provisional>({
     scores: {},
+    provenance: {},
+    assessorReasons: {},
     overallScore: 0,
-    report: null,
-    loading: false,
-    submitted: false,
   });
+  const [finalResult, setFinalResult] = useState<FinalResult | null>(null);
 
-  const [liveScore, setLiveScore] = useState<LiveScore>({
-    scores: {},
-    overallScore: 0,
-    report: null,
-    answeredCount: 0,
-  });
+  const convEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const questionRefs = useRef<Map<string, HTMLElement>>(new Map());
-  const scoringTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  /* -------------------- Fetch questions -------------------- */
   useEffect(() => {
-    let alive = true;
-    const fetchQuestions = async () => {
-      try {
-        setQuestionsLoading(true);
-        const res = await fetch("/api/business/questions");
-        if (!res.ok) throw new Error("Failed to fetch questions");
+    convEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversation]);
 
-        const data: unknown = await res.json();
+  // ── Create idea + start interview ────────────────────────────────────────
 
-        const parsedQuestions: BusinessQuestion[] = (Array.isArray(data) ? data : []).map((q: any) => ({
-          ...q,
-          options:
-            typeof q.options === "string"
-              ? (JSON.parse(q.options) as BusinessOption[])
-              : (q.options as BusinessOption[] | undefined),
-        }));
-
-        if (!alive) return;
-        setAllQuestions(parsedQuestions);
-
-        if (parsedQuestions.length > 0) {
-          setExpandedQuestion(parsedQuestions[0].id);
-          setVisibleQuestions([parsedQuestions[0]]);
-          setEnableAutoScroll(false);
-        }
-      } catch (error) {
-        console.error("Failed to fetch questions:", error);
-        setState((prev) => ({
-          ...prev,
-          error: "Failed to load questions. Please refresh the page.",
-        }));
-      } finally {
-        if (alive) setQuestionsLoading(false);
-      }
-    };
-
-    fetchQuestions();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  /* ==================== BRANCHING LOGIC ====================
-     Build visibleQuestions from allQuestions + state.responses
-  */
-  useEffect(() => {
-    const calculateVisibleQuestions = (): BusinessQuestion[] => {
-      if (allQuestions.length === 0) return [];
-
-      const visible: BusinessQuestion[] = [];
-      const visited = new Set<string>();
-
-      // Track by index to avoid undefined currentQ
-      let currentIndex = 0;
-
-      // Safety guard to prevent infinite loops if graph has a cycle
-      const MAX_ITER = Math.max(10000, allQuestions.length * 10);
-      let iter = 0;
-
-      while (currentIndex >= 0 && currentIndex < allQuestions.length) {
-        if (++iter > MAX_ITER) {
-          console.warn("Branch calculation stopped: iteration limit reached");
-          break;
-        }
-
-        const currentQ: BusinessQuestion = allQuestions[currentIndex];
-
-        if (visited.has(currentQ.id)) {
-          // cycle detected — exit gracefully
-          break;
-        }
-        visited.add(currentQ.id);
-
-        visible.push(currentQ);
-
-        const answer: string | undefined = state.responses[currentQ.id];
-
-        // If not answered yet, stop the path here
-        if (!answer) break;
-
-        // Look for option matching the saved answer
-        const selectedOption = currentQ.options?.find((opt) => opt.value === answer);
-
-        if (selectedOption?.nextQuestionId) {
-          // Jump to branched question; find its index
-          const nextIndex = allQuestions.findIndex((q) => q.id === selectedOption.nextQuestionId);
-          if (nextIndex === -1) {
-            // Branch points to unknown question — stop gracefully
-            break;
-          }
-          currentIndex = nextIndex;
-        } else {
-          // Default: next by order (sequential)
-          currentIndex = currentIndex + 1;
-        }
-      }
-
-      return visible;
-    };
-
-    setVisibleQuestions(calculateVisibleQuestions());
-  }, [state.responses, allQuestions]);
-
-  /* -------------------- Scroll expanded question to top -------------------- */
-  useEffect(() => {
-    if (!expandedQuestion || !enableAutoScroll) return;
-
-    const scrollToQuestionTop = () => {
-      const el = questionRefs.current.get(expandedQuestion);
-      if (!el) return;
-
-      try {
-        const rect = el.getBoundingClientRect();
-        const absoluteY = window.scrollY + rect.top - 5;
-        window.scrollTo({ top: absoluteY, behavior: "smooth" });
-      } catch (err) {
-        // ignore
-      }
-    };
-
-    const t = setTimeout(scrollToQuestionTop, 50);
-    return () => clearTimeout(t);
-  }, [expandedQuestion, enableAutoScroll]);
-
-  /* -------------------- Live scoring (debounced) -------------------- */
-  useEffect(() => {
-    if (!state.ideaId || Object.keys(state.responses).length === 0) {
-      setLiveScore({
-        scores: {},
-        overallScore: 0,
-        report: null,
-        answeredCount: 0,
-      });
-      return;
-    }
-
-    if (scoringTimeoutRef.current) {
-      clearTimeout(scoringTimeoutRef.current);
-    }
-
-    scoringTimeoutRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch("/api/business/idea/score-live", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ideaId: state.ideaId,
-            responses: state.responses,
-          }),
-        });
-
-        if (!res.ok) {
-          console.error("Failed to fetch live score:", res.status);
-          return;
-        }
-
-        const data: {
-          scores: Record<string, number>;
-          overallScore: number;
-          report: any;
-          answeredCount: number;
-        } = await res.json();
-
-        setLiveScore({
-          scores: data.scores,
-          overallScore: data.overallScore,
-          report: data.report,
-          answeredCount: data.answeredCount,
-        });
-      } catch (error) {
-        console.error("Failed to calculate live score:", error);
-      }
-    }, 500);
-
-    return () => {
-      if (scoringTimeoutRef.current) {
-        clearTimeout(scoringTimeoutRef.current);
-      }
-    };
-  }, [state.responses, state.ideaId]);
-
-  /* -------------------- Auto-save responses -------------------- */
-  useEffect(() => {
-    if (!state.ideaId) return;
-    if (Object.keys(state.responses).length === 0) return;
-
-    const timeout = setTimeout(async () => {
-      try {
-        await fetch("/api/business/idea", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ideaId: state.ideaId,
-            responses: state.responses,
-          }),
-        });
-      } catch (error) {
-        console.error("Failed to auto-save:", error);
-      }
-    }, 2000);
-
-    return () => clearTimeout(timeout);
-  }, [state.responses, state.ideaId]);
-
-  /* -------------------- Handlers -------------------- */
-
-  const handleStartIdea = async (
+  async function handleStart(
     title: string,
     description: string,
     email: string,
     phone: string
-  ): Promise<void> => {
-    setState((prev) => ({ ...prev, loading: true, error: undefined }));
+  ) {
+    setCreating(true);
+    setCreateError(undefined);
     try {
       const res = await fetch("/api/business/idea", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          description,
-          userEmail: email,
-          userPhone: phone,
-        }),
+        body: JSON.stringify({ title, description, userEmail: email, userPhone: phone }),
       });
-
       if (!res.ok) throw new Error("Failed to create idea");
-
       const idea = await res.json();
-      setState((prev) => ({
-        ...prev,
-        ideaId: idea.id,
-        title,
-        description,
-        email,
-        phone,
-        loading: false,
-      }));
-    } catch (error) {
-      console.error("Error:", error);
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: "Failed to start validation. Please try again.",
-      }));
+      setIdeaId(idea.id);
+      setIdeaTitle(title);
+      setIdeaDescription(description);
+      await startInterview(idea.id);
+    } catch (e) {
+      console.error(e);
+      setCreateError("Failed to start. Please try again.");
+    } finally {
+      setCreating(false);
     }
-  };
+  }
 
-  const handleAnswerQuestion = (questionId: string, answer: string): void => {
-    setState((prev) => ({
-      ...prev,
-      responses: {
-        ...prev.responses,
-        [questionId]: answer,
-      },
-    }));
-  };
-
-  const handleNextQuestion = (): void => {
-    const currentIndex = visibleQuestions.findIndex((q) => q.id === expandedQuestion);
-    const nextQuestion = visibleQuestions[currentIndex + 1];
-
-    // Enable auto-scroll now that the user explicitly moved forward
-    setEnableAutoScroll(true);
-
-    if (nextQuestion) {
-      setExpandedQuestion(nextQuestion.id);
-    } else {
-      setExpandedQuestion(null);
-    }
-  };
-
-  const submitResponses = async (): Promise<void> => {
-    setState((prev) => ({ ...prev, loading: true, error: undefined }));
+  async function startInterview(id: string) {
+    setInterviewing(true);
     try {
-      const res = await fetch("/api/business/idea/score", {
+      const res = await fetch("/api/business/idea/interview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ideaId: state.ideaId,
-          responses: state.responses,
-        }),
+        body: JSON.stringify({ ideaId: id, userMessage: null }),
       });
-
-      if (!res.ok) throw new Error("Failed to score idea");
-
-      const { scores, overallScore, report } = await res.json();
-      setState((prev) => ({
-        ...prev,
-        scores,
-        overallScore,
-        report,
-        submitted: true,
-        loading: false,
-      }));
-    } catch (error) {
-      console.error("Error:", error);
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: "Failed to generate report. Please try again.",
-      }));
+      const data: TurnResponse = await res.json();
+      setCurrentQuestion(data.question);
+      setCurrentDim(data.dim);
+      setConversation([{ role: "assistant", content: data.question, dim: data.dim }]);
+      setProvisional(data.provisional);
+    } catch (e) {
+      console.error("Interview start failed:", e);
+    } finally {
+      setInterviewing(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
-  };
+  }
 
-  /* -------------------- Render -------------------- */
+  // ── Submit user answer ───────────────────────────────────────────────────
 
-  if (!state.ideaId) {
+  async function handleAnswer() {
+    if (!ideaId || !userInput.trim() || interviewing) return;
+    const answer = userInput.trim();
+    setUserInput("");
+    setInterviewing(true);
+
+    setConversation((prev) => [...prev, { role: "user", content: answer }]);
+
+    try {
+      const res = await fetch("/api/business/idea/interview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ideaId, userMessage: answer }),
+      });
+      const data: TurnResponse = await res.json();
+
+      setProvisional(data.provisional);
+
+      if (data.done) {
+        setInterviewDone(true);
+        setConversation((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: "You've answered all the questions. Ready to get your evaluation?",
+            tier: data.tier,
+          },
+        ]);
+      } else {
+        setCurrentQuestion(data.question);
+        setCurrentDim(data.dim);
+        setConversation((prev) => [
+          ...prev,
+          { role: "assistant", content: data.question, tier: data.tier, dim: data.dim },
+        ]);
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
+    } catch (e) {
+      console.error("Interview turn failed:", e);
+      setConversation((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "Something went wrong. Please try submitting your answer again.",
+        },
+      ]);
+    } finally {
+      setInterviewing(false);
+    }
+  }
+
+  // ── Finalize ─────────────────────────────────────────────────────────────
+
+  async function handleFinalize() {
+    if (!ideaId || finalizing) return;
+    setFinalizing(true);
+    try {
+      const res = await fetch("/api/business/idea/interview/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ideaId }),
+      });
+      const data: FinalResult = await res.json();
+      setFinalResult(data);
+    } catch (e) {
+      console.error("Finalize failed:", e);
+    } finally {
+      setFinalizing(false);
+    }
+  }
+
+  // ── Keyboard shortcut ────────────────────────────────────────────────────
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleAnswer();
+    }
+  }
+
+  // ─── Render ────────────────────────────────────────────────────────────────
+
+  if (!ideaId) {
     return (
       <StartScreenBatch
-        onStart={handleStartIdea}
-        loading={state.loading}
-        error={state.error}
+        onStart={handleStart}
+        loading={creating}
+        error={createError}
       />
     );
   }
 
-  if (questionsLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <div className="text-center">
-          <p className="text-white text-xl mb-4">Loading questions...</p>
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto" />
-        </div>
-      </div>
-    );
-  }
-
-  if (allQuestions.length === 0) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <div className="text-center max-w-md">
-          <p className="text-white text-xl mb-2">Questions are being set up</p>
-          <p className="text-slate-400 text-sm">The evaluation questions haven&apos;t been loaded yet. Please try refreshing in a moment.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (state.submitted) {
+  if (finalResult) {
     return (
       <ResultsReport
-        title={state.title}
-        description={state.description}
-        scores={state.scores}
-        overallScore={state.overallScore}
-        report={state.report}
-        ideaId={state.ideaId}
+        title={ideaTitle}
+        description={ideaDescription}
+        scores={finalResult.scores}
+        overallScore={finalResult.overallScore}
+        report={finalResult.report}
+        ideaId={ideaId}
+        tier={finalResult.tier}
+        dimProvenance={finalResult.dimProvenance}
       />
     );
   }
 
-  const answeredCount = Object.keys(state.responses).length;
-  const totalQuestions = visibleQuestions.length;
-  const allAnswered = answeredCount === totalQuestions && totalQuestions > 0;
+  const answeredCount = conversation.filter((t) => t.role === "user").length;
+  const scoreValues = Object.values(provisional.scores);
+  const overallPct = scoreValues.length
+    ? Math.round(((provisional.overallScore + 2) / 4) * 100)
+    : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <div className="mb-8">
-            {/* Navigation row */}
-            <div className="flex gap-2 mb-5 flex-wrap">
-              <a
-                href="/self?tab=earn"
-                className="px-3 py-1.5 rounded-lg text-xs bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 hover:text-white border border-slate-700 transition flex items-center gap-1.5"
-              >
-                ← Back to Earn Tab
-              </a>
-            </div>
 
-            <h1 className="text-3xl font-bold text-white mb-2">Validate Your Idea</h1>
-            <p className="text-slate-400">
-              Answer all questions below. Your path adapts based on your answers.
+        {/* ── Conversation panel ── */}
+        <div className="lg:col-span-2 flex flex-col">
+          {/* Nav */}
+          <div className="flex gap-2 mb-5 flex-wrap">
+            <a
+              href="/self?tab=earn"
+              className="px-3 py-1.5 rounded-lg text-xs bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 hover:text-white border border-slate-700 transition"
+            >
+              ← Back to Earn Tab
+            </a>
+          </div>
+
+          <div className="mb-4">
+            <h1 className="text-2xl font-bold text-white">
+              {ideaTitle}
+            </h1>
+            <p className="text-slate-400 text-sm mt-1">
+              Turn-by-turn evaluation · {answeredCount} answered
             </p>
           </div>
 
-          <div className="mb-6 bg-slate-800/50 backdrop-blur border border-slate-700 rounded-lg p-4">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-slate-300">Progress</span>
-              <span className="text-purple-400 font-bold">
-                {answeredCount}/{totalQuestions}
-              </span>
-            </div>
-            <div className="w-full bg-slate-700 rounded-full h-2">
+          {/* Conversation bubbles */}
+          <div className="flex flex-col gap-3 mb-4 flex-1 overflow-y-auto max-h-[60vh] pr-1">
+            {conversation.map((turn, i) => (
               <div
-                className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
-                style={{
-                  width: `${totalQuestions > 0 ? (answeredCount / totalQuestions) * 100 : 0}%`,
-                }}
-              />
-            </div>
+                key={i}
+                className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                <div
+                  className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                    turn.role === "user"
+                      ? "bg-purple-600 text-white rounded-br-sm"
+                      : "bg-slate-800 text-slate-200 rounded-bl-sm border border-slate-700"
+                  }`}
+                >
+                  {turn.content}
+                  {turn.tier === "senior" && (
+                    <span className="block mt-1 text-xs text-indigo-300 opacity-70">
+                      ✦ senior reviewed
+                    </span>
+                  )}
+                  {turn.tier === "cloud-degraded" && (
+                    <span className="block mt-1 text-xs text-yellow-400 opacity-70">
+                      Quick evaluation — senior review unavailable
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {interviewing && (
+              <div className="flex justify-start">
+                <div className="bg-slate-800 border border-slate-700 px-4 py-3 rounded-2xl rounded-bl-sm">
+                  <span className="flex gap-1">
+                    {[0, 1, 2].map((d) => (
+                      <span
+                        key={d}
+                        className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                        style={{ animationDelay: `${d * 0.15}s` }}
+                      />
+                    ))}
+                  </span>
+                </div>
+              </div>
+            )}
+            <div ref={convEndRef} />
           </div>
 
-          {state.error && (
-            <div className="mb-6 p-4 bg-red-500/20 border border-red-500 rounded-lg text-red-200">
-              {state.error}
+          {/* Input area */}
+          {!interviewDone && !interviewing && (
+            <div className="mt-auto">
+              <div className="bg-slate-800/60 border border-slate-700 rounded-xl overflow-hidden">
+                <textarea
+                  ref={inputRef}
+                  value={userInput}
+                  onChange={(e) => setUserInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Your answer… (Enter to submit, Shift+Enter for new line)"
+                  rows={3}
+                  className="w-full p-4 bg-transparent text-white text-sm placeholder-slate-500 resize-none focus:outline-none"
+                />
+                <div className="flex justify-end px-3 pb-3">
+                  <button
+                    onClick={handleAnswer}
+                    disabled={!userInput.trim()}
+                    className="px-5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-sm font-medium transition"
+                  >
+                    Send →
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 mt-2 text-center">
+                Be honest — vague answers get honest ratings.
+              </p>
             </div>
           )}
 
-          <div className="space-y-3 mb-8">
-            {visibleQuestions.map((question) => {
-              const isAnswered = !!state.responses[question.id];
-              const isExpanded = expandedQuestion === question.id;
-
-              if (!isAnswered && !isExpanded) return null;
-
-              return (
-                <div
-                  key={question.id}
-                  ref={(el) => {
-                    if (el) questionRefs.current.set(question.id, el);
-                    else questionRefs.current.delete(question.id);
-                  }}
-                >
-                  <CollapsibleQuestionCard
-                    question={question}
-                    answer={state.responses[question.id] || ""}
-                    onAnswerChange={(answer) => handleAnswerQuestion(question.id, answer)}
-                    isExpanded={isExpanded}
-                    onToggleExpand={() => setExpandedQuestion(isExpanded ? null : question.id)}
-                    isAnswered={isAnswered}
-                    onNext={handleNextQuestion}
-                  />
-                </div>
-              );
-            })}
-          </div>
-
-          {allAnswered && (
-            <button
-              onClick={submitResponses}
-              disabled={state.loading}
-              className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold rounded-lg hover:from-purple-500 hover:to-pink-500 disabled:opacity-50 transition"
-            >
-              {state.loading ? "Generating Report..." : "Get Results"}
-            </button>
+          {/* Finalize button */}
+          {interviewDone && !finalizing && (
+            <div className="mt-4">
+              <button
+                onClick={handleFinalize}
+                className="w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold rounded-xl transition text-base"
+              >
+                Get My Evaluation Results →
+              </button>
+            </div>
+          )}
+          {finalizing && (
+            <div className="mt-4 text-center text-slate-400 text-sm animate-pulse">
+              Compiling your evaluation with senior review…
+            </div>
           )}
         </div>
 
+        {/* ── Sidebar ── */}
         <div className="lg:col-span-1">
           <LiveScoreDashboard
-            scores={liveScore.scores}
-            overallScore={liveScore.overallScore}
-            report={liveScore.report}
-            answeredCount={liveScore.answeredCount}
-            totalQuestions={totalQuestions}
+            scores={provisional.scores}
+            overallScore={provisional.overallScore}
+            report={null}
+            answeredCount={answeredCount}
+            totalQuestions={12}
+            provenance={provisional.provenance}
           />
         </div>
       </div>

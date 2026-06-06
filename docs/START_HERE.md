@@ -234,13 +234,31 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 - **Invite Friend**: creates a new `scope="team"` Collaboration with `receiverUserId` (page-to-user) via `POST /api/initiative/[pageId]/team/invite-user { userId, teamRole, customRole? }` — requires the target to be an accepted friend of the page owner. `status="accepted"` on creation (no request flow). Removing calls `DELETE /api/initiative/[pageId]/team/[collaborationId]`.
 - Team member cards render both types: `receiverUserId` set → show `receiverUser.name`/`avatarUrl`; otherwise show `receiverPage.title`/`avatarUrl`.
 
+### Workflow Step Types (`activityType`)
+Every `WorkflowStep` has an `activityType` field (`"normal"` | `"delivery"`, default `"normal"`). This controls what happens when the step is **confirmed**:
+
+- **`"normal"`** — owner or the step's assigned team member confirms. Calls `advanceToNextStep` which activates the next OSP. Does **not** touch `deliveryStatus`. Uses `assignNormalStep` (simple first-assignee notification, no sub-order).
+- **`"delivery"`** — **owner only** confirms. This is the dispatch point. Sets `Order.deliveryStatus = "out_for_delivery"` and calls `assignNextPartner` (full cycling engine: creates sub-order, costs delivery, notifies partner).
+
+**Backfill rule:** the last step (highest `sequence`) per initiative is auto-set to `"delivery"`; all others default to `"normal"`.
+
+**Key constraint:** `createSubOrder` is called **only** inside `assignNextPartner`, which is called **only** for delivery-step confirmation. Normal step activation uses `assignNormalStep` — no sub-order is created.
+
+`activityType` was added in migration `20260605000000_add_workflow_activity_type`. Read it via `$queryRaw` while the Prisma client may be stale; fall back to `"normal"`.
+
+**UI behaviour:**
+- **Process editor** (`WorkflowTab.tsx`) — each step shows a "Normal work" / "Delivery (GPS)" pill selector. Delivery pill is emerald; normal is indigo. Persists via `PATCH /api/initiative/[pageId]/workflow/[stepId] { activityType }`. Help text updates per selection. Seeded "Dispatch & Deliver" step defaults to `"delivery"`.
+- **Order page confirm button** (`WorkflowSection` in `app/store/[id]/orders/page.tsx`) — label is `activeStep.activityType === "delivery"` → **"Confirm Dispatch 🚚"** (dark teal) or **"Mark Complete ✓"** (teal). Both hit the same confirm endpoint.
+- **⚡ Complete All (N)** — `startFastTrack` excludes delivery steps (`activityType !== "delivery"`). The count N only counts normal non-quote remaining steps. The button is hidden when the active step is delivery or no normal steps remain.
+- **Manual assignment is secondary** — the "Reassign / assign manually" section is in a `<details>` element (collapsed by default). It is an override, not the primary dispatch path.
+
 ### Delivery Tracking (order fulfillment with live GPS)
-1. Owner selects an accepted Collaboration partner in the order management UI (`/store/[id]/orders`) — `PATCH /api/order/[id]/delivery { assignedToId: collabId }`
-2. Owner advances `deliveryStatus` through a 5-step stepper: `pending → confirmed → processing → out_for_delivery → delivered` (or `cancelled` at any point)
-3. Partner sees orders in `/earn/deliveries` (server component, cookie auth) — orders with `partnerStatus IN ('assigned', 'accepted')` appear. Accepted cards show a **PICK UP FROM** section (store name + owner's default address as pickup proxy, `tel:` link, "🗺️ Navigate to pickup" Google Maps link) and a **"🗺️ Navigate to delivery"** button above GPS controls. Both links open in a new tab; precise-pin URL when `Address.lat/lng` are set, text-search fallback otherwise.
-4. Partner clicks "Start GPS" in `DeliveriesClient.tsx` → `useGeolocation()` hook → `POST /api/transport/broadcast` on an interval; `Order.vehicleId` is set to the new `Vehicle` row ID
-5. Buyer at `/order/[id]/track` polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s and shows the partner on `TransportMap`. If `vehicleId` is null, shows "Delivery partner hasn't started GPS yet."
-6. Partner clicks "Mark Delivered" → `PATCH /api/order/[id]/delivery { status: "delivered" }` → Broadcaster stops → `Vehicle` row deleted. `Order.vehicleId` is **not** cleared; the tracking page handles stale IDs because the vehicles API filters by `updatedAt >= 2 min ago`.
+1. Owner confirms the workflow's **delivery step** (`activityType === "delivery"`) → `deliveryStatus = "out_for_delivery"` + `assignNextPartner` runs → partner selected, sub-order created, partner notified
+2. Partner sees the assignment in `/earn/deliveries` — order with `partnerStatus IN ('assigned', 'accepted')`. Accepted cards show a **PICK UP FROM** section and a **"🗺️ Navigate to delivery"** button above GPS controls.
+3. Partner clicks "Start GPS" in `DeliveriesClient.tsx` → `useGeolocation()` hook → `POST /api/transport/broadcast` on an interval; `Order.vehicleId` is set to the new `Vehicle` row ID
+4. Buyer at `/order/[id]/track` polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s and shows the partner on `TransportMap`. If `vehicleId` is null, shows "Delivery partner hasn't started GPS yet."
+5. Partner confirms delivery: OSP confirm + `partnerAction: "complete"` → `partnerStatus = "completed"` → Broadcaster stops → `Vehicle` row deleted.
+6. Customer sees "Confirm you received this order?" prompt → `POST /api/order/[id]/customer-confirm` → `deliveryStatus = "delivered"`.
 
 ### AI Store Setup Wizard (new store onboarding)
 1. Owner creates a `Page` via `/app/initiatives` (mobile) and clicks "Open →" → Initiative Hub → Store tab → "Set up store"
@@ -363,7 +381,8 @@ Quick reference for jumping into a specific area. Read the linked doc before tou
 | **Partners / Collaboration** | `app/api/collaboration/`, `components/earn/PartnersTab.tsx` | `docs/modules/collaboration.md` |
 | **Auth** (login, register, sessions) | `lib/session.ts`, `app/api/auth/`, `app/api/user/` | `docs/modules/auth.md` |
 | **Invoice** (PDF, sign, download) | `lib/invoice/`, `app/api/orders/[orderId]/invoice/` | `CLAUDE.md` § Invoice System |
-| **Business idea evaluation** (BIZDOC) | `app/(business)/business/idea/page.tsx`, `app/api/business/idea/`, `app/api/business/questions/` | `CLAUDE.md` § Claude Code prompt workflow; seed: `npm run seed:questions` |
+| **Business idea evaluation** (BIZDOC) | `app/(business)/business/idea/page.tsx`, `app/api/business/idea/`, `app/api/business/questions/` | `docs/modules/business.md`; seed: `npm run seed:questions` |
+| **Business plan documents** (BIZDOC) | `app/(business)/business/plan/[ideaId]/page.tsx`, `app/api/business/documents/` | `docs/modules/business.md` § Document Types; AI: `ai-context/BUSINESS_AI_PHILOSOPHY.txt` |
 
 **Initiative types** — active: `store`, `service`, `fleet`. Gated but built: `health`, `learning`, `helping`, `community_group`. Toggle: `ACTIVE_INITIATIVE_TYPES` in `app/app/initiatives/page.tsx:54`.
 

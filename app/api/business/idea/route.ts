@@ -1,9 +1,25 @@
 // app/api/business/idea/route.ts
-// POST: Create new idea, GET: Fetch ideas, PUT: Update idea
-
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
+import { randomUUID } from "crypto";
+
+const GUEST_COOKIE = "biz-guest";
+
+function getGuestSessionId(req: NextRequest): string | null {
+  return req.cookies.get(GUEST_COOKIE)?.value ?? null;
+}
+
+function setGuestCookie(res: NextResponse, guestSessionId: string): NextResponse {
+  res.cookies.set(GUEST_COOKIE, guestSessionId, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 365, // 1 year
+    secure: process.env.NODE_ENV === "production",
+  });
+  return res;
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -21,21 +37,32 @@ export async function POST(request: NextRequest) {
     const payload = token ? await verifySessionToken(token) : null;
     const sessionUserId = payload?.userId ?? null;
 
-    const shareToken = Math.random().toString(36).substring(2, 15);
+    // For guests, use existing cookie or generate a new guestSessionId
+    let guestSessionId = sessionUserId ? null : getGuestSessionId(request);
+    if (!sessionUserId && !guestSessionId) {
+      guestSessionId = randomUUID();
+    }
 
-    const idea = await prisma.businessIdea.create({
+    const shareToken = randomUUID().replace(/-/g, "").substring(0, 13);
+
+    const idea = await (db as any).businessIdea.create({
       data: {
         title,
         description,
         userEmail,
         userPhone,
         userId: sessionUserId,
+        guestSessionId: sessionUserId ? null : guestSessionId,
         shareToken,
         responses: {},
       },
     });
 
-    return NextResponse.json(idea, { status: 201 });
+    const res = NextResponse.json(idea, { status: 201 });
+    if (guestSessionId && !sessionUserId) {
+      setGuestCookie(res, guestSessionId);
+    }
+    return res;
   } catch (error) {
     console.error("POST /api/business/idea", error);
     return NextResponse.json(
@@ -58,11 +85,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const idea = await prisma.businessIdea.findFirst({
+    const idea = await (db as any).businessIdea.findFirst({
       where: ideaId ? { id: ideaId } : { shareToken },
-      include: {
-        ideaResponses: true,
-      },
+      include: { ideaResponses: true },
     });
 
     if (!idea) {
@@ -94,30 +119,36 @@ export async function PUT(request: NextRequest) {
     const token = getTokenFromRequest(request);
     const payload = token ? await verifySessionToken(token) : null;
     const sessionUserId = payload?.userId ?? null;
+    const guestSessionId = getGuestSessionId(request);
 
-    const existing = await prisma.businessIdea.findUnique({
+    const existing = await (db as any).businessIdea.findUnique({
       where: { id: ideaId },
-      select: { userId: true },
+      select: { userId: true, guestSessionId: true },
     });
 
     if (!existing) {
       return NextResponse.json({ error: "Idea not found" }, { status: 404 });
     }
 
-    if (existing.userId && existing.userId !== sessionUserId) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Auth: logged-in user must own it, or guest cookie must match
+    if (existing.userId) {
+      if (existing.userId !== sessionUserId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    } else {
+      if (!guestSessionId || existing.guestSessionId !== guestSessionId) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
     }
 
-    const updatedIdea = await prisma.businessIdea.update({
+    const updatedIdea = await (db as any).businessIdea.update({
       where: { id: ideaId },
       data: {
         responses: responses || undefined,
         status: status || undefined,
         updatedAt: new Date(),
       },
-      include: {
-        ideaResponses: true,
-      },
+      include: { ideaResponses: true },
     });
 
     return NextResponse.json(updatedIdea);

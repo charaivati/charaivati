@@ -724,6 +724,94 @@ When built, enforce: at least 3 trusted contacts before recovery can activate. A
 
 ---
 
+## Business Document PDF + Share System (BIZDOC-2)
+
+### PDF generation — reuses invoice stack
+`lib/business/BusinessDocumentPdf.tsx` — `@react-pdf/renderer` components: `SWOTPdf` (4-quadrant), `BMCPdf` (landscape 9-block), `FinancialsPdf` (Year 1/2/3 table). Same primitives (`Document`, `Page`, `View`, `Text`, `StyleSheet`) as `lib/invoice/InvoiceDocument.tsx`. No new PDF library.
+
+`lib/business/uploadDocumentPdf.ts` — Cloudinary `upload_stream` helper. `type: "upload"` (public, not authenticated like invoices). folder: `biz-docs/`. Raw Cloudinary URL never sent to browser — always proxied via server routes.
+
+**pdfUrl invalidation**: `PUT /api/business/documents` sets `pdfUrl: null` on every save. Forces re-generation on next download. Generate-on-download (via `GET /api/business/documents/pdf/download`) or pre-generate (via `POST /api/business/documents/pdf`).
+
+### Share token system
+`POST /api/business/share { ideaId, type }` — mints a `randomUUID()` shareToken on the BusinessDocument if none exists. Idempotent. Auth: ownership guard.
+
+`GET /api/business/share/[token]` — **public, no auth**. Returns only: `type, title, content, status, pdfUrl, updatedAt`. Excludes ideaId and all ownership fields. One token → one document, never a bundle.
+
+`GET /api/business/share/[token]/pdf` — **public, no auth**. Generates + proxies PDF. Token is the access grant.
+
+Public share page: `app/(business)/business/share/[token]/page.tsx` — server component, no auth, read-only render + "↓ Download PDF" link.
+
+Plan page: "🔗 Share" button mints token + copies URL to clipboard. "↓ PDF" button proxies download. Share URL strip shown below the type tabs.
+
+### No i18n system found
+No i18n/translation system exists in this codebase. All UI strings are inline English throughout. Document this if a translation system is added in the future.
+
+## Adaptive Evaluation Engine (BIZDOC-3)
+
+Replaces the old batch 12-question form with a turn-by-turn AI conversation. Three roles handle each evaluation:
+
+| Role | Provider | Trigger |
+|---|---|---|
+| **Interviewer** | Local Ollama via `chatComplete()` | Every turn — scores answer, returns confidence |
+| **Assessor** | Cloud via `callAI({ provider:"openrouter" })` — bypasses Ollama | When local confidence < `CONFIDENCE_THRESHOLD`, once per dimension |
+| **Cross-check** | Server logic | After both scores exist: if `|local − assessor| > DISAGREEMENT_THRESHOLD`, queue one probe |
+
+### Tunable constants — `lib/business/interviewConfig.ts`
+`CONFIDENCE_THRESHOLD = 0.55`, `DISAGREEMENT_THRESHOLD = 1.0`, `MAX_PROBES_PER_DIM = 2`, `LOCAL_TIMEOUT_MS = 12_000`, `ASSESSOR_TIMEOUT_MS = 20_000`. Also contains `PROBE_TEMPLATES` (sector-tuned static list), `detectSector()`, and all prompt-builder functions.
+
+### Rail-guided questions
+The 12 seeded `IdeaQuestion` rows are the base menu. The server deterministically advances `interviewState.currentIndex`. The AI does **not** invent questions — it only adds to `probeQueue` by selecting from `PROBE_TEMPLATES`. This keeps the question set auditable.
+
+### Graceful degradation
+When Ollama is unavailable, `chatComplete()` falls through to cloud automatically. `interviewState.localUnavailable = true` is set. Effect: no cloud Assessor is triggered (redundant), all provenance stays `"local_estimate"`, and the UI shows `"Quick evaluation — senior review unavailable"` on each turn + a yellow badge in `ResultsReport`.
+
+### Provenance display
+`dimProvenance[dim]` is `"local_estimate"` or `"senior_reviewed"`. Shown in `LiveScoreDashboard` (✦ / ~ badges per dimension) and in `ResultsReport` (per-dim badge + overall tier banner). Stored on `BusinessIdea.dimProvenance` (JSONB).
+
+### New DB fields on `BusinessIdea` (added via Neon migration)
+- `transcript JSONB` — `ConversationTurn[]` — full conversation with dim and questionKey per turn
+- `dimProvenance JSONB` — `Record<dim, "local_estimate" | "senior_reviewed">`
+- `interviewState JSONB` — `InterviewState` (currentIndex, sector, probeQueue, probeCount, provisionalScores, assessorScores, assessorRun, done, localUnavailable)
+
+Use `(db as any).businessIdea` until `prisma generate` has been run with these fields present.
+
+### Key API routes added
+- `POST /api/business/idea/interview` — main turn handler; `{ ideaId, userMessage: string | null }`; returns `{ question, dim, done, provisional, tier, turnNum }`
+- `POST /api/business/idea/interview/finalize` — runs cloud Assessor on unreviewed dims, calls `runFinalVerdict()`, persists final scores; returns `{ scores, overallScore, report, tier, dimProvenance }`
+
+### Key lib files
+- `lib/business/interviewConfig.ts` — all static config, types, sector detection, prompt builders
+- `lib/business/runInterviewer.ts` — `runInterviewer(dim, questionText, answer, sector)` → `{ score, confidence, followUpNeeded, source }`
+- `lib/business/runAssessor.ts` — `runAssessor(...)` → `AssessorResult | null`; `runFinalVerdict(...)` → `FinalVerdictResult` with local fallback
+
+### UI changes (`app/(business)/business/idea/page.tsx`)
+Replaced the batch form with a chat-bubble layout (user right / assistant left). `handleStart()` creates the idea then calls interview with `userMessage: null` to get the first question. `handleAnswer()` submits turns. `handleFinalize()` calls the finalize route and renders `ResultsReport`. `LiveScoreDashboard` sidebar updates provisionally after every turn.
+
+## Business Document System (BIZDOC-1b)
+
+Per-idea typed documents replace the old `BusinessPlan` model (retired — table still exists in DB but Prisma client no longer exposes it).
+
+### BusinessDocument model
+`@@unique([ideaId, type])` — one document per type per idea. Types: `SWOT | BMC | FINANCIALS | PROPOSAL | COMPETITOR`. `content` is Json, shape is type-specific. `status` is `DRAFT | COMPLETE`.
+
+### Guest ownership
+`BusinessIdea` has a `guestSessionId String?` field. When a non-logged-in user creates an idea, a UUID is stored there and set as the `biz-guest` HTTP-only cookie. All document read/write routes check this cookie if no userId is matched. Clearing the cookie orphans the ideas.
+
+### Claim on login
+`lib/business/claimGuestIdeas.ts` — `claimGuestIdeas(guestSessionId, userId)`: `updateMany` where `guestSessionId=X AND userId IS NULL`. Called in `POST /api/user/login` (parses Cookie header) and `GET /api/user/magic` (via `NextRequest.cookies`). Idempotent.
+
+### AI document assist
+`POST /api/business/documents/generate` — calls `chatComplete()` with a minimal prompt per type. System context from `ai-context/BUSINESS_AI_PHILOSOPHY.txt`. Real sector intelligence deferred to BIZDOC-3/-4. The financials prompt uses `year1/year2/year3` shape matching the page's `FinancialPlan` type — not the old `phase1/phase2` format.
+
+### Plan page (app/(business)/business/plan/[ideaId]/page.tsx)
+- Loads all docs on mount via `GET /api/business/documents?ideaId=`
+- Saves with 1.5 s debounce via `PUT /api/business/documents`
+- Document type dropdown: SWOT / BMC / Financials / Competitor Study (disabled, "Soon" badge)
+- "✨ AI Draft" button calls generate route and merges returned content into current state
+- Auto-save status shown inline ("Saving…" / "✓ Saved")
+- BMC layout: 5-col grid, Value Propositions and Customer Segments span rows; Key Resources col 1, Channels col 4 in row 2; Cost Structure + Revenue Streams in row 3 (2-col)
+
 ## Architecture Docs
 Before making any change, read the relevant doc in /docs.
 For any new feature, check /docs/flows/ for the step-by-step procedure.
@@ -764,9 +852,16 @@ Start every session by reading /docs/START_HERE.md.
 - **`WorkflowStepAssignee` model requires `(prisma as any).workflowStepAssignee`** — added via migration after last successful generate. Same pattern. Affects `assignNextPartner.ts`, the workflow GET route, and the step assignees POST route.
 - **`OrderStepProgress.currentAssigneeId`, `cycleCount`, `lastFeeMultiplier` require `(prisma as any).orderStepProgress`** — same migration situation. Do not add these fields to typed Prisma queries while the client is stale.
 - **Sub-orders appear in `GET /api/store/orders?storeId=X`** — the store orders query does not filter by `parentOrderId IS NULL`, so sub-orders with the same `storeId` appear as top-level items. The owner order management page (`/store/[id]/orders`) therefore shows them alongside parent orders. This is known behaviour; filter them with `parentOrderId: null` if you need to hide them.
-- **WorkflowSection has four distinct states — do not merge them** — (A) no `initiativeId` on the store: show the "no workflow" setup link; (B) `initiativeId` set but order not yet confirmed: show "confirm to activate"; (C) `activeStep` present: show step chip + Confirm Step or quote list; (D) `partnerStatus === "rejected"` with `activeStep`: show rejection panel + Retry Step. Collapsing these states or adding an early-return before all four checks will hide workflow controls.
+- **WorkflowSection has four distinct states — do not merge them** — (A) no `initiativeId` on the store: show the "no workflow" setup link; (B) `initiativeId` set but order not yet confirmed: show "confirm to activate"; (C) `activeStep` present: show step chip + **"Mark Complete ✓"** (normal step) or **"Confirm Dispatch 🚚"** (delivery step) or quote list; (D) `partnerStatus === "rejected"` with `activeStep`: show rejection panel + Retry Step. Collapsing these states or adding an early-return before all four checks will hide workflow controls.
+- **"Mark Complete ✓" vs "Confirm Dispatch 🚚"** — the confirm button in `WorkflowSection` is labelled by `activeStep.activityType`: `"normal"` → "Mark Complete ✓" (teal); `"delivery"` → "Confirm Dispatch 🚚" (dark teal). Both call the same `/api/order/[id]/step/[stepId]/confirm` endpoint — the branching happens server-side (WORKFLOW-1).
+- **⚡ Complete All (N) stops at delivery steps** — `startFastTrack` in `WorkflowSection` filters out steps where `activityType === "delivery"`. The count N reflects only normal steps remaining. When the active step is delivery (or no normal steps remain), "Complete All" is hidden and only "Confirm Dispatch" is shown. Do not remove the `activityType !== "delivery"` filter.
+- **"Reassign / assign manually" is a collapsed `<details>`** — the manual delivery assignment dropdown (collab + team member) is hidden under a `<details>/<summary>` disclosure. It is an override path; the primary dispatch path is "Confirm Dispatch" via the workflow. Do not promote it back to an always-visible primary control.
+- **`WorkflowStep.activityType` is a new column — read via `$queryRaw`** — added via migration `20260605000000_add_workflow_activity_type`. The Prisma client may not know about it until the next full `prisma generate` (stop server first on Windows). Always fetch it with `` prisma.$queryRaw<{activityType:string}[]>`SELECT "activityType" FROM "WorkflowStep" WHERE id = ${stepId}` `` and fall back to `"normal"`. Do NOT add it to a typed `select` block while the client may be stale.
+- **`activityType === "delivery"` steps can ONLY be confirmed by the store owner** — delivery steps have no pre-assigned partner at activation time. `assignNextPartner` runs at confirm-time (dispatch), not at activation-time. Do not allow partners to confirm delivery steps.
+- **`createSubOrder` is now called ONLY for delivery steps** — it is invoked inside `assignNextPartner`, which is only called from the confirm route when `activityType === "delivery"`. Normal steps use `assignNormalStep` (no sub-order). Do not add `createSubOrder` calls to normal-step activation paths.
 - **The delivery pipeline stepper in `/store/[id]/orders` is intentionally read-only** — the 5-step stepper pills have no `onClick` handlers; only the Cancel button fires `onPatch`. Do not add click handlers back; the workflow system now drives delivery status automatically. The assignment dropdown and delivery note remain editable for manual override.
 - **Workflow assignee dropdown includes ALL accepted collabs** — `GET /api/initiative/[pageId]/workflow` returns assignees from any collaboration scope (`partner`, `team`, `third_party`) as long as `status = "accepted"`. An earlier version filtered to `scope IN ("team","third_party")` only, which caused delivery partners (scope="partner") to disappear from the dropdown. Do not re-introduce the scope filter.
+- **`WorkflowTab` activityType selector persists via PATCH** — the "Normal work" / "Delivery (GPS)" pill buttons in each `StepCard` call `onUpdate(step.id, { activityType })` which PATCHes `/api/initiative/[pageId]/workflow/[stepId]`. The PATCH route handles `activityType` via `$executeRaw` (old engine DLL won't include the field in a typed Prisma update). The selector shows different help text per type: delivery = "Delivery steps assign a courier and share live GPS with the customer." normal = "Normal steps just need a completion tap." Seeded "Dispatch & Deliver" steps start as `"delivery"` automatically. New steps added via "Add Step" start as `"normal"`.
 - **`GET /api/orders/requests` is separate from `GET /api/store/orders`** — it returns Quote rows (not Order rows) addressed to the current user's collaborations. Do not confuse it with the buyer/seller order list endpoints.
 - **`WorkflowStep.assigneeId` and `assigneeIds` are deprecated — use `WorkflowStepAssignee` rows** — the scalar fields still exist in the schema for backwards compatibility but new code must add assignees via `POST /api/initiative/[pageId]/workflow/[stepId]/assignees`. `assignNextPartner` reads only `WorkflowStepAssignee` rows. `triggerQuoteRequests` was fixed (May 2026) to also read only `WorkflowStepAssignee` rows — previously it read the deprecated scalar fields. The step-confirm route also checks `WorkflowStepAssignee` membership for partner auth. **A step with zero `WorkflowStepAssignee` rows no longer sets `requiresAttention`** — `activateWorkflow` and `advanceToNextStep` now call `ensureOwnerAssignee(pageId, stepId)` first, which creates a self-team `Collaboration` for the initiative owner (scope="team", teamRole="founder") and a `WorkflowStepAssignee` row, then proceeds with the normal `assignNextPartner` cycling. This means every store owner is automatically the fallback assignee for steps they have not yet configured. Retroactive backfill: run `npx ts-node --project tsconfig.scripts.json scripts/backfill-owner-assignees.ts`.
 - **`WorkflowStepAssignee` requires `(prisma as any).workflowStepAssignee`** — the model was added after the last successful `prisma generate`. Use the `any` cast until generate runs. Same pattern as `Notification` and `Order` new fields.
@@ -784,7 +879,9 @@ Start every session by reading /docs/START_HERE.md.
 Added fields: `scope String @default("partner")` (`"team" | "third_party" | "partner"`), `initiativeId String?`, `teamRole String?` (`"founder" | "co_founder" | "ceo" | "partner" | "employee" | "custom"`), `customRole String?`. Promoting a Collaboration to `scope="team"` via `PATCH /api/initiative/[pageId]/team/[collaborationId]` makes it a team member. Scope `"partner"` is the default for external partners.
 
 **`WorkflowStep`**
-Fields: `initiativeId` (Page.id of the linked initiative), `name`, `sequence`, `assigneeType` (`"team_member" | "third_party"`), `quoteRequired Boolean`, `quoteTimeoutHours Int @default(24)`, `assignmentMode String @default("sequential")` (`"sequential" | "first_to_accept"`). Steps are ordered by `sequence`; `initiativeId` matches `store.pageId` for stores that have linked initiatives. **`assigneeId String?` and `assigneeIds String[]` are `@deprecated`** — use `WorkflowStepAssignee` rows instead (see below); kept for existing data only.
+Fields: `initiativeId` (Page.id of the linked initiative), `name`, `sequence`, `assigneeType` (`"team_member" | "third_party"`), `quoteRequired Boolean`, `quoteTimeoutHours Int @default(24)`, `assignmentMode String @default("sequential")` (`"sequential" | "first_to_accept"`), `activityType String @default("normal")` (`"normal" | "delivery"`). Steps are ordered by `sequence`; `initiativeId` matches `store.pageId` for stores that have linked initiatives. **`assigneeId String?` and `assigneeIds String[]` are `@deprecated`** — use `WorkflowStepAssignee` rows instead (see below); kept for existing data only.
+
+**`activityType` — normal vs delivery branching:** Controls how a step's *confirmation* behaves. `"normal"` steps advance the workflow to the next OSP without touching `deliveryStatus`; confirming one is lightweight (no sub-orders, no GPS handoff). `"delivery"` steps represent the dispatch point: confirming one sets `Order.deliveryStatus = "out_for_delivery"` and immediately calls `assignNextPartner` (which creates a sub-order and notifies the delivery partner). **Backfill rule:** the last step (highest `sequence`) per initiative is automatically set to `"delivery"`; all others default to `"normal"`. New steps added via the API default to `"normal"` until the owner changes them. `activityType` was added via migration `20260605000000_add_workflow_activity_type` — use `$queryRaw` to read it while the Prisma client is stale.
 
 **`WorkflowStepAssignee`**
 Replaces the deprecated `assigneeId`/`assigneeIds` scalar fields on `WorkflowStep`. One row per (step, collaboration) pair. Fields: `stepId`, `collaborationId` (Collaboration.id), `sequence Int` (controls order in sequential cycling), `costPerOrder Float?`, `costPerKg Float?`, `costPerKgPerKm Float?`, `costPerItemPerKm Float?`. `@@unique([stepId, collaborationId])`. Cascade-deletes when the step or collaboration is removed. Cost fields override the same-named fields on `Collaboration` for this assignee's cost calculation.
@@ -805,13 +902,14 @@ Fields: `id`, `userId` (FK → User, cascade delete), `type` (`"order_assigned" 
 
 | File | Purpose |
 |---|---|
-| `lib/workflow/activateWorkflow.ts` | Called when `Order.status → "confirmed"`. Creates all OSP rows as `"pending"`, activates step 1, sets `Order.assignedToId` if step 1 has a non-quote assignee, or fires quote requests if `quoteRequired`. |
-| `lib/workflow/advanceToNextStep.ts` | Called after any step is confirmed. Finds the next step by sequence, activates its OSP. If the next step is the **last** step: sets `Order.deliveryStatus = "out_for_delivery"`. If no next step: returns (customer confirm sets `"delivered"`). Also calls `createSubOrder` for non-quote steps when the next step has an `assigneeId`. |
-| `lib/workflow/assignNextPartner.ts` | Sequential partner cycling for a step. Reads `WorkflowStepAssignee` rows in `sequence` order. If all are rejected: increments `cycleCount`, applies 5% fee hike (`lastFeeMultiplier *= 1.05`), restarts from the top. After 3 full cycles: sets `requiresAttention = true`, fires `escalation` notification to the store owner, returns `{ escalated: true }`. Also calculates delivery cost from `WorkflowStepAssignee` pricing fields + order weight/distance, creates a sub-order with the agreed cost, and notifies the partner. |
+| `lib/workflow/activateWorkflow.ts` | Called when `Order.status → "confirmed"`. Creates all OSP rows as `"pending"`, activates step 1. For **normal** steps: calls `assignNormalStep` (set currentAssigneeId + notify, no sub-order). For **delivery** steps: activates OSP only — confirm route handles dispatch. For quote steps: fires `triggerQuoteRequests`. |
+| `lib/workflow/advanceToNextStep.ts` | Called after a **normal** step is confirmed. Finds the next step by sequence, activates its OSP. If the next step is **normal**: calls `assignNormalStep`. If the next step is **delivery**: activates OSP only (confirm route dispatches). If no next step: returns (customer confirm sets `"delivered"`). Never touches `deliveryStatus`. |
+| `lib/workflow/assignNormalStep.ts` | Assigns the first `WorkflowStepAssignee` (by sequence) to a normal step: sets `OSP.currentAssigneeId` and fires `order_assigned` notification. Does **not** create sub-orders. Called by `activateWorkflow` and `advanceToNextStep` for normal steps. |
+| `lib/workflow/assignNextPartner.ts` | Sequential partner cycling for **delivery** steps only. Reads `WorkflowStepAssignee` rows in `sequence` order. If all are rejected: increments `cycleCount`, applies 5% fee hike (`lastFeeMultiplier *= 1.05`), restarts from the top. After 3 full cycles: sets `requiresAttention = true`, fires `escalation` notification. Also calculates delivery cost, creates a sub-order, and notifies the partner. Called exclusively from the confirm route when `activityType === "delivery"`. |
 | `lib/workflow/triggerQuoteRequests.ts` | Creates `Quote` rows for all parties in `assigneeId + assigneeIds`, sends a system chat message (`iv="system"`) to each party, fires a `quote_requested` notification, and registers an in-process `setTimeout` to reject un-responded quotes after `quoteTimeoutHours`. |
-| `lib/workflow/createSubOrder.ts` | Creates a child `Order` row for a workflow step assignee (copies parent items/address, sets sub-order type and agreed amount), then fires an `order_assigned` notification. Called from `advanceToNextStep` (non-quote steps) and from `accept/route.ts` (quote steps). Idempotent. |
+| `lib/workflow/createSubOrder.ts` | Creates a child `Order` row for a workflow step assignee (copies parent items/address, sets sub-order type and agreed amount), then fires an `order_assigned` notification. Called from `assignNextPartner` (delivery steps) and from `accept/route.ts` (quote steps). Idempotent. |
 | `lib/workflow/calculateDeliveryCost.ts` | Computes delivery cost from `{ costPerOrder, costPerKg, costPerKgPerKm, costPerItemPerKm }` pricing fields plus `totalWeightKg`, `totalItems`, `distanceKm`. Returns 0 if all pricing fields are null. Called by `assignNextPartner`. |
-| `lib/workflow/ensureOwnerAssignee.ts` | `ensureOwnerAssignee(pageId, stepId)` — idempotent. Finds or creates a self-team `Collaboration` (`scope="team"`, `teamRole="founder"`, `receiverUserId=page.ownerId`) and a `WorkflowStepAssignee` row (sequence=0) for the given step. Called by `activateWorkflow`, `advanceToNextStep` (no-assignees path), and the workflow GET route (after seeding) and POST route (new step). Backfill existing steps via `scripts/backfill-owner-assignees.ts`. |
+| `lib/workflow/ensureOwnerAssignee.ts` | `ensureOwnerAssignee(pageId, stepId)` — idempotent. Finds or creates a self-team `Collaboration` (`scope="team"`, `teamRole="founder"`, `receiverUserId=page.ownerId`) and a `WorkflowStepAssignee` row (sequence=0) for the given step. Called by `activateWorkflow` and `advanceToNextStep` when a normal step has no configured assignees. Backfill existing steps via `scripts/backfill-owner-assignees.ts`. |
 | `lib/geo/haversine.ts` | `haversineKm(lat1, lng1, lat2, lng2)` — great-circle distance in km. Used by `assignNextPartner` to measure store-to-delivery-address distance. |
 
 ### Key Flows
@@ -820,13 +918,19 @@ Fields: `id`, `userId` (FK → User, cascade delete), `type` (`"order_assigned" 
 1. `PATCH /api/store/orders/[orderId]` sets `status="confirmed"`
 2. `activateWorkflow(orderId)` fires fire-and-forget
 3. All OSP rows created as `"pending"`; step 1 set `"active"`
-4. If step 1 is a non-quote team step: `Order.assignedToId = step1.assigneeId`, `partnerStatus = "assigned"`
+4. If step 1 is `activityType === "normal"` (non-quote): `assignNormalStep` sets first assignee + notifies (no sub-order, no `deliveryStatus` change)
+5. If step 1 is `activityType === "delivery"`: OSP activated only — owner confirms when ready to dispatch
 
-**Step confirm → auto-advance**
-1. `PATCH /api/order/[id]/step/[stepId]/confirm` (owner or step assignee)
+**Normal step confirm → auto-advance**
+1. `PATCH /api/order/[id]/step/[stepId]/confirm` (owner or step assignee; confirmed by WSA-row check first, deprecated scalar fallback)
 2. OSP row set `"confirmed"`; `advanceToNextStep` called
-3. Next step OSP set `"active"`. If next step is last: `Order.deliveryStatus = "out_for_delivery"`
+3. Next step OSP set `"active"`. If next step is `"normal"`: `assignNormalStep`. If next step is `"delivery"`: OSP activated only. Never sets `deliveryStatus`.
 4. If next step has `quoteRequired=true`: `triggerQuoteRequests` fires immediately
+
+**Delivery step confirm → dispatch**
+1. `PATCH /api/order/[id]/step/[stepId]/confirm` — **owner only** (delivery steps have no pre-assigned partner)
+2. OSP row set `"confirmed"`; `Order.deliveryStatus = "out_for_delivery"`
+3. `assignNextPartner` runs: cycles through `WorkflowStepAssignee` rows, picks first available partner, creates sub-order, notifies partner
 
 **Quote → lowest auto-sort → founder accept**
 1. Parties submit via `POST /api/order/[id]/quote/[quoteId]/respond { amount }` — `quoteSummary` rebuilt sorted by amount ascending
