@@ -7,6 +7,7 @@ import PartnersTab from "./PartnersTab";
 const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
 const WorkflowTab          = dynamic(() => import("./WorkflowTab"),          { ssr: false });
 const TeamTab              = dynamic(() => import("./TeamTab"),              { ssr: false });
+const ValidationTasks      = dynamic(() => import("@/components/business/ValidationTasks"), { ssr: false });
 type Tab = "overview" | "store" | "team" | "partners" | "workflow" | "fleet";
 
 interface InitiativeTabsProps {
@@ -180,16 +181,20 @@ export default function InitiativeTabs({
               </a>
             </>
           ) : (
-            <a
-              href="/business"
-              className="flex items-center justify-between p-4 rounded-xl border border-indigo-800/60 bg-indigo-900/20 hover:bg-indigo-900/40 transition-colors"
-            >
-              <div>
-                <p className="font-medium text-indigo-300">Evaluate &amp; Plan</p>
-                <p className="text-sm text-gray-400 mt-0.5">Business idea scoring and planning tools</p>
-              </div>
-              <span className="text-indigo-400">→</span>
-            </a>
+            <>
+              <a
+                href="/business"
+                className="flex items-center justify-between p-4 rounded-xl border border-indigo-800/60 bg-indigo-900/20 hover:bg-indigo-900/40 transition-colors"
+              >
+                <div>
+                  <p className="font-medium text-indigo-300">Evaluate &amp; Plan</p>
+                  <p className="text-sm text-gray-400 mt-0.5">Business idea scoring and planning tools</p>
+                </div>
+                <span className="text-indigo-400">→</span>
+              </a>
+              {/* Validation tasks — returns null when empty; renders own card when tasks exist */}
+              <ValidationTasks validationOnly isGuest={false} />
+            </>
           )}
         </div>
       )}

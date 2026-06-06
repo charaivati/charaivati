@@ -17,6 +17,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
         title: body.title ?? undefined,
         freq: body.freq ?? undefined,
         completed: typeof body.completed === "boolean" ? body.completed : undefined,
+        ...(body.assumptionKey !== undefined && { assumptionKey: body.assumptionKey }),
+        ...(body.validationLabel !== undefined && { validationLabel: body.validationLabel }),
       },
     });
     if (updated.count === 0) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });

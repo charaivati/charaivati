@@ -7,6 +7,7 @@ import { SelfCanvas } from "@/components/self/SelfCanvas";
 import { useSelfState, defaultGoal } from "@/hooks/useSelfState";
 import { useSelfSkills } from "@/lib/SelfSkillsContext";
 import type { DriveType, GoalEntry } from "@/types/self";
+import TodoList from "@/components/self/TodoList";
 
 const DRIVE_TO_ARCHETYPE: Record<DriveType, string> = {
   learning: "LEARN", building: "BUILD", doing: "EXECUTE", helping: "CONNECT",
@@ -262,6 +263,23 @@ export default function SelfTab({ profile }: { profile?: any }) {
                   onFundsChange={s.handleFundsChange}
                   onEnvironmentChange={s.handleEnvironmentChange}
                 />
+              </div>
+            )}
+
+            {/* ── Todo list — shows all tasks including business validation tasks ── */}
+            {!s.isGuest && (
+              <div
+                style={{
+                  background: "rgba(255,255,255,0.03)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: 16,
+                  padding: "16px 16px 12px",
+                }}
+              >
+                <h3 style={{ fontSize: 13, fontWeight: 600, color: "rgba(255,255,255,0.5)", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Tasks
+                </h3>
+                <TodoList />
               </div>
             )}
 

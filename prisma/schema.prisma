@@ -83,6 +83,7 @@ model User {
   assignedOrders          Order[]          @relation("OrderAssignedUser")
   companionProfile        UserCompanionProfile?
   sentInvites             Invite[]             @relation("InviteSender")
+  todos                   Todo[]
 
   @@index([email])
   @@index([phone])
@@ -823,12 +824,17 @@ model BusinessIdea {
   transcript     Json?
   dimProvenance  Json?
   interviewState Json?
+  /// TAM/SAM/SOM market sizing generated during the interview (BIZDOC-4)
+  marketSizing   Json?
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
   expiresAt      DateTime?
   user           User?              @relation("UserBusinessIdeas", fields: [userId], references: [id])
   ideaResponses  IdeaResponse[]     @relation("IdeaResponses")
   documents      BusinessDocument[] @relation("IdeaDocuments")
+  todos          Todo[]             @relation("IdeaTodos")
+  /// Many-to-many link to AiGoal — a business can support zero or more goals (BIZDOC-5)
+  linkedGoals    BusinessIdeaGoal[]
 
   @@index([userEmail])
   @@index([userId])
@@ -1061,8 +1067,10 @@ model AiGoal {
   currentPhaseIndex    Int             @default(0)
   executionPlan        Json?
   supportingArchetypes GoalArchetype[] @default([])
-  user                 User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   answers              AiGoalAnswer[]
+  /// Many-to-many link to BusinessIdea — a goal can have many businesses supporting it (BIZDOC-5)
+  linkedIdeas          BusinessIdeaGoal[]
 
   @@index([userId, status])
 }
@@ -1079,6 +1087,18 @@ model AiGoalAnswer {
   goal         AiGoal  @relation(fields: [goalId], references: [id], onDelete: Cascade)
 
   @@index([goalId, order])
+}
+
+/// Many-to-many join table: one business idea can support multiple goals and vice versa (BIZDOC-5)
+model BusinessIdeaGoal {
+  businessIdeaId String
+  goalId         String
+  createdAt      DateTime     @default(now())
+  businessIdea   BusinessIdea @relation(fields: [businessIdeaId], references: [id], onDelete: Cascade)
+  goal           AiGoal       @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@id([businessIdeaId, goalId])
+  @@index([goalId])
 }
 
 model HealthBusiness {
@@ -1720,4 +1740,29 @@ model Invite {
 
   @@index([email, status])
   @@index([inviterId])
+}
+
+/// Self-tab todo / validation task — one list, two filtered views (BIZDOC-4)
+model Todo {
+  id               String        @id @default(cuid())
+  userId           String
+  title            String
+  completed        Boolean       @default(false)
+  /// Schedule frequency: "daily" | "weekly" | "monthly" (NOT a discriminator — use assumptionKey for that)
+  freq             String?
+  hobbyId          String?
+  /// Links this task to a BusinessIdea — null for general todos
+  ideaId           String?
+  /// Short label describing the assumption being validated
+  validationLabel  String?
+  /// What counts as passing validation (e.g. "5 of 10 say yes")
+  successThreshold String?
+  /// Which market-sizing assumption this validates: "sam" | "som" | null (BIZDOC-5, replaces freq discriminator)
+  assumptionKey    String?
+  createdAt        DateTime      @default(now())
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  idea             BusinessIdea? @relation("IdeaTodos", fields: [ideaId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([ideaId])
 }

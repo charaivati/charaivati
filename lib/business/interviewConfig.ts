@@ -209,15 +209,17 @@ export interface AssessorResult {
 }
 
 export interface InterviewState {
-  currentIndex: number;             // next base question index to ask
+  currentIndex: number;
   sector: Sector;
-  probeQueue: QueuedProbe[];        // pending probes (FIFO)
-  probeCount: Record<string, number>; // how many probes asked per dim
-  assessorRun: Record<string, boolean>; // whether assessor has run for each dim
-  provisionalScores: Record<string, number>; // local estimates
+  probeQueue: QueuedProbe[];
+  probeCount: Record<string, number>;
+  assessorRun: Record<string, boolean>;
+  provisionalScores: Record<string, number>;
   assessorScores: Record<string, AssessorResult>;
   done: boolean;
-  localUnavailable: boolean;        // true when Ollama fell through to cloud
+  localUnavailable: boolean;
+  /** Set to true after market-sizing deepening runs — fires exactly once per interview */
+  marketSizingDone: boolean;
 }
 
 export function initInterviewState(sector: Sector): InterviewState {
@@ -231,6 +233,7 @@ export function initInterviewState(sector: Sector): InterviewState {
     assessorScores: {},
     done: false,
     localUnavailable: false,
+    marketSizingDone: false,
   };
 }
 

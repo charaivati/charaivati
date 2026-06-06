@@ -84,8 +84,68 @@ Three new JSONB fields on `BusinessIdea` (added via Neon migration):
 | File | Purpose |
 |---|---|
 | `lib/business/interviewConfig.ts` | All static config: thresholds, PROBE_TEMPLATES (sector-tuned), sector detection, prompt builders, state types |
-| `lib/business/runInterviewer.ts` | `runInterviewer(dim, questionText, answer, sector)` → `{ score, confidence, followUpNeeded, source }` |
+| `lib/business/runInterviewer.ts` | `runInterviewer(dim, questionText, answer, sector)` → `{ score, confidence, followUpNeeded, source, reaction }` |
 | `lib/business/runAssessor.ts` | `runAssessor(dim, ...)` → `AssessorResult | null`; `runFinalVerdict(...)` → `FinalVerdictResult` |
+
+## Market-Sizing Deepening + Validation Tasks (BIZDOC-4)
+
+Full design spec: `docs/BUSINESS_ANALYSIS_FLOW.md`. Summary:
+
+### AI reaction per answer
+`runInterviewer()` now returns `reaction: string | null` — one honest sentence reacting to the user's answer, rendered as italic text between the user bubble and next question. Gracefully omitted when null.
+
+### Math-in-code contract
+**MATH IN CODE, JUDGMENT IN MODEL** — the cloud model supplies `populationBasis`, `samPct`, `somPct`, and rationale strings. ALL arithmetic (`tam = pop`, `sam = round(tam × samPct)`, `som = round(sam × somPct)`) is computed in `MarketSizingPanel.tsx` and `computeSizing()`. Never let the AI return computed numbers.
+
+### Market-sizing flow
+- Triggered once per interview on the first `marketNeed` answer (gated by `interviewState.marketSizingDone`)
+- `lib/business/runMarketSizing.ts` — `runMarketSizing(title, desc, sector, answer)`: cloud call → parse → `computeSizing()` → returns `MarketSizing | null`
+- `BusinessIdea.marketSizing JSONB` — result stored on the idea record
+- Fire-and-forget: runs in background after turn response sent; client polls `GET /api/business/idea?ideaId=` every 3 s
+- `components/business/MarketSizingPanel.tsx` — TAM/SAM/SOM display with user-adjustable sliders (samPct 1–80%, somPct 1–50%); all arithmetic in component
+
+### Assumption → validation task → Todo
+Two named assumptions (SAM, SOM), each with `validationTask` + `successThreshold`. On sizing completion, `createValidationTodos(userId, ideaId, sizing)` writes one `Todo` row per assumption. Guests: tasks rendered read-only from `guestSizing.assumptions` (no DB write).
+
+### Todo model
+Fields: `id`, `userId`, `title`, `completed`, `freq?` (schedule frequency: daily/weekly/monthly), `assumptionKey?` (market assumption key: "sam"/"som" — NOT a schedule), `hobbyId?`, `ideaId?`, `validationLabel?`, `successThreshold?`, `createdAt`. FKs: User (cascade), BusinessIdea (set null). Indexes on `[userId]` and `[ideaId]`.
+
+**`freq` vs `assumptionKey`**: `freq` is for schedule-frequency use only. `assumptionKey` replaced the BIZDOC-4 pattern of storing "sam"/"som" in `freq`. Existing rows migrated via Neon SQL. Do not put assumption keys in `freq`.
+
+### Three-view pattern — ONE list, ONE source of truth
+| View | Component | Filter | Used in |
+|---|---|---|---|
+| Self-tab | `components/self/TodoList.tsx` | All todos | Self → Tasks |
+| Business idea sidebar | `components/business/ValidationTasks.tsx` | `?ideaId=` | Idea evaluation page |
+| Initiative Hub overview | `components/business/ValidationTasks.tsx` | `?validationOnly=true` | `/earn/initiative/[pageId]` |
+
+`PUT /api/self/todos/[id]` is the single write path — completing in any view updates the same row.
+
+`GET /api/self/todos` accepts `?ideaId=`, `?hobbyId=`, `?validationOnly=true` filters. `POST /api/self/todos` accepts `ideaId`, `validationLabel`, `successThreshold`, `assumptionKey`.
+
+## Business↔Goal Linking (BIZDOC-5)
+
+Goals (`AiGoal`) and businesses (`BusinessIdea`) are **separate independently-created entities**. The link is many-to-many and mutable. A business does NOT graduate into a goal.
+
+### Link storage
+`BusinessIdeaGoal (businessIdeaId, goalId)` — join table, composite PK, cascade-delete on both sides. Added via Neon MCP migration. Use raw SQL until full `prisma generate` runs (new table, not in stale DLL).
+
+### API routes
+| Route | Auth | Action |
+|---|---|---|
+| `GET /api/business/idea/goals?ideaId=` | Session or biz-guest cookie | List linked goals |
+| `POST /api/business/idea/goals { ideaId, goalId }` | Session required | Link (idempotent) |
+| `DELETE /api/business/idea/goals { ideaId, goalId }` | Session required | De-link |
+
+### UI
+`components/business/GoalLinker.tsx` — shown below `ResultsReport` on the idea page after evaluation. Guests see nothing. Fetches all user goals + currently linked goals in parallel; toggle-style selection.
+
+## Known Tech Debt
+
+| Item | File | Impact |
+|---|---|---|
+| `Todo.hobbyId` orphaned FK | schema.prisma | No `Hobby` model exists; column is always null; vestigial |
+| `/api/self/todos/stats` missing | `components/SelfAnalyticsDashboard.tsx` | Analytics page silently 404s on this route |
 
 ## Ownership Model
 
@@ -203,6 +263,7 @@ Reuses the exact `@react-pdf/renderer` + Cloudinary stack from `app/api/orders/[
 | `lib/business/claimGuestIdeas.ts` | `claimGuestIdeas(guestSessionId, userId)` — atomic updateMany; idempotent |
 | `lib/business/BusinessDocumentPdf.tsx` | `@react-pdf/renderer` components: `SWOTPdf`, `BMCPdf`, `FinancialsPdf` |
 | `lib/business/uploadDocumentPdf.ts` | `uploadDocumentPdf(buffer, docId)` — Cloudinary upload_stream helper |
+| `lib/business/runMarketSizing.ts` | BIZDOC-4: `runMarketSizing(title, desc, sector, answer)` → `MarketSizing | null`; math in code |
 
 ## Key Components
 
@@ -212,14 +273,18 @@ Reuses the exact `@react-pdf/renderer` + Cloudinary stack from `app/api/orders/[
 | `components/business/CollapsibleQuestionCard.tsx` | Collapsible question card with answer input |
 | `components/business/LiveScoreDashboard.tsx` | Real-time score display per dimension |
 | `components/business/ResultsReport.tsx` | Final scored report with dimension breakdown |
+| `components/business/MarketSizingPanel.tsx` | BIZDOC-4: TAM/SAM/SOM display + user-adjustable sliders; all arithmetic in component |
+| `components/business/ValidationTasks.tsx` | BIZDOC-4: ideaId-filtered todo list for the business page (one list, two views) |
+| `components/self/TodoList.tsx` | BIZDOC-4: all-todos list for Self-tab; shows business-tagged todos with badge |
 | `app/(business)/business/plan/[ideaId]/page.tsx` | Plan builder — type dropdown, SWOT/BMC/Financials panels, AI draft, PDF download, Share button, DB persistence |
 | `app/(business)/business/share/[token]/page.tsx` | Public read-only share page — no auth, renders doc content + PDF download link |
 
 ## Database Models Used
-- `BusinessIdea` — idea record: title, description, 6 score fields, shareToken, guestSessionId, userId
+- `BusinessIdea` — idea record: title, description, 6 score fields, shareToken, guestSessionId, userId; JSONB: `transcript`, `dimProvenance`, `interviewState`, `marketSizing` (BIZDOC-4)
 - `BusinessDocument` — typed document per idea: type, content (Json), status, `@@unique([ideaId, type])`
 - `IdeaQuestion` — question bank: text, type, category, scoringDim, dependsOn logic, options JSON
 - `IdeaResponse` — user answer per question: answer, score, feedback
+- `Todo` — BIZDOC-4: user tasks with optional `ideaId` tag; use `(db as any).todo`
 - **`BusinessPlan` — retired** (model removed from schema; table preserved in DB but unused; data access via Prisma client no longer possible)
 
 ## BMC Layout

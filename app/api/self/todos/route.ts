@@ -9,9 +9,13 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const hobbyId = url.searchParams.get("hobbyId");
+  const ideaId = url.searchParams.get("ideaId");
+  const validationOnly = url.searchParams.get("validationOnly") === "true";
 
   const where: any = { userId: user.id };
   if (hobbyId) where.hobbyId = hobbyId;
+  if (ideaId) where.ideaId = ideaId;
+  if (validationOnly) where.validationLabel = { not: null };
 
   const todos = await db.todo.findMany({ where, orderBy: { createdAt: "desc" } });
   return NextResponse.json({ ok: true, data: todos });
@@ -25,15 +29,17 @@ export async function POST(req: Request) {
   const title = String(body.title ?? "").trim();
   if (!title) return NextResponse.json({ ok: false, error: "Missing title" }, { status: 400 });
 
-  const hobbyId = body.hobbyId ?? null;
-
   try {
     const todo = await db.todo.create({
       data: {
         userId: user.id,
         title,
         freq: body.freq ?? null,
-        hobbyId,
+        hobbyId: body.hobbyId ?? null,
+        ideaId: body.ideaId ?? null,
+        validationLabel: body.validationLabel ?? null,
+        successThreshold: body.successThreshold ?? null,
+        assumptionKey: body.assumptionKey ?? null,
       },
     });
     return NextResponse.json({ ok: true, data: todo }, { status: 201 });

@@ -788,6 +788,66 @@ Use `(db as any).businessIdea` until `prisma generate` has been run with these f
 ### UI changes (`app/(business)/business/idea/page.tsx`)
 Replaced the batch form with a chat-bubble layout (user right / assistant left). `handleStart()` creates the idea then calls interview with `userMessage: null` to get the first question. `handleAnswer()` submits turns. `handleFinalize()` calls the finalize route and renders `ResultsReport`. `LiveScoreDashboard` sidebar updates provisionally after every turn.
 
+## Market-Sizing Deepening + Validation Tasks (BIZDOC-4)
+
+Extends BIZDOC-3 with three additions: (a) AI reaction per answer, (b) TAM/SAM/SOM market-sizing on first `marketNeed` answer, (c) assumption → validation task → Todo. Full design spec: `docs/BUSINESS_ANALYSIS_FLOW.md`.
+
+### Math-in-code contract
+**MATH IN CODE, JUDGMENT IN MODEL** — the cloud model returns only: population basis, SAM%, SOM%, and rationale. ALL arithmetic (`tam = pop`, `sam = round(tam × samPct)`, `som = round(sam × somPct)`) is computed in `components/business/MarketSizingPanel.tsx` and by `computeSizing()` in `lib/business/runMarketSizing.ts`. Never let the AI compute numbers.
+
+### AI reaction per answer
+`runInterviewer()` in `lib/business/runInterviewer.ts` now returns `reaction: string | null`. The prompt wrapper `buildInterviewerPromptWithReaction()` appends a `reaction` field to the JSON template — one short honest sentence reacting to the user's answer. The interview route passes `reaction` through in the turn response. On the idea page, reactions render as small italic text between the user bubble and the next question bubble. Graceful degradation: if the model returns no reaction, the field is null and nothing renders.
+
+### Market-sizing deepening (TAM/SAM/SOM)
+Fires exactly once per interview — on the first `marketNeed` dimension answer — controlled by `interviewState.marketSizingDone` (added to `InterviewState` in `lib/business/interviewConfig.ts`).
+
+- **`lib/business/runMarketSizing.ts`** — `runMarketSizing(title, desc, sector, answer)`: calls cloud OpenRouter model, parses JSON `{ populationBasis, samPct, samRationale, somPct, somRationale, samValidationTask, samSuccessThreshold, somValidationTask, somSuccessThreshold }`, runs `computeSizing()` to produce `{ tam, sam, som, assumptions[] }`. Returns `MarketSizing | null` (null when cloud unavailable).
+- **`BusinessIdea.marketSizing JSONB`** — stored on the idea. Added via Neon migration alongside the `Todo` table.
+- **Fire-and-forget** — `runMarketSizing()` runs as a background promise in the interview route. Client gets `marketSizingPending: true` and polls `GET /api/business/idea?ideaId=` every 3 s until `marketSizing` appears.
+- **`components/business/MarketSizingPanel.tsx`** — client component. Props: `{ sizing: MarketSizingData, ideaId, isGuest }`. User can adjust `samPct`/`somPct` sliders; numbers recompute instantly in component code. Shows TAM/SAM/SOM grid + sliders + validation task cards. Guest footer says "Sign in to save"; logged-in footer links to todo list.
+- **User-adjustable sliders** — `samPct` (1–80%), `somPct` (1–50%). Initialized from model's values, editable client-side only (not persisted).
+
+### Assumption → validation task → Todo
+When market sizing completes server-side, `createValidationTodos(userId, ideaId, sizing)` writes one `Todo` row per assumption (SAM + SOM tasks). For guests: sizing is stored on the idea JSON and surfaced read-only by `ValidationTasks` from `guestSizing` prop — no DB write.
+
+### Todo model (added BIZDOC-4, updated BIZDOC-5)
+Fields: `id`, `userId`, `title`, `completed`, `freq?` (schedule frequency: "daily"/"weekly"/"monthly" — NOT an assumption key), `assumptionKey?` ("sam"/"som" — which market assumption this validates), `hobbyId?`, `ideaId?`, `validationLabel?`, `successThreshold?`, `createdAt`. Use `db.todo` (typed after full `prisma generate`).
+
+**`freq` vs `assumptionKey`** — `freq` is for schedule frequency only. BIZDOC-4 incorrectly used `freq` to store "sam"/"som"; BIZDOC-5 migrated those rows to `assumptionKey` and cleared `freq`. Do not store assumption keys in `freq`.
+
+### Three-view pattern (ONE list, three views — BIZDOC-5)
+- **Self-tab** (`components/self/TodoList.tsx`) — all user todos; idea-tagged todos show indigo badge.
+- **Business idea sidebar** (`components/business/ValidationTasks.tsx`) — filtered by `?ideaId=`.
+- **Initiative Hub overview** (`components/business/ValidationTasks.tsx`) — `validationOnly=true` prop; fetches `?validationOnly=true` (all todos where `validationLabel IS NOT NULL`); returns `null` when empty so no empty card appears.
+- `GET /api/self/todos` accepts `?ideaId=`, `?hobbyId=`, `?validationOnly=true` filters.
+- `POST /api/self/todos` accepts `ideaId`, `validationLabel`, `successThreshold`, `assumptionKey`.
+
+### Guest handling
+- Guests cannot create Todo rows (session-only auth on the todos API).
+- Market sizing is stored on `BusinessIdea.marketSizing` (accessible via guest cookie ownership).
+- `ValidationTasks` receives `guestSizing` prop — renders assumption tasks read-only from the JSON with a "Sign in to save" note.
+- `createValidationTodos()` is gated on `sessionUserId` — no-op for guests.
+
+## Business↔Goal Linking (BIZDOC-5)
+
+Goals (`AiGoal`) and businesses (`BusinessIdea`) are **separate independently-created entities**. A goal can have many businesses linked. A business does NOT require a goal and is NOT promoted into a goal. The link is mutable — add or remove at any time.
+
+### Link storage
+`BusinessIdeaGoal (businessIdeaId, goalId)` — many-to-many join table, composite PK, cascade-delete on both sides. Added via Neon MCP migration. **Uses raw SQL (`$queryRaw`/`$executeRaw`) until full `prisma generate` is run** — the new model is not in the stale DLL engine.
+
+### API routes (`app/api/business/idea/goals/route.ts`)
+| Method | Auth | Action |
+|---|---|---|
+| GET `?ideaId=` | Session or biz-guest cookie | List linked goals (guests always return `[]`) |
+| POST `{ ideaId, goalId }` | Session required | Link idea → goal (idempotent, ownership verified) |
+| DELETE `{ ideaId, goalId }` | Session required | De-link |
+
+### UI
+`components/business/GoalLinker.tsx` — rendered below `ResultsReport` on the idea page after evaluation completes. Fetches `/api/self/goals` + linked goals in parallel. Toggle-style selection. Guests see nothing.
+
+### freq → assumptionKey migration
+`Todo.freq` is now schedule-frequency only. The "sam"/"som" discriminator was migrated to `Todo.assumptionKey String?` via Neon SQL. All three write paths (`createValidationTodos`, market-sizing PATCH, todos POST) now use `assumptionKey`. `market-sizing/route.ts` reconciles labels using `{ ideaId, assumptionKey: "sam"/"som" }`.
+
 ## Business Document System (BIZDOC-1b)
 
 Per-idea typed documents replace the old `BusinessPlan` model (retired — table still exists in DB but Prisma client no longer exposes it).
@@ -835,6 +895,10 @@ Start every session by reading /docs/START_HERE.md.
 - **AI setup transaction timeout** — `prisma.$transaction` default is 5 s. The apply route uses `{ timeout: 30000 }`. Any new sequential-await transaction creating multiple rows must also set an explicit timeout or it will expire mid-way with P2028.
 - **Server component auth uses `cookies()`, not `getServerUser(req)`** — `getServerUser` requires a `Request` object and is only usable in API routes. Server components (pages, layouts) must read the session via `cookies()` from `next/headers` + `verifySessionToken()` directly. See `app/earn/initiative/[pageId]/page.tsx` and `app/(with-nav)/layout.tsx` as canonical examples.
 - **`Order.deliveryStatus` / `assignedToId` / `deliveryNote` / `vehicleId` / `partnerStatus` were added via `db push`, not a migration file** — there is no migration SQL for these columns. If the DB is ever reset from migrations, these columns will be missing. Use `db push` again or add them manually.
+- **`BusinessIdeaGoal` and `Todo.assumptionKey` require raw SQL** — both added via Neon MCP migration (BIZDOC-5). The DLL engine does not know about them until a full `npx prisma generate` (server stopped). `BusinessIdeaGoal` queries use `$queryRaw`/`$executeRaw` in `app/api/business/idea/goals/route.ts`. `db.todo.assumptionKey` is typed (--no-engine ran) but only works at runtime after full regenerate.
+- **`Todo.freq` is for schedule frequency only — do not put assumption keys in it** — the BIZDOC-4 pattern of storing "sam"/"som" in `freq` was corrected in BIZDOC-5. Use `assumptionKey` for market-sizing assumption discrimination. Existing rows were migrated.
+- **`Todo.hobbyId` is an orphaned FK** — references a `Hobby` model that does not exist in schema. The column exists in the DB but is always null. Do not add FK constraint or a Hobby model without deliberate planning.
+- **`/api/self/todos/stats` does not exist** — `components/SelfAnalyticsDashboard.tsx` calls this route; it 404s silently. The analytics page at `app/(with-nav)/self/analytics/page.tsx` is rarely visited so the impact is low.
 - **`Order.assignedToId` and `Order.vehicleId` are NOT Prisma relations** — both are plain `String?` fields. `assignedToId` stores a `Collaboration.id`; `vehicleId` stores a `Vehicle.id`. Resolve them manually; do not use Prisma `include` or `connect` on them.
 - **`Order.vehicleId` is NOT cleared when the vehicle broadcast stops** — the partner's `stop()` call deletes the `Vehicle` row but leaves `Order.vehicleId` set. The tracking page handles this correctly because the vehicles API filters by `updatedAt >= 2 min ago`, so a deleted vehicle returns no rows and the map shows no marker.
 - **Delivery partner PATCH is restricted** — partners can only send `partnerAction`, `deliveryStatus`, or `vehicleId`. Any attempt to send `assignedToId` or `deliveryNote` from the partner returns 400. The owner UI must not expose those fields to partners.
