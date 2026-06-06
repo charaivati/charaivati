@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const A = {
@@ -10,13 +10,18 @@ const A = {
 
 type OrderItem = { blockId: string; title: string; price: number; quantity: number };
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
-type CollabPage = { id: string; title: string; pageType: string };
-type Collab = { id: string; role: string; requester: CollabPage; receiver: CollabPage };
+
+// Pool types — one entry per assignable person/business for a store
+type TeamMemberEntry = { kind: "user"; collabId: string; userId: string; label: string };
+type PartnerEntry    = { kind: "page"; collabId: string; label: string; role: string };
+type Pool = { teamMembers: TeamMemberEntry[]; partners: PartnerEntry[] };
+
 type Order = {
   id: string; status: string; total: number; createdAt: string;
   deliveryStatus?: string | null;
   vehicleId?: string | null;
   assignedToId?: string | null;
+  assignedToUserId?: string | null;  // set when assigned via { userId } path
   deliveryNote?: string | null;
   partnerStatus?: string | null;
   invoiceUrl?: string | null;
@@ -85,6 +90,20 @@ const FILTER_TABS = [
   { key: "out_for_delivery", label: "Out for Delivery" },
   { key: "delivered", label: "Delivered" },
 ];
+
+class OrderCardBoundary extends Component<{ children: React.ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  componentDidCatch() { this.setState({ crashed: true }); }
+  render() {
+    if (this.state.crashed) return (
+      <div className="bg-white rounded-xl p-4 shadow-sm text-xs"
+        style={{ border: "1px solid #FECACA", color: "#EF4444" }}>
+        Couldn't load this order — data may be incomplete.
+      </div>
+    );
+    return this.props.children;
+  }
+}
 
 function InvoiceSection({ orderId, inv, onSignUpload }: {
   orderId: string;
@@ -213,7 +232,7 @@ export default function AllOrdersPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState<string | null>(null);
-  const [partnersByStoreId, setPartnersByStoreId] = useState<Record<string, Collab[]>>({});
+  const [poolByStoreId, setPoolByStoreId] = useState<Record<string, Pool>>({});
 
   useEffect(() => {
     const url = storeId
@@ -233,16 +252,42 @@ export default function AllOrdersPage() {
         }
         setInvoiceStates(init);
 
-        // Load collaboration partners for each unique store
+        // Load the full assignee pool (team members + partners) for each unique store
         const uniqueStoreIds = [...new Set(data.map((o) => o.store.id))];
         for (const sid of uniqueStoreIds) {
           fetch(`/api/store/${sid}`, { credentials: "include" })
             .then((r) => r.ok ? r.json() : null)
-            .then((store: any) => {
+            .then(async (store: any) => {
               if (!store?.pageId) return;
-              return fetch(`/api/collaboration?pageId=${store.pageId}&direction=out&status=accepted`, { credentials: "include" })
-                .then((r) => r.ok ? r.json() : [])
-                .then((collabs: Collab[]) => setPartnersByStoreId((prev) => ({ ...prev, [sid]: collabs })));
+              const pageId: string = store.pageId;
+              const [teamRes, collabRes] = await Promise.all([
+                fetch(`/api/initiative/${pageId}/team`, { credentials: "include" }),
+                fetch(`/api/collaboration?pageId=${pageId}&direction=out&status=accepted`, { credentials: "include" }),
+              ]);
+              const teamData = teamRes.ok ? await teamRes.json() : { members: [] };
+              const collabs  = collabRes.ok ? await collabRes.json() : [];
+
+              // User-type collabs (receiverUserId set) → Team Members group
+              const teamMembers: TeamMemberEntry[] = (teamData.members ?? [])
+                .filter((m: any) => !!m.receiverUserId && !!m.receiverUser)
+                .map((m: any): TeamMemberEntry => ({
+                  kind: "user",
+                  collabId: m.id,
+                  userId:   m.receiverUserId as string,
+                  label:    (m.receiverUser?.name ?? "Team Member") as string,
+                }));
+
+              // Page-type collabs (receiverPage set) → Partners group
+              const partners: PartnerEntry[] = (collabs as any[])
+                .filter((c: any) => !!c.receiverPage)
+                .map((c: any): PartnerEntry => ({
+                  kind:     "page",
+                  collabId: c.id as string,
+                  label:    (c.receiverPage?.title ?? "Partner") as string,
+                  role:     (c.role as string).replace(/_/g, " "),
+                }));
+
+              setPoolByStoreId((prev) => ({ ...prev, [sid]: { teamMembers, partners } }));
             })
             .catch(() => {});
         }
@@ -310,7 +355,16 @@ export default function AllOrdersPage() {
         if (o.id !== orderId) return o;
         return {
           ...o,
-          ...("assignedToId" in payload && { assignedToId: payload.assignedToId as string | null }),
+          // Page-type collab assignment: { assignedToId } — clears user-type
+          ...("assignedToId" in payload && {
+            assignedToId:     payload.assignedToId as string | null,
+            assignedToUserId: null,
+          }),
+          // User-type (team member) assignment: { userId } — clears collab-type
+          ...("userId" in payload && {
+            assignedToUserId: payload.userId as string | null,
+            assignedToId:     null,
+          }),
           ...("deliveryNote" in payload && { deliveryNote: payload.deliveryNote as string | null }),
           partnerStatus: updated.partnerStatus ?? o.partnerStatus,
         };
@@ -375,7 +429,8 @@ export default function AllOrdersPage() {
         ) : filteredOrders.map((order) => {
           const inv = invoiceStates[order.id];
           return (
-            <div key={order.id} className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${A.border}` }}>
+            <OrderCardBoundary key={order.id}>
+            <div className="bg-white rounded-xl p-5 shadow-sm" style={{ border: `1px solid ${A.border}` }}>
               <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -433,10 +488,10 @@ export default function AllOrdersPage() {
                 <div className="md:col-span-1">
                   <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>ITEMS</p>
                   <div className="space-y-1">
-                    {order.items.map((item, i) => (
+                    {(order.items ?? []).filter(Boolean).map((item, i) => (
                       <div key={i} className="flex justify-between text-xs">
-                        <span style={{ color: A.text }}>{item.title} ×{item.quantity}</span>
-                        <span style={{ color: A.textMuted }}>₹{(item.price * item.quantity).toLocaleString("en-IN")}</span>
+                        <span style={{ color: A.text }}>{item?.title ?? "Item"} ×{item?.quantity ?? 0}</span>
+                        <span style={{ color: A.textMuted }}>₹{((item?.price ?? 0) * (item?.quantity ?? 0)).toLocaleString("en-IN")}</span>
                       </div>
                     ))}
                   </div>
@@ -543,47 +598,91 @@ export default function AllOrdersPage() {
                 const ds = order.deliveryStatus ?? "pending";
                 const dsIdx = DELIVERY_STEPS.indexOf(ds as typeof DELIVERY_STEPS[number]);
                 if (dsIdx < 1 || ds === "cancelled" || ds === "delivered") return null;
-                const orderPartners = partnersByStoreId[order.store.id] ?? [];
+
+                const pool = poolByStoreId[order.store.id] ?? { teamMembers: [], partners: [] };
                 const busy = updatingDelivery === order.id;
                 const badge = order.partnerStatus ? PARTNER_STATUS_BADGE[order.partnerStatus] : null;
+
+                // Resolve who is currently assigned for the green card display
+                const assignedPageEntry = order.assignedToId
+                  ? pool.partners.find((p) => p.collabId === order.assignedToId) ?? null
+                  : null;
+                const assignedUserEntry = order.assignedToUserId
+                  ? pool.teamMembers.find((m) => m.userId === order.assignedToUserId) ?? null
+                  : null;
+                const assignedLabel  = assignedPageEntry?.label ?? assignedUserEntry?.label ?? null;
+                const assignedSublbl = assignedPageEntry?.role  ?? (assignedUserEntry ? "Team Member" : null);
+
+                // Encode current assignment as a prefixed string for the select value
+                const selectValue = order.assignedToUserId
+                  ? `user::${order.assignedToUserId}`
+                  : order.assignedToId
+                    ? `page::${order.assignedToId}`
+                    : "";
+
+                function handleAssign(raw: string) {
+                  if (!raw) {
+                    // Empty → unassign (clears both fields server-side)
+                    patchDelivery(order.id, { assignedToId: null });
+                  } else if (raw.startsWith("user::")) {
+                    // Team member — backend path: { userId }
+                    patchDelivery(order.id, { userId: raw.slice(6) });
+                  } else if (raw.startsWith("page::")) {
+                    // Partner — backend path: { assignedToId: collabId }
+                    patchDelivery(order.id, { assignedToId: raw.slice(6) });
+                  }
+                }
+
                 return (
                   <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
                     <p className="text-xs font-semibold mb-3" style={{ color: A.textMuted }}>DELIVERY PARTNER</p>
-                    {order.assignedToId && (() => {
-                      const collab = orderPartners.find((c) => c.id === order.assignedToId);
-                      if (!collab) return null;
-                      return (
-                        <div className="mb-3 p-2.5 rounded-lg flex items-center gap-3"
-                          style={{ background: "#F0FDF4", border: "1px solid #86EFAC" }}>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs font-semibold truncate" style={{ color: "#14532D" }}>
-                              {collab.receiver.title}
-                            </p>
-                            <p className="text-xs" style={{ color: "#166534" }}>
-                              {collab.role.replace(/_/g, " ")}
-                            </p>
-                          </div>
+
+                    {/* Currently-assigned green card */}
+                    {assignedLabel && (
+                      <div className="mb-3 p-2.5 rounded-lg flex items-center gap-3"
+                        style={{ background: "#F0FDF4", border: "1px solid #86EFAC" }}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold truncate" style={{ color: "#14532D" }}>
+                            {assignedLabel}
+                          </p>
+                          {assignedSublbl && (
+                            <p className="text-xs" style={{ color: "#166534" }}>{assignedSublbl}</p>
+                          )}
                         </div>
-                      );
-                    })()}
+                      </div>
+                    )}
+
                     <div className="flex items-start gap-4 flex-wrap">
                       <div className="flex flex-col gap-1" style={{ minWidth: 200 }}>
                         <label className="text-xs font-medium" style={{ color: A.textMuted }}>Assigned to</label>
                         <select
                           disabled={busy}
-                          value={order.assignedToId ?? ""}
-                          onChange={(e) => patchDelivery(order.id, { assignedToId: e.target.value || null })}
+                          value={selectValue}
+                          onChange={(e) => handleAssign(e.target.value)}
                           className="text-xs rounded-md px-2 py-1.5"
                           style={{ border: `1px solid ${A.border}`, color: A.text, background: "#fff", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.5 : 1 }}
                         >
-                          <option value="">Deliver myself</option>
-                          {orderPartners.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.receiver.title} · {c.role.replace(/_/g, " ")}
-                            </option>
-                          ))}
+                          <option value="">— Unassigned —</option>
+                          {pool.teamMembers.length > 0 && (
+                            <optgroup label="Team Members">
+                              {pool.teamMembers.map((m) => (
+                                <option key={m.collabId} value={`user::${m.userId}`}>
+                                  {m.label}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {pool.partners.length > 0 && (
+                            <optgroup label="Partners">
+                              {pool.partners.map((p) => (
+                                <option key={p.collabId} value={`page::${p.collabId}`}>
+                                  {p.label} · {p.role}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
                         </select>
-                        {order.assignedToId && badge && (
+                        {(order.assignedToId || order.assignedToUserId) && badge && (
                           <span className="text-xs px-2 py-0.5 rounded-full w-fit"
                             style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}>
                             {badge.label}
@@ -617,6 +716,7 @@ export default function AllOrdersPage() {
               )}
 
             </div>
+            </OrderCardBoundary>
           );
         })}
       </main>

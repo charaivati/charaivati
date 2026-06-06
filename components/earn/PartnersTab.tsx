@@ -131,7 +131,9 @@ export default function PartnersTab({ pageId, ownerPages }: PartnersTabProps) {
         ...(Array.isArray(outAcc) ? (outAcc as Collab[]).map((c) => ({ ...c, direction: "out" as const })) : []),
       ];
       const seen = new Set<string>();
-      const deduped = raw.filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+      const deduped = raw
+        .filter((c) => c.receiverPage !== null)  // user-type collabs are team members, not partners
+        .filter((c) => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
       setActivePartners(deduped);
       setPendingIn(Array.isArray(inPend) ? (inPend as Collab[]) : []);
     } catch {

@@ -353,7 +353,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       data: {
         assignedToUserId: targetUserId ?? null,
         assignedToId:     null,           // clear any collab-based assignment
-        partnerStatus:    targetUserId != null ? "assigned" : null,
+        partnerStatus:    targetUserId != null ? (targetUserId === user.id ? "accepted" : "assigned") : null,
       },
     });
 

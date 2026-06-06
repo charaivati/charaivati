@@ -91,7 +91,6 @@ export async function GET(
   const userPageIds = new Set(userPages.map((p) => p.id));
   const userTeamCollab = members.find(
     (m) =>
-      userPageIds.has(m.requesterId) ||
       (m.receiverPageId && userPageIds.has(m.receiverPageId)) ||
       m.receiverUserId === user.id
   );
