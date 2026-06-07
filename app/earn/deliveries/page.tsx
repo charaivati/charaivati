@@ -32,8 +32,16 @@ type RawOrder = {
   pickupLng: number | null;
   ownerPhone: string | null;
   activeStepId: string | null;
+  activeStepActivityType: string | null;
   cycleCount: number | null;
 };
+
+// Keep rows whose active step is a delivery step (or has no resolvable
+// active step / activityType — never hide a real assignment by guessing).
+function isDeliveryDispatch(o: RawOrder): boolean {
+  if (!o.activeStepId || !o.activeStepActivityType) return true;
+  return o.activeStepActivityType === "delivery";
+}
 
 type RawCompleted = {
   id: string;
@@ -113,7 +121,11 @@ export default async function DeliveriesPage() {
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
       (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
        WHERE osp."orderId" = o.id AND osp.status = 'active'
-       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount",
+      (SELECT ws."activityType" FROM "OrderStepProgress" osp
+       JOIN "WorkflowStep" ws ON ws.id = osp."stepId"
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepActivityType"
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
@@ -159,7 +171,11 @@ export default async function DeliveriesPage() {
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
       (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
        WHERE osp."orderId" = o.id AND osp.status = 'active'
-       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount",
+      (SELECT ws."activityType" FROM "OrderStepProgress" osp
+       JOIN "WorkflowStep" ws ON ws.id = osp."stepId"
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepActivityType"
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
@@ -210,7 +226,11 @@ export default async function DeliveriesPage() {
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
       (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
        WHERE osp."orderId" = o.id AND osp.status = 'active'
-       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount",
+      (SELECT ws."activityType" FROM "OrderStepProgress" osp
+       JOIN "WorkflowStep" ws ON ws.id = osp."stepId"
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepActivityType"
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
@@ -254,7 +274,11 @@ export default async function DeliveriesPage() {
        ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepId",
       (SELECT osp."cycleCount" FROM "OrderStepProgress" osp
        WHERE osp."orderId" = o.id AND osp.status = 'active'
-       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount"
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "cycleCount",
+      (SELECT ws."activityType" FROM "OrderStepProgress" osp
+       JOIN "WorkflowStep" ws ON ws.id = osp."stepId"
+       WHERE osp."orderId" = o.id AND osp.status = 'active'
+       ORDER BY osp."activatedAt" DESC LIMIT 1) AS "activeStepActivityType"
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
@@ -273,15 +297,17 @@ export default async function DeliveriesPage() {
   afterBlock.forEach((o) => seenIds.add(o.id));
   const personalUnique = rawPersonalOrders.filter((o) => !seenIds.has(o.id));
 
-  const mergedRaw = [...rawCollabOrders, ...afterCollab, ...afterBlock, ...personalUnique];
+  const mergedRaw = [...rawCollabOrders, ...afterCollab, ...afterBlock, ...personalUnique]
+    .filter(isDeliveryDispatch);
   const personalIds = new Set(personalUnique.map((o) => o.id));
   mergedRaw.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   const orders: DeliveryOrder[] = mergedRaw.map((o) => {
     const isSelf       = o.assignedToId === userId;
     const isPersonal   = personalIds.has(o.id);
+    const { activeStepActivityType: _activeStepActivityType, ...rest } = o;
     return {
-      ...o,
+      ...rest,
       items: o.items as DeliveryOrder["items"],
       createdAt: o.createdAt.toISOString(),
       collabRole:     isPersonal ? "employee" : isSelf ? "self" : (collabMeta[o.assignedToId]?.role ?? "employee"),

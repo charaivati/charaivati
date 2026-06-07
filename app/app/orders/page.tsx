@@ -54,7 +54,20 @@ type QuoteRequest = {
 };
 
 type VehiclePos = { lat: number; lng: number; label: string; type: string } | null;
-type TabId = "my" | "store" | "requests" | "tracking";
+type TabId = "my" | "store" | "requests" | "tasks" | "tracking";
+
+type ProcessTask = {
+  ospId: string;
+  orderId: string;
+  orderRef: string;
+  stepId: string;
+  stepName: string;
+  storeName: string;
+  storeSlug: string | null;
+  itemsSummary: string;
+  total: number;
+  createdAt: string;
+};
 
 // ── Style constants ───────────────────────────────────────────────────────────
 
@@ -247,6 +260,47 @@ function RequestCard({ q, onSubmit }: { q: QuoteRequest; onSubmit: (quoteId: str
   );
 }
 
+function TaskCard({ task, onConfirm }: { task: ProcessTask; onConfirm: (ospId: string, orderId: string, stepId: string) => Promise<void> }) {
+  const [confirming, setConfirming] = useState(false);
+
+  async function handleConfirm() {
+    if (confirming) return;
+    setConfirming(true);
+    try {
+      await onConfirm(task.ospId, task.orderId, task.stepId);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div style={{ background: "#fff", border: "0.5px solid #e2e8f0", borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+        <div>
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#111827", fontFamily: "monospace" }}>{task.orderRef}</span>
+          <span style={{ marginLeft: 8, fontSize: 11, color: "#64748B", background: "#F1F5F9", padding: "1px 6px", borderRadius: 6 }}>{task.stepName}</span>
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 600, background: "#F8FAFC", color: "#64748B", padding: "2px 8px", borderRadius: 99, border: "0.5px solid #e2e8f0" }}>
+          {task.storeName}
+        </span>
+      </div>
+
+      <div style={{ fontSize: 12, color: "#64748B", marginBottom: 10 }}>{task.itemsSummary}</div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 13, fontWeight: 600 }}>₹{task.total.toLocaleString("en-IN")}</span>
+        <button
+          onClick={handleConfirm}
+          disabled={confirming}
+          style={{ background: "#0F6E56", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: confirming ? 0.6 : 1 }}
+        >
+          {confirming ? "…" : "Confirm completed ✓"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function OrderCardSkeleton() {
@@ -273,13 +327,14 @@ export default function OrdersPage() {
 
   // PART 6 — initialise tab from ?tab= URL param
   const rawTab = searchParams?.get("tab");
-  const validTabs: TabId[] = ["my", "store", "requests", "tracking"];
+  const validTabs: TabId[] = ["my", "store", "requests", "tasks", "tracking"];
   const initialTab: TabId = validTabs.includes(rawTab as TabId) ? (rawTab as TabId) : "my";
 
   const TABS = [
     { id: "my"       as const, label: t("app-orders-tab-my",      "My Orders")    },
     { id: "store"    as const, label: t("app-orders-tab-store",    "Store Orders") },
     { id: "requests" as const, label: "Requests"                                   },
+    { id: "tasks"    as const, label: "Tasks"                                      },
     { id: "tracking" as const, label: t("app-orders-tab-tracking", "Tracking")     },
   ];
 
@@ -288,8 +343,11 @@ export default function OrdersPage() {
   const [sellerOrders,  setSellerOrders]  = useState<SellerOrder[]>([]);
   const [requests,      setRequests]      = useState<QuoteRequest[]>([]);
   const [requestsLoaded,setRequestsLoaded]= useState(false);
+  const [tasks,         setTasks]         = useState<ProcessTask[]>([]);
+  const [tasksLoaded,   setTasksLoaded]   = useState(false);
   const [loading,       setLoading]       = useState(true);
   const [reqLoading,    setReqLoading]    = useState(false);
+  const [tasksLoading,  setTasksLoading]  = useState(false);
   const sseRef = useRef<EventSource | null>(null);
 
   const refreshBuyerOrders = useCallback(async () => {
@@ -298,6 +356,16 @@ export default function OrdersPage() {
       if (res.ok) {
         const buyer = await res.json();
         setBuyerOrders(Array.isArray(buyer) ? buyer : []);
+      }
+    } catch {}
+  }, []);
+
+  const refreshTasks = useCallback(async () => {
+    try {
+      const res = await fetch("/api/orders/tasks", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setTasks(Array.isArray(data) ? data : []);
       }
     } catch {}
   }, []);
@@ -322,7 +390,7 @@ export default function OrdersPage() {
     function connect() {
       const es = new EventSource("/api/notifications/stream");
       sseRef.current = es;
-      es.onmessage = () => { refreshBuyerOrders(); };
+      es.onmessage = () => { refreshBuyerOrders(); if (tasksLoaded) refreshTasks(); };
       es.onerror = () => {
         es.close();
         retryTimer = setTimeout(connect, 10000);
@@ -356,6 +424,13 @@ export default function OrdersPage() {
       .finally(() => setReqLoading(false));
   }, [activeTab, requestsLoaded]);
 
+  // Lazy-load process tasks when tab is first opened
+  useEffect(() => {
+    if (activeTab !== "tasks" || tasksLoaded) return;
+    setTasksLoading(true);
+    refreshTasks().finally(() => { setTasksLoaded(true); setTasksLoading(false); });
+  }, [activeTab, tasksLoaded, refreshTasks]);
+
   // Assignment sub-orders (parentOrderId set) are fulfillment tasks for the user, not purchases.
   // Regular purchases stay in My Orders; assignments move to Store Orders.
   const assignmentOrders  = buyerOrders.filter((o) => !!o.parentOrderId);
@@ -381,6 +456,16 @@ export default function OrdersPage() {
     }
   }
 
+  async function handleConfirmTask(ospId: string, orderId: string, stepId: string) {
+    const res = await fetch(`/api/order/${orderId}/step/${stepId}/confirm`, {
+      method: "PATCH",
+      credentials: "include",
+    });
+    if (res.ok) {
+      setTasks((prev) => prev.filter((task) => task.ospId !== ospId));
+    }
+  }
+
   return (
     <div style={{ background: "#F8FAFC", minHeight: "100vh", paddingBottom: 80, fontFamily: "system-ui,-apple-system,sans-serif" }}>
       <div style={{ maxWidth: 480, margin: "0 auto", width: "100%" }}>
@@ -395,6 +480,7 @@ export default function OrdersPage() {
             const isActive = activeTab === tab.id;
             const badge = tab.id === "tracking" ? trackingOrders.length
               : tab.id === "requests" ? pendingRequests.length
+              : tab.id === "tasks" ? tasks.length
               : 0;
             return (
               <button
@@ -422,7 +508,7 @@ export default function OrdersPage() {
 
         {/* Content */}
         <div style={{ padding: "12px 16px" }}>
-          {loading && activeTab !== "requests" ? (
+          {loading && activeTab !== "requests" && activeTab !== "tasks" ? (
             <>
               <OrderCardSkeleton />
               <OrderCardSkeleton />
@@ -592,6 +678,23 @@ export default function OrdersPage() {
                   q={q}
                   onSubmit={(quoteId, amount) => handleQuoteSubmit(quoteId, q.orderId, amount)}
                 />
+              ))
+            )
+
+          /* ── TASKS ──────────────────────────────────────────────────────── */
+          ) : activeTab === "tasks" ? (
+            tasksLoading ? (
+              <>
+                <OrderCardSkeleton />
+                <OrderCardSkeleton />
+              </>
+            ) : tasks.length === 0 ? (
+              <div style={{ textAlign: "center", color: "#64748B", padding: 48, fontSize: 14 }}>
+                No tasks to confirm right now.
+              </div>
+            ) : (
+              tasks.map((task) => (
+                <TaskCard key={task.ospId} task={task} onConfirm={handleConfirmTask} />
               ))
             )
 

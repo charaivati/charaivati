@@ -84,12 +84,12 @@ async function upsertAddress(userId: string) {
 
 async function upsertCollab(
   requesterId: string,
-  receiverId: string,
+  receiverPageId: string,
   role: string,
   extra: { scope: string; teamRole: string | null; initiativeId: string }
 ) {
   const existing = await prisma.collaboration.findFirst({
-    where: { requesterId, receiverId, role },
+    where: { requesterId, receiverPageId, role },
   });
   if (existing) {
     return prisma.collaboration.update({
@@ -98,7 +98,7 @@ async function upsertCollab(
     });
   }
   return prisma.collaboration.create({
-    data: { requesterId, receiverId, role, status: "accepted", scope: extra.scope, teamRole: extra.teamRole, initiativeId: extra.initiativeId },
+    data: { requesterId, receiverPageId, role, status: "accepted", scope: extra.scope, teamRole: extra.teamRole, initiativeId: extra.initiativeId },
   });
 }
 
@@ -147,6 +147,12 @@ async function seedWorkflowSteps(
       },
     }),
   ]);
+
+  // activityType isn't in the typed Prisma client yet (added via raw migration) and
+  // new steps default to "normal" — step3 must be "delivery" for assignNextPartner /
+  // GPS / cycling / escalation to ever fire. Set it explicitly via raw SQL.
+  await prisma.$executeRaw`UPDATE "WorkflowStep" SET "activityType" = 'delivery' WHERE id = ${s3.id}`;
+
   return [s1, s2, s3];
 }
 
@@ -174,12 +180,12 @@ async function runActivateWorkflow(orderId: string, initiativeId: string) {
     data: { status: "active", activatedAt: new Date() },
   });
 
-  if (!first.quoteRequired && first.assigneeId) {
-    await prisma.order.update({
-      where: { id: orderId },
-      data: { assignedToId: first.assigneeId, partnerStatus: "assigned" },
-    });
-  }
+  // NOTE: do NOT write Order.assignedToId here from the deprecated `assigneeId`
+  // scalar. The real activateWorkflow (lib/workflow/activateWorkflow.ts) never
+  // touches Order.assignedToId for normal-step activation — only assignNextPartner
+  // (delivery dispatch, fired from the owner-confirm branch) sets it. Seeding it
+  // here produced a false positive that masked a missing-dispatch bug
+  // (DELIV-ENGINE-AUDIT-1). assignedToId must stay untouched until real dispatch.
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -270,9 +276,12 @@ async function main() {
     where: { id: orderId },
     select: { assignedToId: true },
   });
-  rec("Order.assignedToId = delivCollab",
-    orderAfterActivate?.assignedToId === delivCollab.id,
-    `got: ${orderAfterActivate?.assignedToId?.slice(-6)}`
+  // Real activateWorkflow never writes Order.assignedToId for a normal-step
+  // activation — only delivery dispatch (assignNextPartner, fired from the
+  // owner-confirm branch) does. It must stay null until real dispatch happens.
+  rec("Order.assignedToId stays null after step-1 (normal) activation",
+    orderAfterActivate?.assignedToId == null,
+    `got: ${orderAfterActivate?.assignedToId?.slice(-6) ?? "null"}`
   );
 
   // ── TEST 3: Confirm Step 1 via HTTP ───────────────────────────────────────
@@ -357,26 +366,31 @@ async function main() {
         where: { id: orderId },
         select: { assignedToId: true, deliveryStatus: true },
       });
-      // After accept, advanceToNextStep immediately activates step 3 (delivery)
-      // and sets assignedToId = step3.assigneeId = delivCollab.id
-      rec("Order.assignedToId = delivCollab (step 3 activated)",
-        oAfterAccept?.assignedToId === delivCollab.id,
-        `got: ${oAfterAccept?.assignedToId?.slice(-6)}`
+      // Step 3 is a delivery step (activityType="delivery"). advanceToNextStep
+      // (advanceToNextStep.ts:44-47) only activates its OSP — it does NOT dispatch.
+      // Dispatch (assignNextPartner: sets assignedToId/deliveryStatus) fires
+      // exclusively from the owner-confirm branch of the step-confirm route
+      // (confirm/route.ts:107-120) — see Test 6.
+      rec("Order.assignedToId stays unset after step 3 activation (no dispatch yet)",
+        oAfterAccept?.assignedToId == null,
+        `got: ${oAfterAccept?.assignedToId?.slice(-6) ?? "null"}`
       );
-      rec("Order.deliveryStatus = out_for_delivery",
-        oAfterAccept?.deliveryStatus === "out_for_delivery",
+      rec("Order.deliveryStatus stays pending until owner dispatches",
+        oAfterAccept?.deliveryStatus === "pending",
         oAfterAccept?.deliveryStatus
       );
     }
   }
 
-  // ── TEST 6: Delivery Partner Confirms Delivery ────────────────────────────
-  console.log("\n[TEST 6] Delivery Partner Confirms Step 3");
-  const r6 = await api("PATCH", `/api/order/${orderId}/step/${step3.id}/confirm`, delivery.id);
+  // ── TEST 6: Owner Confirms Delivery Step → Dispatch ───────────────────────
+  // Delivery steps can ONLY be confirmed by the store owner (no pre-assigned
+  // partner exists yet — assignNextPartner runs as part of this confirm).
+  console.log("\n[TEST 6] Owner Confirms Delivery Step → Dispatch");
+  const r6 = await api("PATCH", `/api/order/${orderId}/step/${step3.id}/confirm`, owner.id);
   if (r6.status !== 200) {
-    rec("HTTP confirm step 3 (delivery)", false, `status ${r6.status}: ${JSON.stringify(r6.data)}`);
+    rec("HTTP confirm step 3 (delivery dispatch by owner)", false, `status ${r6.status}: ${JSON.stringify(r6.data)}`);
   } else {
-    rec("HTTP confirm step 3 (delivery)", true);
+    rec("HTTP confirm step 3 (delivery dispatch by owner)", true);
 
     const osp3c = await prisma.orderStepProgress.findUnique({
       where: { orderId_stepId: { orderId, stepId: step3.id } },
@@ -387,7 +401,11 @@ async function main() {
       where: { id: orderId },
       select: { deliveryStatus: true },
     });
-    rec("Order.deliveryStatus still out_for_delivery",
+    // Owner-confirm of a delivery step always sets deliveryStatus = out_for_delivery,
+    // even though no WorkflowStepAssignee rows exist yet for this step at this point
+    // in the test (Group 8 creates them later) — so assignNextPartner finds nobody
+    // to assign and Order.assignedToId stays null.
+    rec("Order.deliveryStatus = out_for_delivery (dispatched)",
       oAfterD?.deliveryStatus === "out_for_delivery",
       oAfterD?.deliveryStatus
     );
@@ -502,7 +520,11 @@ async function main() {
     }
     await sleep(500);
 
-    // Confirm step2 via HTTP (owner) → activates step3 → assignNextPartner fires (fire-and-forget)
+    // Confirm step2 via HTTP (owner) → activates step3 (delivery) OSP only.
+    // assignNextPartner does NOT fire here — it fires exclusively from the
+    // owner-confirm branch of the step-confirm route when CONFIRMING a delivery
+    // step (confirm/route.ts:107-120; see advanceToNextStep.ts:44-47, which only
+    // activates a delivery step's OSP and explicitly defers dispatch to that route).
     // First set step2 OSP active (it should already be after step1 confirm, but verify)
     const osp2_9 = await prisma.orderStepProgress.findUnique({
       where: { orderId_stepId: { orderId: order2Id, stepId: step2.id } },
@@ -530,6 +552,17 @@ async function main() {
       where: { orderId_stepId: { orderId: order2Id, stepId: step3.id } },
     });
     rec("Order2 step3 OSP active", osp3_9?.status === "active", osp3_9?.status ?? "null");
+
+    // Owner confirms the delivery step — THIS is what actually triggers dispatch
+    // (assignNextPartner cycles WorkflowStepAssignee rows, sets assignedToId/
+    // agreedAmount/partnerStatus, creates the sub-order, and notifies the partner).
+    const r9s3 = await api("PATCH", `/api/order/${order2Id}/step/${step3.id}/confirm`, owner.id);
+    if (r9s3.status !== 200) {
+      rec("Order2 step3 (delivery) confirmed by owner — dispatch fires", false, `status ${r9s3.status}: ${JSON.stringify(r9s3.data)}`);
+    } else {
+      rec("Order2 step3 (delivery) confirmed by owner — dispatch fires", true);
+    }
+    await sleep(800);
 
     // Check assignment results
     const osp3Raw = await (prisma as any).orderStepProgress.findUnique({
@@ -764,14 +797,14 @@ async function main() {
 
   const testGroups = [
     { label: "Test 1 — Place order",                         keys: ["Place Order"] },
-    { label: "Test 2 — Confirm order + workflow activate",   keys: ["3 OSP rows created", "Step 1 OSP active", "Order.assignedToId = delivCollab"] },
+    { label: "Test 2 — Confirm order + workflow activate",   keys: ["3 OSP rows created", "Step 1 OSP active", "Order.assignedToId stays null after step-1 (normal) activation"] },
     { label: "Test 3 — Confirm step 1",                      keys: ["HTTP confirm step 1", "Step 1 OSP confirmed", "Step 2 OSP active", "Quote rows created for thirdparty"] },
     { label: "Test 4 — Submit quote",                        keys: ["HTTP respond to quote", "Quote status = submitted", "Quote amount = 150", "Order.quoteSummary set"] },
-    { label: "Test 5 — Accept quote",                        keys: ["HTTP accept quote", "Quote status = accepted", "Step 2 OSP confirmed", "Step 3 OSP active", "Order.assignedToId = delivCollab (step 3 activated)", "Order.deliveryStatus = out_for_delivery"] },
-    { label: "Test 6 — Delivery partner confirms",           keys: ["HTTP confirm step 3 (delivery)", "Step 3 OSP confirmed", "Order.deliveryStatus still out_for_delivery"] },
+    { label: "Test 5 — Accept quote",                        keys: ["HTTP accept quote", "Quote status = accepted", "Step 2 OSP confirmed", "Step 3 OSP active", "Order.assignedToId stays unset after step 3 activation (no dispatch yet)", "Order.deliveryStatus stays pending until owner dispatches"] },
+    { label: "Test 6 — Owner dispatches delivery step",      keys: ["HTTP confirm step 3 (delivery dispatch by owner)", "Step 3 OSP confirmed", "Order.deliveryStatus = out_for_delivery (dispatched)"] },
     { label: "Test 7 — Customer confirms receipt",           keys: ["HTTP customer-confirm", "Order.deliveryStatus = delivered", "Order.partnerStatus = completed"] },
     { label: "Group 8 — WorkflowStepAssignee setup",         keys: ["delivery2 user created", "delivPage2 page created", "newCollab created", "WorkflowStepAssignee rows created for step3", "step3.assignmentMode = sequential"] },
-    { label: "Group 9 — First partner assignment",           keys: ["Order2 placed", "Order2 step1 confirmed", "Order2 step2 confirmed", "Order2 step3 OSP active", "OSP.currentAssigneeId = stepAssignee1", "Order2.assignedToId = delivCollab", "Order2.agreedAmount = 50", "Order2.partnerStatus = assigned", "Sub-order exists for delivery user", "Notification exists for delivery user"] },
+    { label: "Group 9 — First partner assignment",           keys: ["Order2 placed", "Order2 step1 confirmed", "Order2 step2 confirmed", "Order2 step3 OSP active", "Order2 step3 (delivery) confirmed by owner — dispatch fires", "OSP.currentAssigneeId = stepAssignee1", "Order2.assignedToId = delivCollab", "Order2.agreedAmount = 50", "Order2.partnerStatus = assigned", "Sub-order exists for delivery user", "Notification exists for delivery user"] },
     { label: "Part 4 — GPS simulation",                      keys: ["Vehicle created in DB", "delivery1 accepted order2", "Order2 vehicleId patched", "Vehicle coords updated in DB", "GET vehicles returns vehicle", "Vehicle lat updated to 22.5730", "Vehicle lng updated to 88.3645"] },
     { label: "Group 10 — Rejection to delivery2",            keys: ["delivery1 rejected order2", "OSP.currentAssigneeId = stepAssignee2", "Order2.assignedToId = newCollab", "Order2.agreedAmount = 60", "Order2.partnerStatus = assigned (delivery2)", "Notification exists for delivery2"] },
     { label: "Group 11 — 5% fee hike on cycle restart",      keys: ["delivery2 rejected order2", "OSP.cycleCount = 1", "OSP.lastFeeMultiplier = 1.05", "Order2.assignedToId = delivCollab (back to top)", "Order2.agreedAmount = 52.5"] },

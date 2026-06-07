@@ -28,9 +28,9 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<numb
     });
     if (!parent) return 0;
 
-    // Dedup: skip if a sub-order already exists for this parent + customer + type
+    // Dedup: skip if a sub-order already exists for this parent + assignee + type
     const existing = await (prisma as any).order.findFirst({
-      where: { parentOrderId, userId: parent.userId, subOrderType },
+      where: { parentOrderId, userId: assigneeUserId, subOrderType },
       select: { id: true },
     });
     if (existing) return 0;
@@ -128,7 +128,7 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<numb
     // ── Create sub-order in partner's store ───────────────────────────────────
     await (prisma as any).order.create({
       data: {
-        userId:         parent.userId,
+        userId:         assigneeUserId,
         storeId:        targetStoreId,
         addressId:      parent.addressId,
         status:         "pending",

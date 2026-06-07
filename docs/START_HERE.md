@@ -237,14 +237,18 @@ Alternative entry points: magic link (`/api/auth/send-magic-link`) and SMS OTP (
 ### Workflow Step Types (`activityType`)
 Every `WorkflowStep` has an `activityType` field (`"normal"` | `"delivery"`, default `"normal"`). This controls what happens when the step is **confirmed**:
 
-- **`"normal"`** — owner or the step's assigned team member confirms. Calls `advanceToNextStep` which activates the next OSP. Does **not** touch `deliveryStatus`. Uses `assignNormalStep` (simple first-assignee notification, no sub-order).
+- **`"normal"`** — owner or the step's assigned team member confirms. Calls `advanceToNextStep` which activates the next OSP. Does **not** touch `deliveryStatus`. Uses `assignNormalStep` (simple first-assignee notification, no sub-order). The active `OrderStepProgress` row **is** the confirmable task record (TASK-SURFACE-1 — see `### Process Tasks surface` below); no extra record is created.
 - **`"delivery"`** — **owner only** confirms. This is the dispatch point. Sets `Order.deliveryStatus = "out_for_delivery"` and calls `assignNextPartner` (full cycling engine: creates sub-order, costs delivery, notifies partner).
 
 **Backfill rule:** the last step (highest `sequence`) per initiative is auto-set to `"delivery"`; all others default to `"normal"`.
 
 **Key constraint:** `createSubOrder` is called **only** inside `assignNextPartner`, which is called **only** for delivery-step confirmation. Normal step activation uses `assignNormalStep` — no sub-order is created.
 
+**Quote-accept mirrors the confirm route's `activityType` branch (DISPATCH-FIX-1):** quotes apply to `third_party` steps of *either* `activityType`, not just delivery. `POST /api/order/[id]/quote/[quoteId]/accept` reads the accepted quote's step `activityType` (same `$queryRaw` pattern as `confirm/route.ts:32-35`) and only writes `Order.assignedToId` / `partnerStatus: "assigned"` when it is `"delivery"`. For `"normal"`/service steps, accepting a quote creates a `subOrderType: "service"` sub-order (with its `order_assigned` notification) and nothing else — the parent order's delivery-pipeline fields are left untouched, so the assignee is NOT funneled into `/earn/deliveries` GPS dispatch. `/earn/deliveries`'s raw SQL queries fetch each order's active-step `activityType` and exclude rows whose active step is explicitly non-delivery, while leaving rows with no resolvable active step/`activityType` untouched (never hide a real assignment by guessing during the pre-`active`-OSP timing window).
+
 `activityType` was added in migration `20260605000000_add_workflow_activity_type`. Read it via `$queryRaw` while the Prisma client may be stale; fall back to `"normal"`.
+
+**Horizon — QUOTE-BLOCK-1 (deferred):** Quote/negotiation is conceptually a separate, multi-round, two-sided interaction (request → respond → accept/reject/counter) — distinct from the linear single-actor normal/delivery confirm flows above. DISPATCH-FIX-1 already de-coupled quote-accept from delivery dispatch (gated on `activityType`, see paragraph above). A dedicated quote block/UI (QUOTE-BLOCK-1) to formalize this separation is deferred; the existing quote endpoints are sufficient for users to self-handle in the meantime. Any future change to `accept/route.ts` or step assignment must preserve this conceptual separation — do not re-entangle quote logic into the dispatch paths. See `CLAUDE.md` § Known Footguns for the doctrine note.
 
 **UI behaviour:**
 - **Process editor** (`WorkflowTab.tsx`) — each step shows a "Normal work" / "Delivery (GPS)" pill selector. Delivery pill is emerald; normal is indigo. Persists via `PATCH /api/initiative/[pageId]/workflow/[stepId] { activityType }`. Help text updates per selection. Seeded "Dispatch & Deliver" step defaults to `"delivery"`.
@@ -252,13 +256,26 @@ Every `WorkflowStep` has an `activityType` field (`"normal"` | `"delivery"`, def
 - **⚡ Complete All (N)** — `startFastTrack` excludes delivery steps (`activityType !== "delivery"`). The count N only counts normal non-quote remaining steps. The button is hidden when the active step is delivery or no normal steps remain.
 - **Manual assignment is secondary** — the "Reassign / assign manually" section is in a `<details>` element (collapsed by default). It is an override, not the primary dispatch path.
 
-### Delivery Tracking (order fulfillment with live GPS)
+### Process Tasks surface (TASK-SURFACE-1 — confirmable normal-step assignments)
+Normal (`activityType: "normal"`) steps create **no sub-order** on assignment — `assignNormalStep` only sets `OSP.currentAssigneeId` and fires an `order_assigned` notification. The assignee needs somewhere to act on it:
+
+1. **Model decision**: the active `OrderStepProgress` row (`status: "active"`, `currentAssigneeId` set) **is** the task record — `pending` confirmation = `status: "active"`, confirmed = `status: "confirmed"`. No new model, no `Order` row, no `deliveryStatus`/GPS coupling. (Reusing `createSubOrder` was rejected — it requires a `Store`, writes `deliveryStatus: "pending"` onto a brand-new `Order` row, and resolves partner delivery blocks/cost — none of which apply to a lightweight "tap to confirm" task and all of which would risk polluting `/store/[id]/orders` and `/earn/deliveries`.)
+2. **`GET /api/orders/tasks`** — lists active normal-step OSP rows where the current user resolves as the `WorkflowStepAssignee`'s partner (same resolution as `assignNormalStep`/`confirm/route.ts`). Returns order ref, step name, **correct store name** (joined directly off `Order.store`, not `receiverPage` — Bug-4 fixed inline here), items summary, total.
+3. **`/app/orders?tab=tasks`** ("Tasks" tab) — lists `TaskCard`s with a single "Confirm completed ✓" button. Confirm calls the existing `PATCH /api/order/[id]/step/[stepId]/confirm` (same endpoint the owner uses) → OSP marked `confirmed` → `advanceToNextStep` runs → next step activates and its assignee is notified.
+4. The `order_assigned` notification fired by `assignNormalStep` now links to `/app/orders?tab=tasks` (was `?tab=my`, which surfaced nothing actionable for process-task assignees).
+5. Does not appear in `/earn/deliveries` (that surface queries `Order.assignedToId`/`assignedToUserId`/block-LATERAL-join — none of which normal-step assignment touches) and does not set any delivery field on the parent `Order`.
+
+
 1. Owner confirms the workflow's **delivery step** (`activityType === "delivery"`) → `deliveryStatus = "out_for_delivery"` + `assignNextPartner` runs → partner selected, sub-order created, partner notified
 2. Partner sees the assignment in `/earn/deliveries` — order with `partnerStatus IN ('assigned', 'accepted')`. Accepted cards show a **PICK UP FROM** section and a **"🗺️ Navigate to delivery"** button above GPS controls.
 3. Partner clicks "Start GPS" in `DeliveriesClient.tsx` → `useGeolocation()` hook → `POST /api/transport/broadcast` on an interval; `Order.vehicleId` is set to the new `Vehicle` row ID
 4. Buyer at `/order/[id]/track` polls `GET /api/transport/vehicles?id={vehicleId}` every 5 s and shows the partner on `TransportMap`. If `vehicleId` is null, shows "Delivery partner hasn't started GPS yet."
 5. Partner confirms delivery: OSP confirm + `partnerAction: "complete"` → `partnerStatus = "completed"` → Broadcaster stops → `Vehicle` row deleted.
 6. Customer sees "Confirm you received this order?" prompt → `POST /api/order/[id]/customer-confirm` → `deliveryStatus = "delivered"`.
+
+**Owner-manual vs automatic dispatch — both notify (NOTIFY-FAST-1):** the owner can also assign a delivery partner directly via the Partner-Business dropdown (`PATCH /api/order/[id]/delivery { assignedToId }`) instead of letting `assignNextPartner` auto-cycle. This collab-based manual path now fires the same `order_assigned` / "Delivery assigned to you" / `/earn/deliveries` notification that the user-type (`{ userId }`) manual path and the automatic dispatch path already fired — previously it was the one branch of four that silently skipped notification (DELIV-ENGINE-AUDIT-1 found this; the partner received the assignment with no alert). The partner's `userId` is resolved off whichever side of the `Collaboration` (`requester`/`receiverPage`) is NOT the store's own page.
+
+**Sub-order ownership rule:** `createSubOrder` writes the sub-order's `userId` as the **assignee** (the delivery partner / service provider), not the parent order's customer. This is what makes the sub-order show up under the partner's own `/app/orders` → Store Orders → Assignments (that view fetches the partner's own buyer-orders via `GET /api/store/orders` and filters to rows with `parentOrderId` set). The customer only ever sees the **parent** order — never the sub-order. (Earlier code wrote `userId: parent.userId`, which hid the assignment from the partner and incorrectly surfaced the sub-order under the customer's own order list.)
 
 ### AI Store Setup Wizard (new store onboarding)
 1. Owner creates a `Page` via `/app/initiatives` (mobile) and clicks "Open →" → Initiative Hub → Store tab → "Set up store"

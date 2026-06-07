@@ -42,11 +42,21 @@ export async function POST(req: NextRequest, { params }: Params) {
     }),
   ]);
 
-  // Assign the accepted party and confirm the current step
-  await (prisma.order as any).update({
-    where: { id: orderId },
-    data: { assignedToId: quote.requestedPartyId, partnerStatus: "assigned" },
-  });
+  // Fetch activityType via raw SQL — new column not in stale Prisma client
+  const activityRaw = await prisma.$queryRaw<{ activityType: string }[]>`
+    SELECT "activityType" FROM "WorkflowStep" WHERE id = ${quote.stepId}
+  `;
+  const activityType = activityRaw[0]?.activityType ?? "normal";
+
+  // Only delivery steps dispatch via the Order's delivery-pipeline fields.
+  // Normal/service steps must not write assignedToId/partnerStatus — that
+  // would funnel the assignee into /earn/deliveries GPS dispatch.
+  if (activityType === "delivery") {
+    await (prisma.order as any).update({
+      where: { id: orderId },
+      data: { assignedToId: quote.requestedPartyId, partnerStatus: "assigned" },
+    });
+  }
 
   await prisma.orderStepProgress.updateMany({
     where: { orderId, stepId: quote.stepId, status: "active" },

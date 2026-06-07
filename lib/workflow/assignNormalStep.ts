@@ -56,6 +56,6 @@ export async function assignNormalStep(
     type: "order_assigned",
     title: "New task assigned",
     body: `You have been assigned to step "${step?.name}" for Order #${orderId.slice(-8).toUpperCase()}`,
-    link: "/app/orders?tab=my",
+    link: "/app/orders?tab=tasks",
   });
 }

@@ -381,11 +381,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   // Validate assignedToId (collab-based partner assignment) if being set.
+  let assignedPartnerOwnerId: string | null = null;
   if (assignedToId != null) {
-    const collab = await prisma.collaboration.findUnique({
-      where: { id: assignedToId },
-      select: { status: true, requesterId: true, receiverPageId: true },
-    });
+    const collab = await fetchCollab(assignedToId);
     if (!collab)
       return NextResponse.json({ error: "Collaboration not found" }, { status: 404 });
     if (collab.status !== "accepted")
@@ -396,6 +394,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         { error: "Collaboration does not belong to this store's page" },
         { status: 400 }
       );
+    const partnerPage =
+      collab.requesterId === storePageId ? collab.receiverPage : collab.requester;
+    assignedPartnerOwnerId = partnerPage?.ownerId ?? null;
   }
 
   const data: Record<string, unknown> = {};
@@ -416,6 +417,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   const updated = await (prisma as any).order.update({ where: { id }, data });
+
+  if ("assignedToId" in body && assignedToId != null && assignedPartnerOwnerId) {
+    createNotification({
+      userId: assignedPartnerOwnerId,
+      type:   "order_assigned",
+      title:  "Delivery assigned to you",
+      body:   `Order #${id.slice(-8).toUpperCase()} from ${order.store.pageId ?? "store"}`,
+      link:   "/earn/deliveries",
+    }).catch(() => {});
+  }
 
   if (deliveryStatus === "out_for_delivery" && order.userId && order.user?.status !== "guest") {
     createNotification({
