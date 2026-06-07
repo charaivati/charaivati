@@ -17,9 +17,14 @@ export async function POST(req: Request) {
   // Fetch or create companion profile
   let profile = await (db as any).userCompanionProfile.findUnique({ where: { userId } })
   if (!profile) {
+    // upsert (atomic) — POST /api/companion/nudge can fire moments apart for the same brand-new
+    // userId and runs the same find-then-create pattern; a plain create here can lose a P2002 race.
     const { randomUUID } = await import('crypto')
-    profile = await (db as any).userCompanionProfile.create({
-      data: { id: `c${randomUUID().replace(/-/g, '').slice(0, 24)}`, userId },
+    profile = await (db as any).userCompanionProfile.upsert({
+      where: { userId },
+      // healthFlags is NOT NULL with no DB default / no @default([]) in schema — must be supplied.
+      create: { id: `c${randomUUID().replace(/-/g, '').slice(0, 24)}`, userId, healthFlags: [] },
+      update: {},
     })
   }
 

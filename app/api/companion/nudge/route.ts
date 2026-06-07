@@ -27,17 +27,24 @@ export async function GET(req: Request) {
   if (!payload) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const userId = payload.userId
-  const profile = await (db as any).userCompanionProfile.findUnique({ where: { userId } })
 
-  if (!profile) {
-    return NextResponse.json({ nudgeDue: true, message: NUDGE_MESSAGES[0] })
+  try {
+    const profile = await (db as any).userCompanionProfile.findUnique({ where: { userId } })
+
+    if (!profile) {
+      return NextResponse.json({ nudgeDue: true, message: NUDGE_MESSAGES[0] })
+    }
+
+    const now = new Date()
+    const nudgeDue = !profile.nudgeDueAt || new Date(profile.nudgeDueAt) <= now
+    const message = nudgeDue ? NUDGE_MESSAGES[now.getDay()] : null
+
+    return NextResponse.json({ nudgeDue, message })
+  } catch (err) {
+    // A nudge is non-critical — never let a DB hiccup surface as a 500 to the widget.
+    console.error('[companion/nudge] GET failed:', err)
+    return NextResponse.json({ nudgeDue: false, message: null })
   }
-
-  const now = new Date()
-  const nudgeDue = !profile.nudgeDueAt || new Date(profile.nudgeDueAt) <= now
-  const message = nudgeDue ? NUDGE_MESSAGES[now.getDay()] : null
-
-  return NextResponse.json({ nudgeDue, message })
 }
 
 // ACKNOWLEDGE — advances nudgeDueAt. Call this when the user opens the
@@ -51,34 +58,38 @@ export async function POST(req: Request) {
   const userId = payload.userId
   const now = new Date()
 
-  let profile = await (db as any).userCompanionProfile.findUnique({ where: { userId } })
+  try {
+    const profile = await (db as any).userCompanionProfile.findUnique({ where: { userId } })
 
-  // Idempotent: if nudge is already scheduled in the future, do nothing.
-  if (profile?.nudgeDueAt && new Date(profile.nudgeDueAt) > now) {
-    return NextResponse.json({ acknowledged: true, nextNudgeAt: profile.nudgeDueAt })
-  }
+    // Idempotent: if nudge is already scheduled in the future, do nothing.
+    if (profile?.nudgeDueAt && new Date(profile.nudgeDueAt) > now) {
+      return NextResponse.json({ acknowledged: true, nextNudgeAt: profile.nudgeDueAt })
+    }
 
-  if (!profile) {
-    const { randomUUID } = await import('crypto')
-    const daysToAdd = NUDGE_DAYS['grounded']
+    const daysToAdd = NUDGE_DAYS[profile?.energyState ?? 'grounded'] ?? 3
     const nextNudge = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000)
-    profile = await (db as any).userCompanionProfile.create({
-      data: {
+    const { randomUUID } = await import('crypto')
+
+    // Use upsert (atomic at the DB level) instead of find-then-create — POST /api/companion/session
+    // runs the same find-then-create pattern for the same unique `userId` and can fire moments apart
+    // (e.g. right after a companion session opens), so a plain create here can lose a P2002 race.
+    const updated = await (db as any).userCompanionProfile.upsert({
+      where: { userId },
+      create: {
         id: `c${randomUUID().replace(/-/g, '').slice(0, 24)}`,
         userId,
         nudgeDueAt: nextNudge,
+        // Required: `healthFlags` is NOT NULL with no DB default and no @default([]) in
+        // the Prisma schema — omitting it throws P2011 "Null constraint violation" on create.
+        healthFlags: [],
       },
+      update: { nudgeDueAt: nextNudge, updatedAt: now },
     })
-    return NextResponse.json({ acknowledged: true, nextNudgeAt: nextNudge })
+
+    return NextResponse.json({ acknowledged: true, nextNudgeAt: updated.nudgeDueAt })
+  } catch (err) {
+    // A nudge is non-critical — never let a DB hiccup surface as a 500 to the widget.
+    console.error('[companion/nudge] POST failed:', err)
+    return NextResponse.json({ acknowledged: false })
   }
-
-  const daysToAdd = NUDGE_DAYS[profile.energyState ?? 'grounded'] ?? 3
-  const nextNudge = new Date(now.getTime() + daysToAdd * 24 * 60 * 60 * 1000)
-
-  await (db as any).userCompanionProfile.update({
-    where: { userId },
-    data: { nudgeDueAt: nextNudge, updatedAt: now },
-  })
-
-  return NextResponse.json({ acknowledged: true, nextNudgeAt: nextNudge })
 }
