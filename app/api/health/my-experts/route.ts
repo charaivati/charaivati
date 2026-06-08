@@ -34,7 +34,7 @@ export async function GET(req: Request) {
         select: { id: true, healthBusinessId: true, advice: true, adviceType: true, createdAt: true },
       }),
       prisma.store.findMany({
-        where: { pageId: { in: subs.map((s) => s.healthBusiness.page.id) } },
+        where: { pageId: { in: subs.map((s) => s.healthBusiness.page.id) }, deletedAt: null },
         select: { id: true, pageId: true },
       }),
     ]);

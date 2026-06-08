@@ -143,7 +143,7 @@ Validation todos are NOT moved to the execution plan. They remain in `Todo` rows
 - `createValidationTodos()` now sets `assumptionKey: assumption.id` (not `freq`)
 - `PATCH /api/business/idea/market-sizing` reconciles labels via `{ ideaId, assumptionKey: "sam"/"som" }`
 - `GET/POST /api/self/todos` and `PUT /api/self/todos/[id]` accept and return `assumptionKey`
-- `GET /api/self/todos?validationOnly=true` returns all todos where `validationLabel IS NOT NULL`
+- `validationOnly=true` was REMOVED from `GET /api/self/todos` and from `ValidationTasks` (TODO-LEAK-FIX-2, 2026-06-08) — it powered the cross-business leak described in §9 below; do not re-add it without a real `BusinessIdea → Page` link to scope by.
 
 ## §9 Known Tech Debt
 
@@ -151,7 +151,7 @@ Validation todos are NOT moved to the execution plan. They remain in `Todo` rows
 |---|---|---|
 | `Todo.hobbyId` orphaned FK | `prisma/schema.prisma` | References a `Hobby` model that does not exist in schema. No runtime error but the column is vestigial. |
 | `/api/self/todos/stats` missing | `components/SelfAnalyticsDashboard.tsx` | Analytics page calls this route which 404s silently. Low priority. |
-| Initiative Hub shows all ideas' tasks | `components/earn/InitiativeTabs.tsx` | `validationOnly=true` shows ALL user validation todos, not just for this initiative. No Page→BusinessIdea link exists to filter further. |
+| ~~Initiative Hub showed all ideas' tasks~~ — FIXED (TODO-LEAK-FIX-2) | `components/earn/InitiativeTabs.tsx` | The `validationOnly=true` card was removed entirely (no `Page→BusinessIdea` link exists to scope it correctly — would need a migration first). |
 
 ## §10 Deferred (not in MVP)
 

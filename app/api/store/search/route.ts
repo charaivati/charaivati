@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
     where: {
       name: { contains: q, mode: "insensitive" },
       ownerId: { not: user.id },
+      deletedAt: null,
     },
     select: { id: true, name: true, slug: true, pageId: true },
     take: 10,

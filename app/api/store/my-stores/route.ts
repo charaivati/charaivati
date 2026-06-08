@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
+import { softDeleteStore } from "@/lib/store/softDeleteStore";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export async function GET(req: NextRequest) {
       name: true,
       pageId: true,
       createdAt: true,
+      deletedAt: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -26,6 +28,8 @@ export async function GET(req: NextRequest) {
   });
 }
 
+// Soft-deletes the store + its linked Page (whole-venture delete). Refuses when
+// any order (including sub-orders) is still open. See lib/store/softDeleteStore.ts.
 export async function DELETE(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
@@ -34,23 +38,15 @@ export async function DELETE(req: NextRequest) {
   const storeId = (body.id || "").trim();
   if (!storeId) return NextResponse.json({ error: "store_id_required" }, { status: 400 });
 
-  const store = await prisma.store.findUnique({
-    where: { id: storeId },
-    select: { ownerId: true, pageId: true },
-  });
+  const result = await softDeleteStore(storeId, user.id);
 
-  if (!store) return NextResponse.json({ error: "store_not_found" }, { status: 404 });
-  if (store.ownerId !== user.id) return NextResponse.json({ error: "unauthorized" }, { status: 403 });
-
-  // Orders have no cascade from Store, so delete them first
-  await prisma.order.deleteMany({ where: { storeId } });
-
-  // Delete the store (cascades sections, blocks, cart items, wishlists, pins, etc.)
-  await prisma.store.delete({ where: { id: storeId } });
-
-  // Delete the linked page if one exists (cascades follows, initiatives, etc.)
-  if (store.pageId) {
-    await prisma.page.delete({ where: { id: store.pageId } }).catch(() => {});
+  if (!result.ok) {
+    if (result.reason === "not_found") return NextResponse.json({ error: "store_not_found" }, { status: 404 });
+    if (result.reason === "forbidden") return NextResponse.json({ error: "unauthorized" }, { status: 403 });
+    return NextResponse.json(
+      { error: "open_orders", message: "This store has open orders — settle or cancel them before deleting.", blockingOrders: result.blockingOrders },
+      { status: 409 }
+    );
   }
 
   return NextResponse.json({ ok: true });

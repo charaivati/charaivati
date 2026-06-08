@@ -14,13 +14,15 @@ export async function GET(
 
   const page = await prisma.page.findUnique({
     where: { id: pageId },
-    select: { id: true, title: true, description: true, avatarUrl: true, ownerId: true, pageType: true },
+    select: { id: true, title: true, description: true, avatarUrl: true, ownerId: true, pageType: true, deletedAt: true },
   });
   if (!page) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (page.pageType !== "fleet") return NextResponse.json({ error: "Not a fleet page" }, { status: 400 });
 
   const user = await getServerUser(req);
   const isOwner = !!user && page.ownerId === user.id;
+  // A deleted fleet venture is invisible to the public; owner still sees it (manages restore via Initiative Hub / my-stores).
+  if (page.deletedAt && !isOwner) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Find or create the backing store
   let store = await prisma.store.findFirst({ where: { pageId } });

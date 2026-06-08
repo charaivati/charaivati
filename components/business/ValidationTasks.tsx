@@ -17,15 +17,13 @@ interface Todo {
 }
 
 interface Props {
-  /** Filter to a specific idea's todos. Omit (or use with validationOnly) for all validation todos. */
+  /** Filter to a specific idea's todos. */
   ideaId?: string;
   isGuest: boolean;
   guestSizing?: MarketSizingData | null;
-  /** When true, show all todos where validationLabel is set — not filtered to one idea. */
-  validationOnly?: boolean;
 }
 
-export default function ValidationTasks({ ideaId, isGuest, guestSizing, validationOnly }: Props) {
+export default function ValidationTasks({ ideaId, isGuest, guestSizing }: Props) {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState<string | null>(null);
@@ -38,7 +36,6 @@ export default function ValidationTasks({ ideaId, isGuest, guestSizing, validati
     try {
       const params = new URLSearchParams();
       if (ideaId) params.set("ideaId", ideaId);
-      if (validationOnly) params.set("validationOnly", "true");
       const res = await fetch(`/api/self/todos?${params}`, { credentials: "include" });
       const j = await res.json();
       if (j.ok) setTodos(j.data ?? []);
@@ -47,7 +44,7 @@ export default function ValidationTasks({ ideaId, isGuest, guestSizing, validati
     } finally {
       setLoading(false);
     }
-  }, [ideaId, isGuest, validationOnly]);
+  }, [ideaId, isGuest]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -99,8 +96,6 @@ export default function ValidationTasks({ ideaId, isGuest, guestSizing, validati
   }
 
   if (!todos.length) {
-    // In validationOnly mode (Initiative Hub), don't render anything — caller handles conditional display
-    if (validationOnly) return null;
     return (
       <p className="text-sm text-slate-500 italic">
         No validation tasks yet. Complete the market sizing step in the evaluation to generate them.
@@ -109,29 +104,6 @@ export default function ValidationTasks({ ideaId, isGuest, guestSizing, validati
   }
 
   const done = todos.filter((t) => t.completed).length;
-
-  // In validationOnly mode (Initiative Hub) — render a self-contained card
-  if (validationOnly) {
-    return (
-      <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 space-y-2">
-        <SectionHeader count={todos.length} done={done} />
-        {todos.map((todo) => (
-          <TodoRow key={todo.id} todo={todo} toggling={toggling} onToggle={toggleComplete} />
-        ))}
-        <p className="text-xs text-gray-500 pt-1">
-          From your{" "}
-          <a href="/business" className="text-indigo-400 underline">
-            business evaluations
-          </a>
-          . View all in{" "}
-          <a href="/self?tab=todo" className="text-indigo-400 underline">
-            Self → Tasks
-          </a>
-          .
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-2">

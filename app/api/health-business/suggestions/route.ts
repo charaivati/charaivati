@@ -54,7 +54,7 @@ export async function GET(req: Request) {
     // Look up store IDs for the matched pages
     const pageIds = healthBusinesses.map((hb) => hb.page.id);
     const stores = await prisma.store.findMany({
-      where: { pageId: { in: pageIds } },
+      where: { pageId: { in: pageIds }, deletedAt: null },
       select: { id: true, pageId: true },
     });
     const storeMap = new Map(stores.map((s) => [s.pageId!, s.id]));

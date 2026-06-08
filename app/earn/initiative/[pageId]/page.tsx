@@ -48,6 +48,8 @@ export default async function InitiativePage({
 
   if (!page) notFound();
   if (page.ownerId !== userId) redirect("/earn");
+  // Venture has been deleted — the hub has nothing to manage; owner restores from /store/account.
+  if (page.deletedAt) redirect("/store/account");
 
   const badge = {
     label: kindLabel({ type: page.type, pageType: page.pageType }),

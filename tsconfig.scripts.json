@@ -8,10 +8,12 @@
     "skipLibCheck": true,
     "strict": false,
     "types": ["node"],
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": { "@/*": ["./*"] }
   },
   "ts-node": {
-    "transpileOnly": true
+    "transpileOnly": true,
+    "require": ["tsconfig-paths/register"]
   },
   "include": ["scripts/**/*.ts"],
   "exclude": ["node_modules", ".next"]

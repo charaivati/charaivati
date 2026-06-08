@@ -40,10 +40,13 @@ export async function POST(req: NextRequest) {
   }));
 
   const itemsTotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-  const cartStoreRow = await prisma.$queryRaw<{ deliveryFee: number | null; freeDeliveryAbove: number | null; acceptingOrders: boolean }[]>`
-    SELECT "deliveryFee", "freeDeliveryAbove", "acceptingOrders" FROM "Store" WHERE id = ${storeId} LIMIT 1
+  const cartStoreRow = await prisma.$queryRaw<{ deliveryFee: number | null; freeDeliveryAbove: number | null; acceptingOrders: boolean; deletedAt: Date | null }[]>`
+    SELECT "deliveryFee", "freeDeliveryAbove", "acceptingOrders", "deletedAt" FROM "Store" WHERE id = ${storeId} LIMIT 1
   `;
-  if (!cartStoreRow[0] || !cartStoreRow[0].acceptingOrders) {
+  if (!cartStoreRow[0] || cartStoreRow[0].deletedAt) {
+    return NextResponse.json({ error: "This store is no longer accepting orders." }, { status: 422 });
+  }
+  if (!cartStoreRow[0].acceptingOrders) {
     return NextResponse.json({ error: "This store isn't taking orders right now." }, { status: 422 });
   }
   const cartFee = cartStoreRow[0]?.deliveryFee ?? null;
@@ -146,7 +149,7 @@ export async function GET(req: NextRequest) {
     const orders = await prisma.order.findMany({
       where: { storeId: { in: storeIds } },
       include: {
-        store: { select: { id: true, name: true } },
+        store: { select: { id: true, name: true, deletedAt: true } },
         address: true,
         user: { select: { name: true, email: true } },
       },
@@ -176,7 +179,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       orders.map((o) => ({
         ...o,
-        store:             { ...o.store, slug: slugs[o.store.id] ?? null },
+        store:             { ...o.store, slug: slugs[o.store.id] ?? null, deleted: !!o.store.deletedAt },
         invoiceSignedUrl:  signedMapAll[o.id] ?? null,
         requiresAttention: wfMapAll[o.id] ?? false,
         activeStep:        activeStepMapAll.has(o.id) ? { stepName: activeStepMapAll.get(o.id) } : null,
@@ -222,6 +225,14 @@ export async function GET(req: NextRequest) {
       where: { orderId: { in: orderIds } },
       include: { step: { select: { id: true, name: true, assigneeId: true, quoteRequired: true, sequence: true } } },
     }) : [];
+
+    // OSP.currentAssigneeId (WorkflowStepAssignee.id) — new column, stale-client risk, raw SQL
+    const ospAssigneeRows = orderIds.length > 0 ? await prisma.$queryRaw<{ id: string; currentAssigneeId: string | null }[]>`
+      SELECT osp.id, osp."currentAssigneeId" FROM "OrderStepProgress" osp
+      JOIN "Order" o ON o.id = osp."orderId" WHERE o.id = ANY(${orderIds}::text[])
+    `: [];
+    const ospCurrentAssigneeMap = new Map(ospAssigneeRows.map((r) => [r.id, r.currentAssigneeId]));
+
     const activeOSPs    = allOSPs.filter((osp) => osp.status === "active");
     const ospByOrder    = new Map(activeOSPs.map((osp) => [osp.orderId, osp]));
     const allOSPsByOrder = new Map<string, typeof allOSPs>();
@@ -257,6 +268,71 @@ export async function GET(req: NextRequest) {
       const c = partyMap.get(collabId);
       if (!c) return "Unknown";
       return storePageId && c.requesterId === storePageId ? (c.receiverPage?.title ?? "Unknown") : c.requester.title;
+    }
+
+    // ── Step-list assignee resolution (OWNER-STEPVIEW-1) ─────────────────────
+    // Normal steps: OSP.currentAssigneeId is a WorkflowStepAssignee.id — resolve through
+    // its Collaboration to a real display name (page or user). NEVER read the deprecated
+    // WorkflowStep.assigneeId scalar — it is null for any step added after the seed.
+    const wsaIds = [...new Set(
+      allOSPs.map((osp) => ospCurrentAssigneeMap.get(osp.id)).filter(Boolean) as string[]
+    )];
+    const wsaRows = wsaIds.length > 0 ? await (prisma as any).workflowStepAssignee.findMany({
+      where: { id: { in: wsaIds } },
+      select: {
+        id: true,
+        collaboration: {
+          select: {
+            requesterId:    true,
+            receiverUserId: true,
+            requester:      { select: { title: true } },
+            receiverPage:   { select: { title: true } },
+            receiverUser:   { select: { name: true } },
+          },
+        },
+      },
+    }) : [];
+    const wsaNameMap = new Map<string, string>();
+    for (const w of wsaRows as { id: string; collaboration: { requesterId: string; receiverUserId: string | null; requester: { title: string } | null; receiverPage: { title: string } | null; receiverUser: { name: string | null } | null } }[]) {
+      const c = w.collaboration;
+      const name = c.requesterId === storePageId
+        ? (c.receiverPage?.title ?? c.receiverUser?.name ?? "Unknown")
+        : (c.requester?.title ?? "Unknown");
+      wsaNameMap.set(w.id, name);
+    }
+
+    // Delivery steps: assignee lives on Order.assignedToId (Collaboration.id) /
+    // assignedToUserId (User.id) — set only once the engine actually dispatches.
+    const deliveryCollabIds = [...new Set(orders.map((o) => o.assignedToId).filter(Boolean) as string[])];
+    const deliveryUserIds   = [...new Set(orders.map((o) => o.assignedToUserId).filter(Boolean) as string[])];
+    const deliveryCollabRows = deliveryCollabIds.length > 0 ? await prisma.collaboration.findMany({
+      where: { id: { in: deliveryCollabIds } },
+      select: { id: true, requesterId: true, requester: { select: { title: true } }, receiverPage: { select: { title: true } } },
+    }) : [];
+    const deliveryCollabNameMap = new Map(deliveryCollabRows.map((c) => [
+      c.id,
+      storePageId && c.requesterId === storePageId ? (c.receiverPage?.title ?? "Unknown") : c.requester.title,
+    ]));
+    const deliveryUserRows = deliveryUserIds.length > 0 ? await prisma.user.findMany({
+      where: { id: { in: deliveryUserIds } },
+      select: { id: true, name: true },
+    }) : [];
+    const deliveryUserNameMap = new Map(deliveryUserRows.map((u) => [u.id, u.name ?? "Team member"]));
+
+    function deliveryAssigneeName(o: typeof orders[number]): string | null {
+      if (o.assignedToId) return deliveryCollabNameMap.get(o.assignedToId) ?? "Unknown";
+      if (o.assignedToUserId) return deliveryUserNameMap.get(o.assignedToUserId) ?? "Team member";
+      return null;
+    }
+
+    function stepAssigneeName(osp: typeof allOSPs[number], activityType: string, o: typeof orders[number]): string | null {
+      if (activityType === "delivery") {
+        // Delivery steps have no pre-assigned partner — assignNextPartner dispatches at confirm-time
+        if (osp.status === "pending") return null;
+        return deliveryAssigneeName(o);
+      }
+      const wsaId = ospCurrentAssigneeMap.get(osp.id);
+      return wsaId ? (wsaNameMap.get(wsaId) ?? null) : null;
     }
 
     // activityType for all steps — new column, must use raw SQL
@@ -301,7 +377,7 @@ export async function GET(req: NextRequest) {
         activeStep: osp ? {
           stepId:        osp.stepId,
           stepName:      osp.step.name,
-          assigneeName:  osp.step.assigneeId ? partyName(osp.step.assigneeId) : null,
+          assigneeName:  stepAssigneeName(osp, stepActivityTypeMap.get(osp.stepId) ?? "normal", o),
           quoteRequired: osp.step.quoteRequired,
           activityType:  stepActivityTypeMap.get(osp.stepId) ?? "normal",
         } : null,
@@ -321,6 +397,7 @@ export async function GET(req: NextRequest) {
             quoteRequired: osp.step.quoteRequired,
             ospStatus:     osp.status,
             activityType:  stepActivityTypeMap.get(osp.stepId) ?? "normal",
+            assigneeName:  stepAssigneeName(osp, stepActivityTypeMap.get(osp.stepId) ?? "normal", o),
           })),
         subOrders: (subOrdersByParent[o.id] ?? []).map((s) => ({
           id:           s.id,

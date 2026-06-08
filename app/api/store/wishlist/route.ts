@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const items = await prisma.wishlistItem.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, store: { deletedAt: null } },
     include: {
       block: {
         select: {

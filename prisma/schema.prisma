@@ -230,6 +230,8 @@ model Page {
   type              String             @default("standard")
   viewCount         Int                @default(0)
   pageType          String             @default("store")
+  /// Soft-delete marker — set when the owner deletes the venture. null = active.
+  deletedAt         DateTime?
   collaborationsIn  Collaboration[]    @relation("CollabReceiver")
   collaborationsOut Collaboration[]    @relation("CollabRequester")
   course            Course?
@@ -270,6 +272,8 @@ model Store {
   freeDeliveryAbove Float?
   acceptingOrders   Boolean          @default(false)
   hoursText         String?
+  /// Soft-delete marker — set when the owner deletes the venture. null = active.
+  deletedAt         DateTime?
   billingProfiles BillingProfile[]
   cartItems       CartItem[]
   orders          Order[]

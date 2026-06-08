@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { softDeleteStore } from "@/lib/store/softDeleteStore";
 
 export const dynamic = "force-dynamic";
 
@@ -102,18 +103,26 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "unauthorized" }, { status: 403 });
     }
 
-    // Clean up associated Store if one exists (Store.pageId has no cascade back to Page)
+    // If this page backs a Store, this is a whole-venture delete — soft-delete
+    // both rows (refuses while orders are open). See lib/store/softDeleteStore.ts.
     const store = await prisma.store.findFirst({
       where: { pageId },
       select: { id: true },
     });
     if (store) {
-      // Orders have no cascade from Store, delete them first
-      await prisma.order.deleteMany({ where: { storeId: store.id } });
-      await prisma.store.delete({ where: { id: store.id } });
+      const result = await softDeleteStore(store.id, user.id);
+      if (!result.ok) {
+        if (result.reason === "not_found") return NextResponse.json({ error: "store_not_found" }, { status: 404 });
+        if (result.reason === "forbidden") return NextResponse.json({ error: "unauthorized" }, { status: 403 });
+        return NextResponse.json(
+          { error: "open_orders", message: "This store has open orders — settle or cancel them before deleting.", blockingOrders: result.blockingOrders },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json({ ok: true }, { status: 200 });
     }
 
-    // Delete the page (cascades PageFollow, HelpingInitiative, etc.)
+    // No linked Store — out of soft-delete scope (no orders can exist). Hard-delete as before.
     await prisma.page.delete({
       where: { id: pageId },
     });

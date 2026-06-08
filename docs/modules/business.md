@@ -112,16 +112,17 @@ Fields: `id`, `userId`, `title`, `completed`, `freq?` (schedule frequency: daily
 
 **`freq` vs `assumptionKey`**: `freq` is for schedule-frequency use only. `assumptionKey` replaced the BIZDOC-4 pattern of storing "sam"/"som" in `freq`. Existing rows migrated via Neon SQL. Do not put assumption keys in `freq`.
 
-### Three-view pattern — ONE list, ONE source of truth
+### Two-view pattern — ONE list, ONE source of truth
 | View | Component | Filter | Used in |
 |---|---|---|---|
 | Self-tab | `components/self/TodoList.tsx` | All todos | Self → Tasks |
 | Business idea sidebar | `components/business/ValidationTasks.tsx` | `?ideaId=` | Idea evaluation page |
-| Initiative Hub overview | `components/business/ValidationTasks.tsx` | `?validationOnly=true` | `/earn/initiative/[pageId]` |
 
 `PUT /api/self/todos/[id]` is the single write path — completing in any view updates the same row.
 
-`GET /api/self/todos` accepts `?ideaId=`, `?hobbyId=`, `?validationOnly=true` filters. `POST /api/self/todos` accepts `ideaId`, `validationLabel`, `successThreshold`, `assumptionKey`.
+`GET /api/self/todos` accepts `?ideaId=`, `?hobbyId=` filters. `POST /api/self/todos` accepts `ideaId`, `validationLabel`, `successThreshold`, `assumptionKey`.
+
+**There is no Initiative Hub view** — a third "Initiative Hub overview" card (`?validationOnly=true`, all of the user's validation todos with no per-initiative scoping) leaked tasks across unrelated businesses (`BusinessIdea` has no FK to `Page`/`Store`) and was removed entirely (TODO-SCOPE-FIX-1 / TODO-LEAK-FIX-2, 2026-06-08). Do not re-add it without first migrating in a real `BusinessIdea → Page` link.
 
 ## Business↔Goal Linking (BIZDOC-5)
 

@@ -16,7 +16,7 @@ export async function GET(
       },
     }),
     prisma.store.findFirst({
-      where: { pageId },
+      where: { pageId, deletedAt: null },
       include: {
         sections: {
           orderBy: { order: "asc" },

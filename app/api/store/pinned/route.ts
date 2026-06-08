@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ pinned: [] });
 
   const pinned = await prisma.pinnedStore.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, store: { deletedAt: null } },
     include: {
       store: {
         select: {

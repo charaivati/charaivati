@@ -42,8 +42,14 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { storeId: true, store: { select: { pageId: true, ownerId: true } } },
+    select: { storeId: true, store: { select: { pageId: true, ownerId: true, deletedAt: true } } },
   });
+
+  // Zombie-prevention guard: a deleted store can have no further quote actions.
+  if (order?.store.deletedAt) {
+    return NextResponse.json({ error: "This store has been deleted — no further actions are possible." }, { status: 409 });
+  }
+
   const storePageId = order?.store.pageId;
   const partnerPage =
     storePageId && collab.requesterId === storePageId ? collab.receiverPage : collab.requester;

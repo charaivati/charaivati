@@ -18,9 +18,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const order = await prisma.order.findUnique({
     where: { id: orderId },
-    select: { store: { select: { ownerId: true, pageId: true } } },
+    select: { store: { select: { ownerId: true, pageId: true, deletedAt: true } } },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Zombie-prevention guard: a deleted store can have no further workflow actions.
+  if (order.store.deletedAt) {
+    return NextResponse.json({ error: "This store has been deleted — no further actions are possible." }, { status: 409 });
+  }
 
   const step = await prisma.workflowStep.findUnique({
     where: { id: stepId },

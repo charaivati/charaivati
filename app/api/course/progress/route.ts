@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   if (!pageId) return NextResponse.json({ error: "pageId required" }, { status: 400 });
 
   const store = await prisma.store.findFirst({
-    where: { pageId },
+    where: { pageId, deletedAt: null },
     include: {
       sections: {
         include: { blocks: { select: { id: true } } },

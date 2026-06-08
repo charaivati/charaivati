@@ -14,7 +14,7 @@ export async function GET(
   let storeId = id;
   if (!isCuid) {
     const rows = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "Store" WHERE slug = ${id} LIMIT 1
+      SELECT id FROM "Store" WHERE slug = ${id} AND "deletedAt" IS NULL LIMIT 1
     `;
     if (!rows[0]?.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
     storeId = rows[0].id;
@@ -48,6 +48,8 @@ export async function GET(
   ]);
 
   if (!store) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // A deleted store is invisible to everyone except the owner (greyed view via /store/account → Restore).
+  if (store.deletedAt && store.ownerId !== user?.id) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Fetch new fields via raw SQL — safe with stale Prisma client
   const extraRow = await prisma.$queryRaw<{
@@ -113,9 +115,11 @@ export async function PATCH(
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const store = await prisma.store.findUnique({ where: { id }, select: { ownerId: true } });
+  const store = await prisma.store.findUnique({ where: { id }, select: { ownerId: true, deletedAt: true } });
   if (!store) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (store.ownerId !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Reject edits to a deleted store — owner must restore it first.
+  if (store.deletedAt) return NextResponse.json({ error: "This store has been deleted. Restore it before making changes." }, { status: 409 });
 
   const body = await req.json();
   const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText } = body;

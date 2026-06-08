@@ -61,11 +61,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       assignedToUserId: true,
       deliveryStatus: true,
       items: true,
-      store: { select: { ownerId: true, pageId: true } },
+      store: { select: { ownerId: true, pageId: true, deletedAt: true } },
       user: { select: { status: true } },
     },
   });
   if (!order) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Zombie-prevention guard (COLLAB-ZOMBIE-CHECK): a deleted store can have no
+  // further delivery actions performed against its orders by anyone.
+  if (order.store.deletedAt) {
+    return NextResponse.json({ error: "This store has been deleted — no further delivery actions are possible." }, { status: 409 });
+  }
 
   const isOwner = order.store.ownerId === user.id;
   const { isPartner } = isOwner
@@ -153,11 +159,29 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           return NextResponse.json({ partnerStatus: null, assignedToUserId: null, requiresAttention: true });
         }
 
-        // Collab partner reject — cycle to next assignee
-        const activeOSP = await prisma.orderStepProgress.findFirst({
-          where: { orderId: id, status: "active" },
-          select: { id: true, stepId: true },
-        });
+        // Collab partner reject — cycle to next assignee.
+        // Delivery-step OSPs are already "confirmed" by dispatch time (set in
+        // confirm/route.ts before assignNextPartner runs), so a status:"active"
+        // lookup always misses. Derive the step from the dispatched collaboration
+        // (order.assignedToId, captured above before it's nulled) and look up the
+        // OSP via its unique (orderId, stepId) key instead. OSP status is
+        // intentionally NOT restored to "active" — assignNextPartner is status-agnostic.
+        const stepRows = await prisma.$queryRaw<{ stepId: string }[]>`
+          SELECT wsa."stepId"
+          FROM "WorkflowStepAssignee" wsa
+          JOIN "WorkflowStep" ws ON ws.id = wsa."stepId"
+          WHERE wsa."collaborationId" = ${order.assignedToId}
+            AND ws."activityType" = 'delivery'
+          ORDER BY ws."sequence" DESC
+          LIMIT 1
+        `;
+        const stepId = stepRows[0]?.stepId;
+        const activeOSP = stepId
+          ? await prisma.orderStepProgress.findUnique({
+              where: { orderId_stepId: { orderId: id, stepId } },
+              select: { id: true, stepId: true },
+            })
+          : null;
 
         await prisma.order.update({
           where: { id },

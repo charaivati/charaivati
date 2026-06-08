@@ -4,6 +4,7 @@ import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
 
 export async function GET() {
   const stores = await prisma.store.findMany({
+    where: { deletedAt: null },
     select: {
       id: true,
       name: true,

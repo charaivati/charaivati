@@ -28,10 +28,13 @@ export async function POST(req: NextRequest) {
 
   const store = await db.store.findUnique({ where: { id: storeId } });
   if (!store) return NextResponse.json({ error: "Store not found" }, { status: 404 });
-  const storeStatusRow = await db.$queryRaw<{ acceptingOrders: boolean }[]>`
-    SELECT "acceptingOrders" FROM "Store" WHERE id = ${storeId} LIMIT 1
+  const storeStatusRow = await db.$queryRaw<{ acceptingOrders: boolean; deletedAt: Date | null }[]>`
+    SELECT "acceptingOrders", "deletedAt" FROM "Store" WHERE id = ${storeId} LIMIT 1
   `;
-  if (!storeStatusRow[0]?.acceptingOrders) {
+  if (!storeStatusRow[0] || storeStatusRow[0].deletedAt) {
+    return NextResponse.json({ error: "This store is no longer accepting orders." }, { status: 422 });
+  }
+  if (!storeStatusRow[0].acceptingOrders) {
     return NextResponse.json({ error: "This store isn't taking orders right now." }, { status: 422 });
   }
 

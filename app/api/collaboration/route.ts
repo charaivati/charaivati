@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
           { id: receiverId },
           { slug: receiverId },
         ],
+        deletedAt: null,
       },
       select: { pageId: true },
     });

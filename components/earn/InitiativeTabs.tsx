@@ -7,7 +7,6 @@ import PartnersTab from "./PartnersTab";
 const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
 const WorkflowTab          = dynamic(() => import("./WorkflowTab"),          { ssr: false });
 const TeamTab              = dynamic(() => import("./TeamTab"),              { ssr: false });
-const ValidationTasks      = dynamic(() => import("@/components/business/ValidationTasks"), { ssr: false });
 type Tab = "overview" | "store" | "team" | "partners" | "workflow" | "fleet";
 
 interface InitiativeTabsProps {
@@ -192,8 +191,6 @@ export default function InitiativeTabs({
                 </div>
                 <span className="text-indigo-400">→</span>
               </a>
-              {/* Validation tasks — returns null when empty; renders own card when tasks exist */}
-              <ValidationTasks validationOnly isGuest={false} />
             </>
           )}
         </div>

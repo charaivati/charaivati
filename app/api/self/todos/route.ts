@@ -10,12 +10,10 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const hobbyId = url.searchParams.get("hobbyId");
   const ideaId = url.searchParams.get("ideaId");
-  const validationOnly = url.searchParams.get("validationOnly") === "true";
 
   const where: any = { userId: user.id };
   if (hobbyId) where.hobbyId = hobbyId;
   if (ideaId) where.ideaId = ideaId;
-  if (validationOnly) where.validationLabel = { not: null };
 
   const todos = await db.todo.findMany({ where, orderBy: { createdAt: "desc" } });
   return NextResponse.json({ ok: true, data: todos });

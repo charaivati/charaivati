@@ -29,9 +29,9 @@ type Order = {
   items: OrderItem[];
   address: Address;
   user: { name: string | null; email: string | null };
-  store: { id: string; slug?: string | null; name: string };
+  store: { id: string; slug?: string | null; name: string; deleted?: boolean };
   requiresAttention?: boolean;
-  activeStep?: { stepName: string } | null;
+  activeStep?: { stepName: string; assigneeName?: string | null } | null;
 };
 
 type InvoiceState = {
@@ -229,9 +229,7 @@ export default function AllOrdersPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
   const [filter, setFilter] = useState("all");
-  const [errors, setErrors] = useState<Record<string, string>>({});
   const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
-  const [advancing, setAdvancing] = useState<string | null>(null);
   const [poolByStoreId, setPoolByStoreId] = useState<Record<string, Pool>>({});
 
   useEffect(() => {
@@ -324,23 +322,6 @@ export default function AllOrdersPage() {
       }
     }
     setUpdating(null);
-  }
-
-  async function advanceStatus(orderId: string, newStatus: string) {
-    if (advancing === orderId) return;
-    setAdvancing(orderId);
-    const prev = orders.find((o) => o.id === orderId)?.deliveryStatus ?? "pending";
-    setOrders((p) => p.map((o) => o.id === orderId ? { ...o, deliveryStatus: newStatus } : o));
-    const res = await fetch(`/api/order/${orderId}/delivery`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      credentials: "include", body: JSON.stringify({ deliveryStatus: newStatus }),
-    });
-    if (!res.ok) {
-      setOrders((p) => p.map((o) => o.id === orderId ? { ...o, deliveryStatus: prev } : o));
-      setErrors((p) => ({ ...p, [orderId]: "Status update failed — try again." }));
-      setTimeout(() => setErrors((p) => { const e = { ...p }; delete e[orderId]; return e; }), 3000);
-    }
-    setAdvancing(null);
   }
 
   async function patchDelivery(orderId: string, payload: Record<string, unknown>) {
@@ -463,16 +444,25 @@ export default function AllOrdersPage() {
                     )}
                     {/* Active workflow step chip */}
                     {order.activeStep && (
-                      <span className="text-xs px-2 py-0.5 rounded font-medium"
-                        style={{ background: "#F1F5F9", color: "#64748B", border: "1px solid #E2E8F0" }}>
-                        {order.activeStep.stepName}
-                      </span>
+                      <a href={`/store/${order.store.slug ?? order.store.id}/orders`}
+                        title="Manage this step on the store's order page"
+                        className="text-xs px-2 py-0.5 rounded font-medium"
+                        style={{ background: "#F1F5F9", color: "#64748B", border: "1px solid #E2E8F0", textDecoration: "none" }}>
+                        {order.activeStep.stepName} →
+                      </a>
                     )}
                     <a href={`/store/${order.store.slug ?? order.store.id}`}
                       className="text-xs px-2 py-0.5 rounded font-medium"
                       style={{ background: "#EEF2FF", color: A.accent, textDecoration: "none" }}>
                       {order.store.name}
                     </a>
+                    {order.store.deleted && (
+                      <span className="text-xs px-2 py-0.5 rounded font-medium"
+                        style={{ background: "#F1F5F9", color: "#94A3B8", border: "1px solid #E2E8F0" }}
+                        title="This store has been deleted by its owner — historic order, read-only">
+                        Store closed
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs mt-0.5" style={{ color: A.textMuted }}>
                     {new Date(order.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
@@ -520,9 +510,9 @@ export default function AllOrdersPage() {
                 </div>
               )}
 
-              {/* ── Status bar + actions ── */}
+              {/* ── Status bar (read-only — A is a cross-store monitor, not a confirm surface) + actions ── */}
               <div className="mt-4 pt-4 border-t flex items-center justify-between flex-wrap gap-3" style={{ borderColor: "#f0f0f0" }}>
-                {/* Status pipeline — next step pill is clickable to advance */}
+                {/* Status pipeline — display-only; advancing status happens via the workflow on the per-store order page */}
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-1 flex-wrap">
                     {DELIVERY_STEPS.map((s, idx) => {
@@ -530,40 +520,21 @@ export default function AllOrdersPage() {
                       const currentIdx = DELIVERY_STEPS.indexOf(current as typeof DELIVERY_STEPS[number]);
                       const isCompleted = currentIdx > idx;
                       const isActive    = current === s;
-                      const isNext      = currentIdx + 1 === idx && current !== "cancelled" && current !== "delivered";
                       const color       = DELIVERY_COLORS[s];
                       return (
                         <span key={s} className="flex items-center gap-1">
                           {idx > 0 && (
                             <span style={{ color: isCompleted ? DELIVERY_COLORS.delivered : A.border, fontSize: 10 }}>›</span>
                           )}
-                          {isNext ? (
-                            <button
-                              onClick={() => advanceStatus(order.id, s)}
-                              disabled={advancing === order.id}
-                              title={`Advance to ${DELIVERY_LABELS[s]}`}
-                              className="text-xs px-2 py-0.5 rounded inline-flex items-center gap-1"
-                              style={{
-                                background: `${color}15`, color, fontWeight: 500,
-                                border: `1px dashed ${color}`,
-                                cursor: advancing === order.id ? "not-allowed" : "pointer",
-                                opacity: advancing === order.id ? 0.6 : 1,
-                              }}>
-                              {advancing === order.id
-                                ? <><span className="w-2.5 h-2.5 rounded-full border border-current border-t-transparent animate-spin" /> Updating…</>
-                                : `${DELIVERY_LABELS[s]} +`}
-                            </button>
-                          ) : (
-                            <span className="text-xs px-2 py-0.5 rounded"
-                              style={{
-                                background: isActive ? `${color}20` : isCompleted ? `${DELIVERY_COLORS.delivered}10` : "#f9fafb",
-                                color:      isActive ? color : isCompleted ? DELIVERY_COLORS.delivered : A.textMuted,
-                                fontWeight: isActive ? 600 : 400,
-                                border:     `1px solid ${isActive ? color : "transparent"}`,
-                              }}>
-                              {isCompleted ? "✓ " : ""}{DELIVERY_LABELS[s]}
-                            </span>
-                          )}
+                          <span className="text-xs px-2 py-0.5 rounded"
+                            style={{
+                              background: isActive ? `${color}20` : isCompleted ? `${DELIVERY_COLORS.delivered}10` : "#f9fafb",
+                              color:      isActive ? color : isCompleted ? DELIVERY_COLORS.delivered : A.textMuted,
+                              fontWeight: isActive ? 600 : 400,
+                              border:     `1px solid ${isActive ? color : "transparent"}`,
+                            }}>
+                            {isCompleted ? "✓ " : ""}{DELIVERY_LABELS[s]}
+                          </span>
                         </span>
                       );
                     })}
@@ -574,9 +545,6 @@ export default function AllOrdersPage() {
                       </span>
                     )}
                   </div>
-                  {errors[order.id] && (
-                    <p className="text-xs mt-0.5" style={{ color: "#EF4444" }}>{errors[order.id]}</p>
-                  )}
                 </div>
 
                 {/* Actions: Cancel only */}
@@ -602,8 +570,14 @@ export default function AllOrdersPage() {
                 const pool = poolByStoreId[order.store.id] ?? { teamMembers: [], partners: [] };
                 const busy = updatingDelivery === order.id;
                 const badge = order.partnerStatus ? PARTNER_STATUS_BADGE[order.partnerStatus] : null;
+                const storeOrdersHref = `/store/${order.store.slug ?? order.store.id}/orders`;
 
-                // Resolve who is currently assigned for the green card display
+                // Resolve who is currently assigned for the green card display.
+                // assignedToId/assignedToUserId are written ONLY by the delivery dispatch
+                // path (assignNextPartner / manual delivery assignment) — they are never
+                // set for normal-step assignment, which lives on OSP.currentAssigneeId
+                // (surfaced here as activeStep.assigneeName). Reading the legacy fields
+                // for a normal-step order produces a misleading "Unassigned".
                 const assignedPageEntry = order.assignedToId
                   ? pool.partners.find((p) => p.collabId === order.assignedToId) ?? null
                   : null;
@@ -612,6 +586,38 @@ export default function AllOrdersPage() {
                   : null;
                 const assignedLabel  = assignedPageEntry?.label ?? assignedUserEntry?.label ?? null;
                 const assignedSublbl = assignedPageEntry?.role  ?? (assignedUserEntry ? "Team Member" : null);
+
+                const hasLegacyAssignment = !!(order.assignedToId || order.assignedToUserId);
+
+                // No legacy delivery assignment, but the workflow has an active step —
+                // this order is being driven by the OSP layer (most likely a normal step,
+                // auto-assigned via assignNormalStep). Show what the engine actually did,
+                // read-only, and funnel the owner to the per-store page to act on it.
+                if (!hasLegacyAssignment && order.activeStep) {
+                  return (
+                    <div className="mt-4 pt-4 border-t" style={{ borderColor: "#f0f0f0" }}>
+                      <p className="text-xs font-semibold mb-2" style={{ color: A.textMuted }}>ASSIGNED VIA WORKFLOW</p>
+                      <div className="p-2.5 rounded-lg flex items-center justify-between gap-3 flex-wrap"
+                        style={{ background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+                        <p className="text-xs" style={{ color: A.text }}>
+                          {order.activeStep.assigneeName
+                            ? <>Currently with <span className="font-semibold">{order.activeStep.assigneeName}</span> on <span className="font-medium">{order.activeStep.stepName}</span></>
+                            : <>Auto-assigned by the <span className="font-medium">{order.activeStep.stepName}</span> step</>}
+                        </p>
+                        <a href={storeOrdersHref}
+                          className="text-xs px-2.5 py-1 rounded-md font-medium"
+                          style={{ background: "#EEF2FF", color: A.accent, textDecoration: "none" }}>
+                          Manage on store page →
+                        </a>
+                      </div>
+                      {order.deliveryNote && (
+                        <p className="text-xs mt-2" style={{ color: A.textMuted }}>
+                          <span className="font-medium" style={{ color: A.text }}>Note:</span> {order.deliveryNote}
+                        </p>
+                      )}
+                    </div>
+                  );
+                }
 
                 // Encode current assignment as a prefixed string for the select value
                 const selectValue = order.assignedToUserId

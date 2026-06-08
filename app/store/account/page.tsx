@@ -39,7 +39,7 @@ type Order = {
   user?: { name: string | null; email: string | null };
   items: OrderItem[];
 };
-type MyStore = { id: string; slug?: string | null; name: string };
+type MyStore = { id: string; slug?: string | null; name: string; deletedAt?: string | null };
 type BillingProfile = {
   id: string;
   legalName: string;
@@ -238,6 +238,62 @@ function AccountPageContent() {
 
   // My Stores tab
   const [myStores, setMyStores] = useState<MyStore[]>([]);
+  const [storeActionLoading, setStoreActionLoading] = useState<string | null>(null);
+  const [storeActionMsg, setStoreActionMsg] = useState<Record<string, string>>({});
+
+  async function handleDeleteStore(storeId: string, storeName: string) {
+    if (storeActionLoading === storeId) return;
+    if (!window.confirm(`Delete "${storeName}"? This closes the venture for everyone — partners are notified and the store disappears from listings. You can restore it later if it has no open orders blocking you.`)) return;
+    setStoreActionLoading(storeId);
+    setStoreActionMsg((m) => ({ ...m, [storeId]: "" }));
+    try {
+      const res = await fetch("/api/store/my-stores", {
+        method: "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: storeId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (d.error === "open_orders") {
+          setStoreActionMsg((m) => ({ ...m, [storeId]: d.message || "This store has open orders — settle or cancel them before deleting." }));
+        } else {
+          setStoreActionMsg((m) => ({ ...m, [storeId]: d.error || "Could not delete this store." }));
+        }
+        return;
+      }
+      setMyStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, deletedAt: new Date().toISOString() } : s)));
+    } catch {
+      setStoreActionMsg((m) => ({ ...m, [storeId]: "Could not delete this store." }));
+    } finally {
+      setStoreActionLoading(null);
+    }
+  }
+
+  async function handleRestoreStore(storeId: string) {
+    if (storeActionLoading === storeId) return;
+    setStoreActionLoading(storeId);
+    setStoreActionMsg((m) => ({ ...m, [storeId]: "" }));
+    try {
+      const res = await fetch(`/api/store/${storeId}/restore`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStoreActionMsg((m) => ({ ...m, [storeId]: d.message || d.error || "Could not restore this store." }));
+        return;
+      }
+      setMyStores((prev) => prev.map((s) => (s.id === storeId ? { ...s, deletedAt: null, slug: d.slug ?? s.slug } : s)));
+      if (d.slugChanged) {
+        setStoreActionMsg((m) => ({ ...m, [storeId]: `Restored — its old web address was taken, so it now lives at /store/${d.slug}.` }));
+      }
+    } catch {
+      setStoreActionMsg((m) => ({ ...m, [storeId]: "Could not restore this store." }));
+    } finally {
+      setStoreActionLoading(null);
+    }
+  }
 
   // Invoice / Billing profiles tab
   const [billingProfiles, setBillingProfiles] = useState<BillingProfile[]>([]);
@@ -554,30 +610,64 @@ function AccountPageContent() {
               myStores.map((s) => {
                 const storeHandle = s.slug ?? s.id;
                 const storeTypeLabel = s.slug ? "Store" : "Store";
+                const isDeleted = !!s.deletedAt;
+                const acting = storeActionLoading === s.id;
+                const msg = storeActionMsg[s.id];
                 return (
-                  <div key={s.id} className="rounded-xl p-4 flex items-center justify-between gap-3"
-                    style={{ background: A.surface, border: `1px solid ${A.border}` }}>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold" style={{ color: A.text }}>{s.name}</span>
-                        <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                          style={{ background: "#EEF2FF", color: A.accent }}>
-                          {storeTypeLabel}
-                        </span>
+                  <div key={s.id} className="rounded-xl p-4"
+                    style={{ background: isDeleted ? "#F8FAFC" : A.surface, border: `1px solid ${A.border}`, opacity: isDeleted ? 0.6 : 1 }}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold" style={{ color: A.text }}>{s.name}</span>
+                          <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                            style={{ background: "#EEF2FF", color: A.accent }}>
+                            {storeTypeLabel}
+                          </span>
+                          {isDeleted && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                              style={{ background: "#FEE2E2", color: "#B91C1C" }}>
+                              Deleted
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        {!isDeleted && (
+                          <>
+                            <a href={`/store/${storeHandle}`}
+                              className="text-xs px-3 py-1.5 rounded-md font-medium"
+                              style={{ border: `1px solid ${A.border}`, color: A.text, textDecoration: "none", background: A.surface }}>
+                              Visit store
+                            </a>
+                            <a href={`/store/orders/all?storeId=${s.id}`}
+                              className="text-xs px-3 py-1.5 rounded-md font-medium"
+                              style={{ background: A.accent, color: "#fff", textDecoration: "none" }}>
+                              Manage orders
+                            </a>
+                            <button onClick={() => handleDeleteStore(s.id, s.name)}
+                              disabled={acting}
+                              className="text-xs px-3 py-1.5 rounded-md font-medium"
+                              style={{ border: "1px solid #FCA5A5", color: "#B91C1C", background: A.surface, cursor: acting ? "default" : "pointer", opacity: acting ? 0.5 : 1 }}>
+                              {acting ? "Deleting…" : "Delete"}
+                            </button>
+                          </>
+                        )}
+                        {isDeleted && (
+                          <button onClick={() => handleRestoreStore(s.id)}
+                            disabled={acting}
+                            className="text-xs px-3 py-1.5 rounded-md font-medium"
+                            style={{ background: A.accent, color: "#fff", border: "none", cursor: acting ? "default" : "pointer", opacity: acting ? 0.5 : 1 }}>
+                            {acting ? "Restoring…" : "Restore"}
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <div className="flex gap-2 shrink-0">
-                      <a href={`/store/${storeHandle}`}
-                        className="text-xs px-3 py-1.5 rounded-md font-medium"
-                        style={{ border: `1px solid ${A.border}`, color: A.text, textDecoration: "none", background: A.surface }}>
-                        Visit store
-                      </a>
-                      <a href={`/store/orders/all?storeId=${s.id}`}
-                        className="text-xs px-3 py-1.5 rounded-md font-medium"
-                        style={{ background: A.accent, color: "#fff", textDecoration: "none" }}>
-                        Manage orders
-                      </a>
-                    </div>
+                    {msg && (
+                      <p className="text-xs mt-2" style={{ color: isDeleted ? A.textMuted : "#B91C1C" }}>
+                        {msg}
+                      </p>
+                    )}
                   </div>
                 );
               })

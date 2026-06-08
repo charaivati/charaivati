@@ -13,7 +13,7 @@ type OrderItem = { blockId: string; title: string; price: number; quantity: numb
 type Address = { name: string; phone: string; line1: string; city: string; state: string; pincode: string };
 type QuoteEntry  = { id: string; stepId: string; partyName: string; amount: number | null; status: string };
 type ActiveStep  = { stepId: string; stepName: string; assigneeName: string | null; quoteRequired: boolean; activityType?: string | null };
-type StepStatus  = { stepId: string; stepName: string; sequence: number; quoteRequired: boolean; ospStatus: string; activityType?: string | null };
+type StepStatus  = { stepId: string; stepName: string; sequence: number; quoteRequired: boolean; ospStatus: string; activityType?: string | null; assigneeName?: string | null };
 type QueueStep   = { stepId: string; stepName: string };
 type Order = {
   id: string; status: string; total: number; createdAt: string;
@@ -216,9 +216,11 @@ function WorkflowSection({
   partnerStatus,
   assignedToId,
   partners,
+  teamMembers,
   onReload,
   onConfirmOrder,
   onStepConfirmed,
+  onAssignDelivery,
 }: {
   orderId: string;
   orderStatus: string;
@@ -231,14 +233,30 @@ function WorkflowSection({
   partnerStatus: string | null;
   assignedToId: string | null;
   partners: Collab[];
+  teamMembers: TeamUserMember[];
   onReload: () => void;
   onConfirmOrder: () => void;
   onStepConfirmed: () => void;
+  onAssignDelivery: (orderId: string, value: string) => Promise<void> | void;
 }) {
   const [localQuotes,   setLocalQuotes]   = useState<QuoteEntry[]>(quotes);
   const [accepting,     setAccepting]     = useState<string | null>(null);
   const [retryAssignee, setRetryAssignee] = useState("");
   const [retrying,      setRetrying]      = useState(false);
+  const [stepAssignSelect, setStepAssignSelect] = useState("");
+  const [stepAssigning,    setStepAssigning]    = useState(false);
+
+  // Reassign — delivery steps only. Reuses the EXISTING per-order delivery override
+  // (PATCH /api/order/[id]/delivery via handleAssignDelivery in the parent — the same
+  // mechanism as the "Reassign / assign manually" panel). There is no equivalent
+  // per-order override for normal-step assignees — see the honest note rendered below.
+  async function handleStepReassign() {
+    if (!stepAssignSelect) return;
+    setStepAssigning(true);
+    await onAssignDelivery(orderId, stepAssignSelect);
+    setStepAssigning(false);
+    setStepAssignSelect("");
+  }
   const [executing,     setExecuting]     = useState(false); // API call in flight after countdown
 
   // ── Countdown state ───────────────────────────────────────────────────────
@@ -468,52 +486,150 @@ function WorkflowSection({
         </div>
       )}
 
-      {/* State C — Active step info (hidden while countdown is running) */}
-      {activeStep && !showRejection && !countdown && !executing && (
+      {/* State C — Numbered step list: the full workflow for THIS order, one row per step,
+          with real assignee + honest OSP-derived state + inline controls (OWNER-STEPVIEW-1).
+          Hidden while a countdown/API call is in flight to avoid control collisions. */}
+      {activeStep && !showRejection && !countdown && !executing && allSteps.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold" style={{ color: A.textMuted }}>CURRENT STEP</p>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs px-2.5 py-1 rounded-full font-medium"
-              style={{ background: "#EEF2FF", color: A.accent, border: `1px solid ${A.accent}` }}>
-              {activeStep.stepName}
-            </span>
-            {activeStep.assigneeName && (
-              <span className="text-xs" style={{ color: A.textMuted }}>→ {activeStep.assigneeName}</span>
-            )}
-          </div>
-          {agreedAmount != null && agreedAmount > 0 && (
-            <p className="text-xs" style={{ color: A.textMuted }}>
-              Estimated delivery cost: ₹{agreedAmount.toLocaleString("en-IN")}
-            </p>
-          )}
+          <p className="text-xs font-semibold" style={{ color: A.textMuted }}>STEPS</p>
+          <div className="space-y-1.5">
+            {[...allSteps].sort((a, b) => a.sequence - b.sequence).map((s, idx) => {
+              const isActive   = s.ospStatus === "active";
+              const isDone     = s.ospStatus === "confirmed";
+              const isFailed   = s.ospStatus === "failed";
+              const isDelivery = s.activityType === "delivery";
+              const stateLabel = isDone ? "Done ✓"
+                : isFailed ? "Failed — needs attention"
+                : isActive ? "Active — your turn"
+                : `Waiting on step ${idx}`;
+              const stateColor = isDone ? "#10B981" : isFailed ? "#EF4444" : isActive ? A.accent : "#9CA3AF";
 
-          {/* Confirm / Fast-track buttons */}
-          {(() => {
-            const isDelivery = activeStep.activityType === "delivery";
-            return (
-              <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                {!activeStep.quoteRequired && (
-                  <button
-                    onClick={startConfirmStep}
-                    className="text-xs px-3 py-1.5 rounded-md font-medium"
-                    style={{ background: isDelivery ? "#0F766E" : "#10B981", color: "#fff", cursor: "pointer" }}
-                  >
-                    {isDelivery ? "Confirm Dispatch 🚚" : "Mark Complete ✓"}
-                  </button>
-                )}
-                {!isDelivery && remainingNormalSteps > 1 && (
-                  <button
-                    onClick={startFastTrack}
-                    className="text-xs px-3 py-1.5 rounded-md font-medium"
-                    style={{ background: "#1D4ED8", color: "#fff", cursor: "pointer" }}
-                    title={`Auto-confirm ${remainingNormalSteps} normal steps (5s cancel window each). Stops before delivery.`}
-                  >
-                    ⚡ Complete All ({remainingNormalSteps})
-                  </button>
-                )}
-              </div>
-            );
-          })()}
+              return (
+                <div key={s.stepId} className="flex items-start gap-2.5 px-3 py-2 rounded-lg"
+                  style={{
+                    background: isActive ? "#EEF2FF" : isDone ? "#F0FDF4" : "#F9FAFB",
+                    border: `1px solid ${isActive ? A.accent : isDone ? "#A7F3D0" : "#E5E7EB"}`,
+                  }}>
+                  <span className="text-xs font-bold shrink-0" style={{ color: isActive ? A.accent : A.textMuted, minWidth: 16 }}>
+                    {idx + 1}.
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold" style={{ color: A.text }}>{s.stepName}</span>
+                      {isDelivery && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: "#CCFBF1", color: "#0F766E", fontSize: 10 }}>
+                          🚚 delivery
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: A.textMuted }}>
+                      {s.assigneeName
+                        ? `→ ${s.assigneeName}`
+                        : isDelivery
+                          ? (isDone ? "—" : "Not yet dispatched")
+                          : "Awaiting assignment"}
+                    </p>
+
+                    {/* Confirm / Fast-track — active step only */}
+                    {isActive && (
+                      <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                        {!s.quoteRequired && (
+                          <button
+                            onClick={startConfirmStep}
+                            className="text-xs px-3 py-1.5 rounded-md font-medium"
+                            style={{ background: isDelivery ? "#0F766E" : "#10B981", color: "#fff", cursor: "pointer" }}
+                          >
+                            {isDelivery ? "Confirm Dispatch 🚚" : "Mark Complete ✓"}
+                          </button>
+                        )}
+                        {!isDelivery && remainingNormalSteps > 1 && (
+                          <button
+                            onClick={startFastTrack}
+                            className="text-xs px-3 py-1.5 rounded-md font-medium"
+                            style={{ background: "#1D4ED8", color: "#fff", cursor: "pointer" }}
+                            title={`Auto-confirm ${remainingNormalSteps} normal steps (5s cancel window each). Stops before delivery.`}
+                          >
+                            ⚡ Complete All ({remainingNormalSteps})
+                          </button>
+                        )}
+                        {isDelivery && agreedAmount != null && agreedAmount > 0 && (
+                          <span className="text-xs" style={{ color: A.textMuted }}>
+                            Estimated cost: ₹{agreedAmount.toLocaleString("en-IN")}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Reassign — delivery steps only, via the EXISTING per-order delivery
+                        override (PATCH /api/order/[id]/delivery, same as "Reassign / assign
+                        manually" below). Not yet dispatched (pending) delivery steps have
+                        nothing to reassign yet. */}
+                    {isDelivery && !isDone && s.ospStatus !== "pending" && (partners.length > 0 || teamMembers.length > 0) && (
+                      <details className="mt-1.5">
+                        <summary className="text-xs cursor-pointer select-none" style={{ color: A.textMuted }}>
+                          Reassign ›
+                        </summary>
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                          <select
+                            value={stepAssignSelect}
+                            onChange={(e) => setStepAssignSelect(e.target.value)}
+                            className="text-xs rounded-md px-2 py-1.5"
+                            style={{ border: "1px solid #DDDDDD", color: "#0F1111", background: "#fff" }}
+                          >
+                            <option value="">— Choose assignee —</option>
+                            {partners.length > 0 && (
+                              <optgroup label="Partner Businesses">
+                                {partners.map((p) => {
+                                  const page = p.receiverPage ?? p.receiver;
+                                  return (
+                                    <option key={p.id} value={`collab:${p.id}`}>
+                                      {page?.title ?? "Unknown"} · {p.role.replace(/_/g, " ")}
+                                    </option>
+                                  );
+                                })}
+                              </optgroup>
+                            )}
+                            {teamMembers.length > 0 && (
+                              <optgroup label="Team Members">
+                                {teamMembers.map((m) => (
+                                  <option key={m.id} value={`user:${m.receiverUserId}`}>
+                                    {m.receiverUser?.name ?? "Member"} · {m.teamRole ?? "Employee"}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </select>
+                          <button
+                            disabled={!stepAssignSelect || stepAssigning}
+                            onClick={handleStepReassign}
+                            className="text-xs px-3 py-1.5 rounded-md font-medium shrink-0"
+                            style={{
+                              background: A.accent, color: "#fff", cursor: "pointer",
+                              opacity: (!stepAssignSelect || stepAssigning) ? 0.5 : 1,
+                            }}
+                          >
+                            {stepAssigning ? "…" : "Assign"}
+                          </button>
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Honest gap note — there is no per-order override for normal-step
+                        assignees yet; only the workflow TEMPLATE can be edited (affects
+                        future orders, not this one). See OWNER-STEPVIEW-1 report. */}
+                    {!isDelivery && !isDone && isActive && (
+                      <p className="text-xs mt-1" style={{ color: "#9CA3AF", fontStyle: "italic" }}>
+                        Reassigning this step for just this order isn't available yet — change the assignee in the Workflow tab (affects future orders).
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-xs font-medium shrink-0" style={{ color: stateColor }}>
+                    {stateLabel}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -896,6 +1012,8 @@ export default function StoreOrdersPage() {
                 partnerStatus={partnerStatuses[order.id] ?? null}
                 assignedToId={assignedTos[order.id] ?? null}
                 partners={partners}
+                teamMembers={teamMembers}
+                onAssignDelivery={handleAssignDelivery}
                 onReload={loadOrders}
                 onConfirmOrder={() => updateStatus(order.id, "confirmed")}
                 onStepConfirmed={() => {
