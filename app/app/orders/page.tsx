@@ -288,7 +288,7 @@ function TaskCard({ task, onConfirm }: { task: ProcessTask; onConfirm: (ospId: s
       <div style={{ fontSize: 12, color: "#64748B", marginBottom: 10 }}>{task.itemsSummary}</div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 13, fontWeight: 600 }}>₹{task.total.toLocaleString("en-IN")}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>₹{task.total.toLocaleString("en-IN")}</span>
         <button
           onClick={handleConfirm}
           disabled={confirming}
@@ -540,7 +540,7 @@ export default function OrdersPage() {
                     {o.items.length > 2 ? ` +${o.items.length - 2} more` : ""}
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>₹{o.total.toLocaleString("en-IN")}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>₹{o.total.toLocaleString("en-IN")}</span>
                     {o.deliveryStatus === "out_for_delivery" && (
                       <Link href={`/order/${o.id}/track`} style={{ fontSize: 12, color: "#fff", background: "#D85A30", padding: "4px 10px", borderRadius: 6, textDecoration: "none", fontWeight: 600 }}>
                         {t("app-orders-track", "Track 📍")}
@@ -600,7 +600,7 @@ export default function OrdersPage() {
                           {o.items.length > 2 ? ` +${o.items.length - 2} more` : ""}
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>
                             {o.agreedAmount != null
                               ? `₹${o.agreedAmount.toLocaleString("en-IN")} agreed`
                               : `₹${o.total.toLocaleString("en-IN")}`}
@@ -648,7 +648,7 @@ export default function OrdersPage() {
                           </div>
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>₹{o.total.toLocaleString("en-IN")}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#111827" }}>₹{o.total.toLocaleString("en-IN")}</span>
                           <Link href={o.store?.slug ? `/store/${o.store.slug}/orders` : `/store/orders/all`} style={{ fontSize: 12, color: "#185FA5", fontWeight: 600, textDecoration: "none" }}>
                             {t("app-orders-manage", "Manage →")}
                           </Link>
