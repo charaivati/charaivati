@@ -317,7 +317,9 @@ export default async function DeliveriesPage() {
     };
   });
 
-  // Last 10 completed deliveries for this user
+  // Last 10 completed deliveries for this user — collab-assigned or self-assigned (assignedToUserId).
+  // = ANY('{}') is always false in PG, so an empty collabIds array is safe here.
+  const completedCollabIds = collabIds.length > 0 ? collabIds : ["__none__"];
   const rawCompleted = await prisma.$queryRaw<RawCompleted[]>`
     SELECT
       o.id,
@@ -332,7 +334,7 @@ export default async function DeliveriesPage() {
     FROM "Order" o
     JOIN "Address" a ON o."addressId" = a.id
     JOIN "Store"   s ON o."storeId"   = s.id
-    WHERE o."assignedToId" = ANY(${collabIds}::text[])
+    WHERE (o."assignedToId" = ANY(${completedCollabIds}::text[]) OR o."assignedToUserId" = ${userId})
       AND o."partnerStatus" = 'completed'
     ORDER BY o."createdAt" DESC
     LIMIT 10

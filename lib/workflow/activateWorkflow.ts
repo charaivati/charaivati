@@ -46,7 +46,14 @@ export async function activateWorkflow(orderId: string): Promise<void> {
   const activityType = activityRaw[0]?.activityType ?? "normal";
 
   if (activityType === "delivery") {
-    // Delivery step: just active — confirm route handles dispatch via assignNextPartner
+    // Delivery step: just activate — confirm route handles dispatch via assignNextPartner.
+    // Ensure the owner is a fallback assignee so assignNextPartner never no-ops silently.
+    const deliveryAssigneeCount = await (prisma as any).workflowStepAssignee.count({
+      where: { stepId: first.id },
+    });
+    if (deliveryAssigneeCount === 0) {
+      await ensureOwnerAssignee(initiativeId, first.id);
+    }
     return;
   }
 

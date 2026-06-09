@@ -78,8 +78,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     ? { isPartner: false }
     : await resolveAssignedCollab(order.assignedToId, order.store.pageId, user.id);
 
-  // Direct employee: assigned via assignedToUserId (user-type team member)
+  // Direct employee: assigned via assignedToUserId (user-type team member, not the owner)
   const isDirectEmployee = !isOwner && !isPartner && order.assignedToUserId === user.id;
+
+  // Owner-as-partner: store owner is also the delivery person assigned via assignedToUserId.
+  // assignNextPartner writes assignedToUserId (not assignedToId) for user-type WSA collabs so
+  // the deliveries page rawPersonalOrders query finds the order. The owner can accept/reject
+  // from /earn/deliveries just like an external partner would.
+  const isOwnerAsPartner = isOwner && order.assignedToUserId === user.id;
 
   // Block-assigned employee: item JSON references a delivery block with assignedUserId = user.id
   let isBlockEmployee = false;
@@ -130,10 +136,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json(updated);
   }
 
-  // ── Partner / direct-employee / block-employee actions ────────────────────
-  if ((isPartner || isBlockEmployee || isDirectEmployee) && !isOwner) {
-    // Accept / Reject — collab partners and direct employees
-    if (isPartner || isDirectEmployee) {
+  // ── Partner / direct-employee / block-employee / owner-as-partner actions ─
+  // isOwnerAsPartner only enters this block for explicit partner actions (accept/reject)
+  // or vehicleId (GPS start) — all other owner fields (deliveryNote, deliveryStatus, etc.)
+  // fall through to the owner section below.
+  if ((isOwnerAsPartner && (partnerAction != null || "vehicleId" in body)) ||
+      ((isPartner || isBlockEmployee || isDirectEmployee) && !isOwner)) {
+    // Accept / Reject — collab partners, direct employees, and owner-as-partner
+    if (isPartner || isDirectEmployee || isOwnerAsPartner) {
       if (partnerAction === "accept") {
         const updated = await (prisma as any).order.update({
           where: { id },
@@ -157,6 +167,49 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             link: `/store/${order.storeId}/orders`,
           }).catch(() => {});
           return NextResponse.json({ partnerStatus: null, assignedToUserId: null, requiresAttention: true });
+        }
+
+        if (isOwnerAsPartner) {
+          // Owner rejected their own self-delivery — cycle to the next WSA partner.
+          // Use the delivery-step OSP directly (assignedToId is null in this path).
+          const ospRows = await prisma.$queryRaw<{ stepId: string; ospId: string }[]>`
+            SELECT osp."stepId", osp.id AS "ospId"
+            FROM "OrderStepProgress" osp
+            JOIN "WorkflowStep" ws ON ws.id = osp."stepId"
+            WHERE osp."orderId" = ${id}
+              AND ws."activityType" = 'delivery'
+            ORDER BY ws."sequence" DESC
+            LIMIT 1
+          `;
+          const deliveryStepId = ospRows[0]?.stepId;
+          const deliveryOspId  = ospRows[0]?.ospId;
+
+          await (prisma as any).order.update({
+            where: { id },
+            data: { assignedToUserId: null, partnerStatus: "rejected" },
+          });
+
+          if (deliveryStepId && deliveryOspId) {
+            const result = await assignNextPartner({
+              orderId: id,
+              stepId:  deliveryStepId,
+              ospId:   deliveryOspId,
+            });
+            if (result.escalated)
+              return NextResponse.json({ partnerStatus: "rejected", assignedToUserId: null, requiresAttention: true });
+            if (result.assigned)
+              return NextResponse.json({ partnerStatus: "assigned", cycled: true });
+          }
+
+          await (prisma as any).order.update({ where: { id }, data: { requiresAttention: true } });
+          createNotification({
+            userId: order.store.ownerId,
+            type: "workflow_attention",
+            title: "Delivery self-rejected",
+            body: `Order #${id.slice(-8).toUpperCase()} — no other delivery partner available. Please reassign.`,
+            link: `/store/orders/all`,
+          }).catch(() => {});
+          return NextResponse.json({ partnerStatus: "rejected", assignedToUserId: null, requiresAttention: true });
         }
 
         // Collab partner reject — cycle to next assignee.
@@ -239,12 +292,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (deliveryStatus !== undefined) data.deliveryStatus = deliveryStatus;
     if ("vehicleId" in body) data.vehicleId = vehicleId ?? null;
 
-    // When a direct employee starts GPS (sets vehicleId), auto-advance deliveryStatus to
-    // "out_for_delivery" so the customer's tracking map activates — mirrors the workflow-
-    // driven advancement that collab partners receive via the OSP confirm flow.
+    // When a direct employee or owner-as-partner starts GPS (sets vehicleId), auto-advance
+    // deliveryStatus to "out_for_delivery" so the customer's tracking map activates.
     const NON_DELIVERY_STATUSES = new Set(["pending", "confirmed", "processing"]);
     if (
-      isDirectEmployee &&
+      (isDirectEmployee || isOwnerAsPartner) &&
       "vehicleId" in body &&
       vehicleId != null &&
       deliveryStatus === undefined &&

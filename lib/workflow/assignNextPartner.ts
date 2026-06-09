@@ -182,12 +182,21 @@ export async function assignNextPartner({
   }
   if (!partnerUserId) return { assigned: false, escalated: false };
 
-  // Update order with new assignment
+  // User-type collabs (receiverPage is null) must go through assignedToUserId so the
+  // deliveries page rawPersonalOrders query can find them. Page-type collabs use assignedToId.
+  const isUserTypeCollab = !collab.receiverPage;
+
   await (prisma as any).order.update({
     where: { id: orderId },
-    data: {
-      assignedToId: nextAssignee.collaborationId,
-      partnerStatus: "assigned",
+    data: isUserTypeCollab ? {
+      assignedToUserId: partnerUserId,
+      assignedToId:     null,
+      partnerStatus:    "assigned",
+      ...(calculatedCost > 0 ? { agreedAmount: calculatedCost } : {}),
+    } : {
+      assignedToId:     nextAssignee.collaborationId,
+      assignedToUserId: null,
+      partnerStatus:    "assigned",
       ...(calculatedCost > 0 ? { agreedAmount: calculatedCost } : {}),
     },
   });
