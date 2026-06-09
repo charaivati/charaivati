@@ -121,7 +121,7 @@ function MobileProfileMenu() {
           )}
 
           <a
-            href="/store/account?tab=purchases"
+            href="/app/orders"
             style={{
               display: "block",
               padding: "10px 16px",
