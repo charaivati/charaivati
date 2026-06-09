@@ -12,16 +12,18 @@ interface StartScreenBatchProps {
   ) => void;
   loading: boolean;
   error?: string;
+  initialEmail?: string;
 }
 
 export default function StartScreenBatch({
   onStart,
   loading,
   error,
+  initialEmail,
 }: StartScreenBatchProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(initialEmail ?? "");
   const [phone, setPhone] = useState("");
 
   const canSubmit = title.trim() && description.trim() && email.trim();

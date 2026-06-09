@@ -56,6 +56,7 @@ export default function IdeaPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | undefined>(undefined);
   const [isGuest, setIsGuest] = useState(false);
+  const [prefillEmail, setPrefillEmail] = useState("");
 
   // Interview state
   const [conversation, setConversation] = useState<ConvTurn[]>([]);
@@ -69,6 +70,17 @@ export default function IdeaPage() {
   // Market sizing (BIZDOC-4)
   const [marketSizing, setMarketSizing] = useState<MarketSizingData | null>(null);
   const [marketSizingPending, setMarketSizingPending] = useState(false);
+
+  // On mount: prefill email for logged-in users; guests get an empty field.
+  useEffect(() => {
+    fetch("/api/user/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.user?.email) setPrefillEmail(data.user.email);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // On mount: restore market sizing (and idea meta) from DB if a prior session exists.
   // This makes persisted slider adjustments survive page refreshes.
@@ -289,6 +301,7 @@ export default function IdeaPage() {
         onStart={handleStart}
         loading={creating}
         error={createError}
+        initialEmail={prefillEmail}
       />
     );
   }
