@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
+import dynamic from "next/dynamic";
+
+// Same live-tracking map the customer uses on /order/[id]/track — reused here for the
+// owner's post-dispatch view (OWNER-DELIV-VIEW-1). Dynamic import keeps Leaflet client-only.
+const TransportMap = dynamic(() => import("@/components/transport/TransportMap"), { ssr: false });
 
 const A = {
   bg: "#E3E6E6", nav: "#131921", border: "#DDDDDD",
@@ -215,6 +220,8 @@ function WorkflowSection({
   quotes,
   partnerStatus,
   assignedToId,
+  deliveryStatus,
+  vehicleId,
   partners,
   teamMembers,
   onReload,
@@ -232,6 +239,8 @@ function WorkflowSection({
   quotes: QuoteEntry[];
   partnerStatus: string | null;
   assignedToId: string | null;
+  deliveryStatus: string | null;
+  vehicleId: string | null;
   partners: Collab[];
   teamMembers: TeamUserMember[];
   onReload: () => void;
@@ -381,6 +390,46 @@ function WorkflowSection({
 
   const showRejection = partnerStatus === "rejected" && activeStep;
 
+  // ── Post-dispatch detection (OWNER-DELIV-VIEW-1) ──────────────────────────
+  // The delivery step is the FINAL step (MK's decision — no steps after it). Once its
+  // OSP leaves "active" (→ "confirmed" or "failed"), activeStep goes null even though
+  // the order is now in its end-of-life delivery window. Use the step's own OSP status
+  // — not deliveryStatus alone — as the honest "has this been dispatched?" signal,
+  // since deliveryStatus is set to "out_for_delivery" at the same moment the OSP is
+  // confirmed (see confirm/route.ts) regardless of whether a partner was found.
+  const deliveryStep = allSteps.find((s) => s.activityType === "delivery") ?? null;
+  const isPostDispatch =
+    !!deliveryStep &&
+    (deliveryStep.ospStatus === "confirmed" || deliveryStep.ospStatus === "failed") &&
+    orderStatus !== "cancelled" && deliveryStatus !== "cancelled";
+  const isLiveTracking = isPostDispatch && deliveryStatus === "out_for_delivery";
+
+  // ── Live vehicle position poll — mirrors /order/[id]/track, only while in transit ──
+  const [vehiclePos, setVehiclePos] = useState<{ lat: number; lng: number; label: string; type: string } | null>(null);
+  const vehiclePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    const canPoll = isLiveTracking && !!vehicleId;
+    if (!canPoll) {
+      if (vehiclePollRef.current) { clearInterval(vehiclePollRef.current); vehiclePollRef.current = null; }
+      setVehiclePos(null);
+      return;
+    }
+    const vid = vehicleId as string;
+    function poll() {
+      fetch(`/api/transport/vehicles?id=${encodeURIComponent(vid)}`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          const v = data?.vehicles?.[0];
+          if (v) setVehiclePos({ lat: v.lat, lng: v.lng, label: v.bus_number, type: v.vehicle_type });
+          else setVehiclePos(null);
+        })
+        .catch(() => {});
+    }
+    poll();
+    vehiclePollRef.current = setInterval(poll, 5000);
+    return () => { if (vehiclePollRef.current) { clearInterval(vehiclePollRef.current); vehiclePollRef.current = null; } };
+  }, [isLiveTracking, vehicleId]);
+
   // ── State A: no initiative linked ────────────────────────────────────────
   if (!initiativeId) {
     return (
@@ -417,7 +466,10 @@ function WorkflowSection({
   }
 
   // ── Nothing to show (workflow complete or no steps configured yet) ────────
-  if (!requiresAttention && !activeStep && quotes.length === 0 && !showRejection) return null;
+  // OWNER-DELIV-VIEW-1: stay open through the dispatched/in-delivery window — the delivery
+  // step's OSP confirming sets activeStep to null, but the owner still needs the step
+  // history + live tracking until the order is actually delivered (or fails/rejects).
+  if (!requiresAttention && !activeStep && quotes.length === 0 && !showRejection && !isPostDispatch) return null;
 
   // ── States C & D ──────────────────────────────────────────────────────────
   return (
@@ -489,7 +541,7 @@ function WorkflowSection({
       {/* State C — Numbered step list: the full workflow for THIS order, one row per step,
           with real assignee + honest OSP-derived state + inline controls (OWNER-STEPVIEW-1).
           Hidden while a countdown/API call is in flight to avoid control collisions. */}
-      {activeStep && !showRejection && !countdown && !executing && allSteps.length > 0 && (
+      {(activeStep || isPostDispatch) && !showRejection && !countdown && !executing && allSteps.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-semibold" style={{ color: A.textMuted }}>STEPS</p>
           <div className="space-y-1.5">
@@ -498,11 +550,20 @@ function WorkflowSection({
               const isDone     = s.ospStatus === "confirmed";
               const isFailed   = s.ospStatus === "failed";
               const isDelivery = s.activityType === "delivery";
-              const stateLabel = isDone ? "Done ✓"
+              // Delivery is the FINAL step — once its OSP confirms, "Done ✓" would be a lie
+              // (the order isn't delivered yet). Derive an honest label from deliveryStatus.
+              const deliveryDoneLabel =
+                deliveryStatus === "delivered"   ? "Delivered ✓"
+                : deliveryStatus === "out_for_delivery" ? "Out for delivery 🚚"
+                : "Dispatched ✓";
+              const stateLabel = isDelivery && isDone ? deliveryDoneLabel
+                : isDone ? "Done ✓"
                 : isFailed ? "Failed — needs attention"
                 : isActive ? "Active — your turn"
                 : `Waiting on step ${idx}`;
-              const stateColor = isDone ? "#10B981" : isFailed ? "#EF4444" : isActive ? A.accent : "#9CA3AF";
+              const stateColor = isDelivery && isDone
+                ? (deliveryStatus === "delivered" ? "#10B981" : A.accent)
+                : isDone ? "#10B981" : isFailed ? "#EF4444" : isActive ? A.accent : "#9CA3AF";
 
               return (
                 <div key={s.stepId} className="flex items-start gap-2.5 px-3 py-2 rounded-lg"
@@ -633,6 +694,47 @@ function WorkflowSection({
         </div>
       )}
 
+      {/* ── Delivery tracking — owner view (OWNER-DELIV-VIEW-1, Part 2 & 3) ──
+          Reuses the exact same TransportMap + /api/transport/vehicles polling the
+          customer sees on /order/[id]/track — no new tracking system. Shown only
+          while the order is actively in transit (out_for_delivery). */}
+      {isLiveTracking && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold" style={{ color: A.textMuted }}>DELIVERY TRACKING</p>
+          {assignedToId ? (
+            <>
+              <p className="text-xs" style={{ color: A.textMuted }}>
+                Partner: <span style={{ color: A.text, fontWeight: 600 }}>{deliveryStep?.assigneeName ?? "—"}</span>
+                {partnerStatus && (
+                  <span className="ml-2 capitalize">· {partnerStatus.replace(/_/g, " ")}</span>
+                )}
+              </p>
+              {vehicleId ? (
+                <>
+                  <div style={{ height: 260, borderRadius: 12, overflow: "hidden", border: "1px solid #E5E7EB" }}>
+                    <TransportMap vehiclePosition={vehiclePos ?? undefined} autoCenter={false} />
+                  </div>
+                  {!vehiclePos && (
+                    <p className="text-xs" style={{ color: A.textMuted }}>Waiting for location update…</p>
+                  )}
+                  <p className="text-xs" style={{ color: "#9CA3AF" }}>Map refreshes every 5 seconds.</p>
+                </>
+              ) : (
+                <div className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: "#F9FAFB", border: "1px solid #E5E7EB" }}>
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "#D1D5DB" }} />
+                  <p className="text-xs" style={{ color: A.textMuted }}>Delivery partner hasn't started GPS yet.</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center gap-3 px-3 py-2 rounded-lg" style={{ background: "#FFFBEB", border: "1px solid #FCD34D" }}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "#F59E0B" }} />
+              <p className="text-xs" style={{ color: "#92400E" }}>Awaiting delivery partner assignment — no partner has accepted this dispatch yet.</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Quotes — shown when step requires quotes */}
       {localQuotes.length > 0 && (
         <div>
@@ -748,24 +850,40 @@ export default function StoreOrdersPage() {
   const loadOrdersRef = useRef(loadOrders);
   useEffect(() => { loadOrdersRef.current = loadOrders; });
 
-  // SSE auto-refresh: silently reload on relevant notification events
+  // SSE auto-refresh: reload whenever the server sends any notification event.
+  // The stream payload is { notifications[], unreadCount } — no per-event type field —
+  // so we refresh on any message rather than filtering by type.
   useEffect(() => {
-    const REFRESH_TYPES = new Set([
-      "order_assigned", "step_confirmed", "delivery_complete",
-      "workflow_attention", "quote_submitted",
-    ]);
     let es: EventSource | null = null;
-    try {
-      es = new EventSource("/api/notifications/stream", { withCredentials: true });
-      es.onmessage = (ev) => {
-        try {
-          const data = JSON.parse(ev.data);
-          if (REFRESH_TYPES.has(data.type)) loadOrdersRef.current();
-        } catch { /* ignore malformed events */ }
-      };
-      es.onerror = () => { es?.close(); es = null; };
-    } catch { /* SSE unavailable — page works normally without it */ }
-    return () => { es?.close(); };
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      try {
+        es = new EventSource("/api/notifications/stream", { withCredentials: true });
+        es.onmessage = () => { loadOrdersRef.current(); };
+        es.onerror = () => {
+          es?.close();
+          es = null;
+          retryTimer = setTimeout(connect, 10000);
+        };
+      } catch { /* SSE unavailable — page works without it */ }
+    }
+    connect();
+
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        es?.close();
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        connect();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      es?.close();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load store pageId → accepted outbound partners + team members + capture initiativeId
@@ -1011,6 +1129,8 @@ export default function StoreOrdersPage() {
                 quotes={order.quotes ?? []}
                 partnerStatus={partnerStatuses[order.id] ?? null}
                 assignedToId={assignedTos[order.id] ?? null}
+                deliveryStatus={order.deliveryStatus ?? null}
+                vehicleId={order.vehicleId ?? null}
                 partners={partners}
                 teamMembers={teamMembers}
                 onAssignDelivery={handleAssignDelivery}

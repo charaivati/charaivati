@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, useEffect, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const A = {
@@ -231,6 +231,55 @@ export default function AllOrdersPage() {
   const [filter, setFilter] = useState("all");
   const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
   const [poolByStoreId, setPoolByStoreId] = useState<Record<string, Pool>>({});
+
+  // Lightweight orders-only refresh — used by SSE handler (skips expensive pool reload)
+  const refreshOrders = useCallback(async () => {
+    const url = storeId
+      ? `/api/store/orders?storeId=${encodeURIComponent(storeId)}`
+      : "/api/store/orders?all=true";
+    try {
+      const res = await fetch(url, { credentials: "include" });
+      if (res.ok) setOrders(await res.json());
+    } catch {}
+  }, [storeId]);
+
+  const refreshOrdersRef = useRef(refreshOrders);
+  useEffect(() => { refreshOrdersRef.current = refreshOrders; }, [refreshOrders]);
+
+  // SSE auto-refresh: reload orders whenever the server pushes a notification event.
+  // Stream payload is { notifications[], unreadCount } — refresh on any message.
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function connect() {
+      try {
+        es = new EventSource("/api/notifications/stream", { withCredentials: true });
+        es.onmessage = () => { refreshOrdersRef.current(); };
+        es.onerror = () => {
+          es?.close();
+          es = null;
+          retryTimer = setTimeout(connect, 10000);
+        };
+      } catch { /* SSE unavailable — page works without it */ }
+    }
+    connect();
+
+    function handleVisibility() {
+      if (document.visibilityState === "visible") {
+        es?.close();
+        if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+        connect();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      es?.close();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const url = storeId

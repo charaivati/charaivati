@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { advanceToNextStep } from "@/lib/workflow/advanceToNextStep";
 import { assignNextPartner } from "@/lib/workflow/assignNextPartner";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 type Params = { params: Promise<{ id: string; stepId: string }> };
 
@@ -126,6 +127,19 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   } else {
     // Normal step: advance workflow to next step
     await advanceToNextStep(orderId, stepId);
+  }
+
+  // Notify the store owner so their order pages auto-refresh via SSE.
+  // Skip when the owner confirmed themselves — they already see the result.
+  const ownerId = order.store.ownerId;
+  if (user.id !== ownerId) {
+    createNotification({
+      userId: ownerId,
+      type: "step_confirmed",
+      title: "Step completed",
+      body: `Order #${orderId.slice(-8).toUpperCase()} — a step was confirmed.`,
+      link: `/store/orders/all`,
+    }).catch(() => {});
   }
 
   return NextResponse.json({ ok: true });
