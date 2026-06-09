@@ -1386,6 +1386,7 @@ model Order {
   parentOrder       Order?              @relation("SubOrders", fields: [parentOrderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   subOrders         Order[]             @relation("SubOrders")
 
+  @@unique([parentOrderId, userId, subOrderType])
   @@index([userId])
   @@index([storeId])
   @@index([createdAt])

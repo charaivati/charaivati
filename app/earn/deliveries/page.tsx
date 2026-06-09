@@ -89,7 +89,7 @@ export default async function DeliveriesPage() {
   // All orders assigned to these collaborations with partnerStatus assigned or accepted.
   // Raw SQL because these are new schema fields not yet in all generated clients.
   const rawCollabOrders = collabIds.length > 0 ? await prisma.$queryRaw<RawOrder[]>`
-    SELECT
+    SELECT DISTINCT ON (o.id)
       o.id,
       o."deliveryStatus",
       o."partnerStatus",
@@ -133,7 +133,7 @@ export default async function DeliveriesPage() {
     LEFT JOIN "Address" pa ON pa."userId" = ou.id AND pa."isDefault" = true
     WHERE o."assignedToId" = ANY(${collabIds}::text[])
       AND o."partnerStatus" IN ('assigned', 'accepted')
-    ORDER BY o."createdAt" DESC
+    ORDER BY o.id, o."createdAt" DESC
   ` : [];
 
   // Orders where a delivery block's assignedUserId matches the current user.
@@ -194,7 +194,7 @@ export default async function DeliveriesPage() {
   // Orders where the store owner self-assigned via partnerAction: "self_assign".
   // assignedToId is set to the owner's userId (a plain string marker, not a Collaboration id).
   const rawSelfOrders = await prisma.$queryRaw<RawOrder[]>`
-    SELECT
+    SELECT DISTINCT ON (o.id)
       o.id,
       o."deliveryStatus",
       o."partnerStatus",
@@ -238,11 +238,12 @@ export default async function DeliveriesPage() {
     LEFT JOIN "Address" pa ON pa."userId" = ou.id AND pa."isDefault" = true
     WHERE o."assignedToId" = ${userId}
       AND o."partnerStatus" IN ('assigned', 'accepted')
+    ORDER BY o.id, o."createdAt" DESC
   `;
 
   // Orders assigned directly to this user via assignedToUserId (personal team-member assignment)
   const rawPersonalOrders = await prisma.$queryRaw<RawOrder[]>`
-    SELECT
+    SELECT DISTINCT ON (o.id)
       o.id,
       o."deliveryStatus",
       o."partnerStatus",
@@ -286,7 +287,7 @@ export default async function DeliveriesPage() {
     LEFT JOIN "Address" pa ON pa."userId" = ou.id AND pa."isDefault" = true
     WHERE o."assignedToUserId" = ${userId}
       AND o."partnerStatus" IN ('assigned', 'accepted')
-    ORDER BY o."createdAt" DESC
+    ORDER BY o.id, o."createdAt" DESC
   `;
 
   // Merge, deduplicate by id (collab orders take precedence, then block, then self, then personal).

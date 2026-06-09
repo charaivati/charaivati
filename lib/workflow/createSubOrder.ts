@@ -126,27 +126,35 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<numb
     }
 
     // ── Create sub-order in partner's store ───────────────────────────────────
-    await (prisma as any).order.create({
-      data: {
-        userId:         assigneeUserId,
-        storeId:        targetStoreId,
-        addressId:      parent.addressId,
-        status:         "pending",
-        deliveryStatus: "pending",
-        items: [
-          {
-            blockId:  itemBlockId,
-            title:    itemTitle,
-            quantity: 1,
-            price:    calculatedCost,
-          },
-        ],
-        total:         calculatedCost,
-        parentOrderId,
-        subOrderType,
-        agreedAmount:  calculatedCost > 0 ? calculatedCost : null,
-      },
-    });
+    // The DB has @@unique([parentOrderId, userId, subOrderType]); a concurrent
+    // confirm can still race past the findFirst guard above and hit P2002 — catch
+    // it and treat as "already created" rather than surfacing a 500.
+    try {
+      await (prisma as any).order.create({
+        data: {
+          userId:         assigneeUserId,
+          storeId:        targetStoreId,
+          addressId:      parent.addressId,
+          status:         "pending",
+          deliveryStatus: "pending",
+          items: [
+            {
+              blockId:  itemBlockId,
+              title:    itemTitle,
+              quantity: 1,
+              price:    calculatedCost,
+            },
+          ],
+          total:         calculatedCost,
+          parentOrderId,
+          subOrderType,
+          agreedAmount:  calculatedCost > 0 ? calculatedCost : null,
+        },
+      });
+    } catch (createErr: any) {
+      if (createErr?.code === "P2002") return 0;
+      throw createErr;
+    }
 
     // ── Notify partner ────────────────────────────────────────────────────────
     await createNotification({
