@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { MessageCircle, X, Trash2, Send } from "lucide-react";
+import { MessageCircle, X, Trash2, Send, Paperclip, FileText } from "lucide-react";
 import CouncilView, { type CouncilResponse, type CouncilPosition, type StatusStep } from "./CouncilView";
 import { isCouncilWorthy } from "@/lib/ai/councilTrigger";
 import type { ProfileProposal } from "@/lib/companion/profileSync";
@@ -27,6 +27,17 @@ interface Message {
   originUserMessage?: string;
   proposal?: ProfileProposal;
   proposalStatus?: "pending" | "accepted" | "dismissed";
+  attachedDocName?: string;
+}
+
+interface AttachedDoc {
+  name: string;
+  text: string;
+  charCount: number;
+  truncated: boolean;
+  needsOcr: boolean;
+  ocrPagesUsed: number;
+  warnings: string[];
 }
 
 const NUDGE_KEY = "charaivati.nudge.profile";
@@ -75,8 +86,12 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
   const [nudgeSaving, setNudgeSaving] = useState(false);
   const [nudgeDone, setNudgeDone] = useState(false);
   const [isCompanionMode, setIsCompanionMode] = useState(false);
+  const [attachedDoc, setAttachedDoc] = useState<AttachedDoc | null>(null);
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const councilAbortRef = useRef<AbortController | null>(null);
 
   // ─── Companion nudge red-dot state ────────────────────────────────────────
@@ -377,14 +392,59 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
     // dispatchCouncil catch block handles the UI cleanup via removePendingCouncil
   }
 
+  // ─── Document attachment ────────────────────────────────────────────────────
+
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+
+    setDocError("");
+    setDocUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/documents/parse", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setDocError(data.error ?? "Could not read this file.");
+        return;
+      }
+      setAttachedDoc({
+        name: data.fileName,
+        text: data.text,
+        charCount: data.charCount,
+        truncated: data.truncated,
+        needsOcr: data.needsOcr,
+        ocrPagesUsed: data.ocrPagesUsed,
+        warnings: data.warnings ?? [],
+      });
+    } catch {
+      setDocError("Upload failed. Please try again.");
+    } finally {
+      setDocUploading(false);
+    }
+  }
+
+  function removeAttachedDoc() {
+    setAttachedDoc(null);
+    setDocError("");
+  }
+
   // ─── Chat dispatch ─────────────────────────────────────────────────────────
 
   async function dispatchChat(text: string) {
     if (loading) return;
-    const userMsg: Message = { role: "user", content: text };
+    const userMsg: Message = { role: "user", content: text, attachedDocName: attachedDoc?.name };
     const next = [...messages, userMsg];
+    const docToSend = attachedDoc;
     setMessages(next);
     setInput("");
+    setAttachedDoc(null);
     setLoading(true);
 
     try {
@@ -397,6 +457,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
           conversationHistory: messages
             .filter((m) => !m.council)
             .map((m) => ({ role: m.role, content: m.content })),
+          attachedDocument: docToSend ? { name: docToSend.name, text: docToSend.text } : undefined,
         }),
       });
       const data = await res.json();
@@ -473,8 +534,9 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
 
   function sendMessage() {
     const text = input.trim();
-    if (!text || loading) return;
-    dispatchChat(text);
+    if (loading) return;
+    if (!text && !attachedDoc) return;
+    dispatchChat(text || `Take a look at this document: ${attachedDoc?.name}`);
   }
 
   function sendToCouncil() {
@@ -766,8 +828,16 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
                       )}
                     </div>
                   ) : (
-                    <div className="max-w-[80%] rounded-2xl px-3 py-2 text-sm leading-relaxed bg-indigo-600 text-white rounded-br-sm">
-                      {m.content}
+                    <div className="flex flex-col items-end max-w-[80%]">
+                      {m.attachedDocName && (
+                        <div className="flex items-center gap-1 text-xs text-indigo-200 mb-1">
+                          <FileText className="h-3 w-3" />
+                          {m.attachedDocName}
+                        </div>
+                      )}
+                      <div className="rounded-2xl px-3 py-2 text-sm leading-relaxed bg-indigo-600 text-white rounded-br-sm">
+                        {m.content}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -789,7 +859,51 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
 
           {/* Input */}
           <div className="border-t border-gray-800 flex flex-col">
+            {(attachedDoc || docUploading || docError) && (
+              <div className="px-3 pt-2.5">
+                {docUploading && (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 rounded-lg bg-gray-800 px-2.5 py-1.5">
+                    <FileText className="h-3.5 w-3.5 shrink-0" />
+                    Reading document…
+                  </div>
+                )}
+                {!docUploading && attachedDoc && (
+                  <div className="flex items-center gap-2 text-xs text-gray-300 rounded-lg bg-gray-800 px-2.5 py-1.5">
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+                    <span className="truncate flex-1">{attachedDoc.name}</span>
+                    <span className="text-gray-500 shrink-0">{attachedDoc.charCount.toLocaleString()} chars</span>
+                    <button
+                      onClick={removeAttachedDoc}
+                      aria-label="Remove attachment"
+                      className="text-gray-500 hover:text-gray-300 shrink-0"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+                {!docUploading && attachedDoc?.warnings.map((w, i) => (
+                  <p key={i} className="text-xs text-yellow-500 mt-1">{w}</p>
+                ))}
+                {docError && <p className="text-xs text-red-400 mt-1">{docError}</p>}
+              </div>
+            )}
             <div className="px-3 pt-3 pb-1.5 flex items-end gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                onChange={handleFileSelected}
+                className="hidden"
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={docUploading || loading}
+                aria-label="Attach a document"
+                title="Attach a PDF or Word document"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-800 disabled:opacity-40 transition-colors"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
               <textarea
                 ref={inputRef}
                 value={input}
@@ -802,7 +916,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
               />
               <button
                 onClick={sendMessage}
-                disabled={loading || !input.trim()}
+                disabled={loading || (!input.trim() && !attachedDoc)}
                 aria-label="Send message"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-600 text-white disabled:opacity-40 hover:bg-indigo-500 transition-colors"
               >
