@@ -144,6 +144,20 @@ Entry points that use this pipeline:
 - `BannerEditForm` (`components/store/BannerEditForm.tsx`) — banner image upload
 - `AddTileModal` (`app/store/[id]/page.tsx`) — tile image upload
 
+### Store Location (GEO-STORE-1)
+`Store` is the canonical source of a store's physical location: `line1`, `city`, `state`, `pincode` (all `String?`) and `lat`, `lng` (`Float?`), added via migration `20260610000000_add_store_location`. These fields fully replace the previous owner-default-`Address` proxy.
+
+- **Editor**: Initiative Hub → Store tab → "Store Location" card (`components/earn/StoreLocationForm.tsx`, reuses the `AddressForm` pattern — pincode geocode + drag-pin map). Saved via `PATCH /api/store/[id]` with a `location` object.
+- **Read**: `GET /api/store/[id]` always returns `location: { line1, city, state, pincode, lat, lng }` (all `null` if unset). `GET /api/store/my-stores` includes the same `location` object per store via a batch raw-SQL lookup.
+- **Nag banner**: an amber banner ("Add your store location — needed for delivery pricing and rider navigation.") renders in the Initiative Hub Store tab whenever `lat`/`lng` are null. Disappears once a location is saved.
+- **Fallback chain (readers)**: canonical `Store.lat/lng` → owner's/partner's `isDefault` `Address.lat/lng` (legacy) → `null`. Applied in:
+  - `lib/workflow/assignNextPartner.ts` (store side, for delivery cost distance)
+  - `lib/workflow/createSubOrder.ts` (partner side, for delivery cost distance)
+  - `app/earn/deliveries/page.tsx` — all 4 raw SQL pickup queries use `COALESCE(s."<field>", pa."<field>")`
+- **₹0-fee fix**: previously, missing coordinates on either side silently produced `distanceKm = 0` (free per-km delivery). Now, if both the canonical Store location and the legacy Address fallback are missing AND a per-km pricing field is configured for the assignee, a `console.warn` is logged instead of silently proceeding — the cost is still 0, but the gap is now visible in server logs.
+- **BillingProfile autofill (not a hard sync)**: when an owner links a `BillingProfile` to a store (`linkedStoreId`) in `/store/account?tab=invoice`, and the store has a saved location, the billing address fields are pre-filled from `Store.line1/city/state/pincode` once. The owner can still edit these fields independently afterward — there is no ongoing sync between `Store` location and `BillingProfile`.
+- **Fields added after the last successful `prisma generate`**: as of GEO-STORE-1, the binary-engine Prisma client at `node_modules/.prisma/client` already includes `Store.line1/city/state/pincode/lat/lng` in its types — but existing call sites (`app/api/store/[id]/route.ts`, `app/api/store/my-stores/route.ts`, `assignNextPartner.ts`, `createSubOrder.ts`, `app/earn/deliveries/page.tsx`) still read/write these fields via raw SQL, matching the established pattern for recently-added fields elsewhere in this codebase. This is intentional — not a bug.
+
 ### Store creation — manual
 1. User creates a `Page` with `pageType: 'store'`
 2. API creates linked `Store` record
@@ -224,7 +238,7 @@ Entry points that use this pipeline:
 | `components/store/QuickOrderModal.tsx` | 4-step express checkout modal (Items → Address → Invoice → Confirm); ephemeral React state only, never writes to cart; also used from the Saved page wishlist items |
 
 ## Database Models Used
-- `Store` — top-level store record
+- `Store` — top-level store record; canonical location fields `line1/city/state/pincode/lat/lng` (GEO-STORE-1) — see § Store Location above
 - `StoreSection` — product grouping with layout
 - `StoreSubsection` — sub-grouping within a section
 - `StoreBlock` — individual product or lesson (dual-purpose)

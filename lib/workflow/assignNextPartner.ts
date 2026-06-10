@@ -142,15 +142,22 @@ export async function assignNextPartner({
     0
   );
 
+  // Store location (GEO-STORE-1) — canonical Store.lat/lng, with the owner's
+  // isDefault Address as a legacy fallback. Fields added after the last
+  // successful `prisma generate`, so fetched via raw SQL.
+  const storeLocRows = await prisma.$queryRaw<{ lat: number | null; lng: number | null }[]>`
+    SELECT "lat", "lng" FROM "Store" WHERE id = ${orderData.storeId} LIMIT 1
+  `;
   const storeAddr = orderData.store.owner.addresses[0];
+  const storeLat = storeLocRows[0]?.lat ?? storeAddr?.lat ?? null;
+  const storeLng = storeLocRows[0]?.lng ?? storeAddr?.lng ?? null;
+
   let distanceKm = 0;
-  if (
-    storeAddr?.lat != null && storeAddr?.lng != null &&
-    orderData.address.lat != null && orderData.address.lng != null
-  ) {
-    distanceKm = haversineKm(
-      storeAddr.lat, storeAddr.lng,
-      orderData.address.lat, orderData.address.lng
+  if (storeLat != null && storeLng != null && orderData.address.lat != null && orderData.address.lng != null) {
+    distanceKm = haversineKm(storeLat, storeLng, orderData.address.lat, orderData.address.lng);
+  } else if (nextAssignee.costPerKgPerKm != null || nextAssignee.costPerItemPerKm != null) {
+    console.warn(
+      `assignNextPartner: missing coordinates for store ${orderData.storeId} or order ${orderId} delivery address — per-km delivery cost will be 0`
     );
   }
 

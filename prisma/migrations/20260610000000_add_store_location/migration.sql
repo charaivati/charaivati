@@ -1,0 +1,8 @@
+-- Canonical store location (GEO-STORE-1) — replaces the owner-default-Address proxy
+ALTER TABLE "Store"
+  ADD COLUMN IF NOT EXISTS "line1" TEXT,
+  ADD COLUMN IF NOT EXISTS "city" TEXT,
+  ADD COLUMN IF NOT EXISTS "state" TEXT,
+  ADD COLUMN IF NOT EXISTS "pincode" TEXT,
+  ADD COLUMN IF NOT EXISTS "lat" DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS "lng" DOUBLE PRECISION;

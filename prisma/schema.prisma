@@ -272,6 +272,13 @@ model Store {
   freeDeliveryAbove Float?
   acceptingOrders   Boolean          @default(false)
   hoursText         String?
+  /// Canonical store location (GEO-STORE-1) — replaces the owner-default-Address proxy
+  line1             String?
+  city              String?
+  state             String?
+  pincode           String?
+  lat               Float?
+  lng               Float?
   /// Soft-delete marker — set when the owner deletes the venture. null = active.
   deletedAt         DateTime?
   billingProfiles BillingProfile[]

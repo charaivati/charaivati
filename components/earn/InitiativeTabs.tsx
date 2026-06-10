@@ -1,13 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import PartnersTab from "./PartnersTab";
 
 const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
 const WorkflowTab          = dynamic(() => import("./WorkflowTab"),          { ssr: false });
 const TeamTab              = dynamic(() => import("./TeamTab"),              { ssr: false });
+const StoreLocationForm    = dynamic(() => import("./StoreLocationForm"),    { ssr: false });
 type Tab = "overview" | "store" | "team" | "partners" | "workflow" | "fleet";
+
+interface StoreLocation {
+  line1: string | null;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  lat: number | null;
+  lng: number | null;
+}
 
 interface InitiativeTabsProps {
   pageId: string;
@@ -50,15 +61,24 @@ export default function InitiativeTabs({
   storeId,
   ownerPages,
 }: InitiativeTabsProps) {
+  const searchParams = useSearchParams();
+
   if (pageType === "community_group") {
     return <CommunityGroupTabs pageId={pageId} ownerPages={ownerPages} />;
   }
 
-  const [activeTab,       setActiveTab]       = useState<Tab>("overview");
+  const VALID_TABS: Tab[] = ["overview", "store", "team", "partners", "workflow", "fleet"];
+  const tabParam = searchParams?.get("tab") as Tab | null;
+  const initialTab: Tab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "overview";
+
+  const [activeTab,       setActiveTab]       = useState<Tab>(initialTab);
   const [openingStore,    setOpeningStore]     = useState(false);
   const [canEdit,         setCanEdit]         = useState(true);
   const [storeOpen,       setStoreOpen]       = useState<boolean | null>(null);
   const [togglingOrders,  setTogglingOrders]  = useState(false);
+  const [storeLocation,   setStoreLocation]   = useState<StoreLocation | null>(null);
+  const [editingLocation, setEditingLocation] = useState(false);
+  const [savingLocation,  setSavingLocation]  = useState(false);
 
   // Fetch team role to determine edit permissions (founder / co_founder = can edit)
   useEffect(() => {
@@ -92,9 +112,33 @@ export default function InitiativeTabs({
     if (activeTab !== "store" || !storeId || storeOpen !== null) return;
     fetch(`/api/store/${storeId}`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d) setStoreOpen(d.acceptingOrders ?? false); })
+      .then((d) => {
+        if (!d) return;
+        setStoreOpen(d.acceptingOrders ?? false);
+        setStoreLocation(d.location ?? null);
+      })
       .catch(() => {});
-  }, [activeTab, storeId]);
+  }, [activeTab, storeId, storeOpen]);
+
+  async function handleSaveLocation(data: { line1: string; city: string; state: string; pincode: string; lat: number | null; lng: number | null }) {
+    if (!storeId) return;
+    setSavingLocation(true);
+    try {
+      const res = await fetch(`/api/store/${storeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ location: data }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setStoreLocation(updated.location ?? null);
+        setEditingLocation(false);
+      }
+    } finally {
+      setSavingLocation(false);
+    }
+  }
 
   async function handleToggleOrders() {
     if (!storeId || togglingOrders) return;
@@ -271,6 +315,58 @@ export default function InitiativeTabs({
                     {storeOpen ? "Customers can place orders." : "Customers can see your store but can't order yet."}
                   </p>
                 </div>
+              </div>
+
+              {/* Missing-location nag (GEO-STORE-1) */}
+              {storeLocation && storeLocation.lat == null && !editingLocation && (
+                <div className="flex items-center justify-between gap-3 p-4 rounded-xl border border-amber-700/60 bg-amber-900/20">
+                  <p className="text-sm text-amber-300">
+                    Add your store location — needed for delivery pricing and rider navigation.
+                  </p>
+                  <button
+                    onClick={() => setEditingLocation(true)}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium transition-colors"
+                  >
+                    Add location
+                  </button>
+                </div>
+              )}
+
+              {/* Store location */}
+              <div className="p-4 rounded-xl border border-gray-800 bg-gray-900/50 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">Store Location</p>
+                  {!editingLocation && (
+                    <button
+                      onClick={() => setEditingLocation(true)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                    >
+                      {storeLocation?.lat != null ? "Edit" : "Set location"}
+                    </button>
+                  )}
+                </div>
+
+                {editingLocation ? (
+                  <StoreLocationForm
+                    initialValues={storeLocation ? {
+                      line1: storeLocation.line1 ?? "",
+                      city: storeLocation.city ?? "",
+                      state: storeLocation.state ?? "",
+                      pincode: storeLocation.pincode ?? "",
+                      lat: storeLocation.lat,
+                      lng: storeLocation.lng,
+                    } : undefined}
+                    onSave={handleSaveLocation}
+                    onCancel={() => setEditingLocation(false)}
+                    saving={savingLocation}
+                  />
+                ) : storeLocation?.lat != null ? (
+                  <p className="text-xs text-gray-400">
+                    {storeLocation.line1}, {storeLocation.city}, {storeLocation.state} – {storeLocation.pincode}
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-500 italic">No location set yet.</p>
+                )}
               </div>
             </>
           ) : (

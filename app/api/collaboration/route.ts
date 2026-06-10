@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { createNotification } from "@/lib/notifications/createNotification";
 
 const PAGE_SELECT = {
   id: true,
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   }
 
   const [requesterPage, receiverPageDirect] = await Promise.all([
-    prisma.page.findUnique({ where: { id: requesterId }, select: { ownerId: true } }),
+    prisma.page.findUnique({ where: { id: requesterId }, select: { ownerId: true, title: true } }),
     prisma.page.findUnique({ where: { id: receiverId },  select: { id: true } }),
   ]);
   if (!requesterPage) return NextResponse.json({ error: "Requester page not found" }, { status: 404 });
@@ -63,6 +64,21 @@ export async function POST(req: NextRequest) {
       status: "pending",
     },
   });
+
+  // Notify the invited party — fire-and-forget, never fails the request.
+  prisma.page
+    .findUnique({ where: { id: resolvedReceiverId }, select: { ownerId: true } })
+    .then((receiverPage) => {
+      if (!receiverPage?.ownerId) return;
+      return createNotification({
+        userId: receiverPage.ownerId,
+        type:   "collaboration_request",
+        title:  `${requesterPage.title} wants to partner with you`,
+        body:   `New ${role.replace(/_/g, " ")} request${message ? `: "${message}"` : ""}`,
+        link:   `/earn/initiative/${resolvedReceiverId}?tab=partners`,
+      });
+    })
+    .catch((e) => console.error("collaboration_request notification failed:", e));
 
   return NextResponse.json(collaboration, { status: 201 });
 }

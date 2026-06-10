@@ -1,7 +1,7 @@
 // components/business/StartScreenBatch.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface StartScreenBatchProps {
   onStart: (
@@ -25,6 +25,13 @@ export default function StartScreenBatch({
   const [description, setDescription] = useState("");
   const [email, setEmail] = useState(initialEmail ?? "");
   const [phone, setPhone] = useState("");
+
+  // initialEmail arrives asynchronously (after /api/user/me resolves), so the
+  // useState initializer above misses it on first render — sync it here.
+  useEffect(() => {
+    if (initialEmail) setEmail(initialEmail);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEmail]);
 
   const canSubmit = title.trim() && description.trim() && email.trim();
 

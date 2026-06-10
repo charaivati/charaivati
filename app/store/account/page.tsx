@@ -39,7 +39,10 @@ type Order = {
   user?: { name: string | null; email: string | null };
   items: OrderItem[];
 };
-type MyStore = { id: string; slug?: string | null; name: string; deletedAt?: string | null };
+type MyStore = {
+  id: string; slug?: string | null; name: string; deletedAt?: string | null;
+  location?: { line1: string | null; city: string | null; state: string | null; pincode: string | null; lat: number | null; lng: number | null } | null;
+};
 type BillingProfile = {
   id: string;
   legalName: string;
@@ -378,7 +381,23 @@ function AccountPageContent() {
 
   // Billing profile handlers
   function setBpField(k: keyof typeof BP_EMPTY, v: string) {
-    setBpForm((f) => ({ ...f, [k]: v }));
+    setBpForm((f) => {
+      const next = { ...f, [k]: v };
+      // Autofill (not a hard link): when linking a store with a saved location and the
+      // invoice address fields are still empty, prefill from Store.line1/city/state/pincode.
+      // The owner can still edit/override these afterward — this only fires on selection.
+      if (k === "linkedStoreId" && v) {
+        const store = myStores.find((s) => s.id === v);
+        const loc = store?.location;
+        if (loc?.line1 && !f.addressLine && !f.city && !f.state && !f.pinCode) {
+          next.addressLine = loc.line1;
+          next.city = loc.city ?? "";
+          next.state = loc.state ?? "";
+          next.pinCode = loc.pincode ?? "";
+        }
+      }
+      return next;
+    });
   }
 
   function openNewBpForm() {

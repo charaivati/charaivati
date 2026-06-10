@@ -56,12 +56,26 @@ export async function GET(
     slug: string | null;
     acceptingOrders: boolean;
     hoursText: string | null;
+    line1: string | null;
+    city: string | null;
+    state: string | null;
+    pincode: string | null;
+    lat: number | null;
+    lng: number | null;
   }[]>`
-    SELECT slug, "acceptingOrders", "hoursText" FROM "Store" WHERE id = ${storeId} LIMIT 1
+    SELECT slug, "acceptingOrders", "hoursText", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${storeId} LIMIT 1
   `;
   const slug = extraRow[0]?.slug ?? null;
   const acceptingOrders = extraRow[0]?.acceptingOrders ?? false;
   const hoursText = extraRow[0]?.hoursText ?? null;
+  const location = {
+    line1: extraRow[0]?.line1 ?? null,
+    city: extraRow[0]?.city ?? null,
+    state: extraRow[0]?.state ?? null,
+    pincode: extraRow[0]?.pincode ?? null,
+    lat: extraRow[0]?.lat ?? null,
+    lng: extraRow[0]?.lng ?? null,
+  };
 
   let pageType = "store";
   if (store.pageId) {
@@ -98,6 +112,7 @@ export async function GET(
     slug,
     acceptingOrders,
     hoursText,
+    location,
     sections: processedSections,
     filters,
     globalBanner,
@@ -122,7 +137,7 @@ export async function PATCH(
   if (store.deletedAt) return NextResponse.json({ error: "This store has been deleted. Restore it before making changes." }, { status: 409 });
 
   const body = await req.json();
-  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText } = body;
+  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText, location } = body;
 
   const data: Record<string, unknown> = {};
   if (name?.trim()) data.name = name.trim();
@@ -138,13 +153,46 @@ export async function PATCH(
     select: { id: true, name: true, description: true, slug: true, deliveryFee: true, freeDeliveryAbove: true } as any,
   });
 
-  const extraRow = await prisma.$queryRaw<{ acceptingOrders: boolean; hoursText: string | null }[]>`
-    SELECT "acceptingOrders", "hoursText" FROM "Store" WHERE id = ${id} LIMIT 1
+  // Store location (GEO-STORE-1) — written via raw SQL since the fields
+  // were added after the last successful `prisma generate`.
+  if (location && typeof location === "object") {
+    const line1 = typeof location.line1 === "string" ? location.line1.trim() || null : null;
+    const city = typeof location.city === "string" ? location.city.trim() || null : null;
+    const state = typeof location.state === "string" ? location.state.trim() || null : null;
+    const pincode = typeof location.pincode === "string" ? location.pincode.trim() || null : null;
+    const lat = typeof location.lat === "number" ? location.lat : null;
+    const lng = typeof location.lng === "number" ? location.lng : null;
+    await prisma.$executeRaw`
+      UPDATE "Store"
+      SET "line1" = ${line1}, "city" = ${city}, "state" = ${state}, "pincode" = ${pincode}, "lat" = ${lat}, "lng" = ${lng}
+      WHERE id = ${id}
+    `;
+  }
+
+  const extraRow = await prisma.$queryRaw<{
+    acceptingOrders: boolean;
+    hoursText: string | null;
+    line1: string | null;
+    city: string | null;
+    state: string | null;
+    pincode: string | null;
+    lat: number | null;
+    lng: number | null;
+  }[]>`
+    SELECT "acceptingOrders", "hoursText", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${id} LIMIT 1
   `;
 
   return NextResponse.json({
     ...updated,
     acceptingOrders: extraRow[0]?.acceptingOrders ?? false,
     hoursText: extraRow[0]?.hoursText ?? null,
+    location: {
+      line1: extraRow[0]?.line1 ?? null,
+      city: extraRow[0]?.city ?? null,
+      state: extraRow[0]?.state ?? null,
+      pincode: extraRow[0]?.pincode ?? null,
+      lat: extraRow[0]?.lat ?? null,
+      lng: extraRow[0]?.lng ?? null,
+    },
   });
 }

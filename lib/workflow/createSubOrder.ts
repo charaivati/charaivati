@@ -82,17 +82,33 @@ export async function createSubOrder(params: CreateSubOrderParams): Promise<numb
       0
     );
 
-    // ── Calculate distance (partner's default address → delivery address) ─────
+    // ── Calculate distance (partner's store location → delivery address) ──────
+    // Store location (GEO-STORE-1) — canonical Store.lat/lng, with the partner's
+    // isDefault Address as a legacy fallback. Fields added after the last
+    // successful `prisma generate`, so fetched via raw SQL.
     let distanceKm = 0;
     if (parent.address?.lat != null && parent.address?.lng != null) {
-      const partnerAddr = await prisma.address.findFirst({
-        where:  { userId: assigneeUserId, isDefault: true },
-        select: { lat: true, lng: true },
-      });
-      if (partnerAddr?.lat != null && partnerAddr?.lng != null) {
+      const [partnerStoreLocRows, partnerAddr] = await Promise.all([
+        partnerStore
+          ? prisma.$queryRaw<{ lat: number | null; lng: number | null }[]>`
+              SELECT "lat", "lng" FROM "Store" WHERE id = ${partnerStore.id} LIMIT 1
+            `
+          : Promise.resolve([]),
+        prisma.address.findFirst({
+          where:  { userId: assigneeUserId, isDefault: true },
+          select: { lat: true, lng: true },
+        }),
+      ]);
+      const partnerLat = partnerStoreLocRows[0]?.lat ?? partnerAddr?.lat ?? null;
+      const partnerLng = partnerStoreLocRows[0]?.lng ?? partnerAddr?.lng ?? null;
+      if (partnerLat != null && partnerLng != null) {
         distanceKm = haversineKm(
-          partnerAddr.lat, partnerAddr.lng,
+          partnerLat, partnerLng,
           parent.address.lat, parent.address.lng
+        );
+      } else if (deliveryBlocks.some((b) => b.perKmRate)) {
+        console.warn(
+          `createSubOrder: missing coordinates for partner store ${targetStoreId} or order ${parentOrderId} delivery address — per-km delivery cost will be 0`
         );
       }
     }

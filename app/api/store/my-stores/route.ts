@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { getStoreSlugs } from "@/lib/store/getStoreSlugs";
@@ -23,8 +24,31 @@ export async function GET(req: NextRequest) {
   });
 
   const slugs = await getStoreSlugs(stores.map((s) => s.id));
+
+  // Store location (GEO-STORE-1) — fields added after the last successful
+  // `prisma generate`, fetch via raw SQL.
+  const locationRows = stores.length > 0
+    ? await prisma.$queryRaw<{ id: string; line1: string | null; city: string | null; state: string | null; pincode: string | null; lat: number | null; lng: number | null }[]>(
+        Prisma.sql`SELECT id, "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id IN (${Prisma.join(stores.map((s) => s.id))})`
+      )
+    : [];
+  const locations = Object.fromEntries(locationRows.map((r) => [r.id, r]));
+
   return NextResponse.json({
-    stores: stores.map((s) => ({ ...s, slug: slugs[s.id] ?? null })),
+    stores: stores.map((s) => ({
+      ...s,
+      slug: slugs[s.id] ?? null,
+      location: locations[s.id]
+        ? {
+            line1: locations[s.id].line1,
+            city: locations[s.id].city,
+            state: locations[s.id].state,
+            pincode: locations[s.id].pincode,
+            lat: locations[s.id].lat,
+            lng: locations[s.id].lng,
+          }
+        : null,
+    })),
   });
 }
 
