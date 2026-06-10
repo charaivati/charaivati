@@ -124,6 +124,9 @@ Owns all HTTP security headers including CSP, HSTS, `X-Frame-Options: DENY`, and
 ### `app/app/layout.tsx`
 The Capacitor mobile shell layout. Renders sticky top bar + 4-tab bottom nav. This is a client component. The four tabs are: Home (`/app/home`), Initiatives (`/app/initiatives`), Explore (`/app/saved`), Orders (`/app/orders`). The Account tab was removed — the M avatar in the top bar opens the account dropdown instead.
 
+### `components/brand/Wordmark.tsx`
+The single canonical "Charaivati" logo wordmark (bold, `tracking-tight`, white→gray-400 gradient text; size variants `sm`/`md`/`lg`/`xl`, optional `href` to wrap it in a Link). The logo appears in two layout shells — `app/(with-nav)/WithNavClient.tsx` (desktop header) and `app/app/layout.tsx` (mobile top bar) — and both MUST render it through this component so the font stays identical. Also used on the landing (`app/page.tsx`), login, and `/verified` pages. Do not hand-roll logo text/styling anywhere else.
+
 ---
 
 ## 5. Database Model Relationships (Critical)

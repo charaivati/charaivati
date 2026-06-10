@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Plus } from "lucide-react";
+import Wordmark from "@/components/brand/Wordmark";
 import { useLanguage } from "@/components/LanguageProvider";
 
 /**
@@ -47,11 +48,8 @@ function BrandSplash() {
     <div className="relative min-h-screen flex flex-col items-center justify-center bg-black text-white overflow-hidden">
       <AmbientBackground />
       <div className="relative text-center px-6">
-        <h1
-          className="text-4xl sm:text-5xl font-bold tracking-tight bg-gradient-to-r from-white via-white to-gray-500 bg-clip-text text-transparent"
-          style={{ animation: "fade-up 0.6s ease-out both" }}
-        >
-          Charaivati
+        <h1 style={{ animation: "fade-up 0.6s ease-out both" }}>
+          <Wordmark size="xl" />
         </h1>
         <p
           className="mt-3 text-sm text-gray-400"
@@ -239,8 +237,8 @@ export default function LandingPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
         >
-          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight bg-gradient-to-r from-white via-white to-gray-500 bg-clip-text text-transparent">
-            Charaivati
+          <h1>
+            <Wordmark size="xl" />
           </h1>
           <p className="mt-3 text-base sm:text-lg text-gray-300">Welcome — let&apos;s begin.</p>
           <p className="mt-1 text-sm text-gray-500">Choose your language to continue</p>

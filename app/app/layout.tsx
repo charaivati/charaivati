@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import NotificationBell from "@/components/notifications/NotificationBell";
+import Wordmark from "@/components/brand/Wordmark";
 import { useTranslations } from "@/hooks/useTranslations";
 
 const LAYOUT_SLUGS =
@@ -98,27 +99,7 @@ export default function AppShellLayout({
           zIndex: 50,
         }}
       >
-        <span
-          style={{
-            color: "#fff",
-            fontFamily: "monospace",
-            fontSize: 13,
-            letterSpacing: "0.1em",
-          }}
-        >
-          <Link
-              href="/app/home"
-              style={{
-                color: "#fff",
-                fontFamily: "monospace",
-                fontSize: 13,
-                letterSpacing: "0.1em",
-                textDecoration: "none",
-              }}
-          >
-            charaivati
-          </Link>
-        </span>
+        <Wordmark size="sm" href="/app/home" />
 
         {/* Desktop nav links — hidden on mobile */}
         <div className="hidden md:flex gap-8 items-center absolute left-1/2 -translate-x-1/2">
