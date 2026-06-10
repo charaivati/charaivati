@@ -256,7 +256,13 @@ function WithNavLayoutInner({
           <div className="px-3 pb-0">
             <div className="flex justify-center">
               <div className="w-full max-w-3xl overflow-x-auto no-scrollbar">
-                <Suspense fallback={<div className="h-10 flex items-center text-xs text-gray-400">Loading...</div>}>
+                <Suspense fallback={
+                  <div className="h-10 flex items-center gap-2 animate-pulse">
+                    {[56, 72, 64, 60].map((w, i) => (
+                      <div key={i} className="h-6 rounded-full bg-white/10" style={{ width: w }} />
+                    ))}
+                  </div>
+                }>
                   <HeaderTabs onNavigate={navigateToLayerById} />
                 </Suspense>
               </div>
@@ -309,7 +315,13 @@ function WithNavLayoutInner({
             <div className="w-64 flex-none" />
             <div className="flex-1 flex justify-center px-6">
               <div className="w-full max-w-3xl">
-                <Suspense fallback={<div className="h-10 flex items-center text-sm text-gray-400">Loading...</div>}>
+                <Suspense fallback={
+                  <div className="h-10 flex items-center gap-2 animate-pulse">
+                    {[64, 80, 72, 68].map((w, i) => (
+                      <div key={i} className="h-7 rounded-full bg-white/10" style={{ width: w }} />
+                    ))}
+                  </div>
+                }>
                   <HeaderTabs onNavigate={navigateToLayerById} />
                 </Suspense>
               </div>

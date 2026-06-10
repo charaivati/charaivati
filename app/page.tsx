@@ -3,6 +3,8 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import { Plus } from "lucide-react";
 import { useLanguage } from "@/components/LanguageProvider";
 
 /**
@@ -30,6 +32,58 @@ function getBaseUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL || "";
 }
 
+function AmbientBackground() {
+  return (
+    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div className="absolute -top-48 left-1/2 -translate-x-1/2 w-[640px] h-[640px] rounded-full bg-indigo-600/20 blur-[130px]" />
+      <div className="absolute -bottom-56 -right-32 w-[520px] h-[520px] rounded-full bg-violet-700/15 blur-[130px]" />
+      <div className="absolute -bottom-40 -left-40 w-[420px] h-[420px] rounded-full bg-sky-700/10 blur-[120px]" />
+    </div>
+  );
+}
+
+function BrandSplash() {
+  return (
+    <div className="relative min-h-screen flex flex-col items-center justify-center bg-black text-white overflow-hidden">
+      <AmbientBackground />
+      <div className="relative text-center px-6">
+        <h1
+          className="text-4xl sm:text-5xl font-bold tracking-tight bg-gradient-to-r from-white via-white to-gray-500 bg-clip-text text-transparent"
+          style={{ animation: "fade-up 0.6s ease-out both" }}
+        >
+          Charaivati
+        </h1>
+        <p
+          className="mt-3 text-sm text-gray-400"
+          style={{ animation: "fade-up 0.6s ease-out 0.15s both" }}
+        >
+          चरैवेति · keep moving forward
+        </p>
+        <div
+          className="mt-10 mx-auto h-[3px] w-40 rounded-full bg-white/10 overflow-hidden"
+          style={{ animation: "fade-up 0.6s ease-out 0.3s both" }}
+        >
+          <div
+            className="h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-indigo-400 to-transparent"
+            style={{ animation: "splash-sweep 1.2s ease-in-out infinite" }}
+          />
+        </div>
+        <p className="sr-only" role="status">Checking your session…</p>
+      </div>
+    </div>
+  );
+}
+
+const pickerContainer = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.05, delayChildren: 0.15 } },
+};
+
+const pickerItem = {
+  hidden: { opacity: 0, y: 14, scale: 0.97 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: "easeOut" as const } },
+};
+
 export default function LandingPage() {
   const router = useRouter();
   const { setLanguage } = useLanguage();
@@ -39,6 +93,7 @@ export default function LandingPage() {
   const [loadingLangs, setLoadingLangs] = useState(true);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  const [choosing, setChoosing] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -125,11 +180,14 @@ export default function LandingPage() {
   }, []);
 
   async function onChoose(lang: Lang) {
+    if (choosing !== null) return;
     const code = lang.code || "en";
+    setChoosing(lang.id);
     try {
       await setLanguage(code);
       router.replace(getLoginUrl());
     } catch (e) {
+      setChoosing(null);
       alert(`Failed to set language: ${e}`);
     }
   }
@@ -168,60 +226,100 @@ export default function LandingPage() {
     }
   }
 
-  if (status === "checking") {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-white text-center">
-        <div className="text-3xl font-bold mb-4 tracking-wide">Charaivati</div>
-        <div className="text-sm opacity-70">Checking session…</div>
-        <div className="mt-6 w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin" />
-      </div>
-    );
+  if (status === "checking" || status === "redirect") {
+    return <BrandSplash />;
   }
 
-  if (status === "showPicker") {
-    return (
-      <div className="relative min-h-screen p-6">
-        <div className="max-w-4xl mx-auto pt-20 text-center">
-          <h1 className="text-4xl font-bold mb-2">Welcome to Charaivati</h1>
-          <p className="text-gray-400 mb-6">Choose your language to continue</p>
+  return (
+    <div className="relative min-h-screen bg-black text-white overflow-hidden">
+      <AmbientBackground />
+      <div className="relative max-w-3xl mx-auto px-6 pt-20 sm:pt-28 pb-16 text-center">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+        >
+          <h1 className="text-4xl sm:text-5xl font-bold tracking-tight bg-gradient-to-r from-white via-white to-gray-500 bg-clip-text text-transparent">
+            Charaivati
+          </h1>
+          <p className="mt-3 text-base sm:text-lg text-gray-300">Welcome — let&apos;s begin.</p>
+          <p className="mt-1 text-sm text-gray-500">Choose your language to continue</p>
+        </motion.div>
 
-          <div className="mb-6">
-            <button
-              onClick={onAddLanguage}
-              disabled={adding}
-              className="px-4 py-2 rounded-md bg-white/6 hover:bg-white/10 border border-white/10 text-white inline-flex items-center gap-2"
-            >
-              {adding ? "Adding…" : "+"} Add language
-            </button>
-            {addError ? <div className="text-sm text-rose-400 mt-2">Last add error: {addError}</div> : null}
-          </div>
-
+        <div className="mt-10 sm:mt-12">
           {loadingLangs ? (
-            <div className="flex justify-center gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="w-44 h-28 rounded-2xl bg-white/3 animate-pulse" />
+                <div key={i} className="h-24 sm:h-28 rounded-2xl bg-white/5 border border-white/5 animate-pulse" />
               ))}
             </div>
-          ) : langs.length === 0 ? (
-            <div className="text-sm text-gray-400">No languages found. Use "+ Add language" to create one.</div>
           ) : (
-            <div className="flex flex-wrap justify-center gap-6">
+            <motion.div
+              variants={pickerContainer}
+              initial="hidden"
+              animate="show"
+              className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4"
+            >
               {langs.map((l) => (
-                <button
+                <motion.button
                   key={l.id}
+                  variants={pickerItem}
                   onClick={() => onChoose(l)}
-                  className="w-44 h-28 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 p-4 flex flex-col items-center justify-center gap-1 transform hover:scale-105 transition-all"
+                  disabled={choosing !== null}
+                  whileHover={{ y: -3 }}
+                  whileTap={{ scale: 0.97 }}
+                  className={`group h-24 sm:h-28 rounded-2xl border bg-white/5 backdrop-blur-sm p-4 flex flex-col items-center justify-center gap-1.5 transition-colors ${
+                    choosing === l.id
+                      ? "border-indigo-400/70 bg-indigo-500/15"
+                      : "border-white/10 hover:border-indigo-400/40 hover:bg-white/10"
+                  } disabled:cursor-wait`}
                 >
-                  <div className="text-xl font-semibold">{l.nativeName || l.name}</div>
-                  <div className="text-xs text-gray-400">{l.name}{l.code ? ` · ${l.code}` : ""}</div>
-                </button>
+                  {choosing === l.id ? (
+                    <div className="w-5 h-5 border-2 border-indigo-300/40 border-t-indigo-300 rounded-full animate-spin" />
+                  ) : (
+                    <span className="text-lg sm:text-xl font-semibold text-white group-hover:text-indigo-200 transition-colors">
+                      {l.nativeName || l.name}
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-500">
+                    {l.name}
+                    {l.code ? ` · ${l.code}` : ""}
+                  </span>
+                </motion.button>
               ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
 
-  return null;
+              <motion.button
+                variants={pickerItem}
+                onClick={onAddLanguage}
+                disabled={adding || choosing !== null}
+                whileHover={{ y: -3 }}
+                whileTap={{ scale: 0.97 }}
+                className="h-24 sm:h-28 rounded-2xl border border-dashed border-white/15 hover:border-white/30 bg-transparent hover:bg-white/5 p-4 flex flex-col items-center justify-center gap-1.5 text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
+              >
+                <Plus className="w-5 h-5" />
+                <span className="text-xs font-medium">{adding ? "Adding…" : "Add language"}</span>
+              </motion.button>
+            </motion.div>
+          )}
+
+          {!loadingLangs && langs.length === 0 && (
+            <p className="mt-6 text-sm text-gray-400">
+              No languages found yet — use &quot;Add language&quot; above to create one.
+            </p>
+          )}
+
+          {addError ? <p className="mt-4 text-sm text-rose-400">Last add error: {addError}</p> : null}
+        </div>
+
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.6, duration: 0.6 }}
+          className="mt-12 text-xs text-gray-600"
+        >
+          चरैवेति · keep moving forward
+        </motion.p>
+      </div>
+    </div>
+  );
 }
