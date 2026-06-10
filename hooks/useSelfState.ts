@@ -178,6 +178,35 @@ export function useSelfState(profile: any) {
     return () => window.removeEventListener("charaivati:page-created", handler);
   }, []);
 
+  // ── Companion-chat profile sync — merge accepted proposals into Self state ──
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        drives?: DriveType[];
+        goals?: GoalEntry[];
+        health?: Partial<HealthProfile>;
+        generalSkills?: SkillEntry[];
+      } | undefined;
+      if (!detail) return;
+
+      if (Array.isArray(detail.drives)) setDrives(detail.drives);
+
+      if (Array.isArray(detail.goals)) {
+        setGoals(detail.goals);
+        goalsRef.current = detail.goals;
+      }
+
+      if (detail.health) setHealth(h => ({ ...h, ...detail.health }));
+
+      if (Array.isArray(detail.generalSkills)) {
+        setGeneralSkills(detail.generalSkills);
+        generalSkillsRef.current = detail.generalSkills;
+      }
+    };
+    window.addEventListener("charaivati:profile-updated", handler);
+    return () => window.removeEventListener("charaivati:profile-updated", handler);
+  }, []);
+
   // ── Pre-fill from DB profile ───────────────────────────────────
   useEffect(() => {
     if (!profile || profileApplied.current) return;
