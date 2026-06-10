@@ -8,6 +8,7 @@ import HeaderTabs from "@/components/HeaderTabs";
 import { LayerProvider } from "@/components/LayerContext";
 import ProfileMenu from "@/components/ProfileMenu";
 import UnifiedSearch from "@/components/UnifiedSearch";
+import Wordmark from "@/components/brand/Wordmark";
 import { ensureKeyPair, prewarmFriends } from "@/lib/chat-crypto";
 
 export default function WithNavClient({
@@ -292,8 +293,7 @@ function WithNavLayoutInner({
           {/* Row 1: logo pinned to sidebar width, search + profile in content area */}
           <div className="flex items-center py-2">
             <div className="w-64 flex-none flex items-center px-6">
-              <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-white
-                to-gray-400 bg-clip-text text-transparent">Charaivati</h1>
+              <h1><Wordmark size="md" /></h1>
             </div>
             <div className="flex-1 min-w-0 flex items-center gap-4 pr-6">
               <UnifiedSearch

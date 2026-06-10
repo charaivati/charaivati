@@ -411,6 +411,7 @@ All store image uploads go through a two-layer dedup pipeline — **never call C
 - **`StoreImage` fields**: `id`, `storeId`, `url`, `cloudinaryId`, `fileHash`, `fileName`, `uploadedAt` — old fields `name`, `imageUrl`, `imageKey`, `createdAt` no longer exist
 
 ### Components
+- `components/brand/Wordmark.tsx` — **the ONE canonical "Charaivati" logo wordmark** (bold, `tracking-tight`, white→gray-400 gradient text; sizes `sm`/`md`/`lg`/`xl`, optional `href`). Both shells render the logo through it: `app/(with-nav)/WithNavClient.tsx` (desktop header) and `app/app/layout.tsx` (mobile top bar), plus the landing page (`app/page.tsx`), login page, and `/verified`. **Never hand-roll the logo font/styling in a layout or page** — import this component so the brand stays identical everywhere.
 - `components/store/` — e-commerce builder (filters, banners, image library, QuickOrderModal, StoreImagePickerModal)
 - `components/social/` — chat panel, friend requests
 - `components/timeline/` — project timeline with phases and milestones

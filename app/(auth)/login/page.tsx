@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Mail, Lock, User, Phone, Eye, EyeOff, MailCheck } from "lucide-react";
+import Wordmark from "@/components/brand/Wordmark";
 import { useLanguage } from "@/components/LanguageProvider";
 
 type StatusResp = {
@@ -488,8 +489,8 @@ function AuthForm() {
           transition={{ duration: 0.5, ease: "easeOut" }}
           className="text-center mb-8"
         >
-          <p className="text-sm font-semibold tracking-[0.2em] uppercase bg-gradient-to-r from-indigo-300 to-violet-300 bg-clip-text text-transparent mb-3">
-            Charaivati
+          <p className="mb-3">
+            <Wordmark size="sm" />
           </p>
           <h1 className="text-3xl font-bold mb-2">{t("auth-welcome-title", "Welcome")}</h1>
           <p className="text-gray-400">{t("auth-welcome-subtitle", "Sign in or create an account to continue")}</p>
@@ -967,11 +968,8 @@ export default function AuthPage() {
             <div className="absolute -top-48 left-1/2 -translate-x-1/2 w-[640px] h-[640px] rounded-full bg-indigo-600/20 blur-[130px]" />
           </div>
           <div className="relative text-center">
-            <p
-              className="text-sm font-semibold tracking-[0.2em] uppercase bg-gradient-to-r from-indigo-300 to-violet-300 bg-clip-text text-transparent"
-              style={{ animation: "fade-up 0.5s ease-out both" }}
-            >
-              Charaivati
+            <p style={{ animation: "fade-up 0.5s ease-out both" }}>
+              <Wordmark size="md" />
             </p>
             <div
               className="mt-6 mx-auto h-[3px] w-32 rounded-full bg-white/10 overflow-hidden"
