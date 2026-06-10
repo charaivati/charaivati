@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MessageCircle, X, Trash2, Send } from "lucide-react";
 import CouncilView, { type CouncilResponse, type CouncilPosition, type StatusStep } from "./CouncilView";
 import { isCouncilWorthy } from "@/lib/ai/councilTrigger";
+import type { ProfileProposal } from "@/lib/companion/profileSync";
 
 interface TierUI {
   label: string;
@@ -24,10 +25,34 @@ interface Message {
   council?: CouncilResponse;
   showCouncilPrompt?: boolean;
   originUserMessage?: string;
+  proposal?: ProfileProposal;
+  proposalStatus?: "pending" | "accepted" | "dismissed";
 }
 
 const NUDGE_KEY = "charaivati.nudge.profile";
 const NUDGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DISMISSED_PROPOSALS_KEY = "charaivati.dismissed_proposals";
+const MAX_DISMISSED_PROPOSALS = 50;
+
+function getDismissedProposals(): string[] {
+  try {
+    const raw = localStorage.getItem(DISMISSED_PROPOSALS_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+function addDismissedProposal(id: string) {
+  try {
+    const current = getDismissedProposals();
+    const next = [...current.filter((x) => x !== id), id].slice(-MAX_DISMISSED_PROPOSALS);
+    localStorage.setItem(DISMISSED_PROPOSALS_KEY, JSON.stringify(next));
+  } catch {
+    // localStorage unavailable — proposal may repeat; non-critical
+  }
+}
 
 interface ChatBotProps {
   currentSection?: string;
@@ -368,7 +393,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          context: { currentSection },
+          context: { currentSection, dismissedProposals: getDismissedProposals() },
           conversationHistory: messages
             .filter((m) => !m.council)
             .map((m) => ({ role: m.role, content: m.content })),
@@ -386,6 +411,8 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
           localExpected: data.localExpected,
           showCouncilPrompt: isCouncilWorthy(text),
           originUserMessage: text,
+          proposal: data.proposal,
+          proposalStatus: data.proposal ? "pending" : undefined,
         },
       ]);
       if (isCompanionMode) {
@@ -401,6 +428,45 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
     } finally {
       setLoading(false);
     }
+  }
+
+  // ─── Profile proposal actions ─────────────────────────────────────────────
+
+  const [proposalLoading, setProposalLoading] = useState(false);
+
+  function setMessageProposalStatus(messageIndex: number, status: "accepted" | "dismissed") {
+    setMessages((prev) =>
+      prev.map((m, i) => (i === messageIndex ? { ...m, proposalStatus: status } : m))
+    );
+  }
+
+  async function acceptProposal(messageIndex: number, proposal: ProfileProposal) {
+    if (proposalLoading) return;
+    setProposalLoading(true);
+    try {
+      const res = await fetch("/api/self/profile-proposal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proposal }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setMessageProposalStatus(messageIndex, "accepted");
+        window.dispatchEvent(new CustomEvent("charaivati:profile-updated", { detail: data.profile }));
+      } else {
+        setMessageProposalStatus(messageIndex, "dismissed");
+      }
+    } catch {
+      setMessageProposalStatus(messageIndex, "dismissed");
+    } finally {
+      setProposalLoading(false);
+    }
+  }
+
+  function dismissProposal(messageIndex: number, proposal: ProfileProposal) {
+    addDismissedProposal(proposal.id);
+    setMessageProposalStatus(messageIndex, "dismissed");
   }
 
   // ─── User actions ──────────────────────────────────────────────────────────
@@ -645,6 +711,46 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
                       )}
                       {m.source === "cloud" && m.localExpected && (
                         <span className="text-xs text-gray-500 mt-1">Local assistant unavailable</span>
+                      )}
+                      {m.proposal && (
+                        <div
+                          className="mt-2 rounded-xl px-3 py-2.5"
+                          style={{
+                            background: "rgba(99,102,241,0.07)",
+                            border: "1px solid rgba(99,102,241,0.25)",
+                          }}
+                        >
+                          {m.proposalStatus === "accepted" ? (
+                            <p className="text-xs text-green-400 font-medium">✓ Added to your Self profile.</p>
+                          ) : m.proposalStatus === "dismissed" ? (
+                            <p className="text-xs text-gray-500">Okay, not now.</p>
+                          ) : (
+                            <>
+                              <p className="text-xs text-indigo-300 mb-2">{m.proposal.summary}</p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => acceptProposal(i, m.proposal!)}
+                                  disabled={proposalLoading}
+                                  className="text-xs font-medium rounded-lg px-2.5 py-1 disabled:opacity-50 transition-colors"
+                                  style={{
+                                    background: "rgba(99,102,241,0.15)",
+                                    border: "1px solid rgba(99,102,241,0.35)",
+                                    color: "#a5b4fc",
+                                  }}
+                                >
+                                  Yes, add it
+                                </button>
+                                <button
+                                  onClick={() => dismissProposal(i, m.proposal!)}
+                                  disabled={proposalLoading}
+                                  className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-50 transition-colors"
+                                >
+                                  No thanks
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                       )}
                       {m.showCouncilPrompt && m.originUserMessage && (
                         <div className="mt-2 flex items-center gap-2">

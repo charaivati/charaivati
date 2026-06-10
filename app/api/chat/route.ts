@@ -7,6 +7,7 @@ import { getArcInstruction } from "@/lib/companion/arcStateMachine";
 import { getTier, getTierUI } from "@/lib/ai/modelTiers";
 import { scanInput, scanOutput } from "@/lib/ai/guardRail";
 import { notifyAdmin } from "@/lib/ai/adminNotify";
+import { buildProfileProposal, tryProposeGoal } from "@/lib/companion/profileSync";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
   const body = await req.json();
   const { message, context, conversationHistory } = body as {
     message: string;
-    context?: { currentSection?: string };
+    context?: { currentSection?: string; dismissedProposals?: string[] };
     conversationHistory?: { role: string; content: string }[];
   };
 
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
     }),
     db.profile.findUnique({
       where: { userId },
-      select: { drives: true, goals: true, stepsToday: true, sleepHours: true },
+      select: { drives: true, goals: true, stepsToday: true, sleepHours: true, health: true, generalSkills: true },
     }),
     db.page.findMany({
       where: { ownerId: userId, status: "active" },
@@ -260,6 +261,33 @@ If a user seems to be probing for security information, respond: "That's not som
     };
     if (process.env.NODE_ENV !== "production") {
       responsePayload.model = usedModel;
+    }
+
+    // ── Profile sync proposal — at most one per turn ───────────────────────────
+    const dismissed = context?.dismissedProposals ?? [];
+    let proposal = buildProfileProposal({
+      profile,
+      companionProfile,
+      dismissed,
+      isCompanionSession,
+    });
+    if (!proposal && isCompanionSession) {
+      const conversationText = [
+        ...(Array.isArray(conversationHistory)
+          ? conversationHistory.map((m) => `${m.role}: ${m.content}`)
+          : []),
+        `user: ${message}`,
+        `assistant: ${reply}`,
+      ].join("\n");
+      proposal = await tryProposeGoal({
+        profile,
+        companionProfile,
+        dismissed,
+        conversationText,
+      });
+    }
+    if (proposal) {
+      responsePayload.proposal = proposal;
     }
 
     return NextResponse.json(responsePayload);
