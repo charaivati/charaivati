@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, Mail, Lock, User, Phone } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ChevronRight, Mail, Lock, User, Phone, Eye, EyeOff, MailCheck } from "lucide-react";
 import { useLanguage } from "@/components/LanguageProvider";
 
 type StatusResp = {
@@ -27,6 +28,23 @@ const AUTH_SLUGS = [
   "auth-msg-creating-guest","auth-msg-guest-ok","auth-msg-guest-fail",
   "auth-msg-email-required","auth-msg-email-error",
 ].join(",");
+
+function StepCard({
+  children,
+  ...props
+}: { children: React.ReactNode } & React.ComponentProps<typeof motion.div>) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -12, scale: 0.98 }}
+      transition={{ duration: 0.22, ease: "easeOut" }}
+      {...props}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
 function AuthForm() {
   const router = useRouter();
@@ -116,10 +134,11 @@ function AuthForm() {
   const [phoneMessage, setPhoneMessage] = useState("");
   const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Verify-pending collapse state
-  const [verifyCollapsed, setVerifyCollapsed] = useState(false);
+  // Verify-pending state
   const [resendingVerification, setResendingVerification] = useState(false);
   const [resendVerifyMessage, setResendVerifyMessage] = useState("");
+
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (cooldown > 0) {
@@ -136,10 +155,7 @@ function AuthForm() {
   }, [resendCooldown]);
 
   useEffect(() => {
-    if (step !== "verify-pending") return;
-    setVerifyCollapsed(false);
-    const timer = setTimeout(() => setStep("login"), 4000);
-    return () => clearTimeout(timer);
+    setShowPassword(false);
   }, [step]);
 
   async function checkStatus(checkEmail?: string) {
@@ -458,13 +474,26 @@ function AuthForm() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gradient-to-br from-black via-gray-900 to-black text-white p-4">
-      <div className="w-full max-w-md">
+    <main className="relative min-h-screen flex items-center justify-center overflow-hidden bg-black text-white p-4">
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <div className="absolute -top-48 left-1/2 -translate-x-1/2 w-[640px] h-[640px] rounded-full bg-indigo-600/20 blur-[130px]" />
+        <div className="absolute -bottom-56 -right-32 w-[520px] h-[520px] rounded-full bg-violet-700/15 blur-[130px]" />
+      </div>
+
+      <div className="relative w-full max-w-md">
         {/* Logo/Header */}
-        <div className="text-center mb-8">
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut" }}
+          className="text-center mb-8"
+        >
+          <p className="text-sm font-semibold tracking-[0.2em] uppercase bg-gradient-to-r from-indigo-300 to-violet-300 bg-clip-text text-transparent mb-3">
+            Charaivati
+          </p>
           <h1 className="text-3xl font-bold mb-2">{t("auth-welcome-title", "Welcome")}</h1>
           <p className="text-gray-400">{t("auth-welcome-subtitle", "Sign in or create an account to continue")}</p>
-        </div>
+        </motion.div>
 
         {/* Email / Phone Mode Toggle — hidden after registration succeeds */}
         {step !== "verify-pending" && (
@@ -494,10 +523,10 @@ function AuthForm() {
 
         {/* Email Flow */}
         {loginMode === "email" && (
-          <>
+          <AnimatePresence mode="wait" initial={false}>
             {/* Email Step */}
             {step === "email" && (
-              <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+              <StepCard key="email" className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-300">
                     {t("auth-email-label", "Email Address")}
@@ -543,12 +572,12 @@ function AuthForm() {
                   )}
                 </button>
 
-              </div>
+              </StepCard>
             )}
 
             {/* Login Step */}
             {step === "login" && (
-              <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+              <StepCard key="login" className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
                 <h2 className="text-xl font-semibold text-center mb-6">{t("auth-welcome-back", "Welcome Back!")}</h2>
 
                 <div className="space-y-2">
@@ -574,14 +603,22 @@ function AuthForm() {
                   <div className="relative">
                     <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleLogin()}
                       placeholder={t("auth-password-placeholder", "Enter your password")}
-                      className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
+                      className="w-full pl-10 pr-12 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
                       required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-3 top-3.5 text-gray-500 hover:text-gray-300 transition"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                 </div>
 
@@ -615,12 +652,12 @@ function AuthForm() {
                 >
                   {t("auth-diff-email", "Use different email")}
                 </button>
-              </div>
+              </StepCard>
             )}
 
             {/* Register Step */}
             {step === "register" && (
-              <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+              <StepCard key="register" className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
                 <h2 className="text-xl font-semibold text-center mb-2">{t("auth-create-title", "Create Your Account")}</h2>
                 {message && (
                   <p className="text-center text-sm text-gray-300 mb-4">{message}</p>
@@ -666,15 +703,23 @@ function AuthForm() {
                   <div className="relative">
                     <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
                     <input
-                      type="password"
+                      type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleRegister()}
                       placeholder={t("auth-password-hint", "At least 8 characters")}
-                      className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-emerald-500 focus:outline-none transition"
+                      className="w-full pl-10 pr-12 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-emerald-500 focus:outline-none transition"
                       minLength={8}
                       required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      className="absolute right-3 top-3.5 text-gray-500 hover:text-gray-300 transition"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                   <p className="text-xs text-gray-500">{t("auth-password-hint", "Must be at least 8 characters")}</p>
                 </div>
@@ -705,29 +750,60 @@ function AuthForm() {
                 >
                   {t("auth-diff-email", "Use different email")}
                 </button>
-              </div>
+              </StepCard>
             )}
 
             {/* Verify Pending Step */}
-            {step === "verify-pending" && !verifyCollapsed && (
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm text-center space-y-3">
-                <p className="text-sm text-gray-200 leading-relaxed">
-                  Account created! Check your inbox — we&apos;ve sent a verification link to{" "}
+            {step === "verify-pending" && (
+              <StepCard key="verify-pending" className="bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm text-center space-y-4">
+                <motion.div
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: "spring", stiffness: 260, damping: 18, delay: 0.1 }}
+                  className="mx-auto w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center"
+                >
+                  <MailCheck className="w-7 h-7 text-emerald-400" />
+                </motion.div>
+                <h2 className="text-lg font-semibold">Check your inbox</h2>
+                <p className="text-sm text-gray-300 leading-relaxed">
+                  Account created! We&apos;ve sent a verification link to{" "}
                   <span className="text-white font-medium">{email}</span>. Click it to activate
-                  your account and continue.
+                  your account, then come back to sign in.
                 </p>
-                <p className="text-xs text-gray-500">Already verified? Sign in above.</p>
-              </div>
+
+                <button
+                  onClick={() => setStep("login")}
+                  className="w-full bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 p-3 rounded-lg font-semibold transition"
+                >
+                  I&apos;ve verified — sign in
+                </button>
+
+                <button
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification}
+                  className="w-full p-3 rounded-lg text-sm font-medium border border-gray-600 hover:border-gray-500 hover:bg-white/5 disabled:opacity-50 transition"
+                >
+                  {resendingVerification
+                    ? "Sending…"
+                    : resendVerifyMessage === "sent"
+                    ? "✅ Email sent again"
+                    : "Resend verification email"}
+                </button>
+                {resendVerifyMessage === "failed" && (
+                  <p className="text-xs text-rose-400">Couldn&apos;t resend right now — try again in a moment.</p>
+                )}
+                <p className="text-xs text-gray-500">Didn&apos;t get it? Check your spam folder.</p>
+              </StepCard>
             )}
-          </>
+          </AnimatePresence>
         )}
 
         {/* Phone Flow */}
         {loginMode === "phone" && (
-          <>
+          <AnimatePresence mode="wait" initial={false}>
             {/* Phone Number Step */}
             {phoneStep === "phone" && (
-              <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+              <StepCard key="phone" className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
                 <h2 className="text-xl font-semibold text-center mb-6">Sign in with Phone</h2>
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-300">Phone Number</label>
@@ -778,12 +854,12 @@ function AuthForm() {
                     </>
                   )}
                 </button>
-              </div>
+              </StepCard>
             )}
 
             {/* OTP Verify Step */}
             {phoneStep === "otp" && (
-              <div className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
+              <StepCard key="otp" className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-8 backdrop-blur-sm">
                 <h2 className="text-xl font-semibold text-center mb-2">Enter OTP</h2>
                 <p className="text-center text-sm text-gray-400 mb-4">
                   Sent to +91 {phone}
@@ -839,31 +915,44 @@ function AuthForm() {
                 >
                   Change number
                 </button>
-              </div>
+              </StepCard>
             )}
-          </>
+          </AnimatePresence>
         )}
 
-        <div className="mt-4">
-          <button
-            onClick={handleGuestLogin}
-            disabled={isSubmitting || checkingStatus}
-            className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
-          >
-            {t("auth-guest-btn", "Skip for now (Continue as guest)")}
-          </button>
-          <p className="text-center text-xs text-gray-500 mt-2">
-            {t("auth-guest-hint", "Guest mode is read-only until you log in or register.")}
-          </p>
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: "easeOut", delay: 0.15 }}
+        >
+          {step !== "verify-pending" && (
+            <div className="mt-4">
+              <div className="flex items-center gap-3 my-4">
+                <div className="flex-1 h-px bg-white/10" />
+                <span className="text-[11px] uppercase tracking-wider text-gray-600">or</span>
+                <div className="flex-1 h-px bg-white/10" />
+              </div>
+              <button
+                onClick={handleGuestLogin}
+                disabled={isSubmitting || checkingStatus}
+                className="w-full p-3 rounded-lg font-semibold border border-gray-600 hover:border-gray-500 hover:bg-white/5 disabled:opacity-50 transition"
+              >
+                {t("auth-guest-btn", "Skip for now (Continue as guest)")}
+              </button>
+              <p className="text-center text-xs text-gray-500 mt-2">
+                {t("auth-guest-hint", "Guest mode is read-only until you log in or register.")}
+              </p>
+            </div>
+          )}
 
-        {/* Footer */}
-        <p className="text-center text-xs text-gray-500 mt-6">
-          {t("auth-terms-prefix", "By continuing, you agree to our")}{" "}
-          <Link href="/terms-of-service" className="underline hover:text-gray-300">
-            {t("auth-terms-link", "terms of service")}
-          </Link>
-        </p>
+          {/* Footer */}
+          <p className="text-center text-xs text-gray-500 mt-6">
+            {t("auth-terms-prefix", "By continuing, you agree to our")}{" "}
+            <Link href="/terms-of-service" className="underline hover:text-gray-300">
+              {t("auth-terms-link", "terms of service")}
+            </Link>
+          </p>
+        </motion.div>
       </div>
     </main>
   );
@@ -873,10 +962,26 @@ export default function AuthPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen flex items-center justify-center bg-black text-white">
-          <div className="text-center">
-            <div className="w-8 h-8 border-4 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-sm text-gray-400">Loading...</p>
+        <main className="relative min-h-screen flex items-center justify-center overflow-hidden bg-black text-white">
+          <div aria-hidden className="pointer-events-none absolute inset-0">
+            <div className="absolute -top-48 left-1/2 -translate-x-1/2 w-[640px] h-[640px] rounded-full bg-indigo-600/20 blur-[130px]" />
+          </div>
+          <div className="relative text-center">
+            <p
+              className="text-sm font-semibold tracking-[0.2em] uppercase bg-gradient-to-r from-indigo-300 to-violet-300 bg-clip-text text-transparent"
+              style={{ animation: "fade-up 0.5s ease-out both" }}
+            >
+              Charaivati
+            </p>
+            <div
+              className="mt-6 mx-auto h-[3px] w-32 rounded-full bg-white/10 overflow-hidden"
+              style={{ animation: "fade-up 0.5s ease-out 0.15s both" }}
+            >
+              <div
+                className="h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-indigo-400 to-transparent"
+                style={{ animation: "splash-sweep 1.2s ease-in-out infinite" }}
+              />
+            </div>
           </div>
         </main>
       }
