@@ -33,6 +33,9 @@ export async function middleware(req: NextRequest) {
   const isSkipPath =
     SKIP_PATHS.has(pathname) ||
     pathname.startsWith("/journey") ||
+    // /listen is guest-first: it creates its own guest session on load and the
+    // AI follows the user's language without a lang cookie — gate must not fire.
+    pathname.startsWith("/listen") ||
     STATIC_EXT.test(pathname);
   if (!isSkipPath && !payload) {
     const langCookie = req.cookies.get("lang")?.value;

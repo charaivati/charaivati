@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MessageCircle, X, Trash2, Send, Paperclip, FileText } from "lucide-react";
 import CouncilView, { type CouncilResponse, type CouncilPosition, type StatusStep } from "./CouncilView";
+import ProposalCard from "./ProposalCard";
 import { isCouncilWorthy } from "@/lib/ai/councilTrigger";
 import type { ProfileProposal } from "@/lib/companion/profileSync";
 
@@ -775,44 +776,13 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
                         <span className="text-xs text-gray-500 mt-1">Local assistant unavailable</span>
                       )}
                       {m.proposal && (
-                        <div
-                          className="mt-2 rounded-xl px-3 py-2.5"
-                          style={{
-                            background: "rgba(99,102,241,0.07)",
-                            border: "1px solid rgba(99,102,241,0.25)",
-                          }}
-                        >
-                          {m.proposalStatus === "accepted" ? (
-                            <p className="text-xs text-green-400 font-medium">✓ Added to your Self profile.</p>
-                          ) : m.proposalStatus === "dismissed" ? (
-                            <p className="text-xs text-gray-500">Okay, not now.</p>
-                          ) : (
-                            <>
-                              <p className="text-xs text-indigo-300 mb-2">{m.proposal.summary}</p>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => acceptProposal(i, m.proposal!)}
-                                  disabled={proposalLoading}
-                                  className="text-xs font-medium rounded-lg px-2.5 py-1 disabled:opacity-50 transition-colors"
-                                  style={{
-                                    background: "rgba(99,102,241,0.15)",
-                                    border: "1px solid rgba(99,102,241,0.35)",
-                                    color: "#a5b4fc",
-                                  }}
-                                >
-                                  Yes, add it
-                                </button>
-                                <button
-                                  onClick={() => dismissProposal(i, m.proposal!)}
-                                  disabled={proposalLoading}
-                                  className="text-xs text-gray-500 hover:text-gray-300 disabled:opacity-50 transition-colors"
-                                >
-                                  No thanks
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
+                        <ProposalCard
+                          proposal={m.proposal}
+                          status={m.proposalStatus ?? "pending"}
+                          loading={proposalLoading}
+                          onAccept={() => acceptProposal(i, m.proposal!)}
+                          onDismiss={() => dismissProposal(i, m.proposal!)}
+                        />
                       )}
                       {m.showCouncilPrompt && m.originUserMessage && (
                         <div className="mt-2 flex items-center gap-2">

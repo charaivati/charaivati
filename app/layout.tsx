@@ -3,7 +3,7 @@ import "./globals.css";
 import React from "react";
 import { headers, cookies } from "next/headers";
 import ClientProviders from "@/components/ClientProviders";
-import ChatBot from "@/components/chat/ChatBot";
+import ChatBotGate from "@/components/chat/ChatBotGate";
 import { COOKIE_NAME, verifySessionToken } from "@/lib/session";
 import { db } from "@/lib/db";
 
@@ -82,7 +82,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           dangerouslySetInnerHTML={{ __html: inlineScript }}
         />
         <ClientProviders>{children}</ClientProviders>
-        <ChatBot isLoggedIn={isLoggedIn} userId={chatUserId} userStatus={chatUserStatus} />
+        <ChatBotGate isLoggedIn={isLoggedIn} userId={chatUserId} userStatus={chatUserStatus} />
       </body>
     </html>
   );

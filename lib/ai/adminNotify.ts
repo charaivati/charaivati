@@ -4,7 +4,7 @@ import { db } from '@/lib/db';
 export interface GuardrailEvent {
   userId?: string;
   sessionId?: string;
-  eventType: 'INPUT_BLOCKED' | 'INPUT_WARNED' | 'OUTPUT_BLOCKED';
+  eventType: 'INPUT_BLOCKED' | 'INPUT_WARNED' | 'OUTPUT_BLOCKED' | 'LISTEN_CRISIS';
   userMessage: string;
   reason: string;
   matchedPattern: string;
