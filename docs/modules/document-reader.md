@@ -17,13 +17,15 @@ components/chat/ChatBot.tsx
                   ┌───────────────┴───────────────┐
                   ▼                                ▼
    lib/documents/parseDocument.ts        lib/documents/ocrPages.ts
-   (pdf-parse / mammoth — text layer)    (renders low-text pages to PNG,
+   (unpdf / mammoth — text layer)        (renders low-text pages to PNG,
                                            OCRs via vision LLM)
 ```
 
 - **`lib/documents/parseDocument.ts`** — `parseDocument({ buffer, filename, mimeType })`.
-  - **PDF**: `pdf-parse` v2 (`PDFParse` class — wraps `pdfjs-dist` + `@napi-rs/canvas`
-    internally, no extra native deps to install). Returns per-page text via `getText()`.
+  - **PDF**: `unpdf` (`getDocumentProxy()` + `extractText(pdf, { mergePages: false })`) —
+    a serverless build of `pdfjs-dist` with no native canvas dependency. Returns
+    per-page text. **Do not switch this back to `pdf-parse`** — see the
+    DOMMatrix/`@napi-rs/canvas` footgun below.
   - **DOCX**: `mammoth.extractRawText()`.
   - **TXT/MD**: read as UTF-8.
   - Any PDF page with < 20 extractable characters is flagged in `lowTextPages`
@@ -31,6 +33,12 @@ components/chat/ChatBot.tsx
 
 - **`lib/documents/ocrPages.ts`** — `ocrPdfPages(buffer, pageNumbers)`.
   - Renders each flagged page to a PNG via `pdf-parse`'s built-in `getScreenshot()`.
+    `pdf-parse` is kept as a dependency **solely** for this rendering call —
+    `unpdf` has no page-rendering equivalent (text extraction only). This path
+    likely shares the same DOMMatrix/canvas crash risk on Vercel as the old
+    `pdf-parse` text path did (see footgun below) — it has not yet been fixed;
+    only the `getText()` crash (parseDocument.ts) was addressed by the unpdf
+    swap (PDFPARSE-1).
   - OCRs the PNG with a vision model. Tries **local Ollama first**
     (`DOC_OCR_VISION_MODEL`, default `llava:7b` — same model the menu-parse
     feature already uses), falling back to **OpenRouter** (`DOC_OCR_FALLBACK_MODEL`,
@@ -118,6 +126,19 @@ Reuses existing vars: `LOCAL_AI_ENABLED`, `OLLAMA_BASE_URL`, `OPENROUTER_API_KEY
 
 ## Known limitations / future work
 
+- **Vercel canvas/DOMMatrix footgun (PDFPARSE-1, fixed for text extraction)** —
+  `pdf-parse`/`pdfjs-dist`'s default build expects browser globals
+  (`DOMMatrix`, `ImageData`, `Path2D`) and `@napi-rs/canvas` native bindings
+  that don't exist on Vercel's Node serverless runtime, causing
+  `ReferenceError: DOMMatrix is not defined` / `Cannot find module
+  '@napi-rs/canvas'` in production (worked fine on localhost). Fixed for the
+  text-extraction path by switching `parseDocument.ts` to `unpdf`. **Open
+  risk**: `lib/documents/ocrPages.ts` still uses `pdf-parse`'s
+  `getScreenshot()` for page-rendering (no `unpdf` equivalent) and may hit the
+  same crash when OCR fallback actually runs (scanned/low-text PDF uploaded)
+  — needs production verification and, if it crashes, a follow-up fix
+  (different serverless-safe rendering library, or gate OCR off in
+  production).
 - **Supported types**: PDF, DOCX, TXT/MD. `.doc` (legacy binary Word) is not
   supported by `mammoth` — users must save as `.docx`.
 - **OCR cap**: only the first 5 low-text pages per upload are OCR'd. A fully

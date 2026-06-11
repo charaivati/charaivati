@@ -76,6 +76,37 @@ export async function POST(req: Request) {
     }).catch(console.error);
   }
 
+  if (attachedDocument?.text) {
+    const docScan = scanInput(attachedDocument.text);
+    if (docScan.level === 'BLOCK') {
+      notifyAdmin({
+        userId: payload.userId,
+        eventType: 'INPUT_BLOCKED',
+        userMessage: attachedDocument.text,
+        reason: docScan.reason!,
+        matchedPattern: docScan.matchedPattern!,
+        timestamp: new Date().toISOString(),
+        ipAddress,
+      }).catch(console.error);
+      return NextResponse.json({
+        reply: "I'm here to help you move forward on your goals. Is there something specific you'd like to work on?",
+        blocked: true,
+      });
+    }
+
+    if (docScan.level === 'WARN') {
+      notifyAdmin({
+        userId: payload.userId,
+        eventType: 'INPUT_WARNED',
+        userMessage: attachedDocument.text,
+        reason: docScan.reason!,
+        matchedPattern: docScan.matchedPattern!,
+        timestamp: new Date().toISOString(),
+        ipAddress,
+      }).catch(console.error);
+    }
+  }
+
   const userId = payload.userId;
 
   const [user, profile, pages, companionProfile] = await Promise.all([

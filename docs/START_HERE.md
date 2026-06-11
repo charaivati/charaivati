@@ -646,3 +646,12 @@ All keys are in Vercel env vars. No action needed — fallback is automatic.
 3. Build system prompt with user context (drives, goals, energy)
 4. Fire single POST on explicit user action — don't auto-fire on load
 5. Add the env var to both `.env.local` and Vercel
+
+### Document Reader (PDF/Word ingestion)
+`npm install` picks up `pdf-parse` and `mammoth` — both pure-JS / prebuilt-binary, no system dependencies (e.g. no `poppler`) needed. PDF text extraction uses `unpdf`; `pdf-parse` is kept only for `getScreenshot()` (OCR page rendering). DOCX uses `mammoth.extractRawText()`.
+
+Optional env vars (sensible defaults — nothing required to add for a normal `npm install` + dev run):
+- `DOC_OCR_VISION_MODEL` — local Ollama vision model for scanned-page OCR. Default `llava:7b`.
+- `DOC_OCR_FALLBACK_MODEL` — OpenRouter vision model used when Ollama is unavailable. Default `anthropic/claude-haiku-4-5`.
+
+See `docs/modules/document-reader.md` for the full pipeline and `docs/modules/profile-sync.md` for the related chat→profile proposal flow.

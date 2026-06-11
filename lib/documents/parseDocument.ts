@@ -1,14 +1,16 @@
 // lib/documents/parseDocument.ts
 // Unified text extraction for PDF / DOCX / TXT uploads.
-// PDF text extraction uses pdf-parse v2 (wraps pdfjs-dist + @napi-rs/canvas
-// internally — no extra native deps needed). DOCX uses mammoth.
+// PDF text extraction uses unpdf (serverless pdfjs build, no native canvas
+// deps — pdf-parse/pdfjs-dist's default build needs DOMMatrix/@napi-rs/canvas,
+// which are absent on Vercel's Node serverless runtime and crash there).
+// DOCX uses mammoth.
 //
 // Pages with very little extractable text are flagged in `lowTextPages` —
 // callers (e.g. the /api/documents/parse route) can pass those page numbers
 // to `ocrPdfPages()` in ocrPages.ts to run vision-model OCR as a fallback
 // for scanned pages.
 
-import { PDFParse } from "pdf-parse";
+import { extractText, getDocumentProxy } from "unpdf";
 import mammoth from "mammoth";
 
 export type DocumentFileType = "pdf" | "docx" | "txt" | "unknown";
@@ -47,36 +49,32 @@ function detectFileType(filename: string, mimeType: string): DocumentFileType {
 
 async function parsePdf(buffer: Buffer): Promise<ParsedDocument> {
   const warnings: string[] = [];
-  const parser = new PDFParse({ data: buffer });
-  try {
-    const result = await parser.getText();
-    const pages: ParsedPage[] = (result.pages ?? []).map((p) => ({
-      num: p.num,
-      text: (p.text ?? "").trim(),
-      charCount: (p.text ?? "").trim().length,
-    }));
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const result = await extractText(pdf, { mergePages: false });
 
-    const lowTextPages = pages
-      .filter((p) => p.charCount < LOW_TEXT_CHAR_THRESHOLD)
-      .map((p) => p.num);
+  const pages: ParsedPage[] = result.text.map((text, i) => {
+    const trimmed = (text ?? "").trim();
+    return { num: i + 1, text: trimmed, charCount: trimmed.length };
+  });
 
-    if (lowTextPages.length > 0) {
-      warnings.push(
-        `${lowTextPages.length} of ${pages.length} page(s) have little or no extractable text — likely scanned images.`
-      );
-    }
+  const lowTextPages = pages
+    .filter((p) => p.charCount < LOW_TEXT_CHAR_THRESHOLD)
+    .map((p) => p.num);
 
-    return {
-      fileType: "pdf",
-      text: pages.map((p) => p.text).join("\n\n"),
-      pageCount: pages.length,
-      pages,
-      lowTextPages,
-      warnings,
-    };
-  } finally {
-    await parser.destroy();
+  if (lowTextPages.length > 0) {
+    warnings.push(
+      `${lowTextPages.length} of ${pages.length} page(s) have little or no extractable text — likely scanned images.`
+    );
   }
+
+  return {
+    fileType: "pdf",
+    text: pages.map((p) => p.text).join("\n\n"),
+    pageCount: pages.length,
+    pages,
+    lowTextPages,
+    warnings,
+  };
 }
 
 async function parseDocx(buffer: Buffer): Promise<ParsedDocument> {
