@@ -1,7 +1,7 @@
 ---
 module: ai-chatbot
 type: api + component
-source: app/api/chat/route.ts, components/chat/ChatBot.tsx
+source: app/api/chat/route.ts, lib/ai/chatPipeline.ts, components/chat/ChatBot.tsx
 depends_on: [auth, database]
 used_by: [root-layout]
 stability: stable
@@ -32,6 +32,18 @@ A floating chat widget powered by a locally-running Ollama LLM. Shown on every p
 ## API Route: `POST /api/chat`
 
 **Auth**: manual — `getTokenFromRequest(req)` + `verifySessionToken(token)`. Returns 401 if unauthenticated.
+
+### Shared machinery: `lib/ai/chatPipeline.ts` (CONSULT-1a)
+
+The mode-agnostic guarded-chat machinery was extracted out of the route into `lib/ai/chatPipeline.ts` so multiple chat surfaces (`/api/chat`, and future callers such as `/api/listen`) share identical auth + guardrail + completion behavior. **System-prompt ASSEMBLY stays per-route** — companion branching, persona, and context loading remain in `app/api/chat/route.ts`; only the surrounding plumbing moved.
+
+Exports:
+- `authenticateChat(req)` — `getTokenFromRequest` + `verifySessionToken`; returns the session payload or `null`.
+- `runInputGuard({ userId, message, attachedDocument, ipAddress })` — scans the message and any attached document via `scanInput()`; fires `notifyAdmin()` for `BLOCK`/`WARN`; returns `{ blocked: true, reply }` (a canned 200 payload) when either scan blocks, else `{ blocked: false }`.
+- `runGuardedCompletion({ userId, message, ipAddress, messages, maxTokens, temperature, requestStart, activeModel })` — wraps `chatCompleteWithMeta()` in the 30 s timeout, runs `scanOutput()`, resolves tier via `getTier`/`getTierUI`. Returns a discriminated union: `{ type: "ok", reply, source, coldStart, usedModel, tier, tierUI }`, `{ type: "output_blocked", response }`, or `{ type: "fallback", response }`. The route maps `response` straight into `NextResponse.json(...)`.
+- `withChatTimeout(promise)` — the shared 30 s race wrapper.
+
+This was an extraction-only refactor: HTTP responses for normal, companion, WARN, and BLOCK cases are byte-identical to the pre-extraction route. The proposal step (`buildProfileProposal`/`tryProposeGoal`) is companion/mode-specific and deliberately stays in the route.
 
 **Server-side data loaded** (never trusted from client):
 - `User.drives` — DriveType[] JSON array

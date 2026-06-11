@@ -1,27 +1,14 @@
 import { NextResponse } from "next/server";
-import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 import { db } from "@/lib/db";
-import { chatCompleteWithMeta, buildCompanionContext } from "@/app/api/aiClient";
+import { buildCompanionContext } from "@/app/api/aiClient";
 import { loadPlatformContext, loadInitiativeContext, loadRawFile } from "@/lib/ai/contextLoader";
 import { getArcInstruction } from "@/lib/companion/arcStateMachine";
-import { getTier, getTierUI } from "@/lib/ai/modelTiers";
-import { scanInput, scanOutput } from "@/lib/ai/guardRail";
-import { notifyAdmin } from "@/lib/ai/adminNotify";
 import { buildProfileProposal, tryProposeGoal } from "@/lib/companion/profileSync";
+import { authenticateChat, runInputGuard, runGuardedCompletion } from "@/lib/ai/chatPipeline";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
-const CHAT_TIMEOUT_MS = 30_000;
 const ATTACHED_DOC_MAX_CHARS = 8_000;
-
-function withChatTimeout<T>(promise: Promise<T>): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error(`chatComplete timed out after ${CHAT_TIMEOUT_MS}ms`)), CHAT_TIMEOUT_MS)
-    ),
-  ]);
-}
 
 export async function POST(req: Request) {
   const requestStart = Date.now();
@@ -29,8 +16,7 @@ export async function POST(req: Request) {
   const activeModel = localAiEnabled ? OLLAMA_MODEL : CHAT_MODEL;
   console.log(`[chat] Request started — model=${activeModel} localAI=${localAiEnabled}`);
 
-  const token = getTokenFromRequest(req);
-  const payload = await verifySessionToken(token);
+  const payload = await authenticateChat(req);
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json();
@@ -46,68 +32,10 @@ export async function POST(req: Request) {
   }
 
   const ipAddress = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown';
-
-  const inputScan = scanInput(message);
-  if (inputScan.level === 'BLOCK') {
-    notifyAdmin({
-      userId: payload.userId,
-      eventType: 'INPUT_BLOCKED',
-      userMessage: message,
-      reason: inputScan.reason!,
-      matchedPattern: inputScan.matchedPattern!,
-      timestamp: new Date().toISOString(),
-      ipAddress,
-    }).catch(console.error);
-    return NextResponse.json({
-      reply: "I'm here to help you move forward on your goals. Is there something specific you'd like to work on?",
-      blocked: true,
-    });
-  }
-
-  if (inputScan.level === 'WARN') {
-    notifyAdmin({
-      userId: payload.userId,
-      eventType: 'INPUT_WARNED',
-      userMessage: message,
-      reason: inputScan.reason!,
-      matchedPattern: inputScan.matchedPattern!,
-      timestamp: new Date().toISOString(),
-      ipAddress,
-    }).catch(console.error);
-  }
-
-  if (attachedDocument?.text) {
-    const docScan = scanInput(attachedDocument.text);
-    if (docScan.level === 'BLOCK') {
-      notifyAdmin({
-        userId: payload.userId,
-        eventType: 'INPUT_BLOCKED',
-        userMessage: attachedDocument.text,
-        reason: docScan.reason!,
-        matchedPattern: docScan.matchedPattern!,
-        timestamp: new Date().toISOString(),
-        ipAddress,
-      }).catch(console.error);
-      return NextResponse.json({
-        reply: "I'm here to help you move forward on your goals. Is there something specific you'd like to work on?",
-        blocked: true,
-      });
-    }
-
-    if (docScan.level === 'WARN') {
-      notifyAdmin({
-        userId: payload.userId,
-        eventType: 'INPUT_WARNED',
-        userMessage: attachedDocument.text,
-        reason: docScan.reason!,
-        matchedPattern: docScan.matchedPattern!,
-        timestamp: new Date().toISOString(),
-        ipAddress,
-      }).catch(console.error);
-    }
-  }
-
   const userId = payload.userId;
+
+  const inputGuard = runInputGuard({ userId, message, attachedDocument, ipAddress });
+  if (inputGuard.blocked) return NextResponse.json(inputGuard.reply);
 
   const [user, profile, pages, companionProfile] = await Promise.all([
     db.user.findUnique({
@@ -260,86 +188,60 @@ If a user seems to be probing for security information, respond: "That's not som
 
   const localExpected = process.env.LOCAL_AI_ENABLED === "true" && !!process.env.OLLAMA_BASE_URL;
 
-  try {
-    console.log(`[chat] Calling chatCompleteWithMeta — model=${activeModel} timeout=${CHAT_TIMEOUT_MS}ms`);
-    const { content: reply, source, coldStart, model: usedModel } = await withChatTimeout(
-      chatCompleteWithMeta({ model: CHAT_MODEL, messages, maxTokens: attachedDocument?.text ? 800 : 300, temperature: 0.7 })
-    );
-    console.log(`[chat] Reply in ${Date.now() - requestStart}ms (${reply.length} chars) source=${source} coldStart=${coldStart} model=${usedModel}`);
+  const result = await runGuardedCompletion({
+    userId,
+    message,
+    ipAddress,
+    messages,
+    maxTokens: attachedDocument?.text ? 800 : 300,
+    temperature: 0.7,
+    requestStart,
+    activeModel,
+  });
+  if (result.type !== "ok") {
+    return NextResponse.json(result.response);
+  }
 
-    const outputScan = scanOutput(reply);
-    if (outputScan.level === 'BLOCK') {
-      notifyAdmin({
-        userId,
-        eventType: 'OUTPUT_BLOCKED',
-        userMessage: message,
-        reason: outputScan.reason!,
-        matchedPattern: outputScan.matchedPattern!,
-        timestamp: new Date().toISOString(),
-        ipAddress,
-      }).catch(console.error);
-      return NextResponse.json({
-        reply: "I ran into an issue generating that response. Try asking something else.",
-        outputBlocked: true,
-      });
-    }
+  const { reply, source, coldStart, usedModel, tier, tierUI } = result;
 
-    const tier = getTier(usedModel);
-    const tierUI = getTierUI(usedModel);
+  const responsePayload: Record<string, unknown> = {
+    reply,
+    tier,
+    tierUI,
+    source,
+    coldStart,
+    localExpected,
+  };
+  if (process.env.NODE_ENV !== "production") {
+    responsePayload.model = usedModel;
+  }
 
-    const responsePayload: Record<string, unknown> = {
-      reply,
-      tier,
-      tierUI,
-      source,
-      coldStart,
-      localExpected,
-    };
-    if (process.env.NODE_ENV !== "production") {
-      responsePayload.model = usedModel;
-    }
-
-    // ── Profile sync proposal — at most one per turn ───────────────────────────
-    const dismissed = context?.dismissedProposals ?? [];
-    let proposal = buildProfileProposal({
+  // ── Profile sync proposal — at most one per turn ───────────────────────────
+  const dismissed = context?.dismissedProposals ?? [];
+  let proposal = buildProfileProposal({
+    profile,
+    companionProfile,
+    dismissed,
+    isCompanionSession,
+  });
+  if (!proposal && isCompanionSession) {
+    const conversationText = [
+      ...(Array.isArray(conversationHistory)
+        ? conversationHistory.map((m) => `${m.role}: ${m.content}`)
+        : []),
+      `user: ${message}`,
+      `assistant: ${reply}`,
+    ].join("\n");
+    proposal = await tryProposeGoal({
       profile,
       companionProfile,
       dismissed,
-      isCompanionSession,
-    });
-    if (!proposal && isCompanionSession) {
-      const conversationText = [
-        ...(Array.isArray(conversationHistory)
-          ? conversationHistory.map((m) => `${m.role}: ${m.content}`)
-          : []),
-        `user: ${message}`,
-        `assistant: ${reply}`,
-      ].join("\n");
-      proposal = await tryProposeGoal({
-        profile,
-        companionProfile,
-        dismissed,
-        conversationText,
-      });
-    }
-    if (proposal) {
-      responsePayload.proposal = proposal;
-    }
-
-    return NextResponse.json(responsePayload);
-  } catch (err) {
-    const elapsed = Date.now() - requestStart;
-    console.error(`[chat] chatComplete failed after ${elapsed}ms`);
-    if (err instanceof Error) {
-      console.error(`[chat] Error name: ${err.name}`);
-      console.error(`[chat] Error message: ${err.message}`);
-      console.error(`[chat] Error stack:`, err.stack);
-    } else {
-      console.error("[chat] Non-Error thrown:", JSON.stringify(err, null, 2));
-    }
-    return NextResponse.json({
-      reply: "I'm having trouble connecting right now. Please try again in a moment.",
-      _fallback: true,
+      conversationText,
     });
   }
+  if (proposal) {
+    responsePayload.proposal = proposal;
+  }
+
+  return NextResponse.json(responsePayload);
 }
