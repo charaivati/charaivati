@@ -84,6 +84,7 @@ model User {
   companionProfile        UserCompanionProfile?
   sentInvites             Invite[]             @relation("InviteSender")
   todos                   Todo[]
+  consultSession          ConsultSession?
 
   @@index([email])
   @@index([phone])
@@ -1777,4 +1778,30 @@ model Todo {
 
   @@index([userId])
   @@index([ideaId])
+}
+
+/// Listener (Saathi) consultation session — one per user, guests included (CONSULT-1b)
+model ConsultSession {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  /// 0 rapport, 1 exploration, 2 values, 3 vision, 4 goal-proposal, 5 handed-off
+  consultStage Int      @default(0)
+  insights     Json     @default("{}")
+  language     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     ConsultMessage[]
+}
+
+model ConsultMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  /// "user" | "assistant"
+  role      String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  session   ConsultSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
 }

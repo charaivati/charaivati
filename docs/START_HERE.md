@@ -429,6 +429,7 @@ Quick reference for jumping into a specific area. Read the linked doc before tou
 | **Invoice** (PDF, sign, download) | `lib/invoice/`, `app/api/orders/[orderId]/invoice/` | `CLAUDE.md` § Invoice System |
 | **Business idea evaluation** (BIZDOC) | `app/(business)/business/idea/page.tsx`, `app/api/business/idea/`, `app/api/business/questions/` | `docs/modules/business.md`; seed: `npm run seed:questions` |
 | **Business plan documents** (BIZDOC) | `app/(business)/business/plan/[ideaId]/page.tsx`, `app/api/business/documents/` | `docs/modules/business.md` § Document Types; AI: `ai-context/BUSINESS_AI_PHILOSOPHY.txt` |
+| **Listener / Saathi** (guided conversation, CONSULT) | `app/api/listen/route.ts`, `lib/listener/insights.ts`, `lib/ai/chatPipeline.ts` | `docs/listen.md` — a system **parallel** to `/api/chat` (shares pipeline/guardrails/proposal mechanism only). HARD RULE: Listener code never writes `UserCompanionProfile`. Persona: `ai-context/CONSULT_LISTENER.txt` |
 
 **Initiative types** — active: `store`, `service`, `fleet`. Gated but built: `health`, `learning`, `helping`, `community_group`. Toggle: `ACTIVE_INITIATIVE_TYPES` in `app/app/initiatives/page.tsx:54`.
 
