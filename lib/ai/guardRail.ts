@@ -48,6 +48,52 @@ export function scanInput(message: string): ScanResult {
   return { level: 'PASS' };
 }
 
+// ── Crisis detection (Listener / Saathi only) ────────────────────────────────
+// A crisis is a SOFT OVERRIDE, never a BLOCK — a canned redirect is the worst
+// possible response to "I want to hurt myself". /api/listen uses this to switch
+// the session into crisis mode (skip extraction/proposals, force the CRISIS
+// prompt, show the helpline banner). scanInput/scanOutput above are deliberately
+// untouched so /api/chat behavior stays byte-identical.
+
+export interface CrisisScanResult {
+  crisis: boolean;
+  matchedPattern?: string;
+}
+
+const CRISIS_PATTERNS: RegExp[] = [
+  // English — self-harm intent / suicidal ideation / acute distress
+  /suicid/i,
+  /\bkill (myself|my self)\b/i,
+  /\b(end|take|took) my (own )?life\b/i,
+  /\bend it all\b/i,
+  /\bwan(t|na)s? to die\b/i,
+  /\bbetter off dead\b/i,
+  /\b(hurt|harm|cut)(ing|t)? (myself|my self)\b/i,
+  /self[- ]?harm/i,
+  /\bno (reason|point) (to|in) (live|living|go(ing)? on)\b/i,
+  /\bdon'?t want to (live|be alive|exist|wake up)\b/i,
+  /\bcan'?t (go on|take (this|it) anymore|do this anymore)\b/i,
+  /\btired of (living|life|being alive)\b/i,
+  // Hinglish (Latin script) — common phrasings
+  /\bmar+(na|ne) chaht/i,
+  /\bmar ja(na|au|u)\b/i,
+  /\b(jee|ji)+na nahi chaht/i,
+  /\bzindagi (khatam|barbaad|bekaar)\b/i,
+  /\bkhud ko (khatam|nuksaan|nuksan|hurt)/i,
+  /\bkhudkushi/i,
+  /\bapni jaan (le|de)/i,
+  /\bjaan de(na|ne) chaht/i,
+];
+
+export function scanInputCrisis(message: string): CrisisScanResult {
+  for (const pattern of CRISIS_PATTERNS) {
+    if (pattern.test(message)) {
+      return { crisis: true, matchedPattern: pattern.toString() };
+    }
+  }
+  return { crisis: false };
+}
+
 const OUTPUT_BLOCK_PATTERNS: RegExp[] = [
   /DATABASE_URL|JWT_SECRET|OPENROUTER_API_KEY|CLOUDINARY_SECRET/i,
   /postgresql:\/\/|postgres:\/\//i,

@@ -95,13 +95,56 @@ From `ai-context/CONSULT_LISTENER.txt` via `loadSection()` (named `[SECTION: NAM
 | 4 | Goal-proposal | →5: **only on accepted proposal** — not auto-advanced by the backend; wired by the Listener UI prompt (deliberate gap in CONSULT-1b) |
 | 5 | Handed off | terminal |
 
-## Crisis behavior
+## Page architecture (CONSULT-2)
 
-Defined in the CRISIS section of the context file and placed above all method blocks in the prompt: on self-harm intent, suicidal ideation, or acute distress the model drops all extraction/goal/stage behavior, responds with warmth, and offers **Tele-MANAS 14416** and **KIRAN 1800-599-0019** (free, India). The arc resumes only if the user clearly steers back. (This is prompt-enforced; the extraction cadence still runs but records only what the user actually said.)
+`/listen` lives at `app/(listen)/listen/page.tsx` — a route group with **no layout of its own**, so it inherits only the root layout (no nav shell, no bottom tabs). Mobile-first: the page is designed for a phone viewport and will later ship as a standalone Capacitor app.
+
+- **Guest-first entry**: on mount the page GETs `/api/listen`; a 401 triggers a silent `POST /api/user/guest` (same endpoint the login page's guest button uses — creates a real `User` row with `status: "guest"` and sets the session cookie), then re-GETs to hydrate `{ consultStage, insights, messages, crisis }`. Returning users resume mid-conversation automatically.
+- **Middleware**: `/listen` is in the language-gate skip list in `middleware.ts` — a fresh visitor has neither a session nor a `lang` cookie, and the gate would otherwise bounce them to the language picker before the guest bootstrap could run. Without a `lang` cookie the AI simply follows whichever language the user writes in.
+- **ChatBot suppression**: the root layout mounts `components/chat/ChatBotGate.tsx` (was `ChatBot` directly) — a tiny `usePathname` wrapper that returns `null` on `/listen` paths and renders `<ChatBot {...props}/>` everywhere else. ChatBot internals untouched.
+
+### Component map
+
+| Component | Role |
+|---|---|
+| `app/(listen)/listen/page.tsx` | Shell: metadata + full-height main, renders ListenChat |
+| `components/listen/ListenChat.tsx` | Everything stateful: guest bootstrap + hydration, bubbles (styling copied from ChatBot), send → `POST /api/listen`, rotating contextual status lines ("Listening…", cycling 1.5 s — not three dots), map-trigger check, steer chips, crisis banner, proposal accept/dismiss |
+| `components/listen/MindMap.tsx` | Hand-rolled inline SVG bottom sheet (no new dependency). 9 fixed nodes: Drive (top) → Goal → Skills/Health/Environment/Time/Funds/Network/Energy |
+| `components/chat/ProposalCard.tsx` | Shared Yes/No proposal card — lifted verbatim from ChatBot's inline JSX; ChatBot now imports it (props identical, zero behavior change). Exports the `charaivati.dismissed_proposals` localStorage helpers for ListenChat |
+| `lib/ai/mapTrigger.ts` | `isMapRequest(msg)` + `MAP_TRIGGERS` — mirrors `councilTrigger.ts`; checked client-side BEFORE sending; on match the sheet opens locally and the model is NOT called |
+
+### Mind-map fill states
+
+- **grey/dashed** = unknown (no data in insights)
+- **soft indigo fill** = sensed (insights has notes/value; Goal node is sensed at stage 4)
+- **solid indigo + ✓** = confirmed (`driveCandidate.confidence === "confirmed"`; Goal at stage 5)
+- **Energy** renders its `senseLevel` inside the circle and is dotted/italic-labelled "(derived)" — read-only
+- **Network** is display-only (no write target yet — pending FriendCircle wiring)
+
+### Steer-message protocol
+
+Tapping a node closes the sheet and steers the conversation — a structured field, never fake user text:
+
+- `POST /api/listen { message: "", steer: "health" }` — valid keys: `drive | goal | skills | health | environment | time | funds | network | energy`.
+- `correction: true` (from long-press / right-click → "That's not right") tells the model to **re-ask rather than assume**.
+- Server appends a one-turn system hint ("THIS TURN ONLY: the user tapped X…"). For steer-only turns the model sees an in-flight `[map tap: X]` marker as the final user turn (some providers require one), but **no user `ConsultMessage` is persisted** — the UI shows a small chip ("You chose: Health") instead.
+- Steer is ignored while crisis mode is active.
+
+## Crisis behavior (CONSULT-2 — code-enforced, not just prompt-enforced)
+
+Design constraint: crisis input must **never** be a guardrail BLOCK — a canned redirect is the worst possible response to "I want to hurt myself."
+
+1. **Detection**: `scanInputCrisis()` in `lib/ai/guardRail.ts` — a separate function (English + common Latin-script Hinglish patterns for self-harm intent, suicidal ideation, acute distress). `scanInput`/`scanOutput` are untouched; `/api/chat` behavior is byte-identical.
+2. **Latch**: first detection sets `ConsultSession.crisisFlag = true` (migration `20260612000000_add_consult_crisis_flag`). **Never auto-cleared** — clearing is a manual DB operation. Every subsequent turn in the session stays in crisis mode.
+3. **Per-turn effect**: extraction, proposals, and stage advancement are skipped; the system prompt collapses to PERSONA + a force-loaded CRISIS protocol + NEVER + language (no stages/methods/parameter-sensing/insights recital).
+4. **Logging**: `notifyAdmin` fires a `LISTEN_CRISIS` GuardrailEvent (DB row + admin email) on the first detection per session.
+5. **UI**: responses carry `crisis: true`; ListenChat renders a persistent, gentle helpline banner above the input — **Tele-MANAS 14416** and **KIRAN 1800-599-0019** (free, India), as `tel:` links. The banner is UI-rendered because model output is not a reliable delivery channel for emergency numbers.
 
 ## Tech debt
 
 - **Full-string i18n for the Listener UI is deferred** — v1 ships English chrome (buttons, labels) with AI replies in the user's language (the `lang` cookie is captured into `ConsultSession.language` and injected as a prompt instruction). Mirror this entry in the local `TECH_DEBT.md` (gitignored).
+- **Network node is display-only** pending FriendCircle wiring — it fills from `insights.network.notes` but has no tap-steer write target.
+- **Map correction UX is minimal v1** — long-press/right-click → "That's not right" → re-ask hint. No per-field editing of insights from the map.
 
 ---
 

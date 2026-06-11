@@ -1,4 +1,4 @@
-// app/api/listen/route.ts — Listener (Saathi) conversation backend (CONSULT-1b).
+// app/api/listen/route.ts — Listener (Saathi) conversation backend (CONSULT-1b/-2).
 //
 // A PARALLEL system to /api/chat: shares lib/ai/chatPipeline (auth + guardrails +
 // timeout + guarded completion) and the ProfileProposal mechanism, but has its own
@@ -7,12 +7,18 @@
 //
 // HARD RULE: no UserCompanionProfile writes from this file or anything it owns —
 // UCP fields gate the companion arc state machine (CONSULT-0c §4). Reads are fine.
+//
+// Crisis (CONSULT-2): crisis language is a SOFT OVERRIDE, never a guardrail BLOCK.
+// On detection: latch ConsultSession.crisisFlag (never auto-cleared), force the
+// CRISIS prompt, skip extraction/proposals/stage advancement, log LISTEN_CRISIS.
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
 import { loadSection } from "@/lib/ai/contextLoader";
 import { authenticateChat, runInputGuard, runGuardedCompletion } from "@/lib/ai/chatPipeline";
+import { scanInputCrisis } from "@/lib/ai/guardRail";
+import { notifyAdmin } from "@/lib/ai/adminNotify";
 import { tryProposeGoal } from "@/lib/companion/profileSync";
 import {
   type ConsultInsights,
@@ -39,18 +45,54 @@ const DRIVE_TYPE_TO_SIGNAL: Record<DriveValue, string> = {
   doing: "Keeper",
 };
 
+// Mind-map steering (CONSULT-2). steer is a structured field — never stored in
+// the transcript as fake user text. The hint applies to this turn only.
+const STEER_LABELS: Record<string, string> = {
+  drive: "what truly drives them",
+  goal: "the goal taking shape",
+  skills: "their skills",
+  health: "their health",
+  environment: "their surroundings and living situation",
+  time: "their time and daily routine",
+  funds: "their money situation",
+  network: "the people around them",
+  energy: "their energy levels",
+};
+
 function readLangCookie(req: Request): string | null {
   const cookie = req.headers.get("cookie") ?? "";
   const m = cookie.match(/(?:^|;\s*)lang=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-function buildSystemPrompt(stage: number, insights: ConsultInsights, language: string | null): string {
+function buildSystemPrompt(
+  stage: number,
+  insights: ConsultInsights,
+  language: string | null,
+  opts: { crisis?: boolean; steerHint?: string } = {}
+): string {
   const persona = loadSection(CONTEXT_FILE, "PERSONA");
   const never = loadSection(CONTEXT_FILE, "NEVER");
   const crisis = loadSection(CONTEXT_FILE, "CRISIS");
-  const phases = loadSection(CONTEXT_FILE, "PHASES");
 
+  const languageLine = language
+    ? `Respond in the user's language (code: "${language}"). If they write in a different language, follow them.`
+    : "Respond in whichever language the user writes in.";
+
+  // Crisis mode: persona + crisis protocol front and center. No stages, no
+  // methods, no parameter sensing, no insights recital — just presence.
+  if (opts.crisis) {
+    return [
+      persona,
+      `THIS CONVERSATION IS IN CRISIS MODE. The protocol below overrides everything else — follow it for every reply until the user clearly and on their own steers back to everyday topics:\n${crisis}`,
+      never ? `WHAT YOU NEVER DO:\n${never}` : "",
+      languageLine,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  const phases = loadSection(CONTEXT_FILE, "PHASES");
   const methods: string[] = [];
   if (stage <= 1) methods.push(loadSection(CONTEXT_FILE, "METHOD_ROGERIAN"));
   if (stage >= 1 && stage <= 3) methods.push(loadSection(CONTEXT_FILE, "METHOD_MI"));
@@ -67,9 +109,8 @@ function buildSystemPrompt(stage: number, insights: ConsultInsights, language: s
     ...methods.filter(Boolean),
     sensing,
     summary ? `WHAT YOU'VE QUIETLY SENSED SO FAR (internal notes — never recite these to the user):\n${summary}` : "",
-    language
-      ? `Respond in the user's language (code: "${language}"). If they write in a different language, follow them.`
-      : "Respond in whichever language the user writes in.",
+    opts.steerHint ? `THIS TURN ONLY:\n${opts.steerHint}` : "",
+    languageLine,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -126,15 +167,26 @@ export async function POST(req: Request) {
   const userId = payload.userId;
 
   const body = await req.json();
-  const { message, dismissedProposals } = body as { message: string; dismissedProposals?: string[] };
-  if (!message?.trim()) {
+  const { message, steer, correction, dismissedProposals } = body as {
+    message?: string;
+    steer?: string;
+    correction?: boolean;
+    dismissedProposals?: string[];
+  };
+
+  const text = typeof message === "string" ? message.trim() : "";
+  const steerNode = typeof steer === "string" && STEER_LABELS[steer] ? steer : null;
+  if (!text && !steerNode) {
     return NextResponse.json({ error: "Message required" }, { status: 400 });
   }
 
   const ipAddress = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
 
-  const inputGuard = runInputGuard({ userId, message, ipAddress });
-  if (inputGuard.blocked) return NextResponse.json(inputGuard.reply);
+  // Guardrail scan only applies to real user text — steer is a fixed enum.
+  if (text) {
+    const inputGuard = runInputGuard({ userId, message: text, ipAddress });
+    if (inputGuard.blocked) return NextResponse.json(inputGuard.reply);
+  }
 
   const session = await (db as any).consultSession.upsert({
     where: { userId },
@@ -145,6 +197,29 @@ export async function POST(req: Request) {
   const stage: number = session.consultStage ?? 0;
   let insights = normalizeInsights(session.insights);
 
+  // ── Crisis detection — soft override, never a BLOCK ────────────────────────
+  // Once latched, the session stays in crisis mode (cleared only manually).
+  let crisisActive: boolean = session.crisisFlag === true;
+  if (text && !crisisActive) {
+    const crisisScan = scanInputCrisis(text);
+    if (crisisScan.crisis) {
+      crisisActive = true;
+      await (db as any).consultSession.update({
+        where: { id: session.id },
+        data: { crisisFlag: true },
+      });
+      notifyAdmin({
+        userId,
+        eventType: "LISTEN_CRISIS",
+        userMessage: text,
+        reason: "Crisis language detected in Listener conversation",
+        matchedPattern: crisisScan.matchedPattern!,
+        timestamp: new Date().toISOString(),
+        ipAddress,
+      }).catch(console.error);
+    }
+  }
+
   // History is rebuilt server-side — client-sent history is never trusted.
   const historyRows: { role: string; content: string }[] = await (db as any).consultMessage.findMany({
     where: { sessionId: session.id },
@@ -154,20 +229,38 @@ export async function POST(req: Request) {
   });
   historyRows.reverse();
 
-  await (db as any).consultMessage.create({
-    data: { sessionId: session.id, role: "user", content: message },
+  if (text) {
+    await (db as any).consultMessage.create({
+      data: { sessionId: session.id, role: "user", content: text },
+    });
+  }
+
+  let steerHint = "";
+  if (steerNode && !crisisActive) {
+    const label = STEER_LABELS[steerNode];
+    steerHint = correction
+      ? `The user pointed at "${steerNode}" on their progress map and indicated what you've sensed there is NOT right. Don't assume or repeat it — gently re-ask about ${label} and let them restate it in their own words.`
+      : `The user tapped "${steerNode}" on their progress map — they want to talk about ${label} next. Transition into it warmly, with at most one gentle question.`;
+  }
+
+  const systemPrompt = buildSystemPrompt(stage, insights, session.language, {
+    crisis: crisisActive,
+    steerHint,
   });
 
-  const systemPrompt = buildSystemPrompt(stage, insights, session.language);
+  // Steer-only turns get an in-flight marker so every provider sees a final user
+  // turn — the marker is never persisted (no fake user text in the transcript).
+  const modelUserText = text || `[map tap: ${steerNode}] (see system note — respond directly, do not mention the map mechanics)`;
+
   const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
     { role: "system", content: systemPrompt },
     ...historyRows.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-    { role: "user", content: message },
+    { role: "user", content: modelUserText },
   ];
 
   const result = await runGuardedCompletion({
     userId,
-    message,
+    message: modelUserText,
     ipAddress,
     messages,
     maxTokens: 220,
@@ -184,16 +277,21 @@ export async function POST(req: Request) {
     data: { sessionId: session.id, role: "assistant", content: reply },
   });
 
+  // Crisis mode: no extraction, no stage advancement, no proposals.
+  if (crisisActive) {
+    return NextResponse.json({ ok: true, reply, consultStage: stage, crisis: true });
+  }
+
   // ── Extraction pass — every 4th user message, cheap and local-first ────────
   let nextStage = stage;
   const userMsgCount: number = await (db as any).consultMessage.count({
     where: { sessionId: session.id, role: "user" },
   });
 
-  if (userMsgCount % EXTRACTION_EVERY === 0) {
+  if (text && userMsgCount % EXTRACTION_EVERY === 0) {
     const conversationText = [
       ...historyRows.map((m) => `${m.role}: ${m.content}`),
-      `user: ${message}`,
+      `user: ${text}`,
       `assistant: ${reply}`,
     ].join("\n");
 
@@ -212,6 +310,7 @@ export async function POST(req: Request) {
     ok: true,
     reply,
     consultStage: nextStage,
+    crisis: false,
   };
 
   // ── Goal proposal — stage 4 only, via the shared proposal mechanism ────────
@@ -220,9 +319,11 @@ export async function POST(req: Request) {
     const profile = await db.profile.findUnique({ where: { userId }, select: { goals: true } }).catch(() => null);
     const conversationText = [
       ...historyRows.map((m) => `${m.role}: ${m.content}`),
-      `user: ${message}`,
+      text ? `user: ${text}` : "",
       `assistant: ${reply}`,
-    ].join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     // Synthetic companionProfile param built from Listener insights — tryProposeGoal
     // only reads these two fields off the param; it never queries (or writes) UCP.
@@ -249,7 +350,7 @@ export async function GET(req: Request) {
     where: { userId: payload.userId },
   });
   if (!session) {
-    return NextResponse.json({ ok: true, consultStage: 0, insights: emptyInsights(), messages: [] });
+    return NextResponse.json({ ok: true, consultStage: 0, insights: emptyInsights(), messages: [], crisis: false });
   }
 
   const rows: { id: string; role: string; content: string; createdAt: Date }[] = await (db as any).consultMessage.findMany({
@@ -265,5 +366,6 @@ export async function GET(req: Request) {
     consultStage: session.consultStage ?? 0,
     insights: normalizeInsights(session.insights),
     messages: rows,
+    crisis: session.crisisFlag === true,
   });
 }
