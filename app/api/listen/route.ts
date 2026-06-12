@@ -42,6 +42,15 @@ import {
 } from "@/lib/listener/personality";
 import { isAdminUser, handleAdminCommand, getOpenAdminQuestions, fileAdminQuestion } from "@/lib/listener/adminBridge";
 import { isCapabilityGapCandidate, replyHedges } from "@/lib/ai/capabilityGapTrigger";
+import { isFriendRequest, isReminderRequest } from "@/lib/ai/actionTrigger";
+import {
+  extractFriendQuery,
+  extractReminderQuery,
+  buildFriendSearchAction,
+  buildReminderAction,
+  describeFriendSearchReply,
+  describeReminderReply,
+} from "@/lib/listener/actions";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
@@ -154,6 +163,7 @@ function buildSystemPrompt(
       .join("\n\n");
   }
 
+  const capabilities = loadSection(CONTEXT_FILE, "CAPABILITIES");
   const phases = loadSection(CONTEXT_FILE, "PHASES");
   const methods: string[] = [];
   if (stage <= 1) methods.push(loadSection(CONTEXT_FILE, "METHOD_ROGERIAN"));
@@ -166,6 +176,7 @@ function buildSystemPrompt(
     persona,
     never ? `WHAT YOU NEVER DO:\n${never}` : "",
     crisis ? `CRISIS PROTOCOL (overrides everything below):\n${crisis}` : "",
+    capabilities,
     languageLine,
     // semi-static
     phases ? `STAGES:\n${phases}\n\nCurrent stage: ${stage}.` : `Current stage: ${stage}.`,
@@ -446,6 +457,37 @@ export async function POST(req: Request) {
         crisis: false,
         ...(commandResult.personaProposal ? { personaProposal: commandResult.personaProposal } : {}),
       });
+    }
+  }
+
+  // ── First chat actions (PRIV-ACT-1): friend request / reminder ─────────────
+  // Server-side intent triggers — on a match the model is used ONLY for one
+  // jsonMode extraction call; the reply + action payload are built
+  // deterministically (lib/listener/actions.ts). Writes happen only after the
+  // user confirms a card, via dedicated routes under /api/listen/actions/*.
+  if (text && !crisisActive && !isAdmin) {
+    let action: Awaited<ReturnType<typeof buildFriendSearchAction>> | null = null;
+    let actionReply = "";
+
+    if (isFriendRequest(text)) {
+      const query = await extractFriendQuery(text, activeModel);
+      if (query.name) {
+        action = await buildFriendSearchAction(userId, { name: query.name, location: query.location });
+        actionReply = describeFriendSearchReply(action);
+      }
+    } else if (isReminderRequest(text)) {
+      const extracted = await extractReminderQuery(text, activeModel);
+      if (extracted.recipientName && extracted.reminderText) {
+        action = await buildReminderAction(userId, extracted.recipientName, extracted.reminderText);
+        actionReply = describeReminderReply(action);
+      }
+    }
+
+    if (action && actionReply) {
+      await (db as any).consultMessage.create({
+        data: { sessionId: session.id, role: "assistant", content: actionReply },
+      });
+      return NextResponse.json({ ok: true, reply: actionReply, consultStage: stage, crisis: false, action });
     }
   }
 

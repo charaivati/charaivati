@@ -23,6 +23,7 @@ type UserProfile = {
   about: string | null;
   links: { label: string; href: string }[];
   relationship: Relationship;
+  discoverable?: boolean;
 };
 
 type FeedPost = {
@@ -130,6 +131,8 @@ export default function UserProfilePage() {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
+  const [discoverable, setDiscoverable] = useState(true);
+  const [savingDiscoverable, setSavingDiscoverable] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -143,6 +146,7 @@ export default function UserProfilePage() {
         if (data) {
           setUser(data);
           setRelationship(data.relationship ?? "none");
+          if (typeof data.discoverable === "boolean") setDiscoverable(data.discoverable);
         }
       })
       .finally(() => setLoadingUser(false));
@@ -211,6 +215,27 @@ export default function UserProfilePage() {
       alert("Failed to send friend request");
     } finally {
       setFriendPending(false);
+    }
+  }
+
+  async function toggleDiscoverable() {
+    if (savingDiscoverable) return;
+    const next = !discoverable;
+    setSavingDiscoverable(true);
+    setDiscoverable(next);
+    try {
+      const res = await fetch("/api/user/privacy", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discoverable: next }),
+      });
+      const json = await res.json();
+      if (!json.ok) setDiscoverable(!next);
+    } catch {
+      setDiscoverable(!next);
+    } finally {
+      setSavingDiscoverable(false);
     }
   }
 
@@ -481,6 +506,33 @@ export default function UserProfilePage() {
             </div>
           )}
         </div>
+
+        {/* ── Privacy ───────────────────────────────────────────────────── */}
+        {isSelf && (
+          <div className="rounded-2xl border border-gray-800 bg-gray-900/70 p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">Allow others to find me by search</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                When off, people can't find your profile by searching your name.
+              </p>
+            </div>
+            <button
+              onClick={toggleDiscoverable}
+              disabled={savingDiscoverable}
+              role="switch"
+              aria-checked={discoverable}
+              className={`relative shrink-0 inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
+                discoverable ? "bg-indigo-600" : "bg-gray-700"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  discoverable ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+        )}
 
         {/* ── Initiatives ───────────────────────────────────────────────── */}
         {initiatives.length > 0 && (

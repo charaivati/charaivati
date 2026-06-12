@@ -9,9 +9,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { Map as MapIcon, Send } from "lucide-react";
 import type { ProfileProposal } from "@/lib/companion/profileSync";
 import type { ConsultInsights } from "@/lib/listener/insights";
+import type { ListenAction } from "@/lib/listener/actionTypes";
 import { isMapRequest } from "@/lib/ai/mapTrigger";
 import ProposalCard, { getDismissedProposals, addDismissedProposal } from "@/components/chat/ProposalCard";
 import PersonaProposalCard, { type PersonaProposal } from "@/components/chat/PersonaProposalCard";
+import FriendSearchCards from "@/components/listen/FriendSearchCards";
+import ReminderCard from "@/components/listen/ReminderCard";
 import MindMap, { type MapNodeKey } from "./MindMap";
 
 type ChatMsg =
@@ -23,6 +26,7 @@ type ChatMsg =
       proposalStatus?: "pending" | "accepted" | "dismissed";
       personaProposal?: PersonaProposal;
       personaProposalStatus?: "pending" | "accepted" | "dismissed";
+      action?: ListenAction;
     }
   | { kind: "chip"; label: string };
 
@@ -147,6 +151,7 @@ export default function ListenChat() {
             proposalStatus: data.proposal ? "pending" : undefined,
             personaProposal: data.personaProposal,
             personaProposalStatus: data.personaProposal ? "pending" : undefined,
+            action: data.action,
           },
         ]);
       }
@@ -310,6 +315,11 @@ export default function ListenChat() {
                           onDismiss={() => dismissPersonaProposal(i)}
                         />
                       )}
+                      {m.action?.type === "friend_search" && <FriendSearchCards action={m.action} />}
+                      {m.action &&
+                        (m.action.type === "reminder_confirm" ||
+                          m.action.type === "reminder_pick" ||
+                          m.action.type === "reminder_non_friend") && <ReminderCard action={m.action} />}
                     </div>
                   ) : (
                     <div className="rounded-2xl px-3 py-2 text-sm leading-relaxed bg-indigo-600 text-white rounded-br-sm max-w-[80%]">

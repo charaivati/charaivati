@@ -86,6 +86,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     about: (profile?.bio ?? profile?.learningNotes) ?? null,
     links,
     relationship,
+    // Only the owner needs to see/edit this — never exposed to other viewers.
+    discoverable: relationship === "self" ? user.discoverable : undefined,
   };
 
   return NextResponse.json(payload);

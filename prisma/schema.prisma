@@ -37,6 +37,7 @@ model User {
   contactVerified         Boolean              @default(false)
   mustChangePassword      Boolean              @default(false)
   createdByAdminId        String?
+  discoverable            Boolean              @default(true)
   addresses               Address[]
   aiGoals                 AiGoal[]
   billingProfiles         BillingProfile[]

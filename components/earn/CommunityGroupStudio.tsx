@@ -37,7 +37,7 @@ type Group = {
   meetings: Meeting[];
 };
 
-type UserSearchResult = { id: string; name: string | null; email: string | null; avatarUrl: string | null };
+type UserSearchResult = { id: string; name: string | null; avatarUrl: string | null; location?: string | null };
 
 export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
   const [group, setGroup] = useState<Group | null>(null);
@@ -374,9 +374,9 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
           <p className="text-xs font-semibold text-gray-400">Add board member</p>
           <div className="relative">
             <input
-              value={selectedUser ? `${selectedUser.name ?? selectedUser.email ?? selectedUser.id}` : boardQuery}
+              value={selectedUser ? `${selectedUser.name ?? selectedUser.id}` : boardQuery}
               onChange={(e) => { setSelectedUser(null); setBoardQuery(e.target.value); }}
-              placeholder="Search by name or email…"
+              placeholder="Search by name…"
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:border-sky-500 focus:outline-none"
             />
             {boardResults.length > 0 && !selectedUser && (
@@ -391,7 +391,7 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
                     <span className="w-6 h-6 rounded-full bg-gray-600 flex-shrink-0 overflow-hidden">
                       {u.avatarUrl && <img src={u.avatarUrl} alt="" className="w-full h-full object-cover" />}
                     </span>
-                    <span>{u.name ?? u.email ?? u.id}</span>
+                    <span>{u.name ?? u.id}{u.location ? <span className="text-gray-500"> · {u.location}</span> : null}</span>
                   </button>
                 ))}
               </div>

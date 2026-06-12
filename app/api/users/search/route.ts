@@ -1,7 +1,13 @@
 // app/api/users/search/route.ts
+//
+// PRIV-ACT-1: hardened user search. Returns only id/name/avatarUrl/location —
+// NEVER email or phone, and never to non-discoverable or guest accounts.
+// Search inputs are name (+ optional location string to narrow) only —
+// searching BY email/phone was itself a privacy leak and has been removed.
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db"; // adjust path if your alias differs
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
+import { checkRateLimit } from "@/lib/rateLimit";
+import { searchUsers } from "@/lib/users/searchUsers";
 
 export async function GET(req: Request) {
   const token = getTokenFromRequest(req);
@@ -10,40 +16,23 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const rate = await checkRateLimit(`users-search:${payload.userId}`, 30, 60);
+  if (!rate.ok) {
+    return NextResponse.json({ ok: false, error: "Too many searches — try again shortly." }, { status: 429 });
+  }
+
   try {
     const url = new URL(req.url);
     const q = (url.searchParams.get("q") ?? url.searchParams.get("query") ?? "").trim();
+    const location = (url.searchParams.get("location") ?? "").trim();
 
     if (!q) {
       return NextResponse.json({ ok: true, users: [] });
     }
 
-    // limit / pagination
-    const limit = Math.min(100, Number(url.searchParams.get("limit") ?? 50));
-    const take = limit || 50;
+    const results = await searchUsers({ q, location, excludeUserId: payload.userId });
 
-    // perform case-insensitive search over useful fields
-    const users = await db.user.findMany({
-      where: {
-        OR: [
-          { email: { contains: q, mode: "insensitive" } },
-          { name: { contains: q, mode: "insensitive" } },
-          { phone: { contains: q, mode: "insensitive" } },
-          { id: { contains: q } }, // id is often cuid; we don't use mode here
-        ],
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        avatarUrl: true,
-      },
-      take,
-      orderBy: { createdAt: "desc" },
-    });
-
-    return NextResponse.json({ ok: true, users });
+    return NextResponse.json({ ok: true, users: results });
   } catch (err: any) {
     console.error("users/search error:", err);
     return NextResponse.json({ ok: false, error: String(err?.message ?? err) }, { status: 500 });

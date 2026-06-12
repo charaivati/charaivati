@@ -108,6 +108,7 @@ From `ai-context/CONSULT_LISTENER.txt` via `loadSection()` (named `[SECTION: NAM
 | static | PERSONA | always |
 | static | NEVER | always |
 | static | CRISIS protocol | always |
+| static | CAPABILITIES | always, non-crisis — placed between the CRISIS protocol and `languageLine` (PRIV-ACT-1) |
 | static | User-language instruction (`session.language`) | always — **moved up** per audit |
 | semi-static | PHASES + current stage line | always |
 | semi-static | METHOD_ROGERIAN | stage 0–1 |
@@ -257,11 +258,49 @@ Non-admin sessions that hit a knowledge gap file an anonymized question for the 
 
 `components/chat/ActionCardBase.tsx` is the generic Yes/No card shell extracted (behavior-preserving) from the original `ProposalCard`. Both `ProposalCard` (regular goal proposals, all users) and `PersonaProposalCard` (persona drafts, admin-only) wrap it with their own `summary`, `acceptLabel`, and `acceptedText`. `ChatBot.tsx` is unaffected — it still imports `ProposalCard` with the same props.
 
+## Action Layer (PRIV-ACT-1)
+
+The Listener can take exactly **two** small, deterministic actions on the user's behalf: sending a friend request, and sending a short reminder to an existing friend. Both are described honestly to the model via `[SECTION: CAPABILITIES]` (added above) so the Listener never claims abilities it doesn't have, and never invents or performs an action itself — every write is a separate, user-confirmed HTTP call.
+
+### Part A — Privacy doctrine (search hardening)
+
+PRIV-ACT-1 first had to make person-search safe enough for an AI to call on a user's behalf:
+
+- **`User.discoverable Boolean @default(true)`** — migration `prisma/migrations/20260616000000_add_user_discoverable/`. A user can opt out of being found by name search at all.
+- **`lib/users/searchUsers.ts`** — `searchUsers({ q, location?, excludeUserId?, limit? })` is the single shared search implementation used by both `GET /api/users/search` and the Listener's friend-request action. It returns **only** `{ id, name, avatarUrl, location }` — never email or phone — and filters `discoverable: true` and `status != "guest"`. `location` is derived from the user's default `Address` (`city, state`), not a raw field.
+- **`GET /api/users/search` and `app/api/users/[id]/route.ts`** were hardened to use this shared helper / the same field allowlist — guests and non-discoverable users never appear, and no contact info leaks through either route.
+- **`PATCH /api/user/privacy { discoverable: boolean }`** (`app/api/user/privacy/route.ts`) — the user-facing toggle. Surfaced in account/privacy settings (`CommunityGroupStudio.tsx`'s consumer was fixed to match the new search response shape).
+
+### Part B — Trigger → extraction → action → confirm
+
+1. **Trigger detection (server-side, in `/api/listen` only — never client-side)** — `lib/ai/actionTrigger.ts` exports `isFriendRequest(message)` / `FRIEND_TRIGGERS` and `isReminderRequest(message)` / `REMIND_TRIGGERS`, simple substring matches mirroring `lib/ai/mapTrigger.ts`'s pattern. Checked in `/api/listen` right after the admin-command interception (`app/api/listen/route.ts` ~line 468), gated on `text && !crisisActive && !isAdmin`. On a match, the conversational model is **not** called for that turn.
+2. **Extraction (`lib/listener/actions.ts`, one `chatComplete jsonMode` call, local-first)**:
+   - `extractFriendQuery(text, model)` → `{ name, location }` — name required; if null, the trigger is treated as a non-match (falls through to the normal conversational turn).
+   - `extractReminderQuery(text, model)` → `{ recipientName, reminderText }` — both required.
+3. **Deterministic action building (`lib/listener/actions.ts`, pure DB lookups, no further model calls)**:
+   - `buildFriendSearchAction(userId, { name, location })` → calls `searchUsers()`, then classifies each result's `relationship` (`"friends" | "outgoing" | "incoming" | "none"`) via `Friendship`/`FriendRequest` lookups. Returns `{ type: "friend_search", query, results }` or `{ type: "friend_search_empty", query }`.
+   - `buildReminderAction(userId, recipientName, reminderText)` → looks up the user's `Friendship` rows first (friends-only by name match): one match → `{ type: "reminder_confirm", recipient, text }`; multiple → `{ type: "reminder_pick", candidates, text }`; zero friend matches but found via `searchUsers()` → `{ type: "reminder_non_friend", candidate, text }`; nothing at all → `{ type: "reminder_not_found", name }`. `clampReminderText()` caps reminder text at 140 chars.
+   - `describeFriendSearchReply(action)` / `describeReminderReply(action)` generate the assistant's reply text **without any model call** — the action payload alone determines the wording.
+4. **Response shape** — `{ ok: true, reply: actionReply, consultStage: stage, crisis: false, action }`. The assistant `ConsultMessage` is persisted with `actionReply` as `content`; `action` is NOT persisted (it's re-derivable, and stale action cards after a reload would be confusing — reloading shows only the text).
+5. **Action types** (`lib/listener/actionTypes.ts` — pure types, no server imports, shared with client components): `friend_search`, `friend_search_empty`, `reminder_confirm`, `reminder_pick`, `reminder_non_friend`, `reminder_not_found`.
+6. **UI rendering** (`components/listen/ListenChat.tsx` renders `m.action` after the assistant bubble):
+   - `components/listen/FriendSearchCards.tsx` — up to `SEARCH_MAX_RESULTS` (5) person cards for `friend_search`; each shows relationship state and an "Add friend" button when `relationship === "none"`. `friend_search_empty` renders nothing — the reply text already explains.
+   - `components/listen/ReminderCard.tsx` — handles all four reminder action types: `reminder_confirm` (Yes/No), `reminder_pick` (pick a candidate, then confirms inline), `reminder_non_friend` (offers a friend request instead via the same friend-request confirm route), `reminder_not_found` (renders nothing).
+   - `components/listen/ActionAvatar.tsx` — shared small avatar/initial component used by both cards.
+7. **Confirm routes (the only places that write)**:
+   - `POST /api/listen/actions/friend-request { targetUserId }` — mirrors the checks in `POST /api/friends/request`: rejects self, already-friends, and already-pending-request cases; creates a `FriendRequest` row with `status: "pending"`.
+   - `POST /api/listen/actions/reminder { recipientUserId, text }` — **recipient must already be an accepted friend** (re-checked server-side, independent of what the action payload showed); `scanInput(text)` BLOCK rejects; rate limits: `REMINDERS_PER_DAY = 5` per sender, `REMINDERS_PER_RECIPIENT_PER_HOUR = 1`; on success calls `createNotification({ type: "friend_reminder", title: "Reminder from {senderName}", body: text })`.
+
+### Notification-model reuse decision
+
+**Decision: reused the existing `Notification` model with a new `type: "friend_reminder"` value, instead of adding a dedicated `FriendReminder` model.** A reminder is, from the recipient's perspective, exactly a notification — title + body + sender attribution + read/unread state — and the existing `NotificationBell`/`/app/notifications` UI, SSE stream, and `createNotification()` helper all work unchanged. No migration was needed (`type` is a plain `String` column, not a DB enum — see `### Notification` in `CLAUDE.md`). The recipient privacy guarantee ("no delivery/read receipts back to the sender") falls out of this for free: the sender's confirm route never reads the created `Notification` row back, and `createNotification()` returns nothing the route surfaces.
+
 ## Tech debt
 
 - **Full-string i18n for the Listener UI is deferred** — v1 ships English chrome (buttons, labels) with AI replies in the user's language (the `lang` cookie is captured into `ConsultSession.language` and injected as a prompt instruction). Mirror this entry in the local `TECH_DEBT.md` (gitignored).
 - **Network node is display-only** pending FriendCircle wiring — it fills from `insights.network.notes` but has no tap-steer write target.
 - **Map correction UX is minimal v1** — long-press/right-click → "That's not right" → re-ask hint. No per-field editing of insights from the map.
+- **Action layer (PRIV-ACT-1)** — no block/mute list for reminders (a friend can always be reminded once they're a friend, subject only to the rate limits); reminders are send-now only — no scheduled/future-dated delivery.
 
 ---
 
@@ -369,6 +408,14 @@ You are talking with the platform admin/teacher, not a regular user. This is a d
 - Stay warm and conversational. This is a conversation, not a form, even though the topic is "teaching" you.
 [/SECTION]
 
+[SECTION: CAPABILITIES]
+You have exactly two small actions you can take in this conversation, both deterministic — you never invent or perform them yourself, you only describe them honestly when asked:
+- Finding a friend and sending them a friend request, by name (and optionally a city).
+- Sending a short reminder message to one of the user's existing friends.
+
+If the user asks "can you add my friend" / "can you remind X about something" / similar, say yes plainly — these work. If they ask for anything else action-like (scheduling, calling, messaging non-friends, posting, anything outside these two), be honest that you can't do that yet — you can only listen and talk for everything else. Don't over-explain the mechanism; just be clear about what's possible.
+[/SECTION]
+
 [SECTION: NEVER]
 - Never diagnose any condition, however obvious it may seem.
 - Never give medication advice — not dosage, not suggestions, not opinions on what they take.
@@ -389,6 +436,14 @@ You are talking with the platform admin/teacher, not a regular user. This is a d
 - 4→5 stage transition (accepted proposal → handed-off) is not wired in the
   backend — the Listener UI prompt must set consultStage = 5 after a successful
   POST /api/self/profile-proposal accept.
+
+## Action layer (PRIV-ACT-1)
+- No block/mute list for reminders — any accepted friend can be reminded,
+  subject only to the existing rate limits (5/day sender, 1/hour per
+  recipient). Revisit if abuse reports come in.
+- Reminders are send-now only — no scheduling/future-dated delivery. A
+  scheduled reminder would need a job queue (see existing BullMQ TODO for
+  quote timeouts) rather than the current synchronous Notification write.
 
 ## Personality layer (UCTX-3)
 - Only DISC + the 4 drive archetypes are modeled. Big Five (or any other
