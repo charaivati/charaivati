@@ -1790,6 +1790,10 @@ model ConsultSession {
   /// Crisis mode latch — set when crisis language is detected; never auto-cleared
   crisisFlag   Boolean  @default(false)
   language     String?
+  /// Stable-prefix history (UCTX-1b): condensed summary of folded (oldest) messages
+  rollingSummary String? @db.Text
+  /// Messages with createdAt <= this are folded into rollingSummary and excluded from the model window
+  foldedThrough  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)

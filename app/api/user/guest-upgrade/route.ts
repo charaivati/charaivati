@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword } from "@/lib/hash";
-import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
+import { getTokenFromRequest, verifySessionToken, createSessionToken, setSessionCookie } from "@/lib/session";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 
@@ -47,7 +47,11 @@ export async function POST(req: Request) {
       data: { name: username, passwordHash, status: "lite" },
     });
 
-    return NextResponse.json({ success: true, name: username });
+    // Re-mint the session token with updated role ("lite" instead of "guest")
+    const newToken = await createSessionToken({ userId: user.id, role: "lite" });
+    let res = NextResponse.json({ success: true, name: username });
+    res = setSessionCookie(res, newToken);
+    return res;
   } catch (err) {
     console.error("[guest-upgrade] Error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });

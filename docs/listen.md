@@ -55,9 +55,9 @@ Merge rules (`mergeInsights`): lists union-deduped case-insensitively, capped at
 1. `authenticateChat` (401 if no session — guest sessions count).
 2. `runInputGuard` — BLOCK returns the canned reply and **persists nothing**.
 3. Upsert `ConsultSession` (capture `lang` cookie on create).
-4. History rebuilt from the **last 20 `ConsultMessage` rows server-side** — client-sent history is never trusted (guests, reloads, tampering).
+4. History rebuilt server-side via the **stable-prefix scheme** (UCTX-1b) — client-sent history is never trusted (guests, reloads, tampering). The **unfolded** window (messages with `createdAt > foldedThrough`) is sent append-only; older turns are condensed into `ConsultSession.rollingSummary`. When the unfolded window exceeds **30** messages, the oldest **16** are summarized (one `chatComplete` `jsonMode` call) into `rollingSummary`, `foldedThrough` advances to that batch's boundary, and they drop out of the model window — keeping the prompt prefix stable between turns. On summarization failure the fold is deferred (window stays large, retried next turn). The full transcript is never deleted — folding only changes what the model sees, not what `GET` returns for display.
 5. Persist inbound `ConsultMessage`.
-6. System prompt (see below), `temperature 0.7`, `maxTokens 220`, via `runGuardedCompletion`.
+6. System prompt (see below), `temperature 0.7`, `maxTokens 220`, via `runGuardedCompletion`. Two variants are built: a **local** prompt (full insights summary) and a **cloud** prompt where the insights summary is replaced by the minimal tier-`"cloud"` `buildUserContext` block; both are passed as `messages` / `cloudMessages` (UCTX-1a/-1b seam) so cloud fallbacks never receive the full sensed-insight detail.
 7. Persist assistant `ConsultMessage`.
 8. **Extraction pass** — every 4th user message: one `chatComplete` `jsonMode` call (local-first via the normal provider chain) returns the full insights shape plus a transient `goalEmerging: boolean` (used for stage gating, never stored). Merged via `mergeInsights`, then `evaluateStageAdvance` runs; session updated.
 9. **Proposal** — at stage 4 with a sensed drive, `tryProposeGoal` runs against the conversation text; any proposal is attached to the payload exactly like `/api/chat` does.
@@ -69,18 +69,24 @@ Merge rules (`mergeInsights`): lists union-deduped case-insensitively, capped at
 
 ## System prompt assembly
 
-From `ai-context/CONSULT_LISTENER.txt` via `loadSection()` (named `[SECTION: NAME]` blocks — names must match the loader's `\w+` regex):
+From `ai-context/CONSULT_LISTENER.txt` via `loadSection()` (named `[SECTION: NAME]` blocks — names must match the loader's `\w+` regex). Order follows the **static → semi-static → dynamic** doctrine (UCTX-1b — see `CLAUDE.md` § Prompt Assembly Doctrine):
 
-| Block | When |
-|---|---|
-| PERSONA, NEVER, CRISIS | always |
-| PHASES + current stage line | always |
-| METHOD_ROGERIAN | stage 0–1 |
-| METHOD_MI | stage 1–3 |
-| METHOD_SFBT | stage 3–4 |
-| PARAMETER_SENSING | stage 0–3 |
-| Compact insights summary (`summarizeInsights`) | when non-empty |
-| User-language instruction (`session.language`) | always |
+| Zone | Block | When |
+|---|---|---|
+| static | PERSONA | always |
+| static | NEVER | always |
+| static | CRISIS protocol | always |
+| static | User-language instruction (`session.language`) | always — **moved up** per audit |
+| semi-static | PHASES + current stage line | always |
+| semi-static | METHOD_ROGERIAN | stage 0–1 |
+| semi-static | METHOD_MI | stage 1–3 |
+| semi-static | METHOD_SFBT | stage 3–4 |
+| semi-static | PARAMETER_SENSING | stage 0–3 |
+| semi-static | Folded `rollingSummary` (older messages) | when non-empty (changes only at fold events) |
+| dynamic | Compact insights summary (`summarizeInsights`) — **local prompt**; minimal `buildUserContext` cloud block — **cloud prompt** | when non-empty |
+| dynamic | Steer hint (`THIS TURN ONLY`) | steer/correction turns, last |
+
+**Crisis mode** keeps its own collapsed ordering (PERSONA + crisis-mode protocol + NEVER + languageLine) — unchanged by the reorder; no stages/methods/sensing/insights/summary.
 
 **No** platform / initiatives / mentor / companion-philosophy blocks — this is not the Guide.
 
@@ -139,6 +145,34 @@ Design constraint: crisis input must **never** be a guardrail BLOCK — a canned
 3. **Per-turn effect**: extraction, proposals, and stage advancement are skipped; the system prompt collapses to PERSONA + a force-loaded CRISIS protocol + NEVER + language (no stages/methods/parameter-sensing/insights recital).
 4. **Logging**: `notifyAdmin` fires a `LISTEN_CRISIS` GuardrailEvent (DB row + admin email) on the first detection per session.
 5. **UI**: responses carry `crisis: true`; ListenChat renders a persistent, gentle helpline banner above the input — **Tele-MANAS 14416** and **KIRAN 1800-599-0019** (free, India), as `tel:` links. The banner is UI-rendered because model output is not a reliable delivery channel for emergency numbers.
+
+## Guest-to-Authenticated Upgrade (UCTX-2)
+
+The Listener welcome guests into a judgment-free conversation without requiring login. However, to preserve the conversation history across sessions, guests need to secure their account. The `SecureChatCard` component is embedded in the ListenChat to make this frictionless.
+
+### Trigger Moments
+
+The card appears in one or both of these moments:
+
+1. **After a goal proposal is accepted** — the user just made a commitment ("I want to learn Mandarin"), so it's a natural moment to save the conversation.
+2. **After 12 messages without showing the card** — a guest who's invested 12+ turns in the conversation is likely to value continuity.
+
+Both checks are gated on localStorage: `charaivati.dismissed_proposals` tracks `{ [proposalId]: true }`. If the user dismisses the card ("Later"), the entry `"secure-chat-card"` is added to that set and the card never reappears in that browser.
+
+### Card UI
+
+`components/listen/SecureChatCard.tsx` — styled like the existing `ProposalCard`:
+- **Intro**: "Save our conversations — create your account"
+- **Fields**: username (3–20 alphanumeric + underscore) and password (min 8 chars)
+- **Submit**: POSTs to `/api/user/guest-upgrade` (reuses existing endpoint)
+- **Existing users**: link to `/login?next=/listen` (verified to honor the `next` param)
+- **Success state**: "✓ Account created! Your conversations are now saved." for 2 s, then auto-dismiss
+
+### Implementation Details
+
+- On successful upgrade, `/api/user/guest-upgrade` re-mints the session JWT with the new role (fixed in UCTX-2)
+- On first login or email verification, `mergeGuestToReal` moves the guest's entire `ConsultSession` (and messages) to the authenticated account
+- No refresh needed — router.refresh() happens in the success handler (similar to ChatBot's Secure Account nudge)
 
 ## Tech debt
 

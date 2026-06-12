@@ -20,6 +20,8 @@ import { authenticateChat, runInputGuard, runGuardedCompletion } from "@/lib/ai/
 import { scanInputCrisis } from "@/lib/ai/guardRail";
 import { notifyAdmin } from "@/lib/ai/adminNotify";
 import { tryProposeGoal } from "@/lib/companion/profileSync";
+import { buildUserContext } from "@/lib/ai/userContext";
+import { checkRateLimit } from "@/lib/rateLimit";
 import {
   type ConsultInsights,
   type DriveValue,
@@ -33,8 +35,16 @@ import {
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
 const CONTEXT_FILE = "CONSULT_LISTENER.txt";
-const HISTORY_TURNS = 20;
 const EXTRACTION_EVERY = 4;
+const LISTEN_MSG_LIMIT_5MIN = parseInt(process.env.LISTEN_MSG_LIMIT_5MIN ?? "20", 10);
+const LISTEN_MSG_LIMIT_DAY = parseInt(process.env.LISTEN_MSG_LIMIT_DAY ?? "200", 10);
+
+// Stable-prefix history (UCTX-1b): while the model window holds ≤ FOLD_THRESHOLD
+// messages we send them all (append-only). Once it exceeds the threshold we fold
+// the oldest FOLD_BATCH into ConsultSession.rollingSummary and exclude them from
+// the window thereafter, keeping the prefix stable between turns.
+const FOLD_THRESHOLD = 30;
+const FOLD_BATCH = 16;
 
 // tryProposeGoal's companionProfile param uses DriveSignal names; the Listener's
 // insights use DriveType names — bridge without touching profileSync internals.
@@ -65,11 +75,17 @@ function readLangCookie(req: Request): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+// Assembly order is static → semi-static → dynamic (UCTX-1b). languageLine moved
+// UP into the static zone (per audit); the folded rollingSummary sits in the
+// semi-static zone (changes only at fold events); the per-turn insights/context
+// block and steerHint are dynamic and come last. Crisis-mode order is unchanged.
+//
+// `dynamicBlock` is the fully-formed dynamic context block — the local insights
+// summary OR the minimal tier-"cloud" composer block; the route picks which.
 function buildSystemPrompt(
   stage: number,
-  insights: ConsultInsights,
   language: string | null,
-  opts: { crisis?: boolean; steerHint?: string } = {}
+  opts: { crisis?: boolean; steerHint?: string; rollingSummary?: string; dynamicBlock?: string } = {}
 ): string {
   const persona = loadSection(CONTEXT_FILE, "PERSONA");
   const never = loadSection(CONTEXT_FILE, "NEVER");
@@ -99,21 +115,58 @@ function buildSystemPrompt(
   if (stage >= 3 && stage <= 4) methods.push(loadSection(CONTEXT_FILE, "METHOD_SFBT"));
   const sensing = stage <= 3 ? loadSection(CONTEXT_FILE, "PARAMETER_SENSING") : "";
 
-  const summary = summarizeInsights(insights);
-
   return [
+    // static
     persona,
     never ? `WHAT YOU NEVER DO:\n${never}` : "",
     crisis ? `CRISIS PROTOCOL (overrides everything below):\n${crisis}` : "",
+    languageLine,
+    // semi-static
     phases ? `STAGES:\n${phases}\n\nCurrent stage: ${stage}.` : `Current stage: ${stage}.`,
     ...methods.filter(Boolean),
     sensing,
-    summary ? `WHAT YOU'VE QUIETLY SENSED SO FAR (internal notes — never recite these to the user):\n${summary}` : "",
+    opts.rollingSummary
+      ? `EARLIER IN THIS CONVERSATION (older messages, condensed — internal context, never recite):\n${opts.rollingSummary}`
+      : "",
+    // dynamic
+    opts.dynamicBlock ?? "",
     opts.steerHint ? `THIS TURN ONLY:\n${opts.steerHint}` : "",
-    languageLine,
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+// Folds the oldest batch of messages into a single rolling summary. Returns the
+// merged summary on success, or null on failure (caller then skips the fold and
+// retries next turn — the window stays large but correct).
+async function summarizeForFold(existing: string | null, foldText: string): Promise<string | null> {
+  try {
+    const raw = await chatComplete({
+      model: CHAT_MODEL,
+      messages: [
+        { role: "system", content: 'Respond ONLY with valid JSON: {"summary":"..."}. No markdown, no explanation.' },
+        {
+          role: "user",
+          content: `Running summary of an ongoing supportive listening conversation (may be empty):
+${existing || "(none yet)"}
+
+Older messages to fold into it:
+${foldText}
+
+Merge them into ONE compact summary (max ~200 words) that preserves what the person shared — their situation, feelings, themes, and anything they said they want. Stay factual; do not invent. Return ONLY {"summary":"..."}.`,
+        },
+      ],
+      maxTokens: 400,
+      temperature: 0.2,
+      jsonMode: true,
+    });
+    const parsed = safeJsonParse<{ summary?: string }>(raw);
+    const merged = (parsed?.summary ?? "").trim();
+    return merged || existing || "";
+  } catch (err) {
+    console.error("[listen] fold summarization failed:", err);
+    return null;
+  }
 }
 
 interface ExtractionResult {
@@ -188,6 +241,30 @@ export async function POST(req: Request) {
     if (inputGuard.blocked) return NextResponse.json(inputGuard.reply);
   }
 
+  // Message rate limiting (UCTX-2): per-user limits for /api/listen (stricter than /api/chat)
+  // Only count real message turns, not steer-only turns
+  if (text) {
+    const shortLimit = await checkRateLimit(`listen:msg:${userId}`, LISTEN_MSG_LIMIT_5MIN, 300);
+    if (!shortLimit.ok) {
+      return NextResponse.json({
+        ok: false,
+        reply: "Let's take a small pause — I'm here when you're back.",
+        consultStage: 0,
+        retryAfter: 300,
+      });
+    }
+
+    const dayLimit = await checkRateLimit(`listen:msg:${userId}:day`, LISTEN_MSG_LIMIT_DAY, 86400);
+    if (!dayLimit.ok) {
+      return NextResponse.json({
+        ok: false,
+        reply: "You've reached today's conversation limit. Come back tomorrow to continue our talk.",
+        consultStage: 0,
+        retryAfter: 86400,
+      });
+    }
+  }
+
   const session = await (db as any).consultSession.upsert({
     where: { userId },
     create: { userId, language: readLangCookie(req) },
@@ -220,14 +297,35 @@ export async function POST(req: Request) {
     }
   }
 
-  // History is rebuilt server-side — client-sent history is never trusted.
-  const historyRows: { role: string; content: string }[] = await (db as any).consultMessage.findMany({
-    where: { sessionId: session.id },
-    orderBy: { createdAt: "desc" },
-    take: HISTORY_TURNS,
-    select: { role: true, content: true },
+  // ── Stable-prefix history ──────────────────────────────────────────────────
+  // History is rebuilt server-side — client-sent history is never trusted. We
+  // send the UNFOLDED messages (createdAt > foldedThrough) append-only; older
+  // turns live in session.rollingSummary. When the unfolded window exceeds the
+  // threshold, fold the oldest batch here so the prefix stays stable next turn.
+  const foldedThrough: Date | null = session.foldedThrough ?? null;
+  let windowRows: { role: string; content: string; createdAt: Date }[] = await (db as any).consultMessage.findMany({
+    where: { sessionId: session.id, ...(foldedThrough ? { createdAt: { gt: foldedThrough } } : {}) },
+    orderBy: { createdAt: "asc" },
+    select: { role: true, content: true, createdAt: true },
   });
-  historyRows.reverse();
+
+  let rollingSummary: string = session.rollingSummary ?? "";
+  if (windowRows.length > FOLD_THRESHOLD) {
+    const toFold = windowRows.slice(0, FOLD_BATCH);
+    const foldText = toFold.map((m) => `${m.role}: ${m.content}`).join("\n");
+    const merged = await summarizeForFold(rollingSummary || null, foldText);
+    if (merged !== null) {
+      // createdAt of the oldest-batch's last message becomes the new fold boundary.
+      const boundary = toFold[toFold.length - 1].createdAt;
+      await (db as any).consultSession.update({
+        where: { id: session.id },
+        data: { rollingSummary: merged, foldedThrough: boundary },
+      });
+      rollingSummary = merged;
+      windowRows = windowRows.slice(FOLD_BATCH);
+    }
+    // merged === null → fold deferred; window stays large this turn, retried next.
+  }
 
   if (text) {
     await (db as any).consultMessage.create({
@@ -243,18 +341,46 @@ export async function POST(req: Request) {
       : `The user tapped "${steerNode}" on their progress map — they want to talk about ${label} next. Transition into it warmly, with at most one gentle question.`;
   }
 
-  const systemPrompt = buildSystemPrompt(stage, insights, session.language, {
+  // Dynamic context block — local gets the full sensed-insights summary; cloud
+  // gets only the minimal tier-"cloud" composer block (drive name + stage etc.).
+  const insightsSummary = summarizeInsights(insights);
+  const localDynamicBlock = insightsSummary
+    ? `WHAT YOU'VE QUIETLY SENSED SO FAR (internal notes — never recite these to the user):\n${insightsSummary}`
+    : "";
+  const cloudDynamicBlock = await buildUserContext(userId, {
+    tier: "cloud",
+    language: session.language,
+    stage,
+    driveName: insights.driveCandidate.value,
+  });
+
+  const systemPrompt = buildSystemPrompt(stage, session.language, {
     crisis: crisisActive,
     steerHint,
+    rollingSummary,
+    dynamicBlock: localDynamicBlock,
+  });
+  const cloudSystemPrompt = buildSystemPrompt(stage, session.language, {
+    crisis: crisisActive,
+    steerHint,
+    rollingSummary,
+    dynamicBlock: cloudDynamicBlock,
   });
 
   // Steer-only turns get an in-flight marker so every provider sees a final user
   // turn — the marker is never persisted (no fake user text in the transcript).
+  // It is a known, minor, acceptable prefix perturbation on steer-only turns.
   const modelUserText = text || `[map tap: ${steerNode}] (see system note — respond directly, do not mention the map mechanics)`;
 
+  const historyMsgs = windowRows.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
   const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
     { role: "system", content: systemPrompt },
-    ...historyRows.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+    ...historyMsgs,
+    { role: "user", content: modelUserText },
+  ];
+  const cloudMessages: { role: "system" | "user" | "assistant"; content: string }[] = [
+    { role: "system", content: cloudSystemPrompt },
+    ...historyMsgs,
     { role: "user", content: modelUserText },
   ];
 
@@ -263,6 +389,7 @@ export async function POST(req: Request) {
     message: modelUserText,
     ipAddress,
     messages,
+    cloudMessages,
     maxTokens: 220,
     temperature: 0.7,
     requestStart,
@@ -290,7 +417,7 @@ export async function POST(req: Request) {
 
   if (text && userMsgCount % EXTRACTION_EVERY === 0) {
     const conversationText = [
-      ...historyRows.map((m) => `${m.role}: ${m.content}`),
+      ...windowRows.map((m) => `${m.role}: ${m.content}`),
       `user: ${text}`,
       `assistant: ${reply}`,
     ].join("\n");
@@ -318,7 +445,7 @@ export async function POST(req: Request) {
   if (nextStage === 4 && insights.driveCandidate.value) {
     const profile = await db.profile.findUnique({ where: { userId }, select: { goals: true } }).catch(() => null);
     const conversationText = [
-      ...historyRows.map((m) => `${m.role}: ${m.content}`),
+      ...windowRows.map((m) => `${m.role}: ${m.content}`),
       text ? `user: ${text}` : "",
       `assistant: ${reply}`,
     ]

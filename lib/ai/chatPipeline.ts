@@ -130,17 +130,18 @@ export async function runGuardedCompletion(params: {
   message: string;
   ipAddress: string;
   messages: ChatMessage[];
+  cloudMessages?: ChatMessage[];
   maxTokens: number;
   temperature: number;
   requestStart: number;
   activeModel: string;
 }): Promise<GuardedCompletion> {
-  const { userId, message, ipAddress, messages, maxTokens, temperature, requestStart, activeModel } = params;
+  const { userId, message, ipAddress, messages, cloudMessages, maxTokens, temperature, requestStart, activeModel } = params;
 
   try {
     console.log(`[chat] Calling chatCompleteWithMeta — model=${activeModel} timeout=${CHAT_TIMEOUT_MS}ms`);
     const { content: reply, source, coldStart, model: usedModel } = await withChatTimeout(
-      chatCompleteWithMeta({ model: CHAT_MODEL, messages, maxTokens, temperature })
+      chatCompleteWithMeta({ model: CHAT_MODEL, messages, cloudMessages, maxTokens, temperature })
     );
     console.log(
       `[chat] Reply in ${Date.now() - requestStart}ms (${reply.length} chars) source=${source} coldStart=${coldStart} model=${usedModel}`

@@ -424,7 +424,7 @@ A **parallel** guided-conversation system, NOT a mode of the chatbot. It shares 
 - **`GET /api/listen`** → `{ ok, consultStage, insights, messages: last 50 }` for page hydration.
 - **Extraction pass** — every 4th user message, one `chatComplete` `jsonMode` call (local-first via the normal provider chain) merges into `insights` via `lib/listener/insights.ts` `mergeInsights()` — lists union-deduped (cap 12), scalars fill-in-only, a `confirmed` driveCandidate is never overwritten or downgraded. Stage advance re-evaluated after each extraction (`evaluateStageAdvance` — at most one stage per pass): 0→1 any theme; 1→2 ≥2 themes + a parameter touched; 2→3 driveCandidate sensed; 3→4 goal emerging in conversation AND time+energy+funds each touched; **4→5 only on accepted proposal** (wired by the UI prompt, not the extraction pass).
 - **insights JSON shape** (`ConsultInsights` in `lib/listener/insights.ts`): `{ themes: string[], driveCandidate: { value: "learning"|"helping"|"building"|"doing"|null, confidence: "sensed"|"confirmed" }, skills: { items: string[] }, health: { notes: string[], senseLevel: number|null }, environment: { notes: string[] }, time: { notes: string[], dailyHours: number|null }, funds: { notes: string[], pressure: "low"|"medium"|"high"|null }, network: { notes: string[] }, energy: { senseLevel: number|null } }`. **There is deliberately NO goal field** — goal candidates flow exclusively through the proposal mechanism, never stored in insights.
-- **Context file**: `ai-context/CONSULT_LISTENER.txt` (gitignored like all ai-context files — canonical copy in `docs/listen.md` appendix). Sections: PERSONA / METHOD_ROGERIAN / METHOD_MI / METHOD_SFBT / PHASES / PARAMETER_SENSING / CRISIS / NEVER. Crisis protocol: drop all extraction/goal behavior, warmth first, offer Tele-MANAS 14416 and KIRAN 1800-599-0019 (free, India).
+- **Context file**: `ai-context/CONSULT_LISTENER.txt` (committed like all `ai-context/*.txt` files since UCTX-1b — canonical copy in `docs/listen.md` appendix). Sections: PERSONA / METHOD_ROGERIAN / METHOD_MI / METHOD_SFBT / PHASES / PARAMETER_SENSING / CRISIS / NEVER. Crisis protocol: drop all extraction/goal behavior, warmth first, offer Tele-MANAS 14416 and KIRAN 1800-599-0019 (free, India).
 - **Page (CONSULT-2)**: `/listen` — `app/(listen)/listen/page.tsx` (route group, root layout only, mobile-first; later ships as a standalone Capacitor app). Guest-first: on 401 the page silently POSTs `/api/user/guest` then re-hydrates via `GET /api/listen`. `/listen` is in the middleware language-gate skip list (guests have neither session nor `lang` cookie on first visit). The floating ChatBot bubble is suppressed on `/listen` by `components/chat/ChatBotGate.tsx` (pathname wrapper in `app/layout.tsx` — ChatBot internals untouched). English chrome for v1; AI replies in the user's language.
 - **Components**: `components/listen/ListenChat.tsx` (bubbles copied from ChatBot styling; rotating contextual status lines — "Listening…" etc., cycling 1.5 s — NOT three dots; steer chips; crisis banner), `components/listen/MindMap.tsx` (hand-rolled inline SVG bottom sheet, 9 fixed nodes: Drive → Goal → 7 parameters; grey/dashed = unknown, soft fill = sensed, solid+✓ = confirmed; Energy shows `senseLevel` and is marked derived/read-only; Network is display-only), `components/chat/ProposalCard.tsx` (the shared proposal Yes/No card — lifted verbatim from ChatBot, which now imports it; also exports the `charaivati.dismissed_proposals` localStorage helpers for ListenChat).
 - **Map triggers**: `lib/ai/mapTrigger.ts` — `isMapRequest(msg)` + `MAP_TRIGGERS` (mirrors `councilTrigger.ts`). Checked client-side in ListenChat BEFORE sending; on match the sheet opens locally and the model is NOT called.
@@ -522,6 +522,15 @@ Image search (all optional — `lib/imageSearch.ts` skips missing providers and 
 2. **OpenRouter** — if `OPENROUTER_API_KEY` is set
 3. **Groq** — if `Charaivati_groq` is set
 4. **Vercel AI Gateway** — if `Charaivati_Health` is set (final fallback)
+
+**Footgun fixed (UCTX-1a)** — the Ollama path previously ignored `maxTokens`/`temperature` and set no `num_ctx`, so the `/api/chat`/`/api/listen` token caps had no effect locally and large prompts were **silently top-truncated** to Ollama's default context window. `callOllamaResilient` now sends explicit `options: { num_ctx, num_predict: maxTokens, temperature }` + `keep_alive`, threaded down from `chatCompleteInternal`. New env vars: `OLLAMA_NUM_CTX` (default 8192), `OLLAMA_KEEP_ALIVE` (default `"30m"`). Local Ollama replies now respect `maxTokens` (e.g. `/api/listen`'s 220 cap) — an intended behavior change. Also added a **`cloudMessages?: ChatMessage[]` seam** to `chatCompleteInternal`/`chatCompleteWithMeta` (threaded through `runGuardedCompletion` in `lib/ai/chatPipeline.ts`): the Ollama (local, trusted) branch always uses `messages`; cloud branches use `cloudMessages ?? messages`, so a privacy-tiered prompt can be sent to cloud providers without changing local behavior. Default `undefined` → zero behavior change for all existing callers.
+
+### Prompt Assembly Doctrine (UCTX-1b — locked)
+- **Order is always static → semi-static → dynamic.** Static = platform/initiative/persona/philosophy + (listener) PERSONA/NEVER/CRISIS/languageLine. Semi-static = stage/method/parameter-sensing blocks + (listener) the folded `rollingSummary`. Dynamic = the per-user/per-turn context block + attached document + steer hint. **Never place per-turn content before stable blocks** (it busts the prompt cache and is the opposite of what you want).
+- **SECURITY RULES (`/api/chat`) are deliberately LAST.** Recency position is a safety choice; keep them last despite the caching cost. Do not move them.
+- **Unified composer**: `lib/ai/userContext.ts` `buildUserContext(userId, { tier })` builds the dynamic user block. `tier: "local"` = the rich block (drives, goals, derived energy, initiatives, section, compact health + skills, UCP companion fields when `arcStage > 0`) — replaces the old inline blocks + `buildCompanionContext` in `/api/chat`. `tier: "cloud"` = the **minimal** block ONLY (language, arc/consult stage, drive name, current section). It is the single reviewed definition of *what cloud providers see about a user* — **keep it minimal; review contents periodically.** No health, skills, insight notes, or personality in the cloud block.
+- **Two prompt variants per request**: routes build a local system prompt (full block) and a cloud system prompt (minimal block), identical otherwise, and pass both arrays to `runGuardedCompletion({ messages, cloudMessages })`. Ollama gets `messages`; cloud fallbacks get `cloudMessages` (UCTX-1a seam).
+- **`/listen` history folds in blocks of 16 past 30 messages (stable-prefix scheme).** While the unfolded window ≤ 30 messages it is sent append-only; once it exceeds 30, the oldest 16 are summarized (one `chatComplete` `jsonMode` call) into `ConsultSession.rollingSummary` and excluded from the model window thereafter (`foldedThrough` marks the boundary). The summary lives in the semi-static zone (changes only at fold events). The unpersisted `[map tap: X]` steer marker is a known, minor, accepted prefix perturbation on steer-only turns. Full transcript is still stored — folding only affects what the model sees, not what `GET /api/listen` returns for display.
 
 ### Local AI Setup (Dev + Production)
 Ollama runs locally on the dev machine and is exposed permanently via Cloudflare Tunnel:
@@ -656,7 +665,7 @@ Chunks sent in order: `status:2` → `position:guardian` → `status:3` → `pos
 
 ## AI Context Files
 
-Philosophy and behavior context for the Charaivati AI lives in `/ai-context/` (gitignored — not in repo).
+Philosophy and behavior context for the Charaivati AI lives in `/ai-context/`. The `.txt` files **are committed** (UCTX-1b — `.gitignore` un-ignores `ai-context/*.txt` so the prompts load in production); only non-`.txt` working files stay local.
 Files use `[SECTION: name]...[/SECTION]` format parsed by `lib/ai/contextLoader.ts`.
 
 ### Files
@@ -1229,3 +1238,104 @@ npx prisma generate --no-engine
 ### Windows footguns
 
 - **The repo must not live inside a OneDrive-synced folder.** OneDrive's on-demand sync intercepts file handles inside `.next/` and corrupts the build cache — the dev server fails with `EINVAL: invalid argument, readlink ... .next/server/app-build-manifest.json` (or similar `readlink`/`rename` errors on other `.next` files) once OneDrive starts syncing mid-build. **Fix**: stop the dev server, delete `.next`, and rebuild (`npm run dev` regenerates it). **Long-term fix**: move the repo out of OneDrive entirely (e.g. to `C:\dev\charaivati`) — OneDrive sync and Next.js's incremental build cache do not coexist reliably on Windows.
+
+## UCTX-2: New-User Safety (Rate Limiting & Guest Hardening)
+
+Implemented June 2026 to protect against guest-creation abuse, limit AI message spam, and provide safe guest-to-authenticated upgrade in `/listen`.
+
+### Environment Variables
+Set in `.env.local`:
+```env
+GUEST_DAILY_CAP=500              # Global daily cap on new guest accounts
+LISTEN_MSG_LIMIT_5MIN=20         # Per-user /api/listen messages per 5 min
+LISTEN_MSG_LIMIT_DAY=200         # Per-user /api/listen messages per day
+CHAT_MSG_LIMIT_5MIN=20           # Per-user /api/chat messages per 5 min
+CHAT_MSG_LIMIT_DAY=200           # Per-user /api/chat messages per day
+```
+
+### Guest-Creation Protection (`POST /api/user/guest`)
+
+**Rate limiting doctrine (shared with other abuse-sensitive routes):**
+- **Redis-based rate limit** (`checkRateLimit`) is permissive on Redis failure (returns `ok: true`) — always pair with a DB backstop
+- Two-window rate limit per IP: 3 creations / 10 min, 20 / day; prevents request storms
+- **DB backstop** (global): count guests created in last 24h; return 503 if >= `GUEST_DAILY_CAP`
+- **Idempotency guard**: if the request has a valid session cookie, return the existing session instead of creating a duplicate
+
+Key changes:
+- Reads `x-forwarded-for` header (Vercel sets this; takes first hop for client IP)
+- Blocks with 429 (rate limit) or 503 (daily cap)
+- See `app/api/user/guest/route.ts`
+
+### JWT Re-Issue on Guest-Upgrade (`POST /api/user/guest-upgrade`)
+
+**Problem:** After guest-to-lite upgrade, the JWT still claimed `role: "guest"` until the next login.
+
+**Fix:** After successfully updating the user to `status: "lite"`, the route now calls `createSessionToken` with the new role and re-sets the session cookie. This is critical for:
+- ChatBot's "Secure Account" nudge to work (it calls `router.refresh()` and expects the new role)
+- Client-side checks like `user.status === "guest"` to reflect the upgrade immediately
+- Proposal system to work correctly (proposals check the current session role)
+
+See `app/api/user/guest-upgrade/route.ts`.
+
+### Message Rate Caps
+
+Both `/api/chat` and `/api/listen` now enforce per-user message limits:
+- **Short window** (5 min): stricter limit to catch spam/load attacks
+- **Daily window** (24 h): softer limit for legitimate users
+- **On limit**: return an in-character message (e.g., "Let's take a small pause") **not** a 429/error. This keeps the UX graceful.
+- **Steer-only turns in `/api/listen`** are excluded from the count (only real message text increments the counter)
+
+Changes:
+- `app/api/chat/route.ts`: added `CHAT_MSG_LIMIT_5MIN`/`CHAT_MSG_LIMIT_DAY` env vars; rate-limit check after input guard
+- `app/api/listen/route.ts`: added `LISTEN_MSG_LIMIT_5MIN`/`LISTEN_MSG_LIMIT_DAY` env vars; rate-limit check after input guard (message-only)
+
+### Guest-to-Real Merge Handles ConsultSession
+
+**Problem:** When a guest upgraded and merged into a real account, their Listener (Saathi) consultation history was silently lost.
+
+**Fix:** `lib/mergeGuest.ts` now handles ConsultSession and ConsultMessage:
+- Deletes any existing real user's ConsultSession first (safeguard; should be rare)
+- Moves the guest's ConsultSession (and all messages via cascade) to the real user
+- Uses `(db as any)` and `.catch(() => null)` to gracefully degrade if the model isn't in the stale client yet
+
+See `lib/mergeGuest.ts` lines that handle ConsultSession.
+
+### Cold-Start Explicit Mode
+
+**Problem:** When a new user had no profile data, `buildUserContext` returned an empty line. The AI made assumptions about their personality, goals, and background based on nothing.
+
+**Fix:** `lib/ai/userContext.ts` now detects cold-start (no drives, goals, initiatives, or companion data) and returns an explicit block:
+```
+You know nothing about this person yet.
+Listen openly. Make no assumptions about their personality, goals, circumstances, or background.
+Let them define themselves through the conversation.
+Avoid suggesting changes to their profile or goals — ask first.
+```
+
+This is placed in the dynamic user-context block where all AI providers see it. Avoids early proposals and unsafe profiling.
+
+### SecureChatCard Component
+
+New component `components/listen/SecureChatCard.tsx` for guest-to-lite upgrade in `/listen`. Triggered after:
+- (i) A goal proposal is accepted
+- (ii) The session reaches 12+ messages without the card ever being shown
+- Both checks gated on localStorage: `charaivati.dismissed_proposals` tracks dismissal (same pattern as proposals)
+
+Card features:
+- Username validation: 3–20 chars, alphanumeric + underscore
+- Password validation: min 8 chars
+- POST to `/api/user/guest-upgrade`
+- Success state for 2s then dismisses
+- Existing-user path: link to `/login?next=/listen`
+- Graceful error handling with user-facing messages
+
+### Verification Checklist
+
+- [ ] Hammer `/api/user/guest` from curl: 4th request in 10 min → 429; valid-cookie request → no new row
+- [ ] `/api/listen` message past rate cap → in-character pause message
+- [ ] Guest-upgrade → decode new cookie, claims show `lite` role
+- [ ] ChatBot nudge regression test (ensure it still works)
+- [ ] `/listen`: accept goal proposal → SecureChatCard appears; dismiss → never reappears
+- [ ] Guest-upgrade flow end-to-end (username/password validation, success state)
+- [ ] Login with `?next=/listen` merge preserves ConsultSession
+- [ ] Fresh guest first message: log shows cold-start block in prompt

@@ -45,17 +45,19 @@ export async function chatComplete({
 export async function chatCompleteWithMeta({
   model,
   messages,
+  cloudMessages,
   maxTokens = 300,
   temperature = 0.4,
   jsonMode = false,
 }: {
   model: string;
   messages: ChatMessage[];
+  cloudMessages?: ChatMessage[];
   maxTokens?: number;
   temperature?: number;
   jsonMode?: boolean;
 }): Promise<ChatMeta & { content: string }> {
-  return chatCompleteInternal({ model, messages, maxTokens, temperature, jsonMode });
+  return chatCompleteInternal({ model, messages, cloudMessages, maxTokens, temperature, jsonMode });
 }
 
 export async function callAI({
@@ -131,8 +133,12 @@ async function callOllamaResilient(params: {
   model: string;
   messages: ChatMessage[];
   ollamaBase: string;
+  maxTokens: number;
+  temperature: number;
 }): Promise<{ content: string; state: 'ok' | 'cold_start' | 'unavailable' }> {
   const ATTEMPT_TIMEOUT = 8_000;
+  const numCtx = Number(process.env.OLLAMA_NUM_CTX) || 8192;
+  const keepAlive = process.env.OLLAMA_KEEP_ALIVE ?? '30m';
 
   async function attempt(): Promise<{ content: string; status: 'ok' | 'network_error' | 'empty' }> {
     const controller = new AbortController();
@@ -141,7 +147,17 @@ async function callOllamaResilient(params: {
       const res = await fetch(`${params.ollamaBase}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: params.model, messages: params.messages, stream: false }),
+        body: JSON.stringify({
+          model: params.model,
+          messages: params.messages,
+          stream: false,
+          keep_alive: keepAlive,
+          options: {
+            num_ctx: numCtx,
+            num_predict: params.maxTokens,
+            temperature: params.temperature,
+          },
+        }),
         signal: controller.signal,
       });
       clearTimeout(timer);
@@ -172,22 +188,28 @@ async function callOllamaResilient(params: {
 async function chatCompleteInternal({
   model,
   messages,
+  cloudMessages,
   maxTokens = 300,
   temperature = 0.4,
   jsonMode = false,
 }: {
   model: string;
   messages: ChatMessage[];
+  cloudMessages?: ChatMessage[];
   maxTokens?: number;
   temperature?: number;
   jsonMode?: boolean;
 }): Promise<ChatMeta & { content: string }> {
+  // Cloud providers may receive a privacy-tiered variant of the prompt; Ollama
+  // (local, trusted) always uses the full `messages`.
+  const cloud = cloudMessages ?? messages;
+
   // 0 — Ollama (local, opt-in via LOCAL_AI_ENABLED=true + OLLAMA_BASE_URL)
   if (process.env.LOCAL_AI_ENABLED === 'true' && process.env.OLLAMA_BASE_URL) {
     const ollamaModel = process.env.OLLAMA_MODEL ?? 'llama3:8b';
     const ollamaBase = process.env.OLLAMA_BASE_URL.replace(/\/$/, '');
     console.log(`[aiClient] Ollama attempt — model=${ollamaModel} url=${ollamaBase}`);
-    const result = await callOllamaResilient({ model: ollamaModel, messages, ollamaBase });
+    const result = await callOllamaResilient({ model: ollamaModel, messages, ollamaBase, maxTokens, temperature });
     if (result.state !== 'unavailable') {
       console.log(`[aiClient] Ollama ${result.state} (${result.content.length} chars)`);
       return { content: result.content, source: 'local', coldStart: result.state === 'cold_start', model: ollamaModel };
@@ -201,7 +223,7 @@ async function chatCompleteInternal({
     try {
       const body: Record<string, unknown> = {
         model: OPENROUTER_MODEL,
-        messages,
+        messages: cloud,
         max_tokens: maxTokens,
         temperature,
         ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
@@ -233,7 +255,7 @@ async function chatCompleteInternal({
   const groqKey = process.env.Charaivati_groq?.trim() || undefined;
   if (groqKey) {
     try {
-      const content = await callGroqMessages(groqKey, GROQ_MODEL, messages, maxTokens, temperature);
+      const content = await callGroqMessages(groqKey, GROQ_MODEL, cloud, maxTokens, temperature);
       return { content, source: 'cloud', coldStart: false, model: GROQ_MODEL };
     } catch (err) {
       console.warn('[chatComplete] Groq failed, trying Vercel:', err);
@@ -241,7 +263,7 @@ async function chatCompleteInternal({
   }
 
   // 3 — Vercel AI Gateway
-  const content = await callVercelMessages(VERCEL_MODEL, messages, maxTokens, temperature);
+  const content = await callVercelMessages(VERCEL_MODEL, cloud, maxTokens, temperature);
   return { content, source: 'cloud', coldStart: false, model: VERCEL_MODEL };
 }
 

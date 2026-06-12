@@ -1,0 +1,138 @@
+[SECTION: overview]
+Initiatives are how users earn within Charaivati.
+They live in the Earning tab of the Self layer.
+An initiative is a user's economic activity —
+their way of converting skills and drives into income.
+[/SECTION]
+
+[SECTION: types]
+STORE: Physical or digital product sales
+- User lists products, manages inventory
+- GPS-enabled for local delivery tracking
+- Example: Snacks by Arun, handmade goods
+
+SERVICE: Skill-based service offering
+- User offers time/skill for hire
+- Portfolio, booking, reviews
+- Example: Tutoring, design work, repairs
+
+EDUCATION: Teaching and course creation
+- User creates courses in their skill area
+- Four course types: Skill/Sport, Academic,
+  Art/Expression, Personal Growth
+- Lesson videos auto-create feed posts
+
+HELPING INITIATIVE: Community/social impact work
+- Focus areas, objectives, awareness campaigns
+- Impact tracking, donation support
+- NPO-style structure within the platform
+[/SECTION]
+
+[SECTION: drive_to_initiative]
+Drive types naturally align with initiative types:
+
+Seeker → Education initiatives,
+         research/writing services
+Guardian → Helping initiatives,
+           community service, security services
+Builder → Store, service,
+          any commercial initiative
+Keeper → Service initiatives,
+         craft stores, skilled trade services
+
+AI should suggest initiative types based on
+the user's drive when they ask about earning.
+[/SECTION]
+
+[SECTION: gps_module]
+GPS is available for Store and Service initiatives.
+It enables live location sharing during delivery
+or field service.
+Model: owner triggers a Live Session per order/event.
+Link is shareable and updates every ~45 seconds.
+The GPS feature is not the product —
+the initiative owner's use of it becomes their product.
+[/SECTION]
+
+[SECTION: fund_location]
+For users whose initiatives serve a social purpose,
+or for the NPO layer serving informal workers:
+
+TYPES OF FUNDING ALIGNED TO INITIATIVE GOALS:
+
+COMMUNITY/SOCIAL INITIATIVES:
+- Google.org Accelerator (tech for good)
+- AWS Imagine Grant (nonprofits using cloud)
+- SBI Foundation SBIF LEAP
+- ImpactAI Foundry
+- CSR funds from local corporations
+  (align initiative impact to their CSR goals)
+
+SKILL/LIVELIHOOD INITIATIVES:
+- NSDC (National Skill Development Corporation)
+- State skill development missions
+- MUDRA loans for micro-enterprises
+- Self Help Group linkage programs
+
+EDUCATION INITIATIVES:
+- NEP-aligned state education funds
+- District education board partnerships
+- Corporate CSR for education (most common)
+
+PRINCIPLE FOR FUND ALIGNMENT:
+Never seek funds that misalign with the initiative's purpose.
+The fund's requirement shapes what you build.
+Build what you believe, then find the fund that
+believes the same thing.
+Funds that require you to change your core purpose
+are not funds — they are acquisitions.
+
+The AI should help users:
+1. Identify their initiative's core social impact
+2. Match that impact to aligned funding sources
+3. Frame the initiative in the fund's language
+   without changing the initiative's substance
+[/SECTION]
+
+[SECTION: survival_to_drive_migration]
+The practical path from caught-in-job to living-the-drive:
+
+MONTH 1-3: CALCULATE AND STABILISE
+- Calculate exact survival floor
+- Confirm current income covers it
+- Identify available bandwidth (time + energy)
+- Do nothing else yet — just observe
+
+MONTH 3-6: MINIMAL VIABLE INITIATIVE
+- Start the smallest possible version of the drive
+- $100 startup spirit: what can start today?
+- No quitting, no major changes
+- Test the core assumption:
+  will anyone pay for / engage with this?
+
+MONTH 6-12: FEEDBACK AND ITERATION
+- Lean: what is the feedback saying?
+- Systems: what is growing naturally?
+- Habits: what keystone habit supports the drive?
+- Measure: is drive income growing?
+
+YEAR 1-2: THRESHOLD WATCHING
+- When drive income reaches 30% of floor:
+  note it, don't act yet
+- When drive income reaches 60% of floor:
+  begin planning the transition
+- When drive income reaches 100% of floor:
+  transition is now rational, not just emotional
+
+YEAR 2+: INTEGRATION
+- Drive is the livelihood
+- Primary commitment exits naturally
+- No dramatic quitting story needed
+- The migration completed itself
+
+NOTE: Timeline is illustrative, not prescriptive.
+Some migrations happen in 6 months.
+Some take 10 years.
+The floor calculation is the only real measure —
+not the calendar.
+[/SECTION]

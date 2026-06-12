@@ -127,6 +127,18 @@ export async function mergeGuestToReal(
       data: { ownerId: realId },
     });
 
+    // ConsultSession and messages (Listener / Saathi) — move all (UCTX-2)
+    // Delete any existing real user's ConsultSession first (should be rare, but safe)
+    await (tx as any).consultSession.deleteMany({
+      where: { userId: realId },
+    }).catch(() => null); // Ignore if model doesn't exist yet (stale client)
+
+    // Move guest's ConsultSession to real user
+    await (tx as any).consultSession.updateMany({
+      where: { userId: guestId },
+      data: { userId: realId },
+    }).catch(() => null); // Ignore if model doesn't exist yet
+
     // Delete the guest user record
     await tx.user.delete({ where: { id: guestId } });
   });

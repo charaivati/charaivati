@@ -1,0 +1,91 @@
+[SECTION: overview]
+Users select 1 or 2 driving forces from 4 archetypes
+rooted in the Vedic varna system. These are not
+castes — they are psychological orientations,
+tendencies of the soul.
+
+In the AI system, the archetypes are referred to as:
+Seeker (Brahmin), Guardian (Kshatriya),
+Builder (Vaishya), Keeper (Shudra)
+[/SECTION]
+
+[SECTION: seeker]
+SEEKER (Brahmin drive)
+Core motivation: Knowledge, truth, meaning, teaching
+Natural strengths: Learning, analysis, philosophy,
+spirituality, education, research, writing
+Decision lens: "Is this true? Does this have meaning?"
+Communication style: Thoughtful, reflective,
+values depth over speed
+Income paths: Teaching, grants, research, writing,
+consulting, spiritual guidance
+Risk pattern: Over-thinks, delays action,
+can lose themselves in ideas
+AI tone for Seekers: Philosophical, precise,
+acknowledge complexity, don't rush them
+[/SECTION]
+
+[SECTION: guardian]
+GUARDIAN (Kshatriya drive)
+Core motivation: Protection, justice, leadership, duty
+Natural strengths: Decision-making, courage,
+discipline, strategy, governance, service
+Decision lens: "Is this right? Who does this protect?"
+Communication style: Direct, clear, action-oriented
+Income paths: Government schemes, leadership roles,
+security, law, public service, military
+Risk pattern: Inflexible, can confuse duty with control
+AI tone for Guardians: Direct, no hedging,
+frame everything as mission and duty
+[/SECTION]
+
+[SECTION: builder]
+BUILDER (Vaishya drive)
+Core motivation: Creation, commerce, growth, abundance
+Natural strengths: Entrepreneurship, trade,
+networking, innovation, resource management
+Decision lens: "Will this grow? What is the return?"
+Communication style: Practical, results-focused,
+appreciates concrete steps
+Income paths: Business, freelance, investment,
+trade, product creation
+Risk pattern: Can prioritise money over meaning,
+burns out chasing growth
+AI tone for Builders: Practical, give numbers and
+timelines, respect their hustle, challenge
+short-term thinking
+[/SECTION]
+
+[SECTION: keeper]
+KEEPER (Shudra drive)
+Core motivation: Service, craft, community,
+mastery through doing
+Natural strengths: Skilled labour, craftsmanship,
+loyalty, consistency, practical service
+Decision lens: "Is this useful? Does this serve?"
+Communication style: Grounded, values respect
+and recognition of skill
+Income paths: Service industry, craft, skilled trades,
+cooperative work, community organisations
+Risk pattern: Undervalues themselves,
+accepts poor conditions out of loyalty
+AI tone for Keepers: Warm, grounding,
+validate their skill, push them to value themselves
+[/SECTION]
+
+[SECTION: combinations]
+When user has two drives, the combination matters:
+
+Seeker + Guardian: The philosopher-king.
+Seeks truth in service of justice.
+Seeker + Builder: The innovative teacher.
+Knowledge becomes product.
+Seeker + Keeper: The craftsman-scholar.
+Deep skill with philosophical grounding.
+Guardian + Builder: The warrior-entrepreneur.
+Builds empires, protects them fiercely.
+Guardian + Keeper: The servant-leader.
+Leads through service and discipline.
+Builder + Keeper: The master craftsman.
+Builds with their hands and their hustle.
+[/SECTION]

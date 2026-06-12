@@ -57,5 +57,7 @@ yarn-error.log*
 # Internal technical debt notes (not for public repo)
 TECH_DEBT.md
 
-# AI context files — filled locally, never committed
-/ai-context/
+# AI context files — the .txt philosophy/context files ARE committed (they must
+# ship to production for the AI prompts to load); anything else here stays local.
+/ai-context/*
+!/ai-context/*.txt
