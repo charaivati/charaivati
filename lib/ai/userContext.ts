@@ -19,6 +19,9 @@
 // prompt (after the static + semi-static blocks).
 
 import { db } from "@/lib/db";
+import { normalizePersonality, summarizePersonalityForComposer, type PersonalityData } from "@/lib/listener/personality";
+
+const PERSONALITY_COMPOSER_THRESHOLD = 0.3;
 
 export interface UserContextOptions {
   tier: "local" | "cloud";
@@ -52,7 +55,7 @@ function buildCloudBlock(opts: UserContextOptions): string {
 
 // ─── Local tier ──────────────────────────────────────────────────────────────
 async function buildLocalBlock(userId: string, opts: UserContextOptions): Promise<string> {
-  const [profile, pages, ucp] = await Promise.all([
+  const [profile, pages, ucp, personalityRow] = await Promise.all([
     db.profile.findUnique({
       where: { userId },
       select: { drives: true, goals: true, stepsToday: true, sleepHours: true, health: true, generalSkills: true },
@@ -69,6 +72,7 @@ async function buildLocalBlock(userId: string, opts: UserContextOptions): Promis
         dailyAvailableHours: true, peakWindow: true, hobbies: true, healthFlags: true,
       },
     }).catch(() => null),
+    (db as any).personalityProfile.findUnique({ where: { userId } }).catch(() => null),
   ]);
 
   // Cold-start mode: when user has no meaningful data, give explicit instruction (UCTX-2)
@@ -118,6 +122,14 @@ Avoid suggesting changes to their profile or goals — ask first.
   if (healthLine) lines.push(`Health: ${healthLine}`);
   const skillsLine = summarizeSkills(profile?.generalSkills);
   if (skillsLine) lines.push(`Skills: ${skillsLine}`);
+
+  // UCTX-3: local-tier-only personality tone-steering line. Below the
+  // confidence threshold, omit entirely — never sent to cloud (buildCloudBlock).
+  if (personalityRow) {
+    const personality: PersonalityData = normalizePersonality(personalityRow);
+    const personalityLine = summarizePersonalityForComposer(personality, PERSONALITY_COMPOSER_THRESHOLD);
+    if (personalityLine) lines.push(personalityLine);
+  }
 
   // UCP companion fields — only when the companion arc has begun (arcStage > 0).
   if (ucp && ucp.arcStage > 0) {

@@ -84,12 +84,15 @@ export default function MindMap({
   insights,
   stage,
   onSteer,
+  personalityTopDrive,
 }: {
   open: boolean;
   onClose: () => void;
   insights: ConsultInsights | null;
   stage: number;
   onSteer: (node: MapNodeKey, correction?: boolean) => void;
+  /** UCTX-3: top sensed drive from PersonalityProfile, gated by confidence >= 0.3. Visual only — no DISC anywhere. */
+  personalityTopDrive?: string | null;
 }) {
   const [correctionNode, setCorrectionNode] = useState<MapNodeKey | null>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -184,6 +187,11 @@ export default function MindMap({
                 {n.key === "energy" && insights?.energy.senseLevel != null && (
                   <text x={n.x} y={n.y + 4} textAnchor="middle" fontSize="12" fill="#a5b4fc">
                     {insights.energy.senseLevel}
+                  </text>
+                )}
+                {n.key === "drive" && state !== "confirmed" && personalityTopDrive && (
+                  <text x={n.x} y={n.y + 4} textAnchor="middle" fontSize="9" fill="#a5b4fc" opacity={0.6} fontStyle="italic">
+                    {personalityTopDrive}
                   </text>
                 )}
                 <text x={n.x} y={n.y + 44} textAnchor="middle" fontSize="11" fill={state === "unknown" ? "#6b7280" : "#d1d5db"}>

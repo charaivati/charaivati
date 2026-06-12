@@ -11,11 +11,19 @@ import type { ProfileProposal } from "@/lib/companion/profileSync";
 import type { ConsultInsights } from "@/lib/listener/insights";
 import { isMapRequest } from "@/lib/ai/mapTrigger";
 import ProposalCard, { getDismissedProposals, addDismissedProposal } from "@/components/chat/ProposalCard";
+import PersonaProposalCard, { type PersonaProposal } from "@/components/chat/PersonaProposalCard";
 import MindMap, { type MapNodeKey } from "./MindMap";
 
 type ChatMsg =
   | { kind: "user"; content: string }
-  | { kind: "assistant"; content: string; proposal?: ProfileProposal; proposalStatus?: "pending" | "accepted" | "dismissed" }
+  | {
+      kind: "assistant";
+      content: string;
+      proposal?: ProfileProposal;
+      proposalStatus?: "pending" | "accepted" | "dismissed";
+      personaProposal?: PersonaProposal;
+      personaProposalStatus?: "pending" | "accepted" | "dismissed";
+    }
   | { kind: "chip"; label: string };
 
 const STATUS_LINES = [
@@ -46,6 +54,7 @@ export default function ListenChat() {
   const [stage, setStage] = useState(0);
   const [crisis, setCrisis] = useState(false);
   const [insights, setInsights] = useState<ConsultInsights | null>(null);
+  const [personalityTopDrive, setPersonalityTopDrive] = useState<string | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [proposalLoading, setProposalLoading] = useState(false);
   const [statusIdx, setStatusIdx] = useState(0);
@@ -68,6 +77,7 @@ export default function ListenChat() {
           setStage(data.consultStage ?? 0);
           setInsights(data.insights ?? null);
           setCrisis(data.crisis === true);
+          setPersonalityTopDrive(data.personalityTopDrive ?? null);
           setMessages(
             (Array.isArray(data.messages) ? data.messages : []).map((m: { role: string; content: string }) =>
               m.role === "user" ? { kind: "user" as const, content: m.content } : { kind: "assistant" as const, content: m.content }
@@ -105,6 +115,7 @@ export default function ListenChat() {
         setInsights(data.insights ?? null);
         setStage(data.consultStage ?? 0);
         setCrisis((c) => c || data.crisis === true);
+        setPersonalityTopDrive(data.personalityTopDrive ?? null);
       }
     } catch {
       // map shows the last known state — non-critical
@@ -134,6 +145,8 @@ export default function ListenChat() {
             content: data.reply,
             proposal: data.proposal,
             proposalStatus: data.proposal ? "pending" : undefined,
+            personaProposal: data.personaProposal,
+            personaProposalStatus: data.personaProposal ? "pending" : undefined,
           },
         ]);
       }
@@ -206,6 +219,34 @@ export default function ListenChat() {
     setProposalStatus(index, "dismissed");
   }
 
+  // ── Persona proposal actions (PERSONA-1, admin-only) ────────────────────────
+  function setPersonaProposalStatus(index: number, status: "accepted" | "dismissed") {
+    setMessages((prev) => prev.map((m, i) => (i === index && m.kind === "assistant" ? { ...m, personaProposalStatus: status } : m)));
+  }
+
+  async function acceptPersonaProposal(index: number, proposal: PersonaProposal) {
+    if (proposalLoading) return;
+    setProposalLoading(true);
+    try {
+      const res = await fetch("/api/listen/persona", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "accept", proposal }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      setPersonaProposalStatus(index, res.ok && data.ok ? "accepted" : "dismissed");
+    } catch {
+      setPersonaProposalStatus(index, "dismissed");
+    } finally {
+      setProposalLoading(false);
+    }
+  }
+
+  function dismissPersonaProposal(index: number) {
+    setPersonaProposalStatus(index, "dismissed");
+  }
+
   return (
     <div className="flex flex-col h-dvh max-w-lg mx-auto">
       {/* Header */}
@@ -258,6 +299,15 @@ export default function ListenChat() {
                           loading={proposalLoading}
                           onAccept={() => acceptProposal(i, m.proposal!)}
                           onDismiss={() => dismissProposal(i, m.proposal!)}
+                        />
+                      )}
+                      {m.personaProposal && (
+                        <PersonaProposalCard
+                          proposal={m.personaProposal}
+                          status={m.personaProposalStatus ?? "pending"}
+                          loading={proposalLoading}
+                          onAccept={() => acceptPersonaProposal(i, m.personaProposal!)}
+                          onDismiss={() => dismissPersonaProposal(i)}
                         />
                       )}
                     </div>
@@ -327,7 +377,7 @@ export default function ListenChat() {
         </div>
       </div>
 
-      <MindMap open={mapOpen} onClose={() => setMapOpen(false)} insights={insights} stage={stage} onSteer={steer} />
+      <MindMap open={mapOpen} onClose={() => setMapOpen(false)} insights={insights} stage={stage} onSteer={steer} personalityTopDrive={personalityTopDrive} />
     </div>
   );
 }

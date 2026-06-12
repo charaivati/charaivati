@@ -48,6 +48,18 @@ Migration: `prisma/migrations/20260611000000_add_consult_session/`. Access via `
 
 Merge rules (`mergeInsights`): lists union-deduped case-insensitively, capped at 12; scalars only filled/updated by non-null incoming values; a `confirmed` driveCandidate is never overwritten or downgraded (only `null→value` and `sensed→confirmed` transitions).
 
+### `PersonalityProfile` (UCTX-3)
+
+One row per user (`userId @unique`), cascade-deletes with the user. A **hypothesis-grade, slow-built tone-steering signal** — see "Extraction cadences" below for the full merge/confidence math. Fields: `disc Json @default("{}")` and `driveScores Json @default("{}")` — both `Record<dim, { score: 0-1, evidence: int }>`, the latter keyed by `learning|helping|building|doing`; `sampleCount Int @default(0)`; `confidence Float @default(0)`; `notes Json @default("[]")` (FIFO-capped evidence strings, max 20).
+
+Migration: `prisma/migrations/20260614000000_add_personality_profile/`. Access via `(db as any).personalityProfile` until a full `prisma generate` runs (Windows hot-fix: `npx prisma generate --no-engine`). All fields have explicit `@default`s (per the `UserCompanionProfile.healthFlags` P2011 lesson) and the row is only ever written via `upsert`.
+
+**Independent from `insights.driveCandidate`** — `driveScores` here are the Listener's own slowly-built signal; the two are never reconciled or cross-written. **Standing ban applies**: `lib/listener/personality.ts` doesn't even import `db`, and nothing in this pass reads or writes `UserCompanionProfile`.
+
+### `PhilosophyPersona` and `AdminQuestion` (PERSONA-1)
+
+Added for the admin bridge (see "Admin Bridge" below) — `PhilosophyPersona` stores admin-taught tone lenses (`name @unique`, `displayName`, `body`, `triggers String[]`, `status: draft|active`, `sourceType`, `attribution?`); `AdminQuestion` stores anonymized knowledge-gap questions (`source`, `question`, `topic?`, `status: open|answered|dismissed`, `answer?`, `answeredAt?`) and **deliberately has no `userId` field**. Migration: `prisma/migrations/20260615000000_add_persona_admin_question/`. Both require `(db as any)` until a full `prisma generate`. All array/scalar fields have explicit `@default`s (per the `UserCompanionProfile.healthFlags` P2011 lesson).
+
 ## API
 
 ### `POST /api/listen` — `{ message, dismissedProposals? }`
@@ -59,13 +71,33 @@ Merge rules (`mergeInsights`): lists union-deduped case-insensitively, capped at
 5. Persist inbound `ConsultMessage`.
 6. System prompt (see below), `temperature 0.7`, `maxTokens 220`, via `runGuardedCompletion`. Two variants are built: a **local** prompt (full insights summary) and a **cloud** prompt where the insights summary is replaced by the minimal tier-`"cloud"` `buildUserContext` block; both are passed as `messages` / `cloudMessages` (UCTX-1a/-1b seam) so cloud fallbacks never receive the full sensed-insight detail.
 7. Persist assistant `ConsultMessage`.
-8. **Extraction pass** — every 4th user message: one `chatComplete` `jsonMode` call (local-first via the normal provider chain) returns the full insights shape plus a transient `goalEmerging: boolean` (used for stage gating, never stored). Merged via `mergeInsights`, then `evaluateStageAdvance` runs; session updated.
+8. **Extraction passes** — see "Extraction cadences" below. Insights extraction (every 4th user message) merges via `mergeInsights`, then `evaluateStageAdvance` runs; session updated. Personality extraction (every 8th user message) merges via `applyPersonalityDeltas`; `PersonalityProfile` upserted. Both run in parallel via `Promise.all` when they coincide (every 8th message).
 9. **Proposal** — at stage 4 with a sensed drive, `tryProposeGoal` runs against the conversation text; any proposal is attached to the payload exactly like `/api/chat` does.
 10. Response: `{ ok: true, reply, consultStage, proposal? }`.
 
 ### `GET /api/listen`
 
 `{ ok, consultStage, insights, messages: last 50 (ascending) }` — page hydration on load/reload.
+
+## Extraction cadences (UCTX-3)
+
+Two independent `chatComplete` `jsonMode` extraction passes run on different cadences, off the same user-message counter:
+
+| Pass | Cadence | Input window | Writes to | Failure isolation |
+|---|---|---|---|---|
+| Insights | every 4th user message (`EXTRACTION_EVERY = 4`) | full conversation text since last extraction | `ConsultSession.insights` (+ possible stage advance) | bad parse → drops this pass only, `insights` unchanged |
+| Personality | every 8th user message (`PERSONALITY_EVERY = 8`) | last ~12 messages (`windowRows.slice(-10)` + current turn) | `PersonalityProfile` (one row per user, upserted) | bad parse → drops this pass only, profile unchanged |
+
+`8 % 4 === 0`, so on every 8th user message both passes fire together via `Promise.all` — no truncation or ordering issues, each is an independent `chatComplete` call.
+
+### Personality merge + confidence math (`lib/listener/personality.ts`)
+
+- Each pass returns **deltas only**, clamped to `±0.1` per dim (`MAX_DELTA`), for any of `disc.{D,I,S,C}` and `driveScores.{learning,helping,building,doing}` — each entry is `{ score: 0-1, evidence: count }`.
+- `applyPersonalityDeltas`: for each dim with a non-zero delta, `score = clamp01(score + delta)` and `evidence += 1`; `sampleCount += 1` once per pass.
+- **Confidence**: `confidence = clamp01(min(1, sampleCount / 12) * (1 - disagreementPenalty))`, where `disagreementPenalty = ((total - agree) / total) * 0.3` and `agree` counts dims where the delta's sign matches the existing lean away from 0.5 (`signsAgree`). Disagreeing signals slow confidence growth.
+- `evidence` strings (0-2 per pass, from the LLM) are appended to `notes`, FIFO-capped at 20 (`MAX_NOTES`).
+- **Composer threshold**: `PERSONALITY_COMPOSER_THRESHOLD = 0.3`. Below it, `summarizePersonalityForComposer` returns `null` and nothing is added to the local prompt — UCTX-2's cold-start block already covers the empty case. At/above it, a single tone-steering line is appended to the local dynamic block AND `PERSONALITY_GUIDANCE` is loaded into the semi-static zone (local prompt only — never the cloud prompt).
+- The tone-steering line never names the DISC framework or drive labels as "types" — it describes preferences/energizers in plain language (e.g. "prefers directness and getting to the point", "seems energized by building or creating things").
 
 ## System prompt assembly
 
@@ -83,10 +115,12 @@ From `ai-context/CONSULT_LISTENER.txt` via `loadSection()` (named `[SECTION: NAM
 | semi-static | METHOD_SFBT | stage 3–4 |
 | semi-static | PARAMETER_SENSING | stage 0–3 |
 | semi-static | Folded `rollingSummary` (older messages) | when non-empty (changes only at fold events) |
-| dynamic | Compact insights summary (`summarizeInsights`) — **local prompt**; minimal `buildUserContext` cloud block — **cloud prompt** | when non-empty |
+| semi-static | PERSONALITY_GUIDANCE | **local prompt only**, and only when the personality tone-steering line was emitted (`confidence >= 0.3`) — never in the cloud prompt |
+| semi-static | ADMIN_MODE + up to 3 open `AdminQuestion`s | **admin sessions only** (`isAdmin && !crisisActive`) — **replaces** PHASES/METHOD_*/PARAMETER_SENSING/PERSONALITY_GUIDANCE entirely; see "Admin Bridge" below |
+| dynamic | Compact insights summary (`summarizeInsights`) — **local prompt**; minimal `buildUserContext` cloud block — **cloud prompt** | when non-empty (skipped for admin sessions — no insights extraction runs) |
 | dynamic | Steer hint (`THIS TURN ONLY`) | steer/correction turns, last |
 
-**Crisis mode** keeps its own collapsed ordering (PERSONA + crisis-mode protocol + NEVER + languageLine) — unchanged by the reorder; no stages/methods/sensing/insights/summary.
+**Crisis mode** keeps its own collapsed ordering (PERSONA + crisis-mode protocol + NEVER + languageLine) — unchanged by the reorder; no stages/methods/sensing/insights/summary. Crisis takes precedence over admin mode (`isAdmin && !crisisActive`).
 
 **No** platform / initiatives / mentor / companion-philosophy blocks — this is not the Guide.
 
@@ -174,6 +208,55 @@ Both checks are gated on localStorage: `charaivati.dismissed_proposals` tracks `
 - On first login or email verification, `mergeGuestToReal` moves the guest's entire `ConsultSession` (and messages) to the authenticated account
 - No refresh needed — router.refresh() happens in the success handler (similar to ChatBot's Secure Account nudge)
 
+## Admin Bridge (PERSONA-1)
+
+Admin recognition, teaching mode, and an anonymized question queue — the **admin side** of a future persona-injection system. User-facing persona injection (PERSONA-2 — applying an active `PhilosophyPersona` to regular users' replies) is **deferred**; nothing in PERSONA-1 changes what a regular user sees or experiences.
+
+### Admin recognition
+
+- `isAdminUser(userId)` in `lib/listener/adminBridge.ts` — DB lookup by `userId`, case-insensitive compare of `user.email` against `process.env.ADMIN_EMAIL ?? process.env.ADMIN_ALERT_EMAIL`. Mirrors `/admin/security` and `/api/admin/verify` exactly (Section 0 housekeeping fixed `/api/admin/verify` to use this same pattern).
+- `/api/listen` computes `isAdmin` once per request. When `isAdmin && !crisisActive` (crisis always wins), the PHASES/METHOD_*/PARAMETER_SENSING/PERSONALITY_GUIDANCE semi-static blocks are **replaced** by `[SECTION: ADMIN_MODE]` (from `ai-context/CONSULT_LISTENER.txt`, see Appendix A), plus up to 3 open `AdminQuestion`s woven in as a numbered list the model may surface naturally.
+- Admin sessions skip: insights extraction, personality extraction, stage advancement, and `tryProposeGoal` — all four are gated `!isAdmin`. The admin's `ConsultSession.consultStage`/`insights`/`PersonalityProfile` are simply never touched.
+
+### Teaching mode
+
+The admin can describe a way of thinking and say something like **"save this as business philosophy"**:
+
+1. `isTeachSaveCommand(message)` (`lib/ai/teachTrigger.ts`) matches → `handleAdminCommand` intercepts the message **before** the conversational model call.
+2. `distillPersona(conversationText, instruction)` — one `chatComplete` `jsonMode` call against `DISTILL_RULES` — returns a `DistilledPersona` (`name`, `displayName`, `body` as `[SECTION: name]...[/SECTION]`, `triggers[]`, `attribution?`).
+3. The route returns `{ reply, personaProposal: distilled }`. `ListenChat` renders `PersonaProposalCard` (wraps the shared `ActionCardBase` — same shell as `ProposalCard`, "Save as draft lens" / dismiss).
+4. Accept → `POST /api/listen/persona { action: "accept", proposal }` — admin-gated (403 for non-admins, re-checked server-side via `isAdminUser`, never trusts a client flag) — upserts `PhilosophyPersona` with `status: "draft"`.
+5. Dismiss → no write.
+
+**Distillation doctrine (`DISTILL_RULES`)** — enforced in the prompt sent to the model, not just convention:
+- Captures the **way of thinking** (how this person reasons about decisions, risk, people, money, time) — never the person.
+- **Never names or identifies the admin/teacher.** A referenced thinker/tradition may appear in `attribution` only (e.g. "informed by stoic thinking") — never as a direct quote, never in `body`.
+- The assistant's core truths/values stay constant — this is a **tone-and-lens** adjustment, not a new character or belief set.
+- `body` stays under ~200 tokens.
+
+Other admin commands, all routed in `handleAdminCommand` (deterministic code — never a raw model side effect):
+
+| Admin says | Effect |
+|---|---|
+| "show draft personas" / "list personas" | Lists all `PhilosophyPersona` rows (`name`, `displayName`, `status`) |
+| "activate business persona" (`parseActivateCommand`) | Flips that persona's `status` to `"active"` |
+| "revise it: ..." / "revise business: ..." (`parseReviseCommand`) | `revisePersona(existing, instruction)` — re-distills the existing body against the instruction, returns a **new** `personaProposal` card; nothing is written until accepted |
+
+### Question queue
+
+Non-admin sessions that hit a knowledge gap file an anonymized question for the admin to answer later:
+
+1. After the normal reply is generated, if `!isAdmin && isCapabilityGapCandidate(userMessage)` (`lib/ai/capabilityGapTrigger.ts`) **and** `replyHedges(reply)` (the model's own reply shows hedging — both conditions must hold, not just the trigger phrase alone), `fileAdminQuestion(userId, message, insights.driveCandidate.value)` fires fire-and-forget.
+2. `fileAdminQuestion` rate-caps to ~1 per 30 min per user (`checkRateLimit("listen:adminq:${userId}", 1, 1800)` — an approximation of "max 1 per session per 10 messages", see Tech debt), then `anonymizeQuestion(message)` strips emails/long numbers/"my name is X" patterns before writing an `AdminQuestion` row with `source: "user_question"`, `status: "open"`, and **no `userId`** — by design, the admin teaches general knowledge, not user cases.
+3. Admin sessions surface up to 3 open questions (`getOpenAdminQuestions(3)`, oldest first) inside the `ADMIN_MODE` block — the model may weave one in naturally, never as a form.
+4. **"answer question N: ..."** (`parseAnswerQuestionCommand`) → `distillAnswer(question, answer, existingPersonaForTopic)` — if a `PhilosophyPersona` already has this question's `topic` in its `triggers`, the answer is folded into that persona's `body`; otherwise a new persona draft is proposed. Returns `personaProposal` with `questionId` attached.
+5. Accepting that proposal (`POST /api/listen/persona`) both upserts the persona **and** marks the `AdminQuestion` `status: "answered"`, `answeredAt: now()`, `answer: <persona body>`.
+6. **"skip that question"** (`isSkipQuestionCommand`) → marks the oldest open question `status: "dismissed"`. No persona write.
+
+### Card shell — `ActionCardBase`
+
+`components/chat/ActionCardBase.tsx` is the generic Yes/No card shell extracted (behavior-preserving) from the original `ProposalCard`. Both `ProposalCard` (regular goal proposals, all users) and `PersonaProposalCard` (persona drafts, admin-only) wrap it with their own `summary`, `acceptLabel`, and `acceptedText`. `ChatBot.tsx` is unaffected — it still imports `ProposalCard` with the same props.
+
 ## Tech debt
 
 - **Full-string i18n for the Listener UI is deferred** — v1 ships English chrome (buttons, labels) with AI replies in the user's language (the `lang` cookie is captured into `ConsultSession.language` and injected as a prompt instruction). Mirror this entry in the local `TECH_DEBT.md` (gitignored).
@@ -184,7 +267,7 @@ Both checks are gated on localStorage: `charaivati.dismissed_proposals` tracks `
 
 ## Appendix A — canonical `ai-context/CONSULT_LISTENER.txt`
 
-`ai-context/` is **gitignored** ("filled locally, never committed"), so the deployed file cannot ride along in the repo. Copy the block below verbatim into `ai-context/CONSULT_LISTENER.txt` on any machine running the Listener (the contextLoader returns empty strings, not errors, when the file is missing — the route degrades to a near-empty prompt, so don't skip this).
+`ai-context/*.txt` files **are committed** and deploy with the repo (UCTX-1b un-ignored them — see CLAUDE.md "AI Context Files"). The block below is a documented mirror of the live `ai-context/CONSULT_LISTENER.txt` for reference and diff-checking — keep the two in sync when editing either one. (The contextLoader returns empty strings, not errors, when the file is missing — the route would degrade to a near-empty prompt if it were ever absent, but it should not be.)
 
 ```text
 [SECTION: PERSONA]
@@ -261,6 +344,31 @@ If the person expresses self-harm intent, suicidal ideation, or acute distress:
 - Do NOT resume the goal/listening arc unless the user clearly and on their own steers back to it.
 [/SECTION]
 
+[SECTION: PERSONALITY_GUIDANCE]
+You may be given a quiet "tone steering" hint — a hypothesis, not a fact, built slowly from how this person talks. Use it only to adjust YOUR tone, never to comment on the person:
+- If it suggests they prefer directness: be more direct, skip warm-up preamble, get to the point sooner.
+- If it suggests relational warmth matters to them: acknowledge feelings before moving on, more than usual.
+- If it suggests patience: slow down, don't push, leave more room for silence.
+- If it suggests they like concrete specifics: avoid vague language, ground replies in specifics.
+- If it names something that energizes them (learning, helping, building, doing): let that color your warmth toward what they're describing, nothing more.
+
+Hard rules:
+- NEVER tell the user what "type" they are. NEVER say anything like "you seem like a [X] type" or name any framework (DISC, drives, personality, etc.) to them.
+- NEVER make claims about their mental state, psychology, or character.
+- If asked "what do you know about me" or similar: describe only concrete things they have actually said — themes, goals, situations — never inferred personality traits or tendencies.
+[/SECTION]
+
+[SECTION: ADMIN_MODE]
+You are talking with the platform admin/teacher, not a regular user. This is a different kind of conversation — a quieter, working one between collaborators.
+
+- Drop the listening arc entirely: no stages, no parameter sensing, no insight extraction, no goal-shaping.
+- You may ask the admin open questions about how they see business, life, money, people, decisions — genuine curiosity, not an interview.
+- If there are open questions from users queued up, you may surface one naturally, woven into the conversation — never as a form or numbered list unless the admin asks to see the list.
+- The admin can teach you a way of thinking by describing it and then saying something like "save this as business philosophy" — when they do, a confirmation card will appear; you don't need to do anything else, just acknowledge it warmly.
+- The admin can also say things like "show draft personas", "activate business persona", "revise it: ...", "answer question 1: ...", or "skip that question" — these are handled directly by the system; just respond naturally to whatever they say alongside it.
+- Stay warm and conversational. This is a conversation, not a form, even though the topic is "teaching" you.
+[/SECTION]
+
 [SECTION: NEVER]
 - Never diagnose any condition, however obvious it may seem.
 - Never give medication advice — not dosage, not suggestions, not opinions on what they take.
@@ -281,4 +389,28 @@ If the person expresses self-harm intent, suicidal ideation, or acute distress:
 - 4→5 stage transition (accepted proposal → handed-off) is not wired in the
   backend — the Listener UI prompt must set consultStage = 5 after a successful
   POST /api/self/profile-proposal accept.
+
+## Personality layer (UCTX-3)
+- Only DISC + the 4 drive archetypes are modeled. Big Five (or any other
+  framework) could be added as a new Json field on PersonalityProfile
+  (e.g. `bigFive Json @default("{}")`) without migrating existing rows —
+  schema is deliberately framework-open.
+- Personality data has no visibility/export to the user — it's purely
+  internal tone-steering. Revisit once there's a settings/privacy surface
+  where "what Charaivati has sensed about you" could be shown and cleared.
+
+## Admin Bridge (PERSONA-1)
+- Only ADMIN_EMAIL is recognized — single admin/teacher. Multi-admin or
+  contributor roles (e.g. multiple teachers, reviewer-before-activate) are
+  deferred; would need a role field on User or a separate AdminUser table.
+- AdminQuestion filing is rate-capped to ~1 per 30 min per user as an
+  approximation of "max 1 per session per 10 messages" — revisit if the
+  queue fills too fast or too slowly in practice.
+- No aggregate "unmet intent" analytics (counts/digest of knowledge gaps by
+  topic) — AdminQuestion covers the qualitative per-question path only. A
+  digest view could be built later from AdminQuestion.topic groupings.
+- PERSONA-2 (user-facing persona injection — applying an active
+  PhilosophyPersona's tone lens to regular users' replies, routed by
+  PhilosophyPersona.triggers) is not built. PERSONA-1 only covers admin-side
+  teaching and storage.
 ```

@@ -85,6 +85,7 @@ model User {
   sentInvites             Invite[]             @relation("InviteSender")
   todos                   Todo[]
   consultSession          ConsultSession?
+  personalityProfile      PersonalityProfile?
 
   @@index([email])
   @@index([phone])
@@ -1810,4 +1811,67 @@ model ConsultMessage {
   session   ConsultSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId, createdAt])
+}
+
+/// Listener (Saathi) slow-built personality layer — one per user (UCTX-3).
+/// Hypothesis-grade tone-steering signal only. Local-tier composer use only,
+/// never sent to cloud providers, never user-facing. NEVER write
+/// UserCompanionProfile fields from anything that touches this model
+/// (CONSULT-0c §4 standing ban).
+model PersonalityProfile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  /// DISC signal: { D: {score 0-1, evidence: int}, I:..., S:..., C:... }
+  disc        Json     @default("{}")
+  /// Same shape as disc, keyed by drive: learning/helping/building/doing
+  driveScores Json     @default("{}")
+  /// Number of extraction passes that have contributed to this profile
+  sampleCount Int      @default(0)
+  /// 0-1, derived from sampleCount + signal agreement
+  confidence  Float    @default(0)
+  /// Short evidence strings, capped at 20, FIFO
+  notes       Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Admin-taught tone lens for the Listener (PERSONA-1). A persona is a WAY OF
+/// THINKING distilled from a conversation with the platform admin/teacher —
+/// never a character, never a direct quote, teacher never named. Activated
+/// personas are wired into PERSONA-2 (user-facing injection, deferred).
+model PhilosophyPersona {
+  id          String   @id @default(cuid())
+  /// stable key, e.g. "business", "spiritual" — used by PERSONA-2 routing
+  name        String   @unique
+  displayName String
+  /// [SECTION: <name>] ... [/SECTION] format, parsed by contextLoader
+  body        String   @db.Text
+  /// keywords for PERSONA-2 routing
+  triggers    String[] @default([])
+  /// draft | active
+  status      String   @default("draft")
+  /// admin_taught | curated_lens
+  sourceType  String   @default("admin_taught")
+  /// optional "inspired by ..." note — never a direct quote
+  attribution String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Anonymized knowledge-gap question bridged from a user's Listener session
+/// to the admin/teacher (PERSONA-1). Deliberately has NO userId — the admin
+/// teaches general knowledge, not user cases.
+model AdminQuestion {
+  id         String    @id @default(cuid())
+  /// user_question | ai_clarification
+  source     String
+  /// anonymized phrasing — never raw user text with names/places
+  question   String    @db.Text
+  topic      String?
+  /// open | answered | dismissed
+  status     String    @default("open")
+  answer     String?   @db.Text
+  createdAt  DateTime  @default(now())
+  answeredAt DateTime?
 }

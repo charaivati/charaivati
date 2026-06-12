@@ -31,11 +31,27 @@ import {
   summarizeInsights,
   evaluateStageAdvance,
 } from "@/lib/listener/insights";
+import {
+  type PersonalityData,
+  emptyPersonality,
+  normalizePersonality,
+  normalizeDeltas,
+  applyPersonalityDeltas,
+  summarizePersonalityForComposer,
+  topDriveName,
+} from "@/lib/listener/personality";
+import { isAdminUser, handleAdminCommand, getOpenAdminQuestions, fileAdminQuestion } from "@/lib/listener/adminBridge";
+import { isCapabilityGapCandidate, replyHedges } from "@/lib/ai/capabilityGapTrigger";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
 const CONTEXT_FILE = "CONSULT_LISTENER.txt";
 const EXTRACTION_EVERY = 4;
+// UCTX-3: personality is built slowly — one delta pass per 8th user message,
+// local-tier composer use only. Coincides with insights extraction on every
+// multiple of 8 (since 8 % EXTRACTION_EVERY === 0) — both run via Promise.all.
+const PERSONALITY_EVERY = 8;
+const PERSONALITY_COMPOSER_THRESHOLD = 0.3;
 const LISTEN_MSG_LIMIT_5MIN = parseInt(process.env.LISTEN_MSG_LIMIT_5MIN ?? "20", 10);
 const LISTEN_MSG_LIMIT_DAY = parseInt(process.env.LISTEN_MSG_LIMIT_DAY ?? "200", 10);
 
@@ -85,7 +101,14 @@ function readLangCookie(req: Request): string | null {
 function buildSystemPrompt(
   stage: number,
   language: string | null,
-  opts: { crisis?: boolean; steerHint?: string; rollingSummary?: string; dynamicBlock?: string } = {}
+  opts: {
+    crisis?: boolean;
+    steerHint?: string;
+    rollingSummary?: string;
+    dynamicBlock?: string;
+    personalityGuidance?: string;
+    adminMode?: string;
+  } = {}
 ): string {
   const persona = loadSection(CONTEXT_FILE, "PERSONA");
   const never = loadSection(CONTEXT_FILE, "NEVER");
@@ -103,6 +126,29 @@ function buildSystemPrompt(
       `THIS CONVERSATION IS IN CRISIS MODE. The protocol below overrides everything else — follow it for every reply until the user clearly and on their own steers back to everyday topics:\n${crisis}`,
       never ? `WHAT YOU NEVER DO:\n${never}` : "",
       languageLine,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
+
+  // Admin mode (PERSONA-1): a different kind of conversation entirely — no
+  // stages, methods, parameter sensing, or personality guidance. Replaces
+  // those semi-static blocks with the ADMIN_MODE section + any open questions.
+  if (opts.adminMode) {
+    return [
+      // static
+      persona,
+      never ? `WHAT YOU NEVER DO:\n${never}` : "",
+      crisis ? `CRISIS PROTOCOL (overrides everything below):\n${crisis}` : "",
+      languageLine,
+      // semi-static
+      opts.adminMode,
+      opts.rollingSummary
+        ? `EARLIER IN THIS CONVERSATION (older messages, condensed — internal context, never recite):\n${opts.rollingSummary}`
+        : "",
+      // dynamic
+      opts.dynamicBlock ?? "",
+      opts.steerHint ? `THIS TURN ONLY:\n${opts.steerHint}` : "",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -128,6 +174,7 @@ function buildSystemPrompt(
     opts.rollingSummary
       ? `EARLIER IN THIS CONVERSATION (older messages, condensed — internal context, never recite):\n${opts.rollingSummary}`
       : "",
+    opts.personalityGuidance ? opts.personalityGuidance : "",
     // dynamic
     opts.dynamicBlock ?? "",
     opts.steerHint ? `THIS TURN ONLY:\n${opts.steerHint}` : "",
@@ -210,6 +257,52 @@ goalEmerging: true only if a concrete goal the user wants is taking shape in the
   }
 }
 
+// UCTX-3: every 8th user message, sense small DISC/drive deltas from the last
+// ~12 messages. Signals only — never diagnoses, never names the framework to
+// the user. Weak/no signal → empty deltas (caller applies a no-op pass).
+// Failure isolation matches runExtraction: a bad parse just drops this pass.
+async function runPersonalityExtraction(current: PersonalityData, recentMessages: string) {
+  try {
+    const raw = await chatComplete({
+      model: CHAT_MODEL,
+      messages: [
+        { role: "system", content: "Respond ONLY with valid JSON, no markdown, no explanation." },
+        {
+          role: "user",
+          content: `You are sensing SOFT personality signals from a supportive listening conversation — never diagnose, never label the person, never mention this analysis to them.
+
+Current DISC scores (0-1, 0.5 = no signal yet):
+${JSON.stringify(current.disc)}
+
+Current drive-energy scores (0-1, 0.5 = no signal yet):
+${JSON.stringify(current.driveScores)}
+
+Recent conversation:
+${recentMessages}
+
+Based ONLY on what the person actually said — their decisiveness, detail-orientation, people-focus, patience, and what seems to energize them — propose SMALL adjustments (each between -0.1 and 0.1; use 0 or omit a key if there's no signal). If the signal is weak, return empty/zero deltas — do not force a reading.
+
+DISC dims: D = directness/decisiveness, I = people/relational warmth, S = patience/steadiness, C = detail/concreteness.
+Drive dims: learning, helping, building, doing — which energizes them.
+
+Return ONLY this JSON shape:
+{"disc":{"D":number,"I":number,"S":number,"C":number},"drives":{"learning":number,"helping":number,"building":number,"doing":number},"evidence":["short evidence string", "..."]}
+
+evidence: 0-2 short factual strings describing what was observed (e.g. "asked for a clear next step rather than options" — never a label like 'this person is a D-type').`,
+        },
+      ],
+      maxTokens: 350,
+      temperature: 0.2,
+      jsonMode: true,
+    });
+    const parsed = safeJsonParse<Record<string, unknown>>(raw);
+    return normalizeDeltas(parsed);
+  } catch (err) {
+    console.error("[listen] personality extraction failed:", err);
+    return null;
+  }
+}
+
 export async function POST(req: Request) {
   const requestStart = Date.now();
   const localAiEnabled = process.env.LOCAL_AI_ENABLED === "true";
@@ -218,6 +311,7 @@ export async function POST(req: Request) {
   const payload = await authenticateChat(req);
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = payload.userId;
+  const isAdmin = await isAdminUser(userId);
 
   const body = await req.json();
   const { message, steer, correction, dismissedProposals } = body as {
@@ -333,6 +427,28 @@ export async function POST(req: Request) {
     });
   }
 
+  // ── Admin commands — intercepted BEFORE the conversational model call ──────
+  // Deterministic, card-confirmed persona writes. Never reached for non-admins.
+  if (isAdmin && text && !crisisActive) {
+    const conversationText = [
+      ...windowRows.map((m) => `${m.role}: ${m.content}`),
+      `user: ${text}`,
+    ].join("\n");
+    const commandResult = await handleAdminCommand(text, conversationText);
+    if (commandResult) {
+      await (db as any).consultMessage.create({
+        data: { sessionId: session.id, role: "assistant", content: commandResult.reply },
+      });
+      return NextResponse.json({
+        ok: true,
+        reply: commandResult.reply,
+        consultStage: stage,
+        crisis: false,
+        ...(commandResult.personaProposal ? { personaProposal: commandResult.personaProposal } : {}),
+      });
+    }
+  }
+
   let steerHint = "";
   if (steerNode && !crisisActive) {
     const label = STEER_LABELS[steerNode];
@@ -344,7 +460,7 @@ export async function POST(req: Request) {
   // Dynamic context block — local gets the full sensed-insights summary; cloud
   // gets only the minimal tier-"cloud" composer block (drive name + stage etc.).
   const insightsSummary = summarizeInsights(insights);
-  const localDynamicBlock = insightsSummary
+  let localDynamicBlock = insightsSummary
     ? `WHAT YOU'VE QUIETLY SENSED SO FAR (internal notes — never recite these to the user):\n${insightsSummary}`
     : "";
   const cloudDynamicBlock = await buildUserContext(userId, {
@@ -354,17 +470,50 @@ export async function POST(req: Request) {
     driveName: insights.driveCandidate.value,
   });
 
+  // UCTX-3: local-tier-only personality tone-steering line. Below the
+  // confidence threshold this is "" and PERSONALITY_GUIDANCE is not loaded —
+  // no point paying its token cost for an absent signal. Never added to the
+  // cloud block.
+  const personalityProfileRow = await (db as any).personalityProfile
+    .findUnique({ where: { userId } })
+    .catch(() => null);
+  const personality = personalityProfileRow ? normalizePersonality(personalityProfileRow) : emptyPersonality();
+  const personalityLine = summarizePersonalityForComposer(personality, PERSONALITY_COMPOSER_THRESHOLD);
+  if (personalityLine) {
+    localDynamicBlock = [localDynamicBlock, personalityLine].filter(Boolean).join("\n\n");
+  }
+  const personalityGuidance = personalityLine
+    ? loadSection(CONTEXT_FILE, "PERSONALITY_GUIDANCE")
+    : "";
+
+  // Admin mode (PERSONA-1): replaces the stage/method/sensing/personality
+  // blocks with the ADMIN_MODE section, plus up to 3 open questions to weave in.
+  let adminModeBlock = "";
+  if (isAdmin && !crisisActive) {
+    adminModeBlock = loadSection(CONTEXT_FILE, "ADMIN_MODE");
+    const openQuestions = await getOpenAdminQuestions(3);
+    if (openQuestions.length > 0) {
+      const lines = openQuestions.map((q, i) => `${i + 1}. ${q.question}${q.topic ? ` (topic: ${q.topic})` : ""}`);
+      adminModeBlock = [adminModeBlock, `Open questions from users you could teach me about:\n${lines.join("\n")}`]
+        .filter(Boolean)
+        .join("\n\n");
+    }
+  }
+
   const systemPrompt = buildSystemPrompt(stage, session.language, {
     crisis: crisisActive,
     steerHint,
     rollingSummary,
     dynamicBlock: localDynamicBlock,
+    personalityGuidance,
+    adminMode: adminModeBlock || undefined,
   });
   const cloudSystemPrompt = buildSystemPrompt(stage, session.language, {
     crisis: crisisActive,
     steerHint,
     rollingSummary,
     dynamicBlock: cloudDynamicBlock,
+    adminMode: adminModeBlock || undefined,
   });
 
   // Steer-only turns get an in-flight marker so every provider sees a final user
@@ -409,20 +558,44 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, reply, consultStage: stage, crisis: true });
   }
 
+  // ── Admin-question queue — file a knowledge-gap question for non-admins ────
+  // Anonymized by design (no userId stored). Rate-capped inside fileAdminQuestion.
+  if (!isAdmin && text && isCapabilityGapCandidate(text) && replyHedges(reply)) {
+    fileAdminQuestion(userId, text, insights.driveCandidate.value ?? null).catch((err) =>
+      console.error("[listen] fileAdminQuestion failed:", err)
+    );
+  }
+
   // ── Extraction pass — every 4th user message, cheap and local-first ────────
   let nextStage = stage;
   const userMsgCount: number = await (db as any).consultMessage.count({
     where: { sessionId: session.id, role: "user" },
   });
 
-  if (text && userMsgCount % EXTRACTION_EVERY === 0) {
+  const doInsightsExtraction = !isAdmin && !!text && userMsgCount % EXTRACTION_EVERY === 0;
+  // UCTX-3: 8 is a multiple of EXTRACTION_EVERY (4), so both passes coincide
+  // every 8th message and run together via Promise.all below.
+  const doPersonalityExtraction = !isAdmin && !!text && userMsgCount % PERSONALITY_EVERY === 0;
+
+  if (doInsightsExtraction || doPersonalityExtraction) {
     const conversationText = [
       ...windowRows.map((m) => `${m.role}: ${m.content}`),
       `user: ${text}`,
       `assistant: ${reply}`,
     ].join("\n");
 
-    const extraction = await runExtraction(insights, conversationText);
+    // Personality extraction looks at a shorter recent window (~12 messages).
+    const recentForPersonality = [
+      ...windowRows.slice(-10).map((m) => `${m.role}: ${m.content}`),
+      `user: ${text}`,
+      `assistant: ${reply}`,
+    ].join("\n");
+
+    const [extraction, personalityDeltas] = await Promise.all([
+      doInsightsExtraction ? runExtraction(insights, conversationText) : Promise.resolve(null),
+      doPersonalityExtraction ? runPersonalityExtraction(personality, recentForPersonality) : Promise.resolve(null),
+    ]);
+
     if (extraction) {
       insights = extraction.insights;
       nextStage = evaluateStageAdvance(stage, insights, extraction.goalEmerging);
@@ -430,6 +603,20 @@ export async function POST(req: Request) {
         where: { id: session.id },
         data: { insights: insights as any, consultStage: nextStage },
       });
+    }
+
+    if (personalityDeltas) {
+      const updatedPersonality = applyPersonalityDeltas(personality, personalityDeltas);
+      const data = {
+        disc: updatedPersonality.disc as any,
+        driveScores: updatedPersonality.driveScores as any,
+        sampleCount: updatedPersonality.sampleCount,
+        confidence: updatedPersonality.confidence,
+        notes: updatedPersonality.notes as any,
+      };
+      await (db as any).personalityProfile
+        .upsert({ where: { userId }, create: { userId, ...data }, update: data })
+        .catch((err: unknown) => console.error("[listen] personality profile upsert failed:", err));
     }
   }
 
@@ -442,7 +629,7 @@ export async function POST(req: Request) {
 
   // ── Goal proposal — stage 4 only, via the shared proposal mechanism ────────
   // Goal candidates flow EXCLUSIVELY through proposals — never stored in insights.
-  if (nextStage === 4 && insights.driveCandidate.value) {
+  if (!isAdmin && nextStage === 4 && insights.driveCandidate.value) {
     const profile = await db.profile.findUnique({ where: { userId }, select: { goals: true } }).catch(() => null);
     const conversationText = [
       ...windowRows.map((m) => `${m.role}: ${m.content}`),
@@ -488,11 +675,22 @@ export async function GET(req: Request) {
   });
   rows.reverse();
 
+  // UCTX-3: surface only the top sensed drive name, gated by confidence — never DISC, never raw scores.
+  let personalityTopDrive: string | null = null;
+  const personalityRow = await (db as any).personalityProfile.findUnique({ where: { userId: payload.userId } }).catch(() => null);
+  if (personalityRow) {
+    const personality = normalizePersonality(personalityRow);
+    if (personality.confidence >= PERSONALITY_COMPOSER_THRESHOLD) {
+      personalityTopDrive = topDriveName(personality);
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     consultStage: session.consultStage ?? 0,
     insights: normalizeInsights(session.insights),
     messages: rows,
     crisis: session.crisisFlag === true,
+    personalityTopDrive,
   });
 }

@@ -4,10 +4,10 @@ import { getCurrentUser } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
   try {
-    const adminEmail = process.env.EMAIL_USER;
+    const adminEmail = process.env.ADMIN_EMAIL ?? process.env.ADMIN_ALERT_EMAIL;
 
     if (!adminEmail) {
-      console.warn("EMAIL_USER not set in environment");
+      console.warn("ADMIN_EMAIL / ADMIN_ALERT_EMAIL not set in environment");
       return NextResponse.json(
         { error: "Admin access not configured" },
         { status: 403 }
@@ -24,8 +24,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Check if user email matches admin email
-    if (user.email === adminEmail) {
+    // Check if user email matches admin email (case-insensitive, mirrors /admin/security)
+    if (user.email?.toLowerCase() === adminEmail.toLowerCase()) {
       return NextResponse.json({ 
         admin: true, 
         user: { id: user.id, email: user.email, name: user.name } 
