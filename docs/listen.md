@@ -117,13 +117,23 @@ From `ai-context/CONSULT_LISTENER.txt` via `loadSection()` (named `[SECTION: NAM
 | semi-static | PARAMETER_SENSING | stage 0–3 |
 | semi-static | Folded `rollingSummary` (older messages) | when non-empty (changes only at fold events) |
 | semi-static | PERSONALITY_GUIDANCE | **local prompt only**, and only when the personality tone-steering line was emitted (`confidence >= 0.3`) — never in the cloud prompt |
-| semi-static | ADMIN_MODE + up to 3 open `AdminQuestion`s | **admin sessions only** (`isAdmin && !crisisActive`) — **replaces** PHASES/METHOD_*/PARAMETER_SENSING/PERSONALITY_GUIDANCE entirely; see "Admin Bridge" below |
+| semi-static | SITE_AWARENESS (PERSONA-2) | always, non-crisis — included for both normal and admin-mode sessions; **local prompt** gets the full `[SECTION: SITE_AWARENESS]` instruction + `buildSiteAwareness()` per-layer map; **cloud prompt** gets a one-line `buildSiteAwarenessCompact()` summary instead. Built once at module load from `lib/site/capabilityRegistry.ts` — byte-stable across turns (prefix-cache friendly), changes only when the registry changes |
+| semi-static | ADMIN_MODE + up to 3 open `AdminQuestion`s | **admin sessions only** (`isAdmin && !crisisActive`) — **replaces** PHASES/METHOD_*/PARAMETER_SENSING/PERSONALITY_GUIDANCE entirely (SITE_AWARENESS still included — admins are also platform users); see "Admin Bridge" below |
 | dynamic | Compact insights summary (`summarizeInsights`) — **local prompt**; minimal `buildUserContext` cloud block — **cloud prompt** | when non-empty (skipped for admin sessions — no insights extraction runs) |
 | dynamic | Steer hint (`THIS TURN ONLY`) | steer/correction turns, last |
 
-**Crisis mode** keeps its own collapsed ordering (PERSONA + crisis-mode protocol + NEVER + languageLine) — unchanged by the reorder; no stages/methods/sensing/insights/summary. Crisis takes precedence over admin mode (`isAdmin && !crisisActive`).
+**Crisis mode** keeps its own collapsed ordering (PERSONA + crisis-mode protocol + NEVER + languageLine) — unchanged by the reorder; no stages/methods/sensing/insights/summary/site-awareness. Crisis takes precedence over admin mode (`isAdmin && !crisisActive`).
 
-**No** platform / initiatives / mentor / companion-philosophy blocks — this is not the Guide.
+**No** platform / initiatives / mentor / companion-philosophy blocks — this is not the Guide. (SITE_AWARENESS is the one deliberate exception — it describes platform structure, not Guide-style mentoring content, and is the single source for "what does Charaivati do" questions.)
+
+### Site awareness vs. capabilities (PERSONA-2)
+
+`[SECTION: SITE_AWARENESS]` and `[SECTION: CAPABILITIES]` answer two different questions and must not be conflated:
+
+- **SITE_AWARENESS** — what the **Charaivati platform** (pages/routes) can do. Sourced from `lib/site/capabilityRegistry.ts` (`SECTIONS`) via `lib/site/siteAwareness.ts`'s `buildSiteAwareness()` (full per-layer map, local) / `buildSiteAwarenessCompact()` (one-line, cloud). Every section is `live` (tell the user where to go), `scaffolded`/partial (say what works today vs what's coming), or `planned` (say so honestly, offer the `interim` alternative — never invent a route or pretend a planned feature exists, never deny a live one).
+- **CAPABILITIES** — what **this chat, right now** can do for the user directly: propose a goal, show the mind-map, find a friend and send a request, send a reminder to a friend. These are the only two deterministic actions (PRIV-ACT-1); SITE_AWARENESS never adds new ones.
+- Example: "where do I see my orders" → SITE_AWARENESS (a site feature, point to the route). "can you remind my friend about something" → CAPABILITIES (yes, this chat can do that).
+- **Privacy example**: `User.discoverable` (the friend-search visibility toggle, `PATCH /api/user/privacy`, UI on `/user/[id]`) is a real, live SITE_AWARENESS fact — the Listener can describe that it exists and where to find it. It is **not** a CAPABILITY — the Listener does not read the user's current value during a conversation (see `TECH_DEBT.md` § 12, a deliberate PERSONA-2 deferral).
 
 ## Stage definitions and advancement
 
@@ -406,6 +416,20 @@ You are talking with the platform admin/teacher, not a regular user. This is a d
 - The admin can teach you a way of thinking by describing it and then saying something like "save this as business philosophy" — when they do, a confirmation card will appear; you don't need to do anything else, just acknowledge it warmly.
 - The admin can also say things like "show draft personas", "activate business persona", "revise it: ...", "answer question 1: ...", or "skip that question" — these are handled directly by the system; just respond naturally to whatever they say alongside it.
 - Stay warm and conversational. This is a conversation, not a form, even though the topic is "teaching" you.
+[/SECTION]
+
+[SECTION: SITE_AWARENESS]
+You live inside Charaivati, a platform with six layers (Self, Society, State, Nation, Earth, Universe). The map below shows what actually exists on the site right now — live sections, sections that are partly built, and sections that are still planned (with where to go in the meantime).
+
+When a user asks about a feature:
+- If it's LIVE: tell them honestly where on the site to do it (the route shown).
+- If it's PARTIAL: say what works today and what's still coming.
+- If it's PLANNED: say so honestly, don't pretend it exists, and offer the interim alternative shown.
+- NEVER invent a feature, route, or button that isn't in the map. NEVER deny a feature that the map shows as live.
+
+Keep the distinction clear: the map below is about what the SITE can do (pages and features the user navigates to). It is separate from [SECTION: CAPABILITIES] above, which is what I — in THIS chat — can do directly (propose a goal, show the map, find a friend, send a reminder). Don't conflate the two — e.g. "can you message my friend" is a chat capability; "where do I see my orders" is a site feature.
+
+One concrete example: privacy. Charaivati has a "discoverable" toggle in the user's profile settings that controls whether other users can find them by name search — this exists and is live. I do not currently read the user's own setting value during a conversation (that would be a future capability) — I can describe that the setting exists and where to find it, but I should not claim to know whether it's currently on or off for this person.
 [/SECTION]
 
 [SECTION: CAPABILITIES]

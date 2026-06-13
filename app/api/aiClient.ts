@@ -129,58 +129,132 @@ export function safeJsonParse<T = unknown>(text: string): T {
 
 // ─── Ollama resilient caller ─────────────────────────────────────────────────
 
+// Two distinct budgets — do NOT collapse to one (FIX-OLLAMA-TIMEOUT-1):
+//
+// - CONNECT budget (short, ~8s default): time to first byte of the response.
+//   If Ollama is unreachable or never starts responding, fail fast to cloud.
+// - GENERATION budget (long, ~60s default): spans the full request including
+//   the streamed body read. Cold-prefill on this hardware legitimately takes
+//   40-55s — a hard cap at the connect budget would abort EVERY cold start to
+//   cloud and local would never be used.
+//
+// Streaming (stream: true) lets us detect the first chunk (for coldStart
+// timing) and still bound total time without losing partial output.
 async function callOllamaResilient(params: {
   model: string;
   messages: ChatMessage[];
   ollamaBase: string;
   maxTokens: number;
   temperature: number;
-}): Promise<{ content: string; state: 'ok' | 'cold_start' | 'unavailable' }> {
-  const ATTEMPT_TIMEOUT = 8_000;
+}): Promise<{ content: string; state: 'ok' | 'cold_start' | 'unavailable'; doneReason?: string }> {
+  const CONNECT_TIMEOUT = Number(process.env.OLLAMA_CONNECT_TIMEOUT) || 8_000;
+  const GEN_TIMEOUT = Number(process.env.OLLAMA_GEN_TIMEOUT) || 60_000;
   const numCtx = Number(process.env.OLLAMA_NUM_CTX) || 8192;
   const keepAlive = process.env.OLLAMA_KEEP_ALIVE ?? '30m';
+  // Thinking models (e.g. gemma4:e2b) burn the num_predict budget on
+  // message.thinking before emitting message.content. Give the local path
+  // extra headroom regardless of the caller's (cloud-tuned) maxTokens —
+  // see FIX-THINKING-MODEL-1.
+  const numPredict = Math.max(Number(process.env.OLLAMA_NUM_PREDICT) || 512, params.maxTokens);
 
-  async function attempt(): Promise<{ content: string; status: 'ok' | 'network_error' | 'empty' }> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT);
-    try {
-      const res = await fetch(`${params.ollamaBase}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: params.model,
-          messages: params.messages,
-          stream: false,
-          keep_alive: keepAlive,
-          options: {
-            num_ctx: numCtx,
-            num_predict: params.maxTokens,
-            temperature: params.temperature,
-          },
-        }),
-        signal: controller.signal,
-      });
-      clearTimeout(timer);
-      if (!res.ok) return { content: '', status: 'empty' };
-      const data = await res.json().catch(() => null) as { message?: { content?: string } } | null;
-      const content = data?.message?.content ?? '';
-      if (!content) return { content: '', status: 'empty' };
-      return { content, status: 'ok' };
-    } catch {
-      clearTimeout(timer);
-      return { content: '', status: 'network_error' };
+  const start = Date.now();
+  const controller = new AbortController();
+  // Connect-phase timer: aborts if fetch() doesn't resolve headers in time.
+  let connectTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => controller.abort(), CONNECT_TIMEOUT);
+  // Generation timer: bounds the ENTIRE request (connect + streamed body read).
+  const genTimer = setTimeout(() => controller.abort(), GEN_TIMEOUT);
+
+  let content = '';
+  let thinking = '';
+  let doneReason: string | undefined;
+  let firstChunkAt: number | null = null;
+
+  try {
+    const res = await fetch(`${params.ollamaBase}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: params.model,
+        messages: params.messages,
+        stream: true,
+        // Disable visible chain-of-thought for thinking models — the
+        // Listener/chat want direct replies, not reasoning traces.
+        think: false,
+        keep_alive: keepAlive,
+        options: {
+          num_ctx: numCtx,
+          num_predict: numPredict,
+          temperature: params.temperature,
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    // Headers received — connection succeeded. The generation timer keeps
+    // running for the streamed body read.
+    if (connectTimer) {
+      clearTimeout(connectTimer);
+      connectTimer = null;
     }
+
+    if (!res.ok || !res.body) {
+      clearTimeout(genTimer);
+      return { content: '', state: 'unavailable' };
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (firstChunkAt === null) firstChunkAt = Date.now();
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const obj = JSON.parse(line) as {
+            message?: { content?: string; thinking?: string };
+            done?: boolean;
+            done_reason?: string;
+          };
+          if (obj.message?.content) content += obj.message.content;
+          if (obj.message?.thinking) thinking += obj.message.thinking;
+          if (obj.done_reason) doneReason = obj.done_reason;
+        } catch {
+          // ignore malformed NDJSON line
+        }
+      }
+    }
+    clearTimeout(genTimer);
+  } catch {
+    // Abort (connect timeout or generation timeout) or network error.
+    if (connectTimer) clearTimeout(connectTimer);
+    clearTimeout(genTimer);
   }
 
-  const first = await attempt();
-  if (first.status === 'ok') return { content: first.content, state: 'ok' };
-  if (first.status === 'network_error') return { content: '', state: 'unavailable' };
+  if (!content) {
+    if (thinking) {
+      // The model worked (it reasoned) but exhausted num_predict before
+      // emitting any message.content — distinct from a genuinely
+      // unreachable/non-responding Ollama. With think:false + a higher
+      // OLLAMA_NUM_PREDICT this should no longer happen; log loudly if it
+      // recurs so the regression isn't silently masked as "unavailable".
+      console.warn(
+        `[aiClient] Ollama produced only thinking tokens (${thinking.length} chars, done_reason=${doneReason ?? 'unknown'}) — no message.content; treating as unavailable`
+      );
+    }
+    return { content: '', state: 'unavailable' };
+  }
 
-  // Empty/malformed — wait and retry once (handles model cold-start loading)
-  await new Promise<void>(r => setTimeout(r, ATTEMPT_TIMEOUT));
-  const second = await attempt();
-  if (second.status === 'ok') return { content: second.content, state: 'cold_start' };
-  return { content: '', state: 'unavailable' };
+  // coldStart: the model took longer than the connect budget to produce its
+  // first token — almost always a cold-load (prefill), not a slow network.
+  const firstByteElapsed = (firstChunkAt ?? Date.now()) - start;
+  return { content, state: firstByteElapsed > CONNECT_TIMEOUT ? 'cold_start' : 'ok', doneReason };
 }
 
 // ─── Shared chatComplete implementation ──────────────────────────────────────
@@ -211,7 +285,7 @@ async function chatCompleteInternal({
     console.log(`[aiClient] Ollama attempt — model=${ollamaModel} url=${ollamaBase}`);
     const result = await callOllamaResilient({ model: ollamaModel, messages, ollamaBase, maxTokens, temperature });
     if (result.state !== 'unavailable') {
-      console.log(`[aiClient] Ollama ${result.state} (${result.content.length} chars)`);
+      console.log(`[aiClient] Ollama ${result.state} (${result.content.length} chars, done_reason=${result.doneReason ?? 'unknown'})`);
       return { content: result.content, source: 'local', coldStart: result.state === 'cold_start', model: ollamaModel };
     }
     console.warn('[aiClient] Ollama unavailable, falling through to cloud');

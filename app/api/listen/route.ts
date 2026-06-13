@@ -12,7 +12,7 @@
 // On detection: latch ConsultSession.crisisFlag (never auto-cleared), force the
 // CRISIS prompt, skip extraction/proposals/stage advancement, log LISTEN_CRISIS.
 
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
 import { loadSection } from "@/lib/ai/contextLoader";
@@ -41,6 +41,7 @@ import {
   topDriveName,
 } from "@/lib/listener/personality";
 import { isAdminUser, handleAdminCommand, getOpenAdminQuestions, fileAdminQuestion } from "@/lib/listener/adminBridge";
+import { buildSiteAwareness, buildSiteAwarenessCompact } from "@/lib/site/siteAwareness";
 import { isCapabilityGapCandidate, replyHedges } from "@/lib/ai/capabilityGapTrigger";
 import { isFriendRequest, isReminderRequest } from "@/lib/ai/actionTrigger";
 import {
@@ -57,9 +58,12 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
 const CONTEXT_FILE = "CONSULT_LISTENER.txt";
 const EXTRACTION_EVERY = 4;
 // UCTX-3: personality is built slowly — one delta pass per 8th user message,
-// local-tier composer use only. Coincides with insights extraction on every
-// multiple of 8 (since 8 % EXTRACTION_EVERY === 0) — both run via Promise.all.
+// local-tier composer use only. PERSONALITY_OFFSET (FIX-OLLAMA-TIMEOUT-1)
+// shifts the cadence to userMsgCount % 8 === 2, which is never a multiple of
+// EXTRACTION_EVERY (4) — so insights and personality extraction never land on
+// the same turn and stack two Ollama prefills back to back.
 const PERSONALITY_EVERY = 8;
+const PERSONALITY_OFFSET = 2;
 const PERSONALITY_COMPOSER_THRESHOLD = 0.3;
 const LISTEN_MSG_LIMIT_5MIN = parseInt(process.env.LISTEN_MSG_LIMIT_5MIN ?? "20", 10);
 const LISTEN_MSG_LIMIT_DAY = parseInt(process.env.LISTEN_MSG_LIMIT_DAY ?? "200", 10);
@@ -94,6 +98,15 @@ const STEER_LABELS: Record<string, string> = {
   energy: "their energy levels",
 };
 
+// Site awareness (PERSONA-2): semi-static — built once per process from
+// capabilityRegistry, not per turn. Local gets the instruction + full per-layer
+// map; cloud gets a one-line summary (platform structure is non-sensitive, but
+// cloud prompts stay lean per UCTX-1b).
+const SITE_AWARENESS_LOCAL = [loadSection(CONTEXT_FILE, "SITE_AWARENESS"), `SITE MAP:\n${buildSiteAwareness()}`]
+  .filter(Boolean)
+  .join("\n\n");
+const SITE_AWARENESS_CLOUD = `SITE AWARENESS: ${buildSiteAwarenessCompact()} When asked about site features, be honest about what's live vs planned — never invent or deny features.`;
+
 function readLangCookie(req: Request): string | null {
   const cookie = req.headers.get("cookie") ?? "";
   const m = cookie.match(/(?:^|;\s*)lang=([^;]+)/);
@@ -117,6 +130,7 @@ function buildSystemPrompt(
     dynamicBlock?: string;
     personalityGuidance?: string;
     adminMode?: string;
+    siteAwareness?: string;
   } = {}
 ): string {
   const persona = loadSection(CONTEXT_FILE, "PERSONA");
@@ -152,6 +166,7 @@ function buildSystemPrompt(
       languageLine,
       // semi-static
       opts.adminMode,
+      opts.siteAwareness ?? "",
       opts.rollingSummary
         ? `EARLIER IN THIS CONVERSATION (older messages, condensed — internal context, never recite):\n${opts.rollingSummary}`
         : "",
@@ -182,6 +197,7 @@ function buildSystemPrompt(
     phases ? `STAGES:\n${phases}\n\nCurrent stage: ${stage}.` : `Current stage: ${stage}.`,
     ...methods.filter(Boolean),
     sensing,
+    opts.siteAwareness ?? "",
     opts.rollingSummary
       ? `EARLIER IN THIS CONVERSATION (older messages, condensed — internal context, never recite):\n${opts.rollingSummary}`
       : "",
@@ -408,29 +424,17 @@ export async function POST(req: Request) {
   // turns live in session.rollingSummary. When the unfolded window exceeds the
   // threshold, fold the oldest batch here so the prefix stays stable next turn.
   const foldedThrough: Date | null = session.foldedThrough ?? null;
-  let windowRows: { role: string; content: string; createdAt: Date }[] = await (db as any).consultMessage.findMany({
+  const windowRows: { role: string; content: string; createdAt: Date }[] = await (db as any).consultMessage.findMany({
     where: { sessionId: session.id, ...(foldedThrough ? { createdAt: { gt: foldedThrough } } : {}) },
     orderBy: { createdAt: "asc" },
     select: { role: true, content: true, createdAt: true },
   });
 
-  let rollingSummary: string = session.rollingSummary ?? "";
-  if (windowRows.length > FOLD_THRESHOLD) {
-    const toFold = windowRows.slice(0, FOLD_BATCH);
-    const foldText = toFold.map((m) => `${m.role}: ${m.content}`).join("\n");
-    const merged = await summarizeForFold(rollingSummary || null, foldText);
-    if (merged !== null) {
-      // createdAt of the oldest-batch's last message becomes the new fold boundary.
-      const boundary = toFold[toFold.length - 1].createdAt;
-      await (db as any).consultSession.update({
-        where: { id: session.id },
-        data: { rollingSummary: merged, foldedThrough: boundary },
-      });
-      rollingSummary = merged;
-      windowRows = windowRows.slice(FOLD_BATCH);
-    }
-    // merged === null → fold deferred; window stays large this turn, retried next.
-  }
+  // FIX-OLLAMA-TIMEOUT-1: folding used to run inline here (an extra Ollama
+  // prefill blocking the reply). It now runs in the post-response background
+  // task below — this turn's prompt simply uses the unfolded window as-is
+  // (occasionally a little larger; never an extra blocking LLM call).
+  const rollingSummary: string = session.rollingSummary ?? "";
 
   if (text) {
     await (db as any).consultMessage.create({
@@ -549,6 +553,7 @@ export async function POST(req: Request) {
     dynamicBlock: localDynamicBlock,
     personalityGuidance,
     adminMode: adminModeBlock || undefined,
+    siteAwareness: SITE_AWARENESS_LOCAL,
   });
   const cloudSystemPrompt = buildSystemPrompt(stage, session.language, {
     crisis: crisisActive,
@@ -556,6 +561,7 @@ export async function POST(req: Request) {
     rollingSummary,
     dynamicBlock: cloudDynamicBlock,
     adminMode: adminModeBlock || undefined,
+    siteAwareness: SITE_AWARENESS_CLOUD,
   });
 
   // Steer-only turns get an in-flight marker so every provider sees a final user
@@ -608,70 +614,104 @@ export async function POST(req: Request) {
     );
   }
 
-  // ── Extraction pass — every 4th user message, cheap and local-first ────────
-  let nextStage = stage;
+  // ── Background bookkeeping (FIX-OLLAMA-TIMEOUT-1) ───────────────────────────
+  // Insights extraction, personality extraction, and fold summarization each
+  // cost an extra Ollama prefill (10-50s on this hardware) — none of them may
+  // gate the reply. They run via after() once the response has been sent.
+  // Offset cadences (insights %4, personality %8≡2, see constants above) mean
+  // at most one extraction runs per turn. Results land in the DB before the
+  // user's next message in the normal case, so the next turn's `stage`/
+  // `insights`/personality reads pick them up — delayed by one turn, never lost.
   const userMsgCount: number = await (db as any).consultMessage.count({
     where: { sessionId: session.id, role: "user" },
   });
-
   const doInsightsExtraction = !isAdmin && !!text && userMsgCount % EXTRACTION_EVERY === 0;
-  // UCTX-3: 8 is a multiple of EXTRACTION_EVERY (4), so both passes coincide
-  // every 8th message and run together via Promise.all below.
-  const doPersonalityExtraction = !isAdmin && !!text && userMsgCount % PERSONALITY_EVERY === 0;
+  const doPersonalityExtraction = !isAdmin && !!text && userMsgCount % PERSONALITY_EVERY === PERSONALITY_OFFSET;
+  const shouldFold = windowRows.length > FOLD_THRESHOLD;
 
-  if (doInsightsExtraction || doPersonalityExtraction) {
-    const conversationText = [
-      ...windowRows.map((m) => `${m.role}: ${m.content}`),
-      `user: ${text}`,
-      `assistant: ${reply}`,
-    ].join("\n");
+  if (doInsightsExtraction || doPersonalityExtraction || shouldFold) {
+    const sessionId = session.id;
+    const baseInsights = insights;
+    const basePersonality = personality;
+    const baseRollingSummary = rollingSummary;
 
-    // Personality extraction looks at a shorter recent window (~12 messages).
-    const recentForPersonality = [
-      ...windowRows.slice(-10).map((m) => `${m.role}: ${m.content}`),
-      `user: ${text}`,
-      `assistant: ${reply}`,
-    ].join("\n");
+    after(async () => {
+      try {
+        // Fold first so extraction (if any) reads the post-fold window.
+        let foldedRows = windowRows;
+        if (shouldFold) {
+          const toFold = windowRows.slice(0, FOLD_BATCH);
+          const foldText = toFold.map((m) => `${m.role}: ${m.content}`).join("\n");
+          const merged = await summarizeForFold(baseRollingSummary || null, foldText);
+          if (merged !== null) {
+            const boundary = toFold[toFold.length - 1].createdAt;
+            await (db as any).consultSession.update({
+              where: { id: sessionId },
+              data: { rollingSummary: merged, foldedThrough: boundary },
+            });
+            foldedRows = windowRows.slice(FOLD_BATCH);
+          }
+          // merged === null → fold deferred; retried next eligible turn.
+        }
 
-    const [extraction, personalityDeltas] = await Promise.all([
-      doInsightsExtraction ? runExtraction(insights, conversationText) : Promise.resolve(null),
-      doPersonalityExtraction ? runPersonalityExtraction(personality, recentForPersonality) : Promise.resolve(null),
-    ]);
+        if (doInsightsExtraction) {
+          const conversationText = [
+            ...foldedRows.map((m) => `${m.role}: ${m.content}`),
+            `user: ${text}`,
+            `assistant: ${reply}`,
+          ].join("\n");
+          const extraction = await runExtraction(baseInsights, conversationText);
+          if (extraction) {
+            const nextInsights = extraction.insights;
+            const nextStage = evaluateStageAdvance(stage, nextInsights, extraction.goalEmerging);
+            await (db as any).consultSession.update({
+              where: { id: sessionId },
+              data: { insights: nextInsights as any, consultStage: nextStage },
+            });
+          }
+        }
 
-    if (extraction) {
-      insights = extraction.insights;
-      nextStage = evaluateStageAdvance(stage, insights, extraction.goalEmerging);
-      await (db as any).consultSession.update({
-        where: { id: session.id },
-        data: { insights: insights as any, consultStage: nextStage },
-      });
-    }
-
-    if (personalityDeltas) {
-      const updatedPersonality = applyPersonalityDeltas(personality, personalityDeltas);
-      const data = {
-        disc: updatedPersonality.disc as any,
-        driveScores: updatedPersonality.driveScores as any,
-        sampleCount: updatedPersonality.sampleCount,
-        confidence: updatedPersonality.confidence,
-        notes: updatedPersonality.notes as any,
-      };
-      await (db as any).personalityProfile
-        .upsert({ where: { userId }, create: { userId, ...data }, update: data })
-        .catch((err: unknown) => console.error("[listen] personality profile upsert failed:", err));
-    }
+        if (doPersonalityExtraction) {
+          // Personality extraction looks at a shorter recent window (~12 messages).
+          const recentForPersonality = [
+            ...foldedRows.slice(-10).map((m) => `${m.role}: ${m.content}`),
+            `user: ${text}`,
+            `assistant: ${reply}`,
+          ].join("\n");
+          const personalityDeltas = await runPersonalityExtraction(basePersonality, recentForPersonality);
+          if (personalityDeltas) {
+            const updatedPersonality = applyPersonalityDeltas(basePersonality, personalityDeltas);
+            const data = {
+              disc: updatedPersonality.disc as any,
+              driveScores: updatedPersonality.driveScores as any,
+              sampleCount: updatedPersonality.sampleCount,
+              confidence: updatedPersonality.confidence,
+              notes: updatedPersonality.notes as any,
+            };
+            await (db as any).personalityProfile
+              .upsert({ where: { userId }, create: { userId, ...data }, update: data })
+              .catch((err: unknown) => console.error("[listen] personality profile upsert failed:", err));
+          }
+        }
+      } catch (err) {
+        console.error("[listen] background bookkeeping failed:", err);
+      }
+    });
   }
 
   const responsePayload: Record<string, unknown> = {
     ok: true,
     reply,
-    consultStage: nextStage,
+    consultStage: stage,
     crisis: false,
   };
 
   // ── Goal proposal — stage 4 only, via the shared proposal mechanism ────────
   // Goal candidates flow EXCLUSIVELY through proposals — never stored in insights.
-  if (!isAdmin && nextStage === 4 && insights.driveCandidate.value) {
+  // Uses the PRE-TURN `stage`/`insights` (this turn's extraction, if any, is
+  // backgrounded above) — a stage-4 transition is picked up on the next turn,
+  // once the background update has landed.
+  if (!isAdmin && stage === 4 && insights.driveCandidate.value) {
     const profile = await db.profile.findUnique({ where: { userId }, select: { goals: true } }).catch(() => null);
     const conversationText = [
       ...windowRows.map((m) => `${m.role}: ${m.content}`),

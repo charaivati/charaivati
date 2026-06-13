@@ -14,7 +14,11 @@ import { scanInput, scanOutput } from "@/lib/ai/guardRail";
 import { notifyAdmin } from "@/lib/ai/adminNotify";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
-const CHAT_TIMEOUT_MS = 30_000;
+// Must exceed Ollama's GENERATION budget (OLLAMA_GEN_TIMEOUT, default 60s —
+// see FIX-OLLAMA-TIMEOUT-1) plus headroom for a cloud fallback call, or a
+// legitimately slow-but-working cold-start local reply gets killed here
+// before callOllamaResilient's own generation timer ever fires.
+const CHAT_TIMEOUT_MS = (Number(process.env.OLLAMA_GEN_TIMEOUT) || 60_000) + 15_000;
 
 const BLOCKED_INPUT_REPLY =
   "I'm here to help you move forward on your goals. Is there something specific you'd like to work on?";

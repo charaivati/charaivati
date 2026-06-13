@@ -4,28 +4,39 @@ import type { Redis as UpstashRedisType } from "@upstash/redis";
 
 type AnyRedis = IORedisType | UpstashRedisType | null;
 
+/**
+ * Which kind of client is actually behind `client`. Callers (lib/rateLimit.ts)
+ * MUST branch on this instead of duck-typing methods like `.multi` — both
+ * ioredis and @upstash/redis expose `.multi`/`.pipeline`, but with different
+ * argument shapes, so duck-typing silently picks the wrong API and every call
+ * throws (caught and swallowed as a permissive "outage").
+ */
+export type RedisKind = "ioredis" | "upstash" | "none";
+
 let cachedClient: AnyRedis | undefined;
+let cachedKind: RedisKind | undefined;
 
 /**
- * Return a redis client or null. Safe to call during build because:
+ * Return the redis client plus an explicit tag for which implementation it is.
+ * Safe to call during build because:
  * - It prefers Upstash REST (no TCP)
  * - It only creates ioredis when REDIS_URL is provided and attempts a lazy connect,
- *   but swallow connect errors so builds won't fail.
+ *   but swallows connect errors so builds won't fail.
  *
- * Note: In production we log loudly if no redis config exists so missing config
- * isn't silently ignored.
+ * Logs once (per process) which client was detected so a regression to "no
+ * redis configured" / "wrong client" can never go unnoticed silently again.
  */
-export async function getRedis(): Promise<AnyRedis> {
-  if (cachedClient !== undefined) return cachedClient;
+export async function getRedisClient(): Promise<{ client: AnyRedis; kind: RedisKind }> {
+  if (cachedClient !== undefined && cachedKind !== undefined) {
+    return { client: cachedClient, kind: cachedKind };
+  }
 
-  // Production guard: ensure team knows if redis isn't configured
   const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
   const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
   const redisUrl = process.env.REDIS_URL ?? process.env.REDIS_URI;
 
   if (process.env.NODE_ENV === "production" && !upstashUrl && !redisUrl) {
     // Do not throw by default; we log so operators see the misconfiguration.
-    // If you prefer to fail-fast, replace console.error with throw new Error(...)
     // eslint-disable-next-line no-console
     console.error(
       "[redis] WARNING: No UPSTASH_REDIS_REST_URL+TOKEN or REDIS_URL configured in production. Rate limiting and caches may be disabled."
@@ -34,19 +45,20 @@ export async function getRedis(): Promise<AnyRedis> {
 
   // Prefer Upstash REST
   if (upstashUrl && upstashToken) {
-    // lazy require
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Redis } = require("@upstash/redis");
     try {
       const r: UpstashRedisType = new Redis({ url: upstashUrl, token: upstashToken });
-      (r as any).on?.("error", (e: any) => console.warn("[redis] upstash rest error:", e));
-      (r as any).on?.("ready", () => console.info("[redis] using Upstash REST client"));
       cachedClient = r;
-      return cachedClient;
+      cachedKind = "upstash";
+      console.info("[redis] Detected client: Upstash REST — rate limiting ACTIVE");
+      return { client: cachedClient, kind: cachedKind };
     } catch (e) {
       console.warn("[redis] upstash client init failed:", e);
       cachedClient = null;
-      return null;
+      cachedKind = "none";
+      console.warn("[redis] No usable client — rate limiting INACTIVE (permissive fallback)");
+      return { client: null, kind: "none" };
     }
   }
 
@@ -69,19 +81,20 @@ export async function getRedis(): Promise<AnyRedis> {
         console.warn("[redis] ioredis connect failed (ignored):", String(e));
       }
       cachedClient = r;
-      return cachedClient;
+      cachedKind = "ioredis";
+      console.info("[redis] Detected client: ioredis (REDIS_URL) — rate limiting ACTIVE");
+      return { client: cachedClient, kind: cachedKind };
     } catch (e) {
       console.warn("[redis] ioredis init failed:", e);
       cachedClient = null;
-      return null;
+      cachedKind = "none";
+      console.warn("[redis] No usable client — rate limiting INACTIVE (permissive fallback)");
+      return { client: null, kind: "none" };
     }
   }
 
   cachedClient = null;
-  return null;
-}
-
-/** Type guard for detecting ioredis at runtime (optional helper) */
-export function isIORedis(client: AnyRedis): client is IORedisType {
-  return !!client && typeof (client as any).multi === "function";
+  cachedKind = "none";
+  console.warn("[redis] No Redis configured (no UPSTASH_REDIS_REST_URL/TOKEN or REDIS_URL) — rate limiting INACTIVE (permissive fallback)");
+  return { client: null, kind: "none" };
 }
