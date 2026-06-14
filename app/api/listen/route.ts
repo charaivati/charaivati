@@ -43,15 +43,17 @@ import {
 import { isAdminUser, handleAdminCommand, getOpenAdminQuestions, fileAdminQuestion } from "@/lib/listener/adminBridge";
 import { buildSiteAwareness, buildSiteAwarenessCompact } from "@/lib/site/siteAwareness";
 import { isCapabilityGapCandidate, replyHedges, isCapabilityDeclineReply } from "@/lib/ai/capabilityGapTrigger";
-import { isFriendRequest, isReminderRequest, isReminderCancel, isUnfriendRequest, isLogoutRequest, isClearChatRequest, isLoginRequest } from "@/lib/ai/actionTrigger";
+import { isFriendRequest, isReminderRequest, isReminderCancel, isUnfriendRequest, isBlockRequest, isLogoutRequest, isClearChatRequest, isLoginRequest } from "@/lib/ai/actionTrigger";
 import { looksActionShaped, classifyIntent } from "@/lib/listener/intentClassifier";
 import {
   extractFriendQuery,
   extractReminderQuery,
   extractUnfriendQuery,
+  extractBlockQuery,
   buildFriendSearchAction,
   buildReminderAction,
   buildUnfriendAction,
+  buildBlockAction,
   sendReminder,
   describeFriendSearchReply,
   describeReminderReply,
@@ -60,6 +62,7 @@ import {
   describeReminderFailedReply,
   describeReminderCancelledReply,
   describeUnfriendReply,
+  describeBlockReply,
   describeLogoutReply,
   describeClearChatReply,
   describeLoginOfferReply,
@@ -552,6 +555,7 @@ export async function POST(req: Request) {
         isFriendRequest(text) ||
         isReminderRequest(text) ||
         isUnfriendRequest(text) ||
+        isBlockRequest(text) ||
         isLogoutRequest(text) ||
         isClearChatRequest(text) ||
         (isLoginRequest(text) && payload.role === "guest")
@@ -603,6 +607,12 @@ export async function POST(req: Request) {
         action = await buildUnfriendAction(userId, extracted.name);
         actionReply = describeUnfriendReply(action);
       }
+    } else if (!pendingHandled && isBlockRequest(text)) {
+      const extracted = await extractBlockQuery(text, activeModel);
+      if (extracted.name) {
+        action = await buildBlockAction(userId, extracted.name);
+        actionReply = describeBlockReply(action);
+      }
     } else if (!pendingHandled && isLogoutRequest(text)) {
       // ACTION-INTENT-3: strict-keyword-only — never reached via the classifier.
       action = { type: "logout_confirm" };
@@ -633,6 +643,12 @@ export async function POST(req: Request) {
         if (extracted.name) {
           action = await buildUnfriendAction(userId, extracted.name);
           actionReply = describeUnfriendReply(action);
+        }
+      } else if (classified.intent === "block_user") {
+        const extracted = await extractBlockQuery(text, activeModel);
+        if (extracted.name) {
+          action = await buildBlockAction(userId, extracted.name);
+          actionReply = describeBlockReply(action);
         }
       } else if (classified.intent === "send_reminder") {
         const extracted = await extractReminderQuery(text, activeModel);

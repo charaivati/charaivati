@@ -147,10 +147,21 @@ async function callOllamaResilient(params: {
   maxTokens: number;
   temperature: number;
 }): Promise<{ content: string; state: 'ok' | 'cold_start' | 'unavailable'; doneReason?: string }> {
-  const CONNECT_TIMEOUT = Number(process.env.OLLAMA_CONNECT_TIMEOUT) || 8_000;
-  const GEN_TIMEOUT = Number(process.env.OLLAMA_GEN_TIMEOUT) || 60_000;
+  // LOCAL-AI-FIX-1: measured cold-load time-to-first-byte on the 3050 is
+  // 19-32s (model load happens before Ollama emits any response bytes, even
+  // with stream:true) — the old 8s CONNECT_TIMEOUT aborted EVERY cold load
+  // before Ollama could respond, producing the "client connection closed
+  // before llama-server finished loading" 499s. 45s/90s gives headroom for
+  // a cold load + generation. A genuinely-down Ollama (tunnel error) still
+  // fails in well under a second, so this doesn't slow down the "Ollama is
+  // off" case.
+  const CONNECT_TIMEOUT = Number(process.env.OLLAMA_CONNECT_TIMEOUT) || 45_000;
+  const GEN_TIMEOUT = Number(process.env.OLLAMA_GEN_TIMEOUT) || 90_000;
   const numCtx = Number(process.env.OLLAMA_NUM_CTX) || 8192;
-  const keepAlive = process.env.OLLAMA_KEEP_ALIVE ?? '30m';
+  // Keep the chat model resident — repeated reloads (18-30s each) were the
+  // other half of the cold-start spiral. '24h' survives normal idle gaps
+  // between chats; Ollama still evicts under VRAM pressure from other models.
+  const keepAlive = process.env.OLLAMA_KEEP_ALIVE ?? '24h';
   // Thinking models (e.g. gemma4:e2b) burn the num_predict budget on
   // message.thinking before emitting message.content. Give the local path
   // extra headroom regardless of the caller's (cloud-tuned) maxTokens —

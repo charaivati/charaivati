@@ -19,6 +19,7 @@ export type ClassifiedIntent =
   | "add_friend"
   | "remove_friend"
   | "send_reminder"
+  | "block_user"
   | "logout"
   | "clear_chat"
   | "show_map"
@@ -60,6 +61,13 @@ const ACTION_WORDS = [
   "pay",
   "transfer money",
   "play",
+  // ACTION-INTENT-6: block phrasing — "block X" is also covered by
+  // BLOCK_TRIGGERS in actionTrigger.ts, but looser phrasings like "I don't
+  // want X to contact me" rely on this pre-filter + the classifier below.
+  "block",
+  "don't want",
+  "contact me",
+  "harass",
 ];
 
 /**
@@ -90,10 +98,13 @@ export async function classifyIntent(
           role: "system",
           content:
             "Classify what the user wants in this message. Reply ONLY with JSON: " +
-            '{"intent": "add_friend"|"remove_friend"|"send_reminder"|"logout"|"clear_chat"|"show_map"|"accept_friend_request"|"chat"|"unknown_capability", "params": {}}. ' +
+            '{"intent": "add_friend"|"remove_friend"|"send_reminder"|"block_user"|"logout"|"clear_chat"|"show_map"|"accept_friend_request"|"chat"|"unknown_capability", "params": {}}. ' +
             "Use add_friend when they want to find/add someone as a friend. " +
-            "Use remove_friend when they want to remove/unfriend someone. " +
+            "Use remove_friend when they want to remove/unfriend someone (but NOT block them). " +
             "Use send_reminder when they want a reminder sent to a friend. " +
+            "Use block_user when they want to block someone, prevent someone from contacting them, or say things like " +
+            '"block him", "I don\'t want X to message me anymore", "stop X from contacting me", "I don\'t want to hear from her again". ' +
+            "block_user is stronger than remove_friend — if the user wants to cut off ALL contact (not just unfriend), use block_user. " +
             "Use logout when they clearly want to sign out of their account. " +
             "Use clear_chat when they clearly want to clear or reset this conversation. " +
             "Use show_map when they want to see their progress map/overview. " +
@@ -123,6 +134,7 @@ export async function classifyIntent(
       "add_friend",
       "remove_friend",
       "send_reminder",
+      "block_user",
       "logout",
       "clear_chat",
       "show_map",

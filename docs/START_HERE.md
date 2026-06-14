@@ -414,6 +414,7 @@ Quick reference for jumping into a specific area. Read the linked doc before tou
 | Feature area | Primary entry files | Reference |
 |---|---|---|
 | **Store** (products, sections, banners) | `app/store/[id]/page.tsx`, `app/api/store/` | `docs/modules/store.md` |
+| **Store taxonomy** (discovery categories/tags, TAG-STORE-1b) | `prisma/schema.prisma` (`StoreCategory`/`StoreTag`/translations/link tables) | `docs/modules/store.md` § Store Taxonomy; seed: standalone `node prisma/seed-store-taxonomy.js` (seeds vocab + translations for all 16 languages, run separately from `seed.js`) |
 | **Order management** (owner) | `app/store/[id]/orders/page.tsx` (page B — the one true confirm/workflow surface), `app/store/orders/all/page.tsx` (page A — read-only cross-store monitor + funnel into B; CONFIRM-PARITY-FIX-1) | `docs/modules/store.md` § Key Pages |
 | **Checkout** (cart + Buy Now) | `components/store/QuickOrderModal.tsx`, `app/api/store/orders/quick/route.ts` | `CLAUDE.md` § Buy Now / Quick Order UX |
 | **Guest checkout** | `lib/mergeGuest.ts`, `app/api/user/magic/route.ts` | `CLAUDE.md` § Guest Account Merge |
@@ -597,16 +598,16 @@ Should return JSON with available models (`gemma4:e2b`, `llama3:8b`, `llava:7b`)
 **Ollama version: v0.30.4.** Do not downgrade — v0.21.x crashes on vision requests (llava).
 
 ### Models Available
-- `llama3:8b` — primary, used for chat and most AI routes
-- `gemma4:e2b` — alternative, larger context
-- `llava:7b` — vision model; required by `POST /api/store/parse-menu` (menu photo → JSON extraction)
+- `llama3:8b` — **primary, text-only chat model**, kept resident via `OLLAMA_KEEP_ALIVE=-1` (LOCAL-AI-FIX-1, 2026-06-14) so cold loads don't happen mid-request
+- `gemma4:e2b` — no longer the active chat model; its unified multimodal (vision+audio) weights spilled ~4.4GB to CPU on the 6GB 3050, causing slow/failed loads
+- `llava:7b` — local vision fallback only, used by menu-parse / document OCR when `OPENROUTER_API_KEY` is not set. Loading it would evict the resident `llama3:8b`, so vision now defaults to cloud (`google/gemini-2.5-flash-lite` for menu parse, `anthropic/claude-haiku-4-5` for doc OCR, both via OpenRouter)
 
 ### Model Tiers
 Models map to tiers (`junior` / `assistant` / `senior` / `council`) that control UI labels in the chatbot widget. See `lib/ai/modelTiers.ts` for the full map and `getTierUI(modelName)` for label strings.
 
 `chatCompleteWithMeta()` in `app/api/aiClient.ts` wraps `chatComplete()` and also returns `{ source, coldStart, model }`. Use it when the calling route needs to know which provider actually responded. `POST /api/chat` uses this and forwards `tier`, `tierUI`, `source`, `coldStart`, and `localExpected` to the widget.
 
-The Ollama caller now has resilience built in: network errors fall through to cloud immediately; an empty response (model loading) waits 8 s and retries once before falling through.
+The Ollama caller has two timeout budgets (`OLLAMA_CONNECT_TIMEOUT`=45s, `OLLAMA_GEN_TIMEOUT`=90s as of LOCAL-AI-FIX-1): connection errors or no-response-within-connect-timeout fall through to cloud immediately; a slow-but-responding cold load (19-32s time-to-first-byte measured on the 3050) is allowed up to the generation timeout before falling through. See `FIX-OLLAMA-TIMEOUT-1` in CLAUDE.md's Known Footguns.
 
 ### Companion System (Phase 1 — Foundation)
 The Companion is a periodic AI-initiated conversation layer that builds a `UserCompanionProfile` for each user over time. It tracks five pillars: Time, Health/Energy, Drive type, Hobbies, and Location. Profile data is injected into every chat system prompt for personalised responses.
@@ -653,7 +654,7 @@ All keys are in Vercel env vars. No action needed — fallback is automatic.
 `npm install` picks up `pdf-parse` and `mammoth` — both pure-JS / prebuilt-binary, no system dependencies (e.g. no `poppler`) needed. PDF text extraction uses `unpdf`; `pdf-parse` is kept only for `getScreenshot()` (OCR page rendering). DOCX uses `mammoth.extractRawText()`.
 
 Optional env vars (sensible defaults — nothing required to add for a normal `npm install` + dev run):
-- `DOC_OCR_VISION_MODEL` — local Ollama vision model for scanned-page OCR. Default `llava:7b`.
-- `DOC_OCR_FALLBACK_MODEL` — OpenRouter vision model used when Ollama is unavailable. Default `anthropic/claude-haiku-4-5`.
+- `DOC_OCR_FALLBACK_MODEL` — **primary** OCR vision model via OpenRouter (cloud), used whenever `OPENROUTER_API_KEY` is set. Default `anthropic/claude-haiku-4-5`.
+- `DOC_OCR_VISION_MODEL` — local Ollama vision model for scanned-page OCR, fallback only (no `OPENROUTER_API_KEY`). Default `llava:7b`.
 
 See `docs/modules/document-reader.md` for the full pipeline and `docs/modules/profile-sync.md` for the related chat→profile proposal flow.

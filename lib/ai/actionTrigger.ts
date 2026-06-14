@@ -65,6 +65,21 @@ export function isUnfriendRequest(message: string): boolean {
   return UNFRIEND_TRIGGERS.some((trigger) => lower.includes(trigger));
 }
 
+// ACTION-INTENT-6: deterministic block action — strict-keyword triggers cover
+// the explicit "block X" phrasing; looser phrasings ("I don't want X to
+// contact me") are caught by the intent classifier's block_user intent (see
+// lib/listener/intentClassifier.ts). Always confirm-gated before the
+// destructive POST /api/users/block call.
+export const BLOCK_TRIGGERS: string[] = [
+  "block",
+  "unblock",
+];
+
+export function isBlockRequest(message: string): boolean {
+  const lower = message.toLowerCase();
+  return BLOCK_TRIGGERS.some((trigger) => lower.includes(trigger));
+}
+
 // ACTION-INTENT-3: logout — strict-keyword-only by design (CAPABILITIES
 // doctrine). Never routed through the intent classifier; a false positive
 // here would sign the user out unexpectedly.

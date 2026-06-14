@@ -39,11 +39,12 @@ components/chat/ChatBot.tsx
     `pdf-parse` text path did (see footgun below) — it has not yet been fixed;
     only the `getText()` crash (parseDocument.ts) was addressed by the unpdf
     swap (PDFPARSE-1).
-  - OCRs the PNG with a vision model. Tries **local Ollama first**
-    (`DOC_OCR_VISION_MODEL`, default `llava:7b` — same model the menu-parse
-    feature already uses), falling back to **OpenRouter** (`DOC_OCR_FALLBACK_MODEL`,
-    default `anthropic/claude-haiku-4-5`) if Ollama is unavailable or
-    `LOCAL_AI_ENABLED` is not set.
+  - OCRs the PNG with a vision model. As of LOCAL-AI-FIX-1 (2026-06-14), tries
+    **OpenRouter first** (`DOC_OCR_FALLBACK_MODEL`, default
+    `anthropic/claude-haiku-4-5` — cloud), falling back to **local Ollama**
+    (`DOC_OCR_VISION_MODEL`, default `llava:7b`) only if `OPENROUTER_API_KEY`
+    is not set. This keeps the resident local chat model (`llama3:8b`) from
+    being evicted by a vision model load on the 6GB 3050.
   - The OCR prompt asks for **LaTeX** (`$...$` / `$$...$$`) for any math/formulas
     and markdown tables for tabular data — this is what makes physics/math
     textbook pages usable.
@@ -80,27 +81,19 @@ components/chat/ChatBot.tsx
 
 ## Local model setup (Dell G15, 6GB VRAM)
 
-You already run `llama3:8b` (chat) and `llava:7b` (vision/OCR — used by
-menu-parse) via Ollama. **No new local model is required** — the document
-reader reuses `llava:7b` for OCR by default.
+**LOCAL-AI-FIX-1 (2026-06-14) — vision moved to cloud.** The local 6GB 3050
+keeps `llama3:8b` (text-only chat) resident via `OLLAMA_KEEP_ALIVE=-1`. Any
+local vision model load (e.g. `llava:7b`) would evict it and force a ~20s
+reload on the next chat turn — so OCR now defaults to **cloud**
+(`anthropic/claude-haiku-4-5` via OpenRouter, `DOC_OCR_FALLBACK_MODEL`),
+matching the menu-parse extractor's cloud-first design. `llava:7b` is kept
+only as a local fallback for environments without `OPENROUTER_API_KEY` — no
+action needed if you already have that key set (you do, for menu-parse).
 
-Optional upgrade for better OCR/formula transcription (still fits 6GB, only
-pull if you want to compare quality):
-```bash
-ollama pull minicpm-v
-```
-Then set `DOC_OCR_VISION_MODEL=minicpm-v` in `.env.local`. `llava:7b` is
-serviceable for plain scanned text but weak on dense formulas — for
-formula-heavy pages (math/physics books), the **cloud fallback
-(`anthropic/claude-haiku-4-5` via OpenRouter) is meaningfully more accurate**
-and is used automatically whenever Ollama is unavailable or returns nothing.
-If you regularly OCR formula-heavy scans, you can force cloud-only OCR by
-unsetting `LOCAL_AI_ENABLED` for that request path — not needed by default,
-the fallback already triggers automatically on any Ollama failure.
-
-A 6GB card cannot comfortably hold `llama3:8b` + `llava:7b` + a third OCR
-model resident simultaneously. Stick to the two existing models; let the
-OpenRouter fallback absorb anything that needs a heavier vision model.
+If you want to compare OCR quality with a different local model when running
+without `OPENROUTER_API_KEY`, set `DOC_OCR_VISION_MODEL` to an installed
+Ollama vision model (default `llava:7b`). Don't run this alongside the
+resident `llama3:8b` chat model on a 6GB card — it will evict it.
 
 ## Environment variables
 
@@ -108,21 +101,20 @@ All optional — sensible defaults match the existing menu-parse setup.
 
 | Var | Default | Purpose |
 |---|---|---|
-| `DOC_OCR_VISION_MODEL` | `llava:7b` | Local Ollama vision model for scanned-page OCR |
-| `DOC_OCR_FALLBACK_MODEL` | `anthropic/claude-haiku-4-5` | OpenRouter vision model used when Ollama is unavailable |
+| `DOC_OCR_FALLBACK_MODEL` | `anthropic/claude-haiku-4-5` | **Primary** OCR vision model, via OpenRouter (cloud) — used whenever `OPENROUTER_API_KEY` is set |
+| `DOC_OCR_VISION_MODEL` | `llava:7b` | Local Ollama vision model for scanned-page OCR — fallback only, used when `OPENROUTER_API_KEY` is not set |
 
 Reuses existing vars: `LOCAL_AI_ENABLED`, `OLLAMA_BASE_URL`, `OPENROUTER_API_KEY`.
 
 ## What you need to do
 
-1. **Local machine**: nothing new to install — `llama3:8b` and `llava:7b` are
-   already running via your existing Ollama + Cloudflare tunnel setup.
+1. **Local machine**: nothing new to install. `llama3:8b` runs via your
+   existing Ollama + Cloudflare tunnel setup as the resident chat model;
+   `llava:7b` is only needed if `OPENROUTER_API_KEY` is ever unset.
 2. **Repo**: `npm install` (adds `pdf-parse` and `mammoth` — both pure-JS/prebuilt-binary,
    no system dependencies like `poppler` needed).
-3. **Vercel/production env vars**: none required to add — the two new vars
-   above are optional overrides. `OPENROUTER_API_KEY` should already be set
-   for the OCR cloud fallback and menu-parse validator to work.
-4. Optional: `ollama pull minicpm-v` if you want to A/B test OCR quality vs `llava:7b`.
+3. **Vercel/production env vars**: none required to add — `OPENROUTER_API_KEY`
+   should already be set (it is, for menu-parse) and covers OCR's cloud path too.
 
 ## Known limitations / future work
 
@@ -152,9 +144,8 @@ Reuses existing vars: `LOCAL_AI_ENABLED`, `OLLAMA_BASE_URL`, `OPENROUTER_API_KEY
   persist across a multi-turn flow, store the extracted `text` (not the file)
   in that feature's own state/DB row — do not build a generic document store
   here until a second consumer needs it.
-- **Formula fidelity** depends entirely on the OCR model. `llava:7b` will
-  often get simple formulas right and garble complex multi-line derivations;
-  the `anthropic/claude-haiku-4-5` cloud fallback is noticeably better. If
-  formula quality matters for a specific feature (e.g. a future "explain this
-  problem set" tool), consider always setting `ocr=auto` and accepting the
-  cloud fallback cost rather than trying to force local-only.
+- **Formula fidelity** depends entirely on the OCR model. The default cloud
+  path (`anthropic/claude-haiku-4-5`) handles complex multi-line derivations
+  well. The local `llava:7b` fallback (only used without `OPENROUTER_API_KEY`)
+  often gets simple formulas right but garbles dense ones — acceptable as a
+  fallback-of-last-resort, not as a primary path.

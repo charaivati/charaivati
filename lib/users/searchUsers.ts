@@ -35,7 +35,15 @@ export async function searchUsers({
       discoverable: true,
       status: { not: "guest" },
       name: { contains: query, mode: "insensitive" },
-      ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      ...(excludeUserId
+        ? {
+            id: { not: excludeUserId },
+            // ACTION-INTENT-6: bilateral block effect — exclude this user if
+            // either side has blocked the other.
+            blocksReceived: { none: { blockerId: excludeUserId } },
+            blocksMade: { none: { blockedId: excludeUserId } },
+          }
+        : {}),
       ...(loc
         ? {
             addresses: {

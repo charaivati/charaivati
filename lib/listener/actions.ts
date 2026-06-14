@@ -8,7 +8,7 @@
 // under app/api/listen/actions/* — never as a raw model side effect.
 import { db } from "@/lib/db";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
-import { searchUsers } from "@/lib/users/searchUsers";
+import { searchUsers, SEARCH_MAX_RESULTS } from "@/lib/users/searchUsers";
 import { scanInput } from "@/lib/ai/guardRail";
 import { checkRateLimit } from "@/lib/rateLimit";
 import { createNotification } from "@/lib/notifications/createNotification";
@@ -326,6 +326,95 @@ export function describeUnfriendReply(action: ListenAction): string {
       return `I found a few friends matching that name — which one did you mean?`;
     case "unfriend_not_found":
       return `You're not friends with anyone by that name.`;
+    default:
+      return "";
+  }
+}
+
+// ── Block action (ACTION-INTENT-6) ──────────────────────────────────────────
+// Unlike unfriend, a block can target someone who is NOT a friend — so
+// resolution checks friends first (most likely intent — "block <friend>"),
+// then falls back to a platform-wide searchUsers() lookup. Still confirm-gated
+// (destructive). The actual write happens via POST /api/users/block.
+
+export async function extractBlockQuery(text: string, model: string): Promise<{ name: string | null }> {
+  try {
+    const reply = await chatComplete({
+      model,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Extract the name of the person the user wants to block. " +
+            'Reply ONLY with JSON: {"name": string|null}. If no name is mentioned, set name to null.',
+        },
+        { role: "user", content: text },
+      ],
+      jsonMode: true,
+      maxTokens: 60,
+      temperature: 0,
+    });
+    const parsed = safeJsonParse<{ name?: string | null }>(reply);
+    return {
+      name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : null,
+    };
+  } catch (err) {
+    console.error("[listener/actions] extractBlockQuery failed:", err);
+    return { name: null };
+  }
+}
+
+export async function buildBlockAction(userId: string, name: string): Promise<ListenAction> {
+  const friendships = await db.friendship.findMany({
+    where: { OR: [{ userAId: userId }, { userBId: userId }] },
+    include: {
+      userA: { select: { id: true, name: true, avatarUrl: true } },
+      userB: { select: { id: true, name: true, avatarUrl: true } },
+    },
+  });
+
+  const friends = friendships.map((f) => (f.userAId === userId ? f.userB : f.userA));
+  const lowerName = name.toLowerCase();
+  const friendMatches = friends.filter((f) => (f.name ?? "").toLowerCase().includes(lowerName));
+
+  if (friendMatches.length === 1) {
+    const f = friendMatches[0];
+    return { type: "block_confirm", target: { id: f.id, name: f.name, avatarUrl: f.avatarUrl } };
+  }
+
+  if (friendMatches.length > 1) {
+    return {
+      type: "block_pick",
+      candidates: friendMatches.map((f) => ({ id: f.id, name: f.name, avatarUrl: f.avatarUrl })),
+    };
+  }
+
+  // Not a friend — block can still target anyone discoverable on the platform.
+  const results = await searchUsers({ q: name, excludeUserId: userId, limit: SEARCH_MAX_RESULTS });
+
+  if (results.length === 1) {
+    const r = results[0];
+    return { type: "block_confirm", target: { id: r.id, name: r.name, avatarUrl: r.avatarUrl } };
+  }
+
+  if (results.length > 1) {
+    return {
+      type: "block_pick",
+      candidates: results.map((r) => ({ id: r.id, name: r.name, avatarUrl: r.avatarUrl })),
+    };
+  }
+
+  return { type: "block_not_found", name };
+}
+
+export function describeBlockReply(action: ListenAction): string {
+  switch (action.type) {
+    case "block_confirm":
+      return `Are you sure you want to block ${action.target.name ?? "them"}? They won't be able to find you, friend you, or contact you, and any existing friendship will be removed.`;
+    case "block_pick":
+      return `I found a few people matching that name — which one did you mean?`;
+    case "block_not_found":
+      return `I couldn't find anyone matching that name.`;
     default:
       return "";
   }

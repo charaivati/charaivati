@@ -14,6 +14,19 @@ export async function POST(req: Request) {
   if (!receiverId) return NextResponse.json({ ok: false, error: "receiverId required" }, { status: 400 });
   if (receiverId === user.id) return NextResponse.json({ ok: false, error: "Cannot friend yourself" }, { status: 400 });
 
+  // ACTION-INTENT-6: bilateral block effect — a block in either direction
+  // blocks the friend request. Neutral, non-leaky error: never reveals
+  // whether the block was made by the receiver or the sender.
+  const blocked = await (db as any).userBlock.findFirst({
+    where: {
+      OR: [
+        { blockerId: user.id, blockedId: receiverId },
+        { blockerId: receiverId, blockedId: user.id },
+      ],
+    },
+  });
+  if (blocked) return NextResponse.json({ ok: false, error: "blocked", message: "Couldn't send a friend request." }, { status: 400 });
+
   // already friends? (check either order)
   const existingFriend = await db.friendship.findFirst({
     where: {

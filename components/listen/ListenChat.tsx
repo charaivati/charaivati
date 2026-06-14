@@ -17,6 +17,7 @@ import FriendSearchCards from "@/components/listen/FriendSearchCards";
 import ReminderCard from "@/components/listen/ReminderCard";
 import FriendRequestCard from "@/components/listen/FriendRequestCard";
 import UnfriendCard from "@/components/listen/UnfriendCard";
+import BlockCard from "@/components/listen/BlockCard";
 import LogoutConfirmCard from "@/components/listen/LogoutConfirmCard";
 import ClearChatConfirmCard from "@/components/listen/ClearChatConfirmCard";
 import { SecureChatCard } from "@/components/listen/SecureChatCard";
@@ -401,6 +402,10 @@ export default function ListenChat() {
                         (m.action.type === "unfriend_confirm" ||
                           m.action.type === "unfriend_pick" ||
                           m.action.type === "unfriend_not_found") && <UnfriendCard action={m.action} />}
+                      {m.action &&
+                        (m.action.type === "block_confirm" ||
+                          m.action.type === "block_pick" ||
+                          m.action.type === "block_not_found") && <BlockCard action={m.action} />}
                       {m.action?.type === "logout_confirm" && <LogoutConfirmCard onLoggedOut={handleLoggedOut} />}
                       {m.action?.type === "clear_chat_confirm" && <ClearChatConfirmCard onCleared={handleClearedChat} />}
                       {m.action?.type === "login_offer" && (

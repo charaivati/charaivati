@@ -42,6 +42,8 @@ export async function GET(
         },
         banners: { where: { isGlobal: true }, take: 1 },
         owner: { select: { name: true } },
+        categories: { select: { categoryId: true } },
+        tags: { select: { tagId: true } },
       },
     }),
     getServerUser(req),
@@ -119,6 +121,8 @@ export async function GET(
     pageType,
     isOwner: user?.id === store.ownerId,
     ownerName: store.owner?.name ?? null,
+    categoryIds: store.categories.map((c) => c.categoryId),
+    tagIds: store.tags.map((t) => t.tagId),
   });
 }
 
@@ -137,7 +141,11 @@ export async function PATCH(
   if (store.deletedAt) return NextResponse.json({ error: "This store has been deleted. Restore it before making changes." }, { status: 409 });
 
   const body = await req.json();
-  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText, location } = body;
+  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText, location, categoryIds, tagIds } = body;
+
+  if (Array.isArray(categoryIds) && categoryIds.length > 3) {
+    return NextResponse.json({ error: "Pick up to 3 categories" }, { status: 400 });
+  }
 
   const data: Record<string, unknown> = {};
   if (name?.trim()) data.name = name.trim();
@@ -167,6 +175,27 @@ export async function PATCH(
       SET "line1" = ${line1}, "city" = ${city}, "state" = ${state}, "pincode" = ${pincode}, "lat" = ${lat}, "lng" = ${lng}
       WHERE id = ${id}
     `;
+  }
+
+  // Store category/tag links (TAG-STORE-1c) — empty array clears, omitted key
+  // leaves the table untouched. Category count is capped at 3 (checked above).
+  if (Array.isArray(categoryIds)) {
+    await prisma.$transaction([
+      prisma.storeCategoryLink.deleteMany({ where: { storeId: id } }),
+      prisma.storeCategoryLink.createMany({
+        data: categoryIds.map((categoryId: string) => ({ storeId: id, categoryId })),
+        skipDuplicates: true,
+      }),
+    ]);
+  }
+  if (Array.isArray(tagIds)) {
+    await prisma.$transaction([
+      prisma.storeTagLink.deleteMany({ where: { storeId: id } }),
+      prisma.storeTagLink.createMany({
+        data: tagIds.map((tagId: string) => ({ storeId: id, tagId })),
+        skipDuplicates: true,
+      }),
+    ]);
   }
 
   const extraRow = await prisma.$queryRaw<{

@@ -31,6 +31,77 @@ Return only JSON, no other text.`;
 
 const VALIDATOR_MODEL = process.env.MENU_VALIDATOR_MODEL ?? "anthropic/claude-haiku-4-5";
 
+// LOCAL-AI-FIX-1: vision extraction runs on cloud (cheap Gemini Flash-class
+// model via OpenRouter) — local Ollama on the 6GB 3050 is reserved for the
+// text-only chat model. Falls back to local Ollama llava only if no
+// OPENROUTER_API_KEY is configured.
+const VISION_MODEL = process.env.MENU_VISION_MODEL ?? "google/gemini-2.5-flash-lite";
+
+async function extractMenuViaOpenRouter(base64Image: string, mimeType: string): Promise<string> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL ?? "https://charaivati.com",
+      "X-Title": process.env.OPENROUTER_APP_NAME ?? "Charaivati",
+    },
+    body: JSON.stringify({
+      model: VISION_MODEL,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: EXTRACTOR_SYSTEM },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } },
+          ],
+        },
+      ],
+      max_tokens: 3000,
+      temperature: 0.1,
+    }),
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`OpenRouter ${res.status}: ${err}`);
+  }
+
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content ?? "";
+  if (!content.trim()) throw new Error("OpenRouter returned empty content");
+  return content;
+}
+
+async function extractMenuViaOllama(base64Image: string): Promise<string> {
+  const ollamaBase = (process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
+  const ollamaRes = await fetch(`${ollamaBase}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.MENU_VISION_FALLBACK_MODEL ?? "llava:7b",
+      messages: [{ role: "user", content: EXTRACTOR_SYSTEM, images: [base64Image] }],
+      stream: false,
+      keep_alive: "10m",
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+
+  if (!ollamaRes.ok) {
+    const err = await ollamaRes.text().catch(() => ollamaRes.statusText);
+    throw new Error(`Ollama ${ollamaRes.status}: ${err}`);
+  }
+
+  const ollamaData = (await ollamaRes.json()) as { message?: { content?: string } };
+  const content = ollamaData?.message?.content ?? "";
+  if (!content.trim()) throw new Error("Ollama returned empty content");
+  return content;
+}
+
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -54,37 +125,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // ─── Step 1: vision extraction via Ollama llava ──────────────────────────────
+  // ─── Step 1: vision extraction — cloud (OpenRouter) with local Ollama llava fallback ──
 
-  const ollamaBase = (process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
   const base64Image = Buffer.from(await imageFile.arrayBuffer()).toString("base64");
+  const mimeType = imageFile.type || "image/jpeg";
 
   let rawJson: string;
   try {
-    const ollamaRes = await fetch(`${ollamaBase}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: process.env.MENU_VISION_MODEL ?? "llava:7b",
-        messages: [{ role: "user", content: EXTRACTOR_SYSTEM, images: [base64Image] }],
-        stream: false,
-        keep_alive: "10m",
-      }),
-      signal: AbortSignal.timeout(120_000),
-    });
-
-    if (!ollamaRes.ok) {
-      const err = await ollamaRes.text().catch(() => ollamaRes.statusText);
-      throw new Error(`Ollama ${ollamaRes.status}: ${err}`);
-    }
-
-    const ollamaData = await ollamaRes.json() as { message?: { content?: string } };
-    rawJson = ollamaData?.message?.content ?? "";
-    if (!rawJson.trim()) throw new Error("Ollama returned empty content");
+    rawJson = process.env.OPENROUTER_API_KEY?.trim()
+      ? await extractMenuViaOpenRouter(base64Image, mimeType)
+      : await extractMenuViaOllama(base64Image);
   } catch (err) {
     console.error("[parse-menu] Step 1 (vision) failed:", err);
-    const visionModel = process.env.MENU_VISION_MODEL ?? "llava:7b";
-    return NextResponse.json({ error: `Menu extraction failed — ensure ${visionModel} is loaded in Ollama` }, { status: 502 });
+    return NextResponse.json({ error: "Menu extraction failed — please try again" }, { status: 502 });
   }
 
   // ─── Step 2: validation via chatComplete (OpenRouter → Groq → Vercel) ───────

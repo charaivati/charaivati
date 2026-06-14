@@ -254,6 +254,27 @@ Entry points that use this pipeline:
 - `PinnedStore` — user-saved store
 - `BillingProfile` — per-user GST/invoice profile; optional `linkedStoreId` FK to Store; selected at checkout for invoice generation
 - `ProductRating` — one rating per user per `StoreBlock`; `@@unique([productId, userId])`; `productId` references `StoreBlock.id` (mapped to the `Block` table)
+- `StoreCategory` / `StoreTag` — store discovery taxonomy (see § Store Taxonomy below)
+
+## Store Taxonomy (Categories & Tags) — TAG-STORE-1b
+
+A **separate axis from `Page.pageType`**. `Page.pageType` (`store`/`service`/`fleet`/`learning`/...) is the *initiative type* — what kind of venture this is. `StoreCategory`/`StoreTag` are *discovery metadata* — what a store sells/how it operates, used for browsing and filtering. A single `store`-type Page can be tagged "Food & Restaurant" + "home-delivery" + "veg-only".
+
+**Models** (migration `20260621000000_add_store_category_tag`):
+- `StoreCategory` (`id`, `slug` unique, `order`) — flat list, **no `parentId` hierarchy**
+- `StoreCategoryTranslation` (`categoryId`, `locale`, `title`, `description?`) — `@@unique([categoryId, locale])`, mirrors `TabTranslation`
+- `StoreCategoryLink` (`storeId`, `categoryId`) — composite PK M2M, cascade-delete both sides
+- `StoreTag` (`id`, `slug` unique, `order`) — flat list
+- `StoreTagTranslation` (`tagId`, `locale`, `title`) — `@@unique([tagId, locale])`, title-only (no description)
+- `StoreTagLink` (`storeId`, `tagId`) — composite PK M2M, cascade-delete both sides
+
+**Controlled vocabulary** (15 categories, 15 tags — see `prisma/seed-store-taxonomy.js` for the full lists and English copy):
+- Categories: `grocery`, `food`, `vegetables`, `dairy`, `meat`, `pharmacy`, `clothing`, `tailor`, `electronics`, `hardware`, `stationery`, `salon`, `home_services`, `handmade`, `services`
+- Tags: `home-delivery`, `pickup-available`, `upi-accepted`, `cash-only`, `open-late`, `open-24x7`, `veg-only`, `non-veg`, `women-led`, `made-to-order`, `wholesale`, `organic`, `second-hand`, `repair-service`, `bulk-discount`
+
+**Seeding**: `node prisma/seed-store-taxonomy.js` (standalone, not chained into `seed.js`) — upserts the vocab, then upserts translations for every enabled `Language` row (16 languages × 15 categories + 16 × 15 tags = 480 translation rows). Falls back to copying the English `title`/`description` when `LIBRE_TRANSLATE_URL` is unset or unreachable. Also links the sample store "Breakfast by Arun" (if it exists) to `food` + `home-delivery`/`upi-accepted`/`veg-only`/`made-to-order` for testing.
+
+**Status: data layer only.** `GET /api/store/all`, `PATCH /api/store/[id]`, the owner category/tag picker UI, and discovery filtering are NOT wired to these tables yet — that is deferred to a later prompt (TAG-STORE-2+).
 
 ## Risks & Fragile Areas
 - `Order.items` is a JSON snapshot — no referential integrity after checkout. Price changes after purchase do not affect existing orders, which is correct, but querying historical pricing requires parsing JSON.

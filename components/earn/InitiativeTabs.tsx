@@ -4,12 +4,19 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import PartnersTab from "./PartnersTab";
+import StoreTaxonomyPicker, { StoreTaxonomy } from "./StoreTaxonomyPicker";
+import { useLanguage } from "@/components/LanguageProvider";
+import { useTranslations } from "@/hooks/useTranslations";
 
 const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
 const WorkflowTab          = dynamic(() => import("./WorkflowTab"),          { ssr: false });
 const TeamTab              = dynamic(() => import("./TeamTab"),              { ssr: false });
 const StoreLocationForm    = dynamic(() => import("./StoreLocationForm"),    { ssr: false });
 type Tab = "overview" | "store" | "team" | "partners" | "workflow" | "fleet";
+
+const TAXONOMY_SLUGS =
+  "store-categories-label,store-categories-prompt,store-tags-label,store-tags-prompt," +
+  "store-taxonomy-save,store-taxonomy-saving,store-taxonomy-saved,store-categories-cap";
 
 interface StoreLocation {
   line1: string | null;
@@ -71,6 +78,9 @@ export default function InitiativeTabs({
   const tabParam = searchParams?.get("tab") as Tab | null;
   const initialTab: Tab = tabParam && VALID_TABS.includes(tabParam) ? tabParam : "overview";
 
+  const { locale } = useLanguage();
+  const t = useTranslations(TAXONOMY_SLUGS);
+
   const [activeTab,       setActiveTab]       = useState<Tab>(initialTab);
   const [openingStore,    setOpeningStore]     = useState(false);
   const [canEdit,         setCanEdit]         = useState(true);
@@ -79,6 +89,10 @@ export default function InitiativeTabs({
   const [storeLocation,   setStoreLocation]   = useState<StoreLocation | null>(null);
   const [editingLocation, setEditingLocation] = useState(false);
   const [savingLocation,  setSavingLocation]  = useState(false);
+  const [taxonomy,            setTaxonomy]            = useState<StoreTaxonomy | null>(null);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [selectedTagIds,      setSelectedTagIds]      = useState<string[]>([]);
+  const [taxonomySaveState,   setTaxonomySaveState]   = useState<"idle" | "saving" | "saved">("idle");
 
   // Fetch team role to determine edit permissions (founder / co_founder = can edit)
   useEffect(() => {

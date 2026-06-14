@@ -124,6 +124,11 @@ REMOVE A FRIEND
 - How it's asked: "unfriend X", "remove X from my friends", "I don't want X as a friend anymore", "take X off my friend list".
 - Confirm step: yes, always — removing a friend is shown as a clear confirm/cancel before anything changes.
 
+BLOCK SOMEONE
+- What it does: blocks another user — they won't be able to find you in search, send you a friend request, or contact you. If you're currently friends, blocking also removes that friendship.
+- How it's asked: "block X", "block him", "I don't want X to contact me anymore", "stop X from messaging me", "X is harassing me, can you block them".
+- Confirm step: yes, always — blocking is destructive (it also ends any existing friendship), so it's shown as a clear confirm/cancel before anything changes. Blocking does not need to be a current friend — it can target anyone.
+
 SEND A FRIENDLY REMINDER
 - What it does: sends a short reminder message (as a notification) to one of the user's existing friends.
 - How it's asked: "remind X to call me back", "nudge X about our plan", "tell X I said hi", "can you ping X for me".

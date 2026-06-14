@@ -4,10 +4,12 @@
 // Pipeline: render the flagged page to a PNG via pdf-parse's built-in
 // getScreenshot() (pdfjs-dist + @napi-rs/canvas, already bundled with
 // pdf-parse — no extra native deps), then send the image to a vision model:
-//   1. Local Ollama (DOC_OCR_VISION_MODEL, default "llava:7b") — same model
-//      already used by the menu-parse feature.
-//   2. OpenRouter vision model (DOC_OCR_FALLBACK_MODEL, default
-//      "anthropic/claude-haiku-4-5") if Ollama is unavailable/empty.
+//   1. OpenRouter vision model (DOC_OCR_FALLBACK_MODEL, default
+//      "anthropic/claude-haiku-4-5") — primary, cloud (LOCAL-AI-FIX-1: local
+//      vision is off the 6GB 3050 — loading llava:7b would evict the
+//      resident text chat model and force a ~20s reload).
+//   2. Local Ollama (DOC_OCR_VISION_MODEL, default "llava:7b") — fallback
+//      only if OPENROUTER_API_KEY is not configured.
 //
 // The prompt asks for plain text plus LaTeX for any mathematical notation,
 // so physics/math textbook pages come back with formulas in $...$ form.
@@ -40,6 +42,7 @@ async function renderPageToPng(buffer: Buffer, pageNum: number): Promise<string>
 
 async function ocrViaOllama(base64Png: string): Promise<string | null> {
   const ollamaBase = (process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
+  // LOCAL-AI-FIX-1: only used when OpenRouter is unavailable — see ocrPdfPages.
   if (process.env.LOCAL_AI_ENABLED !== "true") return null;
 
   try {
@@ -129,7 +132,7 @@ export async function ocrPdfPages(
       continue;
     }
 
-    const text = (await ocrViaOllama(png)) ?? (await ocrViaOpenRouter(png));
+    const text = (await ocrViaOpenRouter(png)) ?? (await ocrViaOllama(png));
     if (text) results[pageNum] = text;
   }
 

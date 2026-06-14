@@ -63,6 +63,18 @@ export type ListenAction =
       name: string;
     }
   | {
+      type: "block_confirm";
+      target: { id: string; name: string | null; avatarUrl: string | null };
+    }
+  | {
+      type: "block_pick";
+      candidates: { id: string; name: string | null; avatarUrl: string | null }[];
+    }
+  | {
+      type: "block_not_found";
+      name: string;
+    }
+  | {
       type: "logout_confirm";
     }
   | {

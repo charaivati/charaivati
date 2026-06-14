@@ -58,6 +58,8 @@ model User {
   requestsSent            FriendRequest[]      @relation("req_sender")
   friendshipsA            Friendship[]         @relation("friendA")
   friendshipsB            Friendship[]         @relation("friendB")
+  blocksMade              UserBlock[]          @relation("UserBlocksMade")
+  blocksReceived          UserBlock[]          @relation("UserBlocksReceived")
   magicLinks              MagicLink[]
   orders                  Order[]
   pages                   Page[]               @relation("UserPages")
@@ -122,6 +124,24 @@ model Friendship {
   @@unique([userAId, userBId])
   @@index([userAId])
   @@index([userBId])
+}
+
+/// *
+/// * One-directional block (A blocks B) with bilateral effect — see
+/// * ACTION-INTENT-6: B can no longer see/contact A either. Separate from
+/// * Friendship since a block can target a non-friend and must persist
+/// * without a friendship existing. Blocking auto-unfriends the pair.
+model UserBlock {
+  id        String   @id @default(cuid())
+  blockerId String
+  blockedId String
+  createdAt DateTime @default(now())
+  blocker   User     @relation("UserBlocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("UserBlocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
 }
 
 /// *
@@ -294,6 +314,8 @@ model Store {
   filters         StoreFilter[]
   images          StoreImage[]
   wishlistItems   WishlistItem[]
+  categories      StoreCategoryLink[]
+  tags            StoreTagLink[]
 
   @@index([ownerId])
 }
@@ -1886,4 +1908,68 @@ model AdminQuestion {
   answer     String?   @db.Text
   createdAt  DateTime  @default(now())
   answeredAt DateTime?
+}
+
+/// Store discovery taxonomy (TAG-STORE-1b) — flat controlled vocabulary,
+/// NOT a Prisma enum and NOT related to Page.pageType (initiative type).
+/// Categories are a single flat list (no parentId hierarchy).
+model StoreCategory {
+  id           String                     @id @default(cuid())
+  slug         String                     @unique
+  order        Int                        @default(0)
+  createdAt    DateTime                   @default(now())
+  translations StoreCategoryTranslation[]
+  stores       StoreCategoryLink[]
+}
+
+model StoreCategoryTranslation {
+  id          String        @id @default(cuid())
+  categoryId  String
+  locale      String
+  title       String
+  description String?
+  category    StoreCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, locale])
+  @@index([locale])
+}
+
+model StoreCategoryLink {
+  storeId    String
+  categoryId String
+  store      Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category   StoreCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, categoryId])
+  @@index([categoryId])
+}
+
+model StoreTag {
+  id           String                @id @default(cuid())
+  slug         String                @unique
+  order        Int                   @default(0)
+  createdAt    DateTime              @default(now())
+  translations StoreTagTranslation[]
+  stores       StoreTagLink[]
+}
+
+model StoreTagTranslation {
+  id     String   @id @default(cuid())
+  tagId  String
+  locale String
+  title  String
+  tag    StoreTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([tagId, locale])
+  @@index([locale])
+}
+
+model StoreTagLink {
+  storeId String
+  tagId   String
+  store   Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  tag     StoreTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, tagId])
+  @@index([tagId])
 }
