@@ -16,130 +16,134 @@ export async function mergeGuestToReal(
     return;
   }
 
-  await prisma.$transaction(async (tx) => {
-    // Cart — merge quantities if same product exists
-    const guestCart = await tx.cartItem.findMany({
-      where: { userId: guestId },
-    });
-    for (const item of guestCart) {
-      const existing = await tx.cartItem.findUnique({
-        where: {
-          userId_blockId: { userId: realId, blockId: item.blockId },
-        },
-      });
-      if (existing) {
+  try {
+    // --- Pre-compute conflict sets OUTSIDE the transaction (read-only) ---
+    const [guestCart, realCart, realWishlist, realPinned, realFollows] =
+      await Promise.all([
+        prisma.cartItem.findMany({ where: { userId: guestId } }),
+        prisma.cartItem.findMany({ where: { userId: realId } }),
+        prisma.wishlistItem.findMany({
+          where: { userId: realId },
+          select: { blockId: true },
+        }),
+        prisma.pinnedStore.findMany({
+          where: { userId: realId },
+          select: { storeId: true },
+        }),
+        prisma.pageFollow.findMany({
+          where: { userId: realId },
+          select: { pageId: true },
+        }),
+      ]);
+
+    const realCartByBlock = new Map(realCart.map((c) => [c.blockId, c]));
+    const overlappingCart = guestCart.filter((g) => realCartByBlock.has(g.blockId));
+    const nonOverlappingCart = guestCart.filter((g) => !realCartByBlock.has(g.blockId));
+    const realWishlistBlockIds = realWishlist.map((w) => w.blockId);
+    const realPinnedStoreIds = realPinned.map((p) => p.storeId);
+    const realFollowPageIds = realFollows.map((f) => f.pageId);
+
+    // --- Transaction: only the conflict-aware merges (cart/wishlist/pinned/follows) ---
+    await prisma.$transaction(async (tx) => {
+      // Cart — bump quantities for overlaps, then drop guest's overlapping rows
+      for (const item of overlappingCart) {
+        const existing = realCartByBlock.get(item.blockId)!;
         await tx.cartItem.update({
-          where: {
-            userId_blockId: { userId: realId, blockId: item.blockId },
-          },
+          where: { id: existing.id },
           data: { quantity: existing.quantity + item.quantity },
         });
-        await tx.cartItem.delete({ where: { id: item.id } });
-      } else {
-        await tx.cartItem.update({
-          where: { id: item.id },
+      }
+      if (overlappingCart.length) {
+        await tx.cartItem.deleteMany({
+          where: { id: { in: overlappingCart.map((i) => i.id) } },
+        });
+      }
+      if (nonOverlappingCart.length) {
+        await tx.cartItem.updateMany({
+          where: { id: { in: nonOverlappingCart.map((i) => i.id) } },
           data: { userId: realId },
         });
       }
-    }
 
-    // Wishlist — skip duplicates
-    const guestWishlist = await tx.wishlistItem.findMany({
-      where: { userId: guestId },
-    });
-    for (const item of guestWishlist) {
-      const existing = await tx.wishlistItem.findUnique({
-        where: {
-          userId_blockId: { userId: realId, blockId: item.blockId },
-        },
+      // Wishlist — drop guest dupes, reassign the rest
+      await tx.wishlistItem.deleteMany({
+        where: { userId: guestId, blockId: { in: realWishlistBlockIds } },
       });
-      if (!existing) {
-        await tx.wishlistItem.update({
-          where: { id: item.id },
-          data: { userId: realId },
-        });
-      } else {
-        await tx.wishlistItem.delete({ where: { id: item.id } });
-      }
-    }
-
-    // Pinned stores — skip duplicates
-    const guestPinned = await tx.pinnedStore.findMany({
-      where: { userId: guestId },
-    });
-    for (const item of guestPinned) {
-      const existing = await tx.pinnedStore.findUnique({
-        where: {
-          userId_storeId: { userId: realId, storeId: item.storeId },
-        },
+      await tx.wishlistItem.updateMany({
+        where: { userId: guestId, blockId: { notIn: realWishlistBlockIds } },
+        data: { userId: realId },
       });
-      if (!existing) {
-        await tx.pinnedStore.update({
-          where: { id: item.id },
-          data: { userId: realId },
-        });
-      } else {
-        await tx.pinnedStore.delete({ where: { id: item.id } });
-      }
-    }
 
-    // Page follows (initiatives, stores, courses) — skip duplicates
-    const guestFollows = await tx.pageFollow.findMany({
-      where: { userId: guestId },
-    });
-    for (const item of guestFollows) {
-      const existing = await tx.pageFollow.findUnique({
-        where: {
-          userId_pageId: { userId: realId, pageId: item.pageId },
-        },
+      // Pinned stores — drop guest dupes, reassign the rest
+      await tx.pinnedStore.deleteMany({
+        where: { userId: guestId, storeId: { in: realPinnedStoreIds } },
       });
-      if (!existing) {
-        await tx.pageFollow.update({
-          where: { id: item.id },
-          data: { userId: realId },
-        });
-      } else {
-        await tx.pageFollow.delete({ where: { id: item.id } });
-      }
-    }
+      await tx.pinnedStore.updateMany({
+        where: { userId: guestId, storeId: { notIn: realPinnedStoreIds } },
+        data: { userId: realId },
+      });
 
-    // Addresses — move all
-    await tx.address.updateMany({
+      // Page follows — drop guest dupes, reassign the rest
+      await tx.pageFollow.deleteMany({
+        where: { userId: guestId, pageId: { in: realFollowPageIds } },
+      });
+      await tx.pageFollow.updateMany({
+        where: { userId: guestId, pageId: { notIn: realFollowPageIds } },
+        data: { userId: realId },
+      });
+    }, { timeout: 15000 });
+
+    // --- Plain bulk reassignments (no conflict logic) — run outside the transaction ---
+    await prisma.address.updateMany({
       where: { userId: guestId },
       data: { userId: realId },
     });
 
-    // Orders — move all (address rows already re-owned above)
-    await tx.order.updateMany({
+    await prisma.order.updateMany({
       where: { userId: guestId },
       data: { userId: realId },
     });
 
-    // Pages owned by guest (initiatives, courses, health businesses) — move all
-    await tx.page.updateMany({
+    await prisma.page.updateMany({
       where: { ownerId: guestId },
       data: { ownerId: realId },
     });
 
-    // Stores owned by guest — move all
-    await tx.store.updateMany({
+    await prisma.store.updateMany({
       where: { ownerId: guestId },
       data: { ownerId: realId },
     });
 
     // ConsultSession and messages (Listener / Saathi) — move all (UCTX-2)
     // Delete any existing real user's ConsultSession first (should be rare, but safe)
-    await (tx as any).consultSession.deleteMany({
-      where: { userId: realId },
-    }).catch(() => null); // Ignore if model doesn't exist yet (stale client)
+    try {
+      await (prisma as any).consultSession.deleteMany({
+        where: { userId: realId },
+      });
+    } catch (e) {
+      // Stale Prisma client (model not generated yet) is the only expected cause —
+      // anything else should be visible, not swallowed.
+      console.error("mergeGuestToReal: consultSession deleteMany (real) failed", e);
+    }
 
-    // Move guest's ConsultSession to real user
-    await (tx as any).consultSession.updateMany({
-      where: { userId: guestId },
-      data: { userId: realId },
-    }).catch(() => null); // Ignore if model doesn't exist yet
+    try {
+      await (prisma as any).consultSession.updateMany({
+        where: { userId: guestId },
+        data: { userId: realId },
+      });
+    } catch (e) {
+      console.error("mergeGuestToReal: consultSession updateMany (guest->real) failed", e);
+    }
 
-    // Delete the guest user record
-    await tx.user.delete({ where: { id: guestId } });
-  });
+    // Finally delete the guest user — must run only after every guestId
+    // reference above has been reassigned, since cascade-deletes would
+    // otherwise take any not-yet-moved rows with it.
+    await prisma.user.delete({ where: { id: guestId } });
+  } catch (e) {
+    console.error(
+      `mergeGuestToReal failed for guest ${guestId} -> real ${realId}:`,
+      e
+    );
+    throw e;
+  }
 }

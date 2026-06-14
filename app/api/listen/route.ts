@@ -42,16 +42,30 @@ import {
 } from "@/lib/listener/personality";
 import { isAdminUser, handleAdminCommand, getOpenAdminQuestions, fileAdminQuestion } from "@/lib/listener/adminBridge";
 import { buildSiteAwareness, buildSiteAwarenessCompact } from "@/lib/site/siteAwareness";
-import { isCapabilityGapCandidate, replyHedges } from "@/lib/ai/capabilityGapTrigger";
-import { isFriendRequest, isReminderRequest } from "@/lib/ai/actionTrigger";
+import { isCapabilityGapCandidate, replyHedges, isCapabilityDeclineReply } from "@/lib/ai/capabilityGapTrigger";
+import { isFriendRequest, isReminderRequest, isReminderCancel, isUnfriendRequest, isLogoutRequest, isClearChatRequest, isLoginRequest } from "@/lib/ai/actionTrigger";
+import { looksActionShaped, classifyIntent } from "@/lib/listener/intentClassifier";
 import {
   extractFriendQuery,
   extractReminderQuery,
+  extractUnfriendQuery,
   buildFriendSearchAction,
   buildReminderAction,
+  buildUnfriendAction,
+  sendReminder,
   describeFriendSearchReply,
   describeReminderReply,
+  describeReminderSentReply,
+  describeReminderAskTextReply,
+  describeReminderFailedReply,
+  describeReminderCancelledReply,
+  describeUnfriendReply,
+  describeLogoutReply,
+  describeClearChatReply,
+  describeLoginOfferReply,
+  getPendingFriendRequests,
 } from "@/lib/listener/actions";
+import type { ListenAction } from "@/lib/listener/actionTypes";
 
 const CHAT_MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "llama3:8b";
@@ -424,8 +438,18 @@ export async function POST(req: Request) {
   // turns live in session.rollingSummary. When the unfolded window exceeds the
   // threshold, fold the oldest batch here so the prefix stays stable next turn.
   const foldedThrough: Date | null = session.foldedThrough ?? null;
+  const chatResetAt: Date | null = session.chatResetAt ?? null;
+  // ACTION-INTENT-5c: the effective lower bound for the model window is the
+  // LATER of foldedThrough and chatResetAt — a clear-chat must never be
+  // undone by pulling pre-reset rows back into the window or a later fold.
+  // /api/listen/clear keeps foldedThrough >= chatResetAt as an invariant
+  // going forward, but this max() is the defensive backstop.
+  const windowBoundary: Date | null =
+    foldedThrough && chatResetAt
+      ? (foldedThrough > chatResetAt ? foldedThrough : chatResetAt)
+      : foldedThrough ?? chatResetAt ?? null;
   const windowRows: { role: string; content: string; createdAt: Date }[] = await (db as any).consultMessage.findMany({
-    where: { sessionId: session.id, ...(foldedThrough ? { createdAt: { gt: foldedThrough } } : {}) },
+    where: { sessionId: session.id, ...(windowBoundary ? { createdAt: { gt: windowBoundary } } : {}) },
     orderBy: { createdAt: "asc" },
     select: { role: true, content: true, createdAt: true },
   });
@@ -440,6 +464,14 @@ export async function POST(req: Request) {
     await (db as any).consultMessage.create({
       data: { sessionId: session.id, role: "user", content: text },
     });
+    // ACTION-INTENT-3: persist for next turn's pronoun resolution. session.recentIntentNote
+    // (captured above, before this write) still holds THIS turn's "previous" context.
+    await (db as any).consultSession
+      .update({
+        where: { id: session.id },
+        data: { recentIntentNote: text.slice(0, 200) },
+      })
+      .catch(() => {});
   }
 
   // ── Admin commands — intercepted BEFORE the conversational model call ──────
@@ -469,29 +501,180 @@ export async function POST(req: Request) {
   // jsonMode extraction call; the reply + action payload are built
   // deterministically (lib/listener/actions.ts). Writes happen only after the
   // user confirms a card, via dedicated routes under /api/listen/actions/*.
+  //
+  // ACTION-INTENT-5b: reminders to existing friends are low-stakes and now
+  // SEND-AND-REPORT — no confirm card for the single-friend-match case.
+  // resolveAndSendReminder() encapsulates: build the action, and if it
+  // resolves to exactly one friend, send immediately via the shared
+  // sendReminder() helper and report the real result (ACTION-INTENT-5a
+  // doctrine — success text is downstream of the actual write). Ambiguous
+  // (reminder_pick), non-friend, and not-found cases are unchanged.
+  // Destructive relationship changes (unfriend/block) KEEP their confirm
+  // cards — this relaxation is reminder-only.
+  async function resolveAndSendReminder(
+    recipientName: string,
+    reminderText: string
+  ): Promise<{ action: ListenAction | null; actionReply: string }> {
+    const builtAction = await buildReminderAction(userId, recipientName, reminderText);
+    if (builtAction.type === "reminder_confirm") {
+      const result = await sendReminder(userId, builtAction.recipient.id, builtAction.text);
+      if (result.ok) {
+        return { action: null, actionReply: describeReminderSentReply(builtAction.recipient.name, builtAction.text) };
+      }
+      return { action: null, actionReply: describeReminderFailedReply(result.message) };
+    }
+    return { action: builtAction, actionReply: describeReminderReply(builtAction) };
+  }
+
   if (text && !crisisActive && !isAdmin) {
-    let action: Awaited<ReturnType<typeof buildFriendSearchAction>> | null = null;
+    let action: ListenAction | null = null;
     let actionReply = "";
 
-    if (isFriendRequest(text)) {
+    // ── pendingReminder continuation (CHANGE 2) ───────────────────────────────
+    // Strict one-turn window: "Remind Madhurjya" -> "What should I remind him?"
+    // -> next turn is consumed here, regardless of outcome. Always cleared
+    // immediately so it can never leak into a third turn.
+    const pendingReminder = (session as any).pendingReminder as
+      | { recipientName: string; awaitingText: true }
+      | null
+      | undefined;
+
+    let pendingHandled = false;
+    if (pendingReminder?.awaitingText) {
+      await (db as any).consultSession
+        .update({ where: { id: session.id }, data: { pendingReminder: null } })
+        .catch(() => {});
+
+      if (isReminderCancel(text)) {
+        actionReply = describeReminderCancelledReply();
+        pendingHandled = true;
+      } else if (
+        isFriendRequest(text) ||
+        isReminderRequest(text) ||
+        isUnfriendRequest(text) ||
+        isLogoutRequest(text) ||
+        isClearChatRequest(text) ||
+        (isLoginRequest(text) && payload.role === "guest")
+      ) {
+        // Another recognized action takes precedence — abandon the pending
+        // reminder (already cleared above) and process the new intent below.
+        pendingHandled = false;
+      } else {
+        // Treat this turn's text as the reminder message for the pending recipient.
+        const result = await resolveAndSendReminder(pendingReminder.recipientName, text);
+        action = result.action;
+        actionReply = result.actionReply;
+        pendingHandled = true;
+      }
+    }
+
+    if (!pendingHandled && isFriendRequest(text)) {
       const query = await extractFriendQuery(text, activeModel);
       if (query.name) {
         action = await buildFriendSearchAction(userId, { name: query.name, location: query.location });
         actionReply = describeFriendSearchReply(action);
       }
-    } else if (isReminderRequest(text)) {
+    } else if (!pendingHandled && isReminderRequest(text)) {
       const extracted = await extractReminderQuery(text, activeModel);
-      if (extracted.recipientName && extracted.reminderText) {
-        action = await buildReminderAction(userId, extracted.recipientName, extracted.reminderText);
-        actionReply = describeReminderReply(action);
+      const isEchoOfName =
+        extracted.recipientName &&
+        extracted.reminderText &&
+        extracted.reminderText.trim().toLowerCase() === extracted.recipientName.trim().toLowerCase();
+
+      if (extracted.recipientName && extracted.reminderText && !isEchoOfName) {
+        // CHANGE 1: both present and resolved — send-and-report, no confirm.
+        const result = await resolveAndSendReminder(extracted.recipientName, extracted.reminderText);
+        action = result.action;
+        actionReply = result.actionReply;
+      } else if (extracted.recipientName) {
+        // CHANGE 2: recipient resolved but no real message yet — ask once and
+        // remember the recipient for the next turn.
+        await (db as any).consultSession
+          .update({
+            where: { id: session.id },
+            data: { pendingReminder: { recipientName: extracted.recipientName, awaitingText: true } },
+          })
+          .catch(() => {});
+        actionReply = describeReminderAskTextReply(extracted.recipientName);
       }
+    } else if (!pendingHandled && isUnfriendRequest(text)) {
+      const extracted = await extractUnfriendQuery(text, activeModel);
+      if (extracted.name) {
+        action = await buildUnfriendAction(userId, extracted.name);
+        actionReply = describeUnfriendReply(action);
+      }
+    } else if (!pendingHandled && isLogoutRequest(text)) {
+      // ACTION-INTENT-3: strict-keyword-only — never reached via the classifier.
+      action = { type: "logout_confirm" };
+      actionReply = describeLogoutReply();
+    } else if (!pendingHandled && isClearChatRequest(text)) {
+      // ACTION-INTENT-3: strict-keyword-only — never reached via the classifier.
+      action = { type: "clear_chat_confirm" };
+      actionReply = describeClearChatReply();
+    } else if (!pendingHandled && isLoginRequest(text) && payload.role === "guest") {
+      // TONE-DECLINE-1: strict-keyword-only. Offer the real sign-in path
+      // (SecureChatCard / login page) instead of a flat decline. Signed-in
+      // users asking this fall through to the normal model, which declines
+      // warmly per [SECTION: CAPABILITIES].
+      action = { type: "login_offer" };
+      actionReply = describeLoginOfferReply();
+    } else if (!pendingHandled && !actionReply && looksActionShaped(text)) {
+      // ACTION-INTENT-3: second-tier classifier — only when the cheap keyword
+      // checks above all missed AND the message plausibly describes an action.
+      const classified = await classifyIntent(text, session.recentIntentNote ?? null, activeModel);
+      if (classified.intent === "add_friend") {
+        const query = await extractFriendQuery(text, activeModel);
+        if (query.name) {
+          action = await buildFriendSearchAction(userId, { name: query.name, location: query.location });
+          actionReply = describeFriendSearchReply(action);
+        }
+      } else if (classified.intent === "remove_friend") {
+        const extracted = await extractUnfriendQuery(text, activeModel);
+        if (extracted.name) {
+          action = await buildUnfriendAction(userId, extracted.name);
+          actionReply = describeUnfriendReply(action);
+        }
+      } else if (classified.intent === "send_reminder") {
+        const extracted = await extractReminderQuery(text, activeModel);
+        const isEchoOfName =
+          extracted.recipientName &&
+          extracted.reminderText &&
+          extracted.reminderText.trim().toLowerCase() === extracted.recipientName.trim().toLowerCase();
+
+        if (extracted.recipientName && extracted.reminderText && !isEchoOfName) {
+          const result = await resolveAndSendReminder(extracted.recipientName, extracted.reminderText);
+          action = result.action;
+          actionReply = result.actionReply;
+        } else if (extracted.recipientName) {
+          await (db as any).consultSession
+            .update({
+              where: { id: session.id },
+              data: { pendingReminder: { recipientName: extracted.recipientName, awaitingText: true } },
+            })
+            .catch(() => {});
+          actionReply = describeReminderAskTextReply(extracted.recipientName);
+        }
+      } else if (classified.intent === "unknown_capability") {
+        fileAdminQuestion(userId, text, "capability_request").catch(console.error);
+        actionReply =
+          "I can't do that here yet — I've passed it along so the team can consider adding it. Is there something else I can help with?";
+      }
+      // logout / clear_chat / chat / show_map / accept_friend_request from the
+      // classifier are NOT acted on directly — they fall through to the normal
+      // conversational flow (logout/clear_chat remain strict-keyword-only).
     }
 
-    if (action && actionReply) {
+    if (actionReply) {
       await (db as any).consultMessage.create({
         data: { sessionId: session.id, role: "assistant", content: actionReply },
       });
-      return NextResponse.json({ ok: true, reply: actionReply, consultStage: stage, crisis: false, action });
+      return NextResponse.json({
+        ok: true,
+        reply: actionReply,
+        consultStage: stage,
+        crisis: false,
+        ...(action ? { action } : {}),
+      });
     }
   }
 
@@ -502,6 +685,24 @@ export async function POST(req: Request) {
       ? `The user pointed at "${steerNode}" on their progress map and indicated what you've sensed there is NOT right. Don't assume or repeat it — gently re-ask about ${label} and let them restate it in their own words.`
       : `The user tapped "${steerNode}" on their progress map — they want to talk about ${label} next. Transition into it warmly, with at most one gentle question.`;
   }
+
+  // ── Pending friend requests (FRIEND-NOTIFY-1) ───────────────────────────────
+  // Surfaced conversationally, at most once per "new arrival" — re-surfaced only
+  // if a request arrives AFTER the last surfaced timestamp. Skipped entirely for
+  // crisis/admin/steer-only turns. The reply text + action card are still gated
+  // at the end (after the goal-proposal check) so the two never compete.
+  let newPendingFriendRequests: Awaited<ReturnType<typeof getPendingFriendRequests>> = [];
+  if (text && !crisisActive && !isAdmin) {
+    const pending = await getPendingFriendRequests(userId).catch(() => []);
+    const surfacedAt: Date | null = session.friendReqSurfacedAt ?? null;
+    newPendingFriendRequests = pending.filter((r) => !surfacedAt || r.createdAt > surfacedAt);
+  }
+  const friendRequestHint =
+    newPendingFriendRequests.length > 0
+      ? `The user has ${newPendingFriendRequests.length} pending friend request${newPendingFriendRequests.length > 1 ? "s" : ""} on Charaivati from: ${newPendingFriendRequests
+          .map((r) => r.sender.name ?? "someone")
+          .join(", ")}. If it fits naturally, gently let them know and offer to show it. Mention this at most once — do not repeat it every turn or force it into the conversation.`
+      : "";
 
   // Dynamic context block — local gets the full sensed-insights summary; cloud
   // gets only the minimal tier-"cloud" composer block (drive name + stage etc.).
@@ -527,6 +728,9 @@ export async function POST(req: Request) {
   const personalityLine = summarizePersonalityForComposer(personality, PERSONALITY_COMPOSER_THRESHOLD);
   if (personalityLine) {
     localDynamicBlock = [localDynamicBlock, personalityLine].filter(Boolean).join("\n\n");
+  }
+  if (friendRequestHint) {
+    localDynamicBlock = [localDynamicBlock, friendRequestHint].filter(Boolean).join("\n\n");
   }
   const personalityGuidance = personalityLine
     ? loadSection(CONTEXT_FILE, "PERSONALITY_GUIDANCE")
@@ -606,12 +810,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, reply, consultStage: stage, crisis: true });
   }
 
-  // ── Admin-question queue — file a knowledge-gap question for non-admins ────
-  // Anonymized by design (no userId stored). Rate-capped inside fileAdminQuestion.
-  if (!isAdmin && text && isCapabilityGapCandidate(text) && replyHedges(reply)) {
-    fileAdminQuestion(userId, text, insights.driveCandidate.value ?? null).catch((err) =>
-      console.error("[listen] fileAdminQuestion failed:", err)
-    );
+  // ── Admin-question queue — file a knowledge-gap/capability-gap question ────
+  // for non-admins. Anonymized by design (no userId stored). Rate-capped
+  // inside fileAdminQuestion. Two independent signals (FIX-UNKNOWN-CAP-1):
+  //  (1) knowledge gap — the user asked for outside opinion/knowledge AND the
+  //      reply hedges (original PERSONA-1 signal, unchanged).
+  //  (2) capability gap — the reply itself declined to DO something, per
+  //      [SECTION: CAPABILITIES]'s "DECLINING WARMLY" wording. This is a
+  //      post-reply backstop independent of looksActionShaped/CAPABILITY_GAP_TRIGGERS
+  //      so novel out-of-scope asks ("book me a cab", "add a calendar event")
+  //      are still logged even when no pre-filter keyword matched.
+  if (!isAdmin && text) {
+    const isKnowledgeGap = isCapabilityGapCandidate(text) && replyHedges(reply);
+    const isActionCapabilityGap = isCapabilityDeclineReply(reply);
+    if (isKnowledgeGap || isActionCapabilityGap) {
+      fileAdminQuestion(userId, text, insights.driveCandidate.value ?? null).catch((err) =>
+        console.error("[listen] fileAdminQuestion failed:", err)
+      );
+    }
   }
 
   // ── Background bookkeeping (FIX-OLLAMA-TIMEOUT-1) ───────────────────────────
@@ -735,6 +951,22 @@ export async function POST(req: Request) {
     if (proposal) responsePayload.proposal = proposal;
   }
 
+  // ── Pending friend requests action card (FRIEND-NOTIFY-1) ──────────────────
+  // Attached only when there's something NEW to surface, and only if a goal
+  // proposal didn't just fire this turn (the two never compete for attention).
+  // friendReqSurfacedAt is updated here so the same requests aren't re-surfaced
+  // next turn or after a reload — re-surfacing only happens for requests that
+  // arrive AFTER this timestamp.
+  if (newPendingFriendRequests.length > 0 && !responsePayload.proposal) {
+    responsePayload.action = {
+      type: "friend_requests_pending",
+      requests: newPendingFriendRequests.map((r) => ({ id: r.id, sender: r.sender })),
+    };
+    await (db as any).consultSession
+      .update({ where: { id: session.id }, data: { friendReqSurfacedAt: new Date() } })
+      .catch((err: unknown) => console.error("[listen] friendReqSurfacedAt update failed:", err));
+  }
+
   return NextResponse.json(responsePayload);
 }
 
@@ -742,15 +974,29 @@ export async function GET(req: Request) {
   const payload = await authenticateChat(req);
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const isGuest = payload.role === "guest";
+
   const session = await (db as any).consultSession.findUnique({
     where: { userId: payload.userId },
   });
   if (!session) {
-    return NextResponse.json({ ok: true, consultStage: 0, insights: emptyInsights(), messages: [], crisis: false });
+    return NextResponse.json({
+      ok: true,
+      consultStage: 0,
+      insights: emptyInsights(),
+      messages: [],
+      crisis: false,
+      isGuest,
+      loginDeclined: false,
+      loginLastAskedAt: null,
+      showLoginOffer: isGuest,
+    });
   }
 
+  // ACTION-INTENT-5c: a cleared chat must not resurface on reload — only
+  // messages after chatResetAt are returned for display.
   const rows: { id: string; role: string; content: string; createdAt: Date }[] = await (db as any).consultMessage.findMany({
-    where: { sessionId: session.id },
+    where: { sessionId: session.id, ...(session.chatResetAt ? { createdAt: { gt: session.chatResetAt } } : {}) },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: { id: true, role: true, content: true, createdAt: true },
@@ -767,6 +1013,14 @@ export async function GET(req: Request) {
     }
   }
 
+  // ACTION-INTENT-3: re-offer the login (SecureChatCard) at most once per
+  // RELOGIN_OFFER_GAP_MS, and never again once declined.
+  const RELOGIN_OFFER_GAP_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+  const loginDeclined: boolean = session.loginDeclined === true;
+  const loginLastAskedAt: Date | null = session.loginLastAskedAt ?? null;
+  const showLoginOffer =
+    isGuest && !loginDeclined && (!loginLastAskedAt || Date.now() - loginLastAskedAt.getTime() > RELOGIN_OFFER_GAP_MS);
+
   return NextResponse.json({
     ok: true,
     consultStage: session.consultStage ?? 0,
@@ -774,5 +1028,9 @@ export async function GET(req: Request) {
     messages: rows,
     crisis: session.crisisFlag === true,
     personalityTopDrive,
+    isGuest,
+    loginDeclined,
+    loginLastAskedAt,
+    showLoginOffer,
   });
 }

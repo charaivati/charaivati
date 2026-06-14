@@ -1796,6 +1796,17 @@ model ConsultSession {
   rollingSummary String? @db.Text
   /// Messages with createdAt <= this are folded into rollingSummary and excluded from the model window
   foldedThrough  DateTime?
+  /// FRIEND-NOTIFY-1: last time pending friend requests were surfaced conversationally; null = never
+  friendReqSurfacedAt DateTime?
+  /// ACTION-INTENT-3: per-user conversational bookkeeping — never merged into insights
+  greetedThisSession Boolean   @default(false)
+  loginDeclined      Boolean   @default(false)
+  loginLastAskedAt   DateTime?
+  chatResetAt        DateTime?
+  recentIntentNote   String?
+  /// ACTION-INTENT-5b: one-turn continuation state for "remind X" with no message yet.
+  /// Shape: { recipientName: string, awaitingText: true }. Cleared after the very next turn.
+  pendingReminder    Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)

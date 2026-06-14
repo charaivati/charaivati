@@ -131,7 +131,7 @@ From `ai-context/CONSULT_LISTENER.txt` via `loadSection()` (named `[SECTION: NAM
 `[SECTION: SITE_AWARENESS]` and `[SECTION: CAPABILITIES]` answer two different questions and must not be conflated:
 
 - **SITE_AWARENESS** — what the **Charaivati platform** (pages/routes) can do. Sourced from `lib/site/capabilityRegistry.ts` (`SECTIONS`) via `lib/site/siteAwareness.ts`'s `buildSiteAwareness()` (full per-layer map, local) / `buildSiteAwarenessCompact()` (one-line, cloud). Every section is `live` (tell the user where to go), `scaffolded`/partial (say what works today vs what's coming), or `planned` (say so honestly, offer the `interim` alternative — never invent a route or pretend a planned feature exists, never deny a live one).
-- **CAPABILITIES** — what **this chat, right now** can do for the user directly: propose a goal, show the mind-map, find a friend and send a request, send a reminder to a friend. These are the only two deterministic actions (PRIV-ACT-1); SITE_AWARENESS never adds new ones.
+- **CAPABILITIES** — what **this chat, right now** can do for the user directly: propose a goal, show the mind-map, find a friend and send a request, send a reminder to a friend, and (UNFRIEND-1) remove an existing friend (confirm-gated). These are the deterministic actions (PRIV-ACT-1); SITE_AWARENESS never adds new ones.
 - Example: "where do I see my orders" → SITE_AWARENESS (a site feature, point to the route). "can you remind my friend about something" → CAPABILITIES (yes, this chat can do that).
 - **Privacy example**: `User.discoverable` (the friend-search visibility toggle, `PATCH /api/user/privacy`, UI on `/user/[id]`) is a real, live SITE_AWARENESS fact — the Listener can describe that it exists and where to find it. It is **not** a CAPABILITY — the Listener does not read the user's current value during a conversation (see `TECH_DEBT.md` § 12, a deliberate PERSONA-2 deferral).
 
@@ -270,7 +270,7 @@ Non-admin sessions that hit a knowledge gap file an anonymized question for the 
 
 ## Action Layer (PRIV-ACT-1)
 
-The Listener can take exactly **two** small, deterministic actions on the user's behalf: sending a friend request, and sending a short reminder to an existing friend. Both are described honestly to the model via `[SECTION: CAPABILITIES]` (added above) so the Listener never claims abilities it doesn't have, and never invents or performs an action itself — every write is a separate, user-confirmed HTTP call.
+The Listener can take a small set of deterministic actions on the user's behalf: sending a friend request, sending a short reminder to an existing friend, and (UNFRIEND-1) removing an existing friend. All are described honestly to the model via `[SECTION: CAPABILITIES]` (added above) so the Listener never claims abilities it doesn't have, and never invents or performs an action itself — every write is a separate, user-confirmed HTTP call.
 
 ### Part A — Privacy doctrine (search hardening)
 
@@ -292,25 +292,189 @@ PRIV-ACT-1 first had to make person-search safe enough for an AI to call on a us
    - `buildReminderAction(userId, recipientName, reminderText)` → looks up the user's `Friendship` rows first (friends-only by name match): one match → `{ type: "reminder_confirm", recipient, text }`; multiple → `{ type: "reminder_pick", candidates, text }`; zero friend matches but found via `searchUsers()` → `{ type: "reminder_non_friend", candidate, text }`; nothing at all → `{ type: "reminder_not_found", name }`. `clampReminderText()` caps reminder text at 140 chars.
    - `describeFriendSearchReply(action)` / `describeReminderReply(action)` generate the assistant's reply text **without any model call** — the action payload alone determines the wording.
 4. **Response shape** — `{ ok: true, reply: actionReply, consultStage: stage, crisis: false, action }`. The assistant `ConsultMessage` is persisted with `actionReply` as `content`; `action` is NOT persisted (it's re-derivable, and stale action cards after a reload would be confusing — reloading shows only the text).
-5. **Action types** (`lib/listener/actionTypes.ts` — pure types, no server imports, shared with client components): `friend_search`, `friend_search_empty`, `reminder_confirm`, `reminder_pick`, `reminder_non_friend`, `reminder_not_found`.
+5. **Action types** (`lib/listener/actionTypes.ts` — pure types, no server imports, shared with client components): `friend_search`, `friend_search_empty`, `reminder_confirm`, `reminder_pick`, `reminder_non_friend`, `reminder_not_found`, and (UNFRIEND-1) `unfriend_confirm`, `unfriend_pick`, `unfriend_not_found`.
 6. **UI rendering** (`components/listen/ListenChat.tsx` renders `m.action` after the assistant bubble):
    - `components/listen/FriendSearchCards.tsx` — up to `SEARCH_MAX_RESULTS` (5) person cards for `friend_search`; each shows relationship state and an "Add friend" button when `relationship === "none"`. `friend_search_empty` renders nothing — the reply text already explains.
    - `components/listen/ReminderCard.tsx` — handles all four reminder action types: `reminder_confirm` (Yes/No), `reminder_pick` (pick a candidate, then confirms inline), `reminder_non_friend` (offers a friend request instead via the same friend-request confirm route), `reminder_not_found` (renders nothing).
+   - `components/listen/UnfriendCard.tsx` — handles the three unfriend action types (see Part D below).
    - `components/listen/ActionAvatar.tsx` — shared small avatar/initial component used by both cards.
 7. **Confirm routes (the only places that write)**:
    - `POST /api/listen/actions/friend-request { targetUserId }` — mirrors the checks in `POST /api/friends/request`: rejects self, already-friends, and already-pending-request cases; creates a `FriendRequest` row with `status: "pending"`.
-   - `POST /api/listen/actions/reminder { recipientUserId, text }` — **recipient must already be an accepted friend** (re-checked server-side, independent of what the action payload showed); `scanInput(text)` BLOCK rejects; rate limits: `REMINDERS_PER_DAY = 5` per sender, `REMINDERS_PER_RECIPIENT_PER_HOUR = 1`; on success calls `createNotification({ type: "friend_reminder", title: "Reminder from {senderName}", body: text })`.
+   - `POST /api/listen/actions/reminder { recipientUserId, text }` — **recipient must already be an accepted friend** (re-checked server-side, independent of what the action payload showed); `scanInput(text)` BLOCK rejects; rate limits: `REMINDERS_PER_DAY = 5` per sender, `REMINDERS_PER_RECIPIENT_PER_HOUR = 1`; calls `createNotification({ type: "friend_reminder", title: "Reminder from {senderName}", body: text })`. **(ACTION-INTENT-5a)** `createNotification()` returns `Promise<boolean>` (true = `Notification` row actually written); the route only returns `{ ok: true, message: "Reminder sent." }` when that's `true` — if the write throws, it returns `{ ok: false, error: "delivery_failed" }` (500) instead of the previous unconditional "sent" response. `ReminderCard.tsx`'s `ConfirmReminder` already branches on `data.ok` (shows "Something went wrong — try again." on `false`), so no UI change was needed.
 
 ### Notification-model reuse decision
 
-**Decision: reused the existing `Notification` model with a new `type: "friend_reminder"` value, instead of adding a dedicated `FriendReminder` model.** A reminder is, from the recipient's perspective, exactly a notification — title + body + sender attribution + read/unread state — and the existing `NotificationBell`/`/app/notifications` UI, SSE stream, and `createNotification()` helper all work unchanged. No migration was needed (`type` is a plain `String` column, not a DB enum — see `### Notification` in `CLAUDE.md`). The recipient privacy guarantee ("no delivery/read receipts back to the sender") falls out of this for free: the sender's confirm route never reads the created `Notification` row back, and `createNotification()` returns nothing the route surfaces.
+**Decision: reused the existing `Notification` model with a new `type: "friend_reminder"` value, instead of adding a dedicated `FriendReminder` model.** A reminder is, from the recipient's perspective, exactly a notification — title + body + sender attribution + read/unread state — and the existing `NotificationBell`/`/app/notifications` UI, SSE stream, and `createNotification()` helper all work unchanged. No migration was needed (`type` is a plain `String` column, not a DB enum — see `### Notification` in `CLAUDE.md`). The recipient privacy guarantee ("no delivery/read receipts back to the sender") falls out of this for free: the sender's confirm route never reads the created `Notification` row back beyond the boolean write-success signal (ACTION-INTENT-5a) used only to decide `ok: true` vs `ok: false`.
+
+### Part C — Pending friend requests, surfaced conversationally (FRIEND-NOTIFY-1)
+
+A third action type, distinct from Part B's trigger-based actions: instead of reacting to something the user said, this proactively (but gently) tells the user about something waiting for them — pending incoming `FriendRequest` rows — reusing `FriendRequest` and `POST /api/friends/accept` unchanged. **No new notification infrastructure.** Restraint is the entire point: mention once per session, never nag.
+
+1. **Read** — `getPendingFriendRequests(userId, limit = 5)` (`lib/listener/actions.ts`) fetches `FriendRequest` rows where `receiverId = userId AND status = "pending"`, joining the sender's PUBLIC fields only — `{ id, name, avatarUrl, location }`, location derived from the sender's default `Address` (same minimal shape as `searchUsers()`; never email/phone).
+2. **"New since last surfaced"** — `ConsultSession.friendReqSurfacedAt DateTime?` (migration `prisma/migrations/20260617000000_add_consult_friend_req_surfaced/`, `(db as any).consultSession` until full `prisma generate`) records the last time anything was surfaced. On each real-message turn (`text && !crisisActive && !isAdmin`), `/api/listen` filters the pending list to `newPendingFriendRequests` — those with `createdAt > friendReqSurfacedAt` (or all of them if `friendReqSurfacedAt` is `null`). Steer-only turns (`text === ""`) never trigger this fetch.
+3. **Prompt hint (dynamic zone, local-tier only)** — when `newPendingFriendRequests.length > 0`, a one-line hint is appended to `localDynamicBlock` (after the personality line, per UCTX-1b ordering): *"The user has N pending friend request(s) on Charaivati from: <names>. If it fits naturally, gently let them know and offer to show it. Mention this at most once — do not repeat it every turn or force it into the conversation."* This line is **never** added to `cloudDynamicBlock` — friend-request presence is treated like the other UCTX-1b "minimal cloud" exclusions.
+4. **Action card, attached at the very end** — after the goal-proposal block runs, `if (newPendingFriendRequests.length > 0 && !responsePayload.proposal)`: attaches `{ type: "friend_requests_pending", requests: [{ id, sender }] }` to the response and updates `ConsultSession.friendReqSurfacedAt = new Date()`. **The `!responsePayload.proposal` guard is how "don't compete with the goal-proposal moment" is enforced** — if a proposal fired this turn, the friend-request card is silently deferred to the next turn (since `friendReqSurfacedAt` is unchanged, the same requests are still "new" next time).
+5. **Crisis / admin suppression** — the entire fetch is gated on `!crisisActive && !isAdmin`; crisis additionally returns early before this point in the handler regardless.
+6. **UI** — `components/listen/FriendRequestCard.tsx`, rendered by `ListenChat.tsx` alongside the other action cards. Each row shows the sender's avatar/name/location with **Accept** / **Ignore** buttons:
+   - **Accept** → `POST /api/friends/accept { requestId }` (existing route, unchanged). On success (or on `"Request not pending"` — already handled elsewhere), shows "✓ You're now friends with X." On other errors, shows a retry link.
+   - **Ignore is dismiss-only** — sets local state to hide the card; does **not** call any decline/reject/delete endpoint. The `FriendRequest` row stays `status: "pending"`. The user can still accept or decline it from the Social page. This is a deliberate choice: in a conversational surface, "ignore" reads as "not now", not "no" — a hard decline from chat would be a more consequential action than the gentle mention warrants.
+7. **Action type** — `friend_requests_pending` added to the `ListenAction` union in `lib/listener/actionTypes.ts`.
+
+### Part D — Unfriend, from chat and the profile page (UNFRIEND-1)
+
+**Audit result**: `POST /api/friends/remove { friendId }` (`app/api/friends/utils.ts` + `app/api/friends/remove/route.ts`) already existed — auth via session cookie, deletes the canonical `Friendship` row via `canonicalPair()`, returns `{ ok: true, deletedCount }`. Already used by `app/(with-nav)/WithNavClient.tsx`'s `onUnfriend()`. **No new endpoint was built** — both surfaces below call this same route.
+
+1. **Profile page** (`app/user/[id]/page.tsx`) — when `!isSelf && relationship === "friends"`, the static "Friends" badge becomes a clickable button. Click → `confirm("Remove {name} from friends?")` (same `confirm()` pattern as `deletePost`) → on confirm, `POST /api/friends/remove { friendId: userId }` → on `{ ok: true }`, `setRelationship("none")` so "Add friend" reappears immediately.
+2. **Chat trigger** — `lib/ai/actionTrigger.ts` exports `UNFRIEND_TRIGGERS` ("unfriend", "remove friend", "remove my friend", "remove him/her from my friends", "delete friend") and `isUnfriendRequest(message)`, checked alongside `isFriendRequest`/`isReminderRequest` in the same Part B block (`text && !crisisActive && !isAdmin`).
+3. **Extraction** — `extractUnfriendQuery(text, model)` (`lib/listener/actions.ts`, one `chatComplete jsonMode` call) → `{ name: string | null }`. If `name` is null, falls through to the normal conversational turn.
+4. **Deterministic action building** — `buildUnfriendAction(userId, name)` queries the user's `Friendship` rows **only** (no `searchUsers()` fallback — unfriend can never target a non-friend): one name match → `{ type: "unfriend_confirm", friend }`; multiple matches → `{ type: "unfriend_pick", candidates }`; zero matches → `{ type: "unfriend_not_found", name }`. `describeUnfriendReply(action)` generates the reply text without a model call ("Are you sure you want to remove X from your friends?" / "I found a few friends matching that name — which one did you mean?" / "You're not friends with anyone by that name.").
+5. **Action types** (`lib/listener/actionTypes.ts`): `unfriend_confirm`, `unfriend_pick`, `unfriend_not_found`.
+6. **UI** — `components/listen/UnfriendCard.tsx`, rendered by `ListenChat.tsx` alongside the other action cards: `unfriend_pick` shows a pick list that transitions into a confirm card on selection; `unfriend_confirm` shows "Confirm"/"Cancel" — **this card is one-time and non-persistent** (not saved to `ConsultMessage`, like all `action` payloads). "Confirm" calls `POST /api/friends/remove { friendId }` directly (no separate `/api/listen/actions/*` route needed — unlike friend-request/reminder, there's no extra recipient-side validation to perform) and shows "✓ Removed X from friends." on success; "Cancel" shows "Okay, not now." and does nothing server-side. `unfriend_not_found` renders nothing — the reply text covers it.
+7. **Confirmation required** — both surfaces require an explicit confirm step before the destructive call, per the standing rule that destructive actions are never one-tap.
+
+### Part E — Capability list expansion (ACTION-INTENT-2, context-only)
+
+`[SECTION: CAPABILITIES]` (mirrored above and in Appendix A) was rewritten as a structured, one-block-per-action list covering seven actions: **add friend**, **remove friend**, **send a reminder**, **accept a friend request**, **show the mind-map**, **clear/reset this chat**, and **log out** — plus an explicit "what you cannot do" block. This prompt was originally context/documentation only; **logout and clear/reset chat are now fully implemented (ACTION-INTENT-3, Part F below)**. `mind-map`-as-a-chat-capability and `accept friend request`-via-chat trigger detection remain context-only / not separately wired (the mind-map opens client-side via `isMapRequest`, and "accept friend request" is handled via the `friend_requests_pending` card from Part C, not a new trigger).
+
+**LOGOUT disambiguation** is the one piece of new *behavioral* guidance: logout is a strict intent, distinguished from "I want to step away from this topic" using the last few messages of context, with a clarifying question as the fallback when genuinely ambiguous. See the LOGOUT block in `[SECTION: CAPABILITIES]` for the exact wording.
+
+### Part F — Login, logout, clear chat, and the intent classifier (ACTION-INTENT-3)
+
+Builds on Part E: turns the previously context-only LOGOUT/CLEAR capabilities into real actions, surfaces the LOGIN offer (`SecureChatCard`, built in UCTX-2 but previously unused in `/listen`), and adds a second-tier intent classifier so add/remove-friend and reminder actions can be recognized even when the user doesn't use the exact trigger phrases.
+
+1. **Per-user context fields on `ConsultSession`** (migration `prisma/migrations/20260618000000_add_consult_action_intent3/`, `(db as any).consultSession` until full `prisma generate`):
+   - `greetedThisSession Boolean @default(false)`
+   - `loginDeclined Boolean @default(false)`
+   - `loginLastAskedAt DateTime?`
+   - `chatResetAt DateTime?`
+   - `recentIntentNote String?`
+   These mirror the shape documented below (formerly a template — now live). None of these fields are ever merged into `insights` or exported to the user.
+
+2. **`recentIntentNote` — pronoun resolution across turns.** After persisting the user's `ConsultMessage`, `/api/listen` writes `recentIntentNote = text.slice(0, 200)` to `ConsultSession`. Crucially, the *write* happens after the *read* — the in-memory `session` object loaded at the top of the request still holds the **previous** turn's note, which is what gets passed to `classifyIntent()` as `recentContext` for *this* turn. So "remove him from my friends" following "I just met James again" resolves correctly.
+
+3. **Strict-keyword triggers** (`lib/ai/actionTrigger.ts`):
+   - `isLogoutRequest(text)` — `LOGOUT_TRIGGERS`: "log out", "logout", "sign out", "signout", "log me out", "sign me out".
+   - `isClearChatRequest(text)` — `CLEAR_CHAT_TRIGGERS`: "clear chat", "clear the/our/this chat", "reset chat"/"reset the chat"/"reset our conversation", "start over", "start a new chat", "start fresh", "wipe this/the chat".
+   - Both are checked in the same `text && !crisisActive && !isAdmin` block as Parts B–D's friend/reminder/unfriend triggers, **before** the classifier fallback. On a match: `action = { type: "logout_confirm" | "clear_chat_confirm" }`, reply text from `describeLogoutReply()` / `describeClearChatReply()` (`lib/listener/actions.ts`) — both pure strings, no model call.
+   - **These two intents are NEVER reached via the classifier** — `classifyIntent`'s own `"logout"`/`"clear_chat"` outputs are explicitly ignored in the route (see point 5). A false-positive classification of ordinary chat as "the user wants to sign out" would be jarring; the strict substring match is the only path.
+
+4. **Intent classifier** (`lib/listener/intentClassifier.ts`) — a second tier, used **only** when all of the Part B–D + logout/clear-chat keyword checks miss:
+   - `looksActionShaped(text)` — cheap synchronous pre-filter; substring-matches against `ACTION_WORDS` (friend, remind, reminder, logout, clear, reset, unfriend, remove, delete, add, send, show, open, map, accept, etc.). Most ordinary conversational turns fail this check and skip the classifier entirely — **zero extra cost for normal chat**.
+   - `classifyIntent(text, recentContext, model)` — one `chatComplete` `jsonMode` call (local-tier model) returning `{ intent, params }` where `intent ∈ {add_friend, remove_friend, send_reminder, logout, clear_chat, show_map, accept_friend_request, chat, unknown_capability}`. Fail-safe: any error or unparseable JSON → `{ intent: "chat", params: {} }` (never defaults to an action).
+   - Route wiring: `add_friend` → `extractFriendQuery` → `buildFriendSearchAction` (same as Part B); `remove_friend` → `extractUnfriendQuery` → `buildUnfriendAction` (same as Part D); `send_reminder` → `extractReminderQuery` → `buildReminderAction` (same as Part B). **No new write paths** — the classifier only widens *recognition*, routing into the existing builders/cards.
+   - `unknown_capability` → `fileAdminQuestion(userId, text, "capability_request")` (fire-and-forget, same anonymized-question pipeline as PERSONA-1) + a fixed honest-defer reply: *"I can't do that here yet — I've passed it along so the team can consider adding it. Is there something else I can help with?"*
+   - `logout`, `clear_chat`, `chat`, `show_map`, `accept_friend_request` from the classifier are **not acted on** — they fall through to the normal conversational turn (logout/clear_chat per point 3 above; show_map is handled client-side via `isMapRequest` before the request is even sent; accept_friend_request is handled by Part C's `friend_requests_pending` card).
+
+5. **Action types** (`lib/listener/actionTypes.ts`): `logout_confirm`, `clear_chat_confirm` — both simple `{ type: "..." }` tags with no payload.
+
+6. **LOGOUT confirm flow**:
+   - `components/listen/LogoutConfirmCard.tsx` — mirrors `UnfriendCard.tsx`'s styling/status pattern. "Sign out" → `POST /api/auth/logout` (existing route, unchanged) → on `{ ok: true }`, shows "✓ Signed out." and calls `onLoggedOut?.()`.
+   - `ListenChat.tsx`'s `handleLoggedOut()` calls `window.location.reload()` — the session cookie is now cleared, so the bootstrap effect's existing 401 → `POST /api/user/guest` → re-hydrate flow runs again, dropping the user back into a fresh guest session. No special-case reset logic needed.
+   - "Cancel" shows "Okay, staying signed in." — no server call.
+
+7. **CLEAR/RESET CHAT confirm flow**:
+   - `POST /api/listen/clear` (route) — auth via `verifySessionToken`; sets `ConsultSession.chatResetAt = new Date()`, `rollingSummary = ""`, and `foldedThrough = chatResetAt`. **`ConsultMessage` rows are never deleted** (fold-don't-delete doctrine, same as the UCTX-1b rolling-summary fold) — rows before `chatResetAt` are hidden, not removed.
+   - `components/listen/ClearChatConfirmCard.tsx` — same pattern as `LogoutConfirmCard`. "Clear chat" → `POST /api/listen/clear` → on `{ ok: true }`, shows "✓ Chat cleared." and calls `onCleared?.()`.
+   - `ListenChat.tsx`'s `handleClearedChat()` calls `setMessages([])` — clears the **on-screen** message list only; the next reload/hydrate now also comes back empty (see below), so this is consistent rather than a temporary illusion.
+   - "Cancel" shows "Okay, keeping this conversation." — no server call.
+
+   **`chatResetAt` enforcement (ACTION-INTENT-5c — implemented)**:
+   - **`GET /api/listen`** (display/hydration) — the `ConsultMessage.findMany` is gated by `createdAt > session.chatResetAt` (when set), so a cleared chat reloads empty. Rows are still in the DB, just excluded from this query.
+   - **`POST /api/listen`** (model window) — `windowBoundary = max(foldedThrough, chatResetAt)` replaces the old `foldedThrough`-only boundary for both the `ConsultMessage.findMany` window query and fold eligibility (`shouldFold`/`toFold`). Cleared rows can never re-enter the model's prompt, and a fold that happens after a clear can never pull pre-reset rows into `rollingSummary`.
+   - **rollingSummary invariant** — `/api/listen/clear` blanks `rollingSummary` and advances `foldedThrough` to `chatResetAt` at clear time. This establishes `foldedThrough >= chatResetAt` going forward, so the `max()` in the POST handler is a defensive backstop rather than the load-bearing mechanism — chosen over a read-time gate (e.g. "skip injecting rollingSummary if `foldedThrough < chatResetAt`") because it fixes the invariant once, at the point of the user's action, rather than re-deriving it every turn.
+   - Normal (non-cleared) sessions: `chatResetAt` is `null`, so `windowBoundary` collapses to the pre-existing `foldedThrough` value — FOLD_THRESHOLD/FOLD_BATCH behavior is unchanged.
+
+8. **LOGIN offer (`SecureChatCard`)** — previously built (UCTX-2) but unused in `/listen`:
+   - `GET /api/listen` now returns `isGuest` (derived from `payload.role === "guest"`, the same signal `app/api/user/guest/route.ts` sets at guest creation), `loginDeclined`, `loginLastAskedAt`, and a server-computed `showLoginOffer` boolean: `isGuest && !loginDeclined && (!loginLastAskedAt || now - loginLastAskedAt > 3 days)`. The 3-day cooldown (`RELOGIN_OFFER_GAP_MS`) lives entirely server-side — the client doesn't replicate the logic.
+   - `POST /api/listen/login-offer { action: "shown" | "dismiss" }` (new route) — `"shown"` updates `loginLastAskedAt`; `"dismiss"` additionally sets `loginDeclined = true` (never re-offered again, mirroring the `charaivati.dismissed_proposals` "no thanks" semantics from UCTX-2).
+   - `ListenChat.tsx`: when `isGuest && showLoginOffer && !loginOfferDismissed`, the empty state (shown before any messages) renders `<SecureChatCard onDismiss={dismissLoginOffer} onSuccess={handleLoginSuccess} />` below the existing "What's on your mind?" prompt. A `useEffect` fires `POST /api/listen/login-offer { action: "shown" }` once when the card becomes visible. `dismissLoginOffer()` fires `{ action: "dismiss" }` and hides the card for the rest of the session.
+   - `SecureChatCard` is light-themed (blue-50/white) by design (UCTX-2) — left as-is inside a wrapper div in the dark `/listen` UI; a cosmetic mismatch, not a functional one.
+
+9. **Fixed greeting line** — the empty state now always shows *"You can say 'logout' any time to sign out."* below the existing "What's on your mind?" / "Type in any language..." lines, making the LOGOUT disambiguation guidance in `[SECTION: CAPABILITIES]` (Part E) honest — the user really was told up front.
+
+### In-chat login — both modes, no navigation (LOGIN-IN-CHAT-1)
+
+`SecureChatCard` is two-mode (toggle inside the card, default `"signup"`):
+
+- **"Secure this account"** (signup mode, unchanged from UCTX-2) — username + password → `POST /api/user/guest-upgrade`. Turns the current guest `User` row into `status: "lite"` and re-issues the session cookie for the *same* user — the conversation already belongs to this user, so nothing needs merging.
+- **"Log in to existing account"** (new) — email + password → `POST /api/user/login` (the same route the main `/login` page uses, `credentials: "include"`). If the request carries a guest session cookie and the matched user differs, the route runs `mergeGuestToReal(guestId, realId)` (`lib/mergeGuest.ts`), which already moves `ConsultSession`/`ConsultMessage` (UCTX-2) — so the guest's Listener conversation transfers onto the now-logged-in account, and the new session cookie is set in the same response.
+
+**Security — credentials never reach `/api/listen`, `ConsultMessage`, or any model call.** Both modes `fetch()` directly to `/api/user/guest-upgrade` or `/api/user/login` from `SecureChatCard.tsx`. The card's `password`/`email`/`username` state is local to the component and is never passed to `ListenChat`, never appended to `messages`, and never sent in a `POST /api/listen` body. The trigger/classifier path only ever produces `action: { type: "login_offer" }` plus a fixed reply string (`describeLoginOfferReply()`) — no user-entered credential text is involved at any point.
+
+**No navigation.** On success (`success: true` in either mode), `SecureChatCard` calls `onSuccess()` after a 2s "✓" confirmation, then `onDismiss()`. `ListenChat.tsx`'s `handleLoginSuccess()` calls the shared `hydrateSession()` helper (the same logic the initial guest-bootstrap `useEffect` runs) — it re-fetches `GET /api/listen` and resets `stage`, `insights`, `crisis`, `personalityTopDrive`, `isGuest`, `showLoginOffer`, and `messages` from the response. The user stays on `/listen` the whole time; after a login-mode success the re-hydrated `messages` reflect the merged transcript (guest history + any pre-existing history on the real account, per `mergeGuestToReal`'s ConsultSession-merge rules).
+
+**Trigger wording is now warmer** — `describeLoginOfferReply()` returns *"I can sign you in right here — just tap below to log in or secure this account."* (previously pointed at "the login page"). `[SECTION: CAPABILITIES]`'s LOGIN entry and DECLINING WARMLY example in `ai-context/CONSULT_LISTENER.txt` were updated to match — the AI never tells a guest to leave `/listen` to sign in.
+
+### Per-user conversational context (ACTION-INTENT-3, implemented)
+
+To resolve pronouns ("him"/"her"), judge logout-vs-topic-exit (see LOGOUT above), and avoid re-asking things the user already answered, the Listener needs a small amount of per-user, per-session bookkeeping that is **not** part of `insights` (insights is the slow-built sensing model; this is short-lived conversational state).
+
+**Shape** (all five fields live on `ConsultSession`, added in the ACTION-INTENT-3 migration):
+
+| Field | Type | Purpose |
+|---|---|---|
+| `greetedThisSession` | boolean | Whether the opening greeting has already been shown. |
+| `loginDeclined` | boolean | Whether the user has dismissed the login/secure-account offer at least once. |
+| `loginLastAskedAt` | timestamp \| null | When the login offer was last shown — used to space out re-offers (don't ask every turn). |
+| `chatResetAt` | timestamp \| null | When the user last confirmed "clear/reset this chat" — marks the boundary the model's view starts from. |
+| `recentIntentNote` | short string | A rolling one-or-two-sentence note of what's being discussed right now and who/what was last referred to — enough to resolve "him"/"her"/"that" and to judge LOGOUT vs. topic-exit. |
+
+**Where it lives:** scoped to the same cookie/session as `ConsultSession` (one per user, guests included). `greetedThisSession`, `loginDeclined`, `loginLastAskedAt`, and `chatResetAt` are small, infrequently-changing flags — natural additional fields on `ConsultSession` (or a tiny sibling JSON column), following the existing `friendReqSurfacedAt` precedent (Part C). `recentIntentNote` is cheap, per-turn-recomputed context — it can be derived in-memory from the last 2-3 `ConsultMessage` rows each turn rather than persisted, or persisted alongside the others if derivation cost matters. Either way it must **never** be merged via `mergeInsights` or treated as part of `insights`.
+
+**Lifetime:** all fields live as long as the `ConsultSession` does — cascade-deletes with the user, same as the rest of `ConsultSession`. They are conversational bookkeeping, never shown to the user, and never exported.
+
+**Update rules:**
+- `greetedThisSession` → set `true` the first time a reply is sent in a session; "session" boundary is whatever the code already uses to decide whether to show the opening greeting (out of scope here — this field just records it).
+- `loginDeclined` / `loginLastAskedAt` → set when the user dismisses `SecureChatCard` (mirrors the existing `charaivati.dismissed_proposals` localStorage pattern — UCTX-2). `loginLastAskedAt` updates every time the offer is shown, regardless of outcome, so re-offers can be spaced out (e.g. don't re-offer within N messages/days of the last ask).
+- `chatResetAt` → set when the user confirms "clear/reset this chat" (CAPABILITIES → CLEAR/RESET). Does **not** delete `ConsultMessage` rows — same "fold, don't delete" doctrine as the rolling-summary fold (UCTX-1b): history before this point is excluded from both `GET /api/listen` (display) and the model's prompt window (ACTION-INTENT-5c).
+- `recentIntentNote` → refreshed each turn from the last few messages; used only to help the model resolve references and disambiguate LOGOUT vs. topic-exit. Never persisted as a goal, insight, or anything user-facing.
+
+### Fixed strings (implemented, ACTION-INTENT-3)
+
+These strings are **hard-coded**, not model-generated:
+
+- The honest-defer line (`unknown_capability` from the intent classifier): **"I can't do that here yet — I've passed it along so the team can consider adding it. Is there something else I can help with?"** — slightly longer than the originally-planned "I can't do that yet — I've noted it.", to be explicit that a `fileAdminQuestion` record was filed (mirrors the PERSONA-1 anonymized-question pipeline).
+- The greeting line telling the user they can sign out any time: **"You can say 'logout' any time to sign out."** — shown in `ListenChat.tsx`'s empty state alongside "What's on your mind?" / "Type in any language you like — I'll follow you."
+- The LOGOUT clarifying question (fallback when ambiguous) lives in `[SECTION: CAPABILITIES]`'s LOGOUT block (model-generated from that guidance, not a separate hardcoded string) — the model is instructed to ask **"Do you mean log out of Charaivati, or just take a break from this conversation?"**-equivalent when genuinely ambiguous.
+- `describeLogoutReply()` → **"Want me to sign you out?"** and `describeClearChatReply()` → **"Want to clear this chat and start fresh? Your past conversation stays saved — this just clears what's on screen."** (`lib/listener/actions.ts`) — both deterministic strings built with no model call, following the existing `describeReminderReply`/`describeUnfriendReply` pattern.
+
+### Part G — Reminder doctrine split + pendingReminder continuation (ACTION-INTENT-5b)
+
+**Doctrine**: reminders to existing friends are **low-stakes**. Destructive relationship changes (unfriend, and any future block/mute) **stay confirm-gated** — this relaxation is reminder-only, not a general precedent.
+
+**Shared send path** — `lib/listener/actions.ts` exports `sendReminder(senderId, recipientUserId, rawText)`, extracted unchanged from the old confirm-route body: friendship check (`not_friends`), `scanInput()` BLOCK check, day + per-recipient rate limits (`REMINDERS_PER_DAY = 5`, `REMINDERS_PER_RECIPIENT_PER_HOUR = 1`), then `createNotification({ type: "friend_reminder", ... })` whose real boolean result gates `{ ok: true }` vs `{ ok: false, error: "delivery_failed" }` (ACTION-INTENT-5a doctrine — unchanged). Both `POST /api/listen/actions/reminder` (now a thin wrapper, used by the `reminder_pick`/`reminder_non_friend` confirm cards) and `/api/listen`'s new direct-send path call this one function — no duplicated logic.
+
+**Collapsed both-present case (CHANGE 1)** — when `extractReminderQuery` returns both `recipientName` and `reminderText`, and `reminderText` is not just an echo of `recipientName` (sanity guard: `reminderText.trim().toLowerCase() !== recipientName.trim().toLowerCase()`), `/api/listen` calls `buildReminderAction()`. If it resolves to exactly one friend (`reminder_confirm`), the route calls `sendReminder()` immediately — **no confirm card** — and replies:
+- success → `describeReminderSentReply(name, text)` → `Sent "{text}" to {name}.`
+- failure → `describeReminderFailedReply(message)` → the real error (rate-limited, not-friends, delivery-failed, etc.)
+
+`action: null` in both cases — `ReminderCard` never renders for this path. **Unchanged**: `reminder_pick` (ambiguous — multiple friends with that name) still returns the pick-list card; `reminder_non_friend` / `reminder_not_found` replies are unchanged.
+
+**`pendingReminder` continuation (CHANGE 2 — fixes the "remind X" dead-end)** — `ConsultSession.pendingReminder Json?` (migration `20260619000000_add_consult_pending_reminder`, `(db as any)` until full `prisma generate`), shape:
+```ts
+{ recipientName: string, awaitingText: true }
+```
+When `recipientName` resolves but `reminderText` is missing (or is an echo of the name), `/api/listen` writes `pendingReminder` and replies once with `describeReminderAskTextReply(name)` → `What should I remind {name}?`.
+
+**Strict one-turn window, read-once-always-clear-then-branch**: on the very next turn, *before* any other intent/trigger handling, `/api/listen`:
+1. Reads `session.pendingReminder`.
+2. **Unconditionally clears it** (`pendingReminder: null`) — regardless of what happens next. It can never persist past one turn.
+3. Branches on the new turn's text:
+   - **Cancel phrase** (`isReminderCancel()` — "never mind", "nevermind", "nvm", "cancel that"/"cancel it", "forget it"/"forget about it", "don't bother", "no need") → `describeReminderCancelledReply()`, nothing sent.
+   - **Another recognized action trigger** (friend request, new reminder, unfriend, logout, clear-chat, or login-offer-for-guest) → the pending reminder is abandoned (already cleared) and the new intent is processed via the normal trigger chain. **Precedence: other action triggers always win over a pending reminder.**
+   - **Otherwise** → the text IS the reminder message: `resolveAndSendReminder(pendingReminder.recipientName, text)` runs the same send-and-report (or pick/non-friend/not-found) logic as CHANGE 1.
+
+There is currently only **one** pending-continuation field. Any future pending-state addition must follow this same "read once, always clear immediately, then branch" pattern to avoid cross-field collisions — do not add a second field without re-reviewing precedence against this one.
 
 ## Tech debt
 
-- **Full-string i18n for the Listener UI is deferred** — v1 ships English chrome (buttons, labels) with AI replies in the user's language (the `lang` cookie is captured into `ConsultSession.language` and injected as a prompt instruction). Mirror this entry in the local `TECH_DEBT.md` (gitignored).
+- **Full-string i18n for the Listener UI is deferred** — v1 ships English chrome (buttons, labels) with AI replies in the user's language (the `lang` cookie is captured into `ConsultSession.language` and injected as a prompt instruction). This now also covers the ACTION-INTENT-3 confirm cards (`LogoutConfirmCard`, `ClearChatConfirmCard`, `SecureChatCard`) and their fixed strings above — all English-only for v1. Mirror this entry in the local `TECH_DEBT.md` (gitignored).
 - **Network node is display-only** pending FriendCircle wiring — it fills from `insights.network.notes` but has no tap-steer write target.
 - **Map correction UX is minimal v1** — long-press/right-click → "That's not right" → re-ask hint. No per-field editing of insights from the map.
 - **Action layer (PRIV-ACT-1)** — no block/mute list for reminders (a friend can always be reminded once they're a friend, subject only to the rate limits); reminders are send-now only — no scheduled/future-dated delivery.
+- **Pending friend requests (FRIEND-NOTIFY-1)** — "Ignore" is dismiss-only by design; there is no server-side decline-from-chat. A user who wants to decline a request must do so from the Social page. See `TECH_DEBT.md`.
+- **Intent classifier runs per-turn on a `looksActionShaped` miss only — not cached or batched (ACTION-INTENT-3)** — `classifyIntent()` is a full `chatComplete jsonMode` call. On the current local hardware (one 8b model, sequential), a turn that fails all strict-keyword checks but passes `looksActionShaped` adds one extra local prefill on top of the conversational reply. This is acceptable today because `looksActionShaped` filters out the vast majority of ordinary chat turns, but if local hardware becomes a bottleneck, consider either a smaller/faster dedicated classifier model or merging classification into the main conversational call (at the cost of prompt-cache stability — UCTX-1b). Mirror this entry in `TECH_DEBT.md`.
+- **`unknown_capability` → `fileAdminQuestion` has no notify-on-ship loop (ACTION-INTENT-3)** — when the team builds a requested capability, there is no mechanism that tells the users who asked for it that it now exists. `AdminQuestion` rows are anonymized by design (PERSONA-1, no `userId`), so even a manual sweep can't notify specific users — this is an intentional privacy tradeoff, not an oversight, but it means "I've passed it along" is a one-way signal. If this becomes a recurring user complaint, consider a non-anonymized opt-in "notify me" flag captured separately from the anonymized question. Mirror this entry in `TECH_DEBT.md`.
 
 ---
 
@@ -433,11 +597,66 @@ One concrete example: privacy. Charaivati has a "discoverable" toggle in the use
 [/SECTION]
 
 [SECTION: CAPABILITIES]
-You have exactly two small actions you can take in this conversation, both deterministic — you never invent or perform them yourself, you only describe them honestly when asked:
-- Finding a friend and sending them a friend request, by name (and optionally a city).
-- Sending a short reminder message to one of the user's existing friends.
+You have a small set of deterministic actions you can take in this conversation. You never invent or perform these yourself — the system handles every actual write, and anything that changes something is shown to the user as a confirm card first.
 
-If the user asks "can you add my friend" / "can you remind X about something" / similar, say yes plainly — these work. If they ask for anything else action-like (scheduling, calling, messaging non-friends, posting, anything outside these two), be honest that you can't do that yet — you can only listen and talk for everything else. Don't over-explain the mechanism; just be clear about what's possible.
+ADD A FRIEND
+- What it does: searches Charaivati by name (optionally with a city) and offers to send that person a friend request.
+- How it's asked: loosely — "can you add my friend X", "find someone called X in <city>", "send X a friend request", "is X on here?"
+- Confirm step: yes — the user picks the right person from the results and taps to send.
+
+REMOVE A FRIEND
+- What it does: removes someone who is already a friend.
+- How it's asked: "unfriend X", "remove X from my friends", "I don't want X as a friend anymore", "take X off my friend list".
+- Confirm step: yes, always — removing a friend is shown as a clear confirm/cancel before anything changes.
+
+SEND A FRIENDLY REMINDER
+- What it does: sends a short reminder message (as a notification) to one of the user's existing friends.
+- How it's asked: "remind X to call me back", "nudge X about our plan", "tell X I said hi", "can you ping X for me".
+- Confirm step: yes — the user confirms who it's going to and what it says before it sends.
+
+ACCEPT A FRIEND REQUEST
+- What it does: accepts one of the user's pending incoming friend requests.
+- How it's asked: usually you raise this gently ("X sent you a friend request") and the user responds — "accept it", "yes, add them", "sure" — or simply taps Accept.
+- Confirm step: tapping Accept is itself the action — accepting a friend request is not destructive, so no further confirmation is needed.
+
+SHOW THE MIND-MAP
+- What it does: opens a visual map of what's been sensed so far — the drive, the emerging goal, and the seven life parameters (skills, health, environment, time, funds, network, energy).
+- How it's asked: "show me the map", "what do you know about me so far", "where are we at", "can I see this visually".
+- Confirm step: no — this only opens a view; nothing is written or changed.
+
+CLEAR / RESET THIS CHAT
+- What it does: starts the conversation fresh from this point.
+- How it's asked: "let's start over", "clear this chat", "can we reset", "wipe this conversation".
+- Confirm step: yes — clearing is hard to undo, so it's confirmed before it happens.
+
+LOG OUT
+- What it does: signs the user out of Charaivati on this device.
+- How it's asked: "log out", "log me out", "sign me out", "logout".
+- Confirm step: yes, always.
+
+LOGOUT — read this carefully before offering the card:
+At the start of a conversation the user is told they can say "Logout" any time to sign out. Treat logout as a STRICT intent — only offer the logout confirm card for an explicit, unambiguous request to sign out of the account ("log out", "log me out", "sign me out", "logout").
+
+Do not confuse this with the person wanting to step away from the TOPIC or get some emotional distance — "I don't want to talk about this anymore", "I need to go", "leave me alone", "I'm done", "let's stop" are almost always about the conversation, not the account. Use the last few messages as context: if something heavy was just discussed, or the person sounds like they're pulling back from the subject rather than the app, that's the more likely reading.
+
+If you genuinely cannot tell which one is meant, ask one short clarifying question instead of offering the card — for example, "Do you mean log out of Charaivati, or just take a break from this conversation?" Never offer the logout card off a vague closer like "I'm done" by itself.
+
+LOG IN (guests only)
+- What it does: opens a sign-in card right here in the chat, with two options the user can switch between: "secure this account" (pick a username + password to keep this conversation) or "log in to an existing account" (email + password). Either way they stay in this conversation the whole time — nothing opens elsewhere and nothing navigates away.
+- How it's asked: "log me in", "can you log me in", "sign me in", "I want to log in/sign in".
+- Confirm step: no write happens here — this just opens the card. The user enters their own credentials directly into it; you never see or handle their password.
+- Signed-in users asking this don't get the card (they're already signed in) — decline warmly per DECLINING WARMLY below and ask what they actually need.
+
+DECLINING WARMLY — read this before saying no to anything:
+When you can't do something, decline warmly and ALWAYS offer the real path. Never sound dismissive or define yourself by what you are not.
+- Example — login: "I can sign you in right here — just tap below to log in or secure this account."
+- Example — out of scope: "That's not something I can do from here yet, but I've noted it. Anything else on your mind?"
+Keep it warm, brief, never a flat refusal.
+
+WHAT YOU CANNOT DO — be honest about these, never imply otherwise:
+- You cannot log a signed-in user INTO a different account, and you cannot change account settings, passwords, or privacy toggles (like the "discoverable" friend-search setting) yourself — you can describe that they exist and where to find them. For a guest asking to log in, see LOG IN above — that one has a real path to offer, fully in this chat.
+- You cannot act on anyone who isn't already the user's friend — except sending them a NEW friend request, which is the one exception above.
+- For anything else action-shaped that isn't listed above: decline warmly per DECLINING WARMLY above — say plainly but kindly that it's not something you can do from here yet, that you've noted it, and ask if there's anything else. Don't improvise a workaround or pretend it happened.
 [/SECTION]
 
 [SECTION: NEVER]
@@ -468,6 +687,12 @@ If the user asks "can you add my friend" / "can you remind X about something" / 
 - Reminders are send-now only — no scheduling/future-dated delivery. A
   scheduled reminder would need a job queue (see existing BullMQ TODO for
   quote timeouts) rather than the current synchronous Notification write.
+- (ACTION-INTENT-5b) `reminder_pick` (ambiguous name match) still shows a
+  confirm card with an explicit Send button — slightly inconsistent with the
+  new "send-and-report, no confirm" doctrine for the single-match case. Left
+  as-is deliberately: disambiguation itself requires a user choice, and
+  collapsing "pick" + "send" into one tap is a small UX improvement, not a
+  doctrine fix. Revisit if it reads as inconsistent in practice.
 
 ## Personality layer (UCTX-3)
 - Only DISC + the 4 drive archetypes are modeled. Big Five (or any other

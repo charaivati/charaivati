@@ -11,7 +11,7 @@ export interface FriendCandidate {
   name: string | null;
   avatarUrl: string | null;
   location: string | null;
-  relationship: "friends" | "outgoing" | "incoming" | "none";
+  relationship: "friends" | "outgoing" | "incoming" | "none" | "self";
 }
 
 export type ListenAction =
@@ -42,4 +42,32 @@ export type ListenAction =
   | {
       type: "reminder_not_found";
       name: string;
+    }
+  | {
+      type: "friend_requests_pending";
+      requests: {
+        id: string;
+        sender: { id: string; name: string | null; avatarUrl: string | null; location: string | null };
+      }[];
+    }
+  | {
+      type: "unfriend_confirm";
+      friend: { id: string; name: string | null; avatarUrl: string | null };
+    }
+  | {
+      type: "unfriend_pick";
+      candidates: { id: string; name: string | null; avatarUrl: string | null }[];
+    }
+  | {
+      type: "unfriend_not_found";
+      name: string;
+    }
+  | {
+      type: "logout_confirm";
+    }
+  | {
+      type: "clear_chat_confirm";
+    }
+  | {
+      type: "login_offer";
     };

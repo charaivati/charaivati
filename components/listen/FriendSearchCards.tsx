@@ -72,6 +72,7 @@ function PersonCard({
         {person.location && <p className="text-xs text-gray-500 truncate">{person.location}</p>}
       </div>
       <div className="flex-shrink-0">
+        {person.relationship === "self" && <span className="text-xs text-gray-500">This is your own account</span>}
         {person.relationship === "friends" && <span className="text-xs text-green-400">Friends</span>}
         {person.relationship === "outgoing" && <span className="text-xs text-gray-500">Request sent</span>}
         {person.relationship === "incoming" && <span className="text-xs text-gray-500">Pending your reply</span>}

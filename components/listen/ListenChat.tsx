@@ -15,6 +15,11 @@ import ProposalCard, { getDismissedProposals, addDismissedProposal } from "@/com
 import PersonaProposalCard, { type PersonaProposal } from "@/components/chat/PersonaProposalCard";
 import FriendSearchCards from "@/components/listen/FriendSearchCards";
 import ReminderCard from "@/components/listen/ReminderCard";
+import FriendRequestCard from "@/components/listen/FriendRequestCard";
+import UnfriendCard from "@/components/listen/UnfriendCard";
+import LogoutConfirmCard from "@/components/listen/LogoutConfirmCard";
+import ClearChatConfirmCard from "@/components/listen/ClearChatConfirmCard";
+import { SecureChatCard } from "@/components/listen/SecureChatCard";
 import MindMap, { type MapNodeKey } from "./MindMap";
 
 type ChatMsg =
@@ -59,40 +64,55 @@ export default function ListenChat() {
   const [crisis, setCrisis] = useState(false);
   const [insights, setInsights] = useState<ConsultInsights | null>(null);
   const [personalityTopDrive, setPersonalityTopDrive] = useState<string | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
+  const [showLoginOffer, setShowLoginOffer] = useState(false);
+  const [loginOfferDismissed, setLoginOfferDismissed] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [proposalLoading, setProposalLoading] = useState(false);
   const [statusIdx, setStatusIdx] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // ── Guest-first bootstrap + hydration ───────────────────────────────────────
+  // Also reused after an in-chat login/signup (LOGIN-IN-CHAT-1) — the session
+  // behind the cookie has changed (guest merged into a real account), so the
+  // whole view re-hydrates from GET /api/listen rather than just flipping
+  // isGuest locally.
+  async function hydrateSession(): Promise<boolean> {
+    try {
+      let res = await fetch("/api/listen", { credentials: "include" });
+      if (res.status === 401) {
+        const g = await fetch("/api/user/guest", { method: "POST", credentials: "include" });
+        if (!g.ok) throw new Error("guest_failed");
+        res = await fetch("/api/listen", { credentials: "include" });
+      }
+      const data = await res.json();
+      if (data?.ok) {
+        setStage(data.consultStage ?? 0);
+        setInsights(data.insights ?? null);
+        setCrisis(data.crisis === true);
+        setPersonalityTopDrive(data.personalityTopDrive ?? null);
+        setIsGuest(data.isGuest === true);
+        setShowLoginOffer(data.showLoginOffer === true);
+        setMessages(
+          (Array.isArray(data.messages) ? data.messages : []).map((m: { role: string; content: string }) =>
+            m.role === "user" ? { kind: "user" as const, content: m.content } : { kind: "assistant" as const, content: m.content }
+          )
+        );
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        let res = await fetch("/api/listen", { credentials: "include" });
-        if (res.status === 401) {
-          const g = await fetch("/api/user/guest", { method: "POST", credentials: "include" });
-          if (!g.ok) throw new Error("guest_failed");
-          res = await fetch("/api/listen", { credentials: "include" });
-        }
-        const data = await res.json();
-        if (cancelled) return;
-        if (data?.ok) {
-          setStage(data.consultStage ?? 0);
-          setInsights(data.insights ?? null);
-          setCrisis(data.crisis === true);
-          setPersonalityTopDrive(data.personalityTopDrive ?? null);
-          setMessages(
-            (Array.isArray(data.messages) ? data.messages : []).map((m: { role: string; content: string }) =>
-              m.role === "user" ? { kind: "user" as const, content: m.content } : { kind: "assistant" as const, content: m.content }
-            )
-          );
-        }
-      } catch {
-        if (!cancelled) setBootError(true);
-      } finally {
-        if (!cancelled) setBooting(false);
-      }
+      const ok = await hydrateSession();
+      if (cancelled) return;
+      if (!ok) setBootError(true);
+      setBooting(false);
     })();
     return () => {
       cancelled = true;
@@ -102,6 +122,18 @@ export default function ListenChat() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // Record that the login offer (SecureChatCard) was shown, for the re-offer cooldown.
+  useEffect(() => {
+    if (isGuest && showLoginOffer && !loginOfferDismissed) {
+      fetch("/api/listen/login-offer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ action: "shown" }),
+      }).catch(() => {});
+    }
+  }, [isGuest, showLoginOffer, loginOfferDismissed]);
 
   // Rotating contextual status lines while waiting (not three dots).
   useEffect(() => {
@@ -252,6 +284,44 @@ export default function ListenChat() {
     setPersonaProposalStatus(index, "dismissed");
   }
 
+  // ── Login offer (SecureChatCard) ────────────────────────────────────────────
+  function dismissLoginOffer() {
+    setLoginOfferDismissed(true);
+    fetch("/api/listen/login-offer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action: "dismiss" }),
+    }).catch(() => {});
+  }
+
+  // LOGIN-IN-CHAT-1: after either signup (guest-upgrade) or login mode succeeds,
+  // the session behind the cookie may now point at a different (merged) user —
+  // re-hydrate the whole view in place rather than just flipping isGuest, so the
+  // merged conversation/insights load without leaving /listen.
+  function handleLoginSuccess() {
+    void hydrateSession();
+  }
+
+  // TONE-DECLINE-1: dismiss an in-bubble login_offer card (one-off, no
+  // persistence — distinct from the empty-state nudge's 3-day cooldown).
+  function dismissLoginOfferCard(index: number) {
+    setMessages((prev) =>
+      prev.map((m, idx) => (idx === index && m.kind === "assistant" ? { ...m, action: undefined } : m))
+    );
+  }
+
+  // ── Logout (ACTION-INTENT-3) ─────────────────────────────────────────────────
+  function handleLoggedOut() {
+    window.location.reload();
+  }
+
+  // ── Clear chat (ACTION-INTENT-3) — fold-don't-delete: clears on-screen state
+  // only, ConsultMessage rows stay in the DB.
+  function handleClearedChat() {
+    setMessages([]);
+  }
+
   return (
     <div className="flex flex-col h-dvh max-w-lg mx-auto">
       {/* Header */}
@@ -280,7 +350,13 @@ export default function ListenChat() {
               <div className="text-center mt-16 px-6">
                 <p className="text-xl text-gray-200 font-light">What&apos;s on your mind?</p>
                 <p className="text-xs text-gray-500 mt-3">Type in any language you like — I&apos;ll follow you.</p>
+                <p className="text-xs text-gray-500 mt-1">You can say &quot;logout&quot; any time to sign out.</p>
                 {bootError && <p className="text-xs text-red-400 mt-4">Couldn&apos;t connect. Check your network and reload.</p>}
+                {isGuest && showLoginOffer && !loginOfferDismissed && (
+                  <div className="mt-4 text-left">
+                    <SecureChatCard onDismiss={dismissLoginOffer} onSuccess={handleLoginSuccess} />
+                  </div>
+                )}
               </div>
             )}
 
@@ -320,6 +396,18 @@ export default function ListenChat() {
                         (m.action.type === "reminder_confirm" ||
                           m.action.type === "reminder_pick" ||
                           m.action.type === "reminder_non_friend") && <ReminderCard action={m.action} />}
+                      {m.action?.type === "friend_requests_pending" && <FriendRequestCard action={m.action} />}
+                      {m.action &&
+                        (m.action.type === "unfriend_confirm" ||
+                          m.action.type === "unfriend_pick" ||
+                          m.action.type === "unfriend_not_found") && <UnfriendCard action={m.action} />}
+                      {m.action?.type === "logout_confirm" && <LogoutConfirmCard onLoggedOut={handleLoggedOut} />}
+                      {m.action?.type === "clear_chat_confirm" && <ClearChatConfirmCard onCleared={handleClearedChat} />}
+                      {m.action?.type === "login_offer" && (
+                        <div className="mt-2">
+                          <SecureChatCard onDismiss={() => dismissLoginOfferCard(i)} onSuccess={handleLoginSuccess} />
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="rounded-2xl px-3 py-2 text-sm leading-relaxed bg-indigo-600 text-white rounded-br-sm max-w-[80%]">

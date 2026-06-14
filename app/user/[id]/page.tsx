@@ -127,6 +127,7 @@ export default function UserProfilePage() {
   const [notFound, setNotFound] = useState(false);
   const [relationship, setRelationship] = useState<Relationship>("none");
   const [friendPending, setFriendPending] = useState(false);
+  const [unfriendPending, setUnfriendPending] = useState(false);
   const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -215,6 +216,30 @@ export default function UserProfilePage() {
       alert("Failed to send friend request");
     } finally {
       setFriendPending(false);
+    }
+  }
+
+  async function removeFriend() {
+    if (!userId || unfriendPending) return;
+    if (!confirm(`Remove ${displayName} from friends?`)) return;
+    setUnfriendPending(true);
+    try {
+      const res = await fetch("/api/friends/remove", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ friendId: userId }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setRelationship("none");
+      } else {
+        alert(json.error ?? "Failed to remove friend");
+      }
+    } catch {
+      alert("Failed to remove friend");
+    } finally {
+      setUnfriendPending(false);
     }
   }
 
@@ -448,10 +473,15 @@ export default function UserProfilePage() {
               </span>
             )}
             {!isSelf && relationship === "friends" && (
-              <span className="flex items-center gap-1.5 shrink-0 rounded-lg border border-green-700 bg-green-900/20 px-3 py-1.5 text-sm text-green-400">
+              <button
+                onClick={removeFriend}
+                disabled={unfriendPending}
+                className="flex items-center gap-1.5 shrink-0 rounded-lg border border-green-700 bg-green-900/20 px-3 py-1.5 text-sm text-green-400 hover:border-red-700 hover:bg-red-900/20 hover:text-red-400 disabled:opacity-50 transition-colors"
+                title="Remove friend"
+              >
                 <UserCheck className="w-4 h-4" />
-                Friends
-              </span>
+                {unfriendPending ? "Removing…" : "Friends"}
+              </button>
             )}
             {!isSelf && relationship === "incoming" && (
               <button

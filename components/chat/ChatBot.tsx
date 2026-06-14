@@ -90,6 +90,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
   const [attachedDoc, setAttachedDoc] = useState<AttachedDoc | null>(null);
   const [docUploading, setDocUploading] = useState(false);
   const [docError, setDocError] = useState("");
+  const [proposalLoading, setProposalLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -493,8 +494,6 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
   }
 
   // ─── Profile proposal actions ─────────────────────────────────────────────
-
-  const [proposalLoading, setProposalLoading] = useState(false);
 
   function setMessageProposalStatus(messageIndex: number, status: "accepted" | "dismissed") {
     setMessages((prev) =>

@@ -9,15 +9,8 @@
 // delivery/read receipts, and nothing about the recipient's account is read
 // or returned beyond what was already shown on the confirm card.
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
-import { scanInput } from "@/lib/ai/guardRail";
-import { checkRateLimit } from "@/lib/rateLimit";
-import { createNotification } from "@/lib/notifications/createNotification";
-import { clampReminderText } from "@/lib/listener/actions";
-
-const REMINDERS_PER_DAY = 5;
-const REMINDERS_PER_RECIPIENT_PER_HOUR = 1;
+import { sendReminder } from "@/lib/listener/actions";
 
 export async function POST(req: Request) {
   const token = getTokenFromRequest(req);
@@ -33,52 +26,17 @@ export async function POST(req: Request) {
   if (!recipientUserId || !rawText) {
     return NextResponse.json({ ok: false, error: "recipientUserId and text required" }, { status: 400 });
   }
-  if (recipientUserId === userId) {
-    return NextResponse.json({ ok: false, error: "Cannot send a reminder to yourself" }, { status: 400 });
+
+  const result = await sendReminder(userId, recipientUserId, rawText);
+
+  if (!result.ok) {
+    const status =
+      result.error === "not_friends" ? 403 :
+      result.error === "rate_limited_day" || result.error === "rate_limited_recipient" ? 429 :
+      result.error === "blocked" ? 400 :
+      500;
+    return NextResponse.json({ ok: false, error: result.error, message: result.message }, { status });
   }
-
-  const text = clampReminderText(rawText);
-
-  // Recipient must be an accepted friend — never allow reminders to non-friends.
-  const friendship = await db.friendship.findFirst({
-    where: {
-      OR: [
-        { userAId: userId, userBId: recipientUserId },
-        { userAId: recipientUserId, userBId: userId },
-      ],
-    },
-  });
-  if (!friendship) {
-    return NextResponse.json({ ok: false, error: "not_friends", message: "You can only send reminders to friends." }, { status: 403 });
-  }
-
-  const scan = scanInput(text);
-  if (scan.level === "BLOCK") {
-    return NextResponse.json({ ok: false, error: "blocked", message: "That reminder can't be sent — try rephrasing it." }, { status: 400 });
-  }
-
-  const dayLimit = await checkRateLimit(`listen:reminder:day:${userId}`, REMINDERS_PER_DAY, 86400);
-  if (!dayLimit.ok) {
-    return NextResponse.json({ ok: false, error: "rate_limited", message: "You've sent enough reminders for today." }, { status: 429 });
-  }
-
-  const recipientLimit = await checkRateLimit(
-    `listen:reminder:recipient:${userId}:${recipientUserId}`,
-    REMINDERS_PER_RECIPIENT_PER_HOUR,
-    3600
-  );
-  if (!recipientLimit.ok) {
-    return NextResponse.json({ ok: false, error: "rate_limited", message: "You already sent this person a reminder recently." }, { status: 429 });
-  }
-
-  const sender = await db.user.findUnique({ where: { id: userId }, select: { name: true } });
-
-  await createNotification({
-    userId: recipientUserId,
-    type: "friend_reminder",
-    title: `Reminder from ${sender?.name ?? "a friend"}`,
-    body: text,
-  });
 
   return NextResponse.json({ ok: true, message: "Reminder sent." });
 }
