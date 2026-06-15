@@ -30,10 +30,15 @@ fields documented under "Known Footguns" in `CLAUDE.md`).
 handlers call. It:
 
 1. Verifies the caller owns the store (`forbidden` / `not_found` otherwise).
-2. **Blocks on open orders** — defined as any `Order` row for this store
-   (including sub-orders, detected via `parentOrderId`) where `status` or
-   `deliveryStatus` is **not** in `["delivered", "cancelled"]`. Returns
-   `{ ok: false, reason: "open_orders", blockingOrders: [{ id, reason }] }`.
+2. **Blocks on open orders** (STOREDEL-FIX-1) — an `Order` row for this store
+   (including sub-orders, detected via `parentOrderId`) is "open" if EITHER:
+   (a) `status` is non-terminal (`["pending", "confirmed", "shipped"]`), OR
+   (b) `status` is terminal (`delivered`/`cancelled`) but `deliveryStatus` is
+   actively mid-delivery (`["confirmed", "processing", "out_for_delivery"]`).
+   `deliveryStatus = "pending"` on a terminal-status order is **not** open —
+   delivery was simply never initiated, which is the normal case for orders
+   cancelled pre-confirmation or fulfilled without the GPS delivery-tracking
+   flow. Returns `{ ok: false, reason: "open_orders", blockingOrders: [{ id, reason }] }`.
    Nothing is written when blocked.
 3. On success, in a single `prisma.$transaction`:
    - Sets `Store.deletedAt = now`

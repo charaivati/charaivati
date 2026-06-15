@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/lib/notifications/createNotification";
 
-const CLOSED_ORDER_STATUSES = ["delivered", "cancelled"];
-const CLOSED_DELIVERY_STATUSES = ["delivered", "cancelled"];
+const OPEN_ORDER_STATUSES = ["pending", "confirmed", "shipped"];
+const ACTIVE_DELIVERY_STATUSES = ["confirmed", "processing", "out_for_delivery"];
 
 export type BlockingOrder = { id: string; reason: string };
 
@@ -18,9 +18,12 @@ export type SoftDeleteResult =
  * single deletedAt marker since there is no grace-period requirement here.
  *
  * Refuses when any order (including sub-orders) for this store is still open —
- * "open" = status or deliveryStatus not in (delivered, cancelled). Nothing is
- * deleted; order/quote/OSP rows are never touched, only deletedAt flags + the
- * collaborations that must end as a result.
+ * "open" = status is non-terminal (pending/confirmed/shipped), OR status is
+ * terminal (delivered/cancelled) but deliveryStatus is actively mid-delivery
+ * (confirmed/processing/out_for_delivery). deliveryStatus="pending" on a
+ * terminal-status order means delivery was never initiated and does NOT block.
+ * Nothing is deleted; order/quote/OSP rows are never touched, only deletedAt
+ * flags + the collaborations that must end as a result.
  */
 export async function softDeleteStore(storeId: string, ownerId: string): Promise<SoftDeleteResult> {
   const store = await prisma.store.findUnique({
@@ -34,8 +37,11 @@ export async function softDeleteStore(storeId: string, ownerId: string): Promise
     where: {
       storeId,
       OR: [
-        { status: { notIn: CLOSED_ORDER_STATUSES } },
-        { deliveryStatus: { notIn: CLOSED_DELIVERY_STATUSES } },
+        { status: { in: OPEN_ORDER_STATUSES } },
+        {
+          status: { in: ["delivered", "cancelled"] },
+          deliveryStatus: { in: ACTIVE_DELIVERY_STATUSES },
+        },
       ],
     },
     select: { id: true, status: true, deliveryStatus: true, parentOrderId: true },
