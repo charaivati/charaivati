@@ -17,11 +17,22 @@ export type SoftDeleteResult =
  * Mirrors the User soft-delete precedent (status + scheduled flag) but uses a
  * single deletedAt marker since there is no grace-period requirement here.
  *
- * Refuses when any order (including sub-orders) for this store is still open —
- * "open" = status is non-terminal (pending/confirmed/shipped), OR status is
- * terminal (delivered/cancelled) but deliveryStatus is actively mid-delivery
- * (confirmed/processing/out_for_delivery). deliveryStatus="pending" on a
- * terminal-status order means delivery was never initiated and does NOT block.
+ * Refuses when any order (including sub-orders) for this store is still open.
+ *
+ * Top-level orders (parentOrderId == null): "open" = status is non-terminal
+ * (pending/confirmed/shipped), OR status is terminal (delivered/cancelled) but
+ * deliveryStatus is actively mid-delivery (confirmed/processing/out_for_delivery).
+ * deliveryStatus="pending" on a terminal-status order means delivery was never
+ * initiated and does NOT block.
+ *
+ * Sub-orders (parentOrderId != null): `status` is largely vestigial here — it
+ * defaults to "pending" at creation and is rarely advanced by the normal order
+ * lifecycle, since sub-orders represent delivery/service assignment tasks whose
+ * real lifecycle lives in `deliveryStatus`/`partnerStatus`/OSP. So a sub-order is
+ * "open" purely based on `deliveryStatus NOT IN (delivered, cancelled)` —
+ * a sub-order left at status="pending" with deliveryStatus="cancelled" is closed,
+ * not open (STOREDEL-FIX-2).
+ *
  * Nothing is deleted; order/quote/OSP rows are never touched, only deletedAt
  * flags + the collaborations that must end as a result.
  */
@@ -37,10 +48,21 @@ export async function softDeleteStore(storeId: string, ownerId: string): Promise
     where: {
       storeId,
       OR: [
-        { status: { in: OPEN_ORDER_STATUSES } },
+        // Top-level orders
         {
-          status: { in: ["delivered", "cancelled"] },
-          deliveryStatus: { in: ACTIVE_DELIVERY_STATUSES },
+          parentOrderId: null,
+          OR: [
+            { status: { in: OPEN_ORDER_STATUSES } },
+            {
+              status: { in: ["delivered", "cancelled"] },
+              deliveryStatus: { in: ACTIVE_DELIVERY_STATUSES },
+            },
+          ],
+        },
+        // Sub-orders — deliveryStatus is the authoritative lifecycle field
+        {
+          parentOrderId: { not: null },
+          deliveryStatus: { notIn: ["delivered", "cancelled"] },
         },
       ],
     },
