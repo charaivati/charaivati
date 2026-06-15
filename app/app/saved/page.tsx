@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import QuickOrderModal from "@/components/store/QuickOrderModal";
 import { useTranslations } from "@/hooks/useTranslations";
 
@@ -516,6 +517,30 @@ export default function SavedPage() {
           >
             {t("app-saved-browse-heading", "Browse Stores")}
           </h2>
+
+          {/* TODO: seed app-saved-discover-link translation; hardcoded English for now */}
+          <Link
+            href="/app/discover"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "12px 16px",
+              borderRadius: 10,
+              border: `1px solid ${A.border}`,
+              background: A.surface,
+              fontSize: 14,
+              fontWeight: 500,
+              color: A.text,
+              textDecoration: "none",
+              marginBottom: 10,
+            }}
+          >
+            📍 Find stores near you
+          </Link>
 
           <input
             value={search}
