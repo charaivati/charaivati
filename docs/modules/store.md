@@ -289,6 +289,66 @@ A **separate axis from `Page.pageType`**. `Page.pageType` (`store`/`service`/`fl
 - **`components/earn/StoreTaxonomyPicker.tsx`** — controlled component, two `flex flex-wrap gap-2` rows of `PillButton` toggles (categories soft-capped at 3 with a hint when at cap; tags uncapped). Wired into `components/earn/InitiativeTabs.tsx` Store tab, between the "Taking orders" toggle and the location nag. Seeds initial selection from `categoryIds`/`tagIds` on the existing store fetch, fetches `/api/store/taxonomy?locale=` separately, and Saves both arrays via the PATCH contract above (always sends both keys).
 - **UI strings**: 8 new `Tab`/`TabTranslation` rows (`store-categories-label`, `store-categories-prompt`, `store-tags-label`, `store-tags-prompt`, `store-taxonomy-save`, `store-taxonomy-saving`, `store-taxonomy-saved`, `store-categories-cap`), seeded by `prisma/seed-store-taxonomy-ui.js` across all 16 enabled languages (128 rows), consumed via `useTranslations()`.
 
+## Store Discovery — map + list, filters, gate (DISCOVER-1b)
+
+Customer-facing discovery at `/app/discover`. This is the first consumer of the Store Taxonomy tables for filtering, and the first feature that requires an address before showing any content.
+
+### `GET /api/store/all` — extended (additive)
+
+New optional query params, all additive — existing callers (e.g. `/app/saved`, which calls with no params) get the same fields plus new ones, unchanged behavior when params are absent:
+
+- `categoryIds` — comma-separated `StoreCategory.id` list
+- `tagIds` — comma-separated `StoreTag.id` list
+- `addressLat` / `addressLng` — floats; when both present, response is sorted by distance
+
+**Filter semantics — OR within an axis, AND across axes (locked)**: each axis (`categoryIds`, `tagIds`) is only added to the `where.AND` array when it has selections. Within an axis, matching is `some: { id: { in: [...] } }` (OR). Across axes, the conditions are combined with `AND`:
+```ts
+where: {
+  deletedAt: null,
+  AND: [
+    { categories: { some: { categoryId: { in: categoryIds } } } }, // only if categoryIds.length
+    { tags: { some: { tagId: { in: tagIds } } } },                   // only if tagIds.length
+  ],
+}
+```
+A store matching ANY selected category AND ANY selected tag is returned. No filters selected → behaves exactly as before (all stores, `deletedAt: null`, `take: 50`).
+
+**Response per store** (extended):
+```ts
+{ id, name, slug, description, previewImage, lat, lng, acceptingOrders, categoryIds, tagIds, distanceKm }
+```
+- `lat`/`lng`/`acceptingOrders` come from `lib/store/getStoreGeo.ts` — a raw-SQL batch helper mirroring `getStoreSlugs.ts` (`SELECT id, lat, lng, "acceptingOrders" FROM "Store" WHERE id IN (...)`), per the stale-Prisma-client doctrine — lat/lng are never put in a typed `select`.
+- `categoryIds`/`tagIds` come from batched `prisma.storeCategoryLink.findMany`/`storeTagLink.findMany` (typed — these models are current), grouped client-side into `{ [storeId]: id[] }` maps.
+- `distanceKm` — `haversineKm(addressLat, addressLng, store.lat, store.lng)` when both the address and the store have coordinates, else `null`. A store with no coordinates is **never excluded** — it just sorts last and shows "Distance unknown".
+- When `addressLat`/`addressLng` are present, results are sorted ascending by `distanceKm` with `null` treated as `Infinity` (NULLS LAST). Without an address, order is unchanged (`createdAt desc`).
+
+### `lib/store/getStoreGeo.ts`
+`getStoreGeo(ids: string[]) → Record<id, { lat: number|null, lng: number|null, acceptingOrders: boolean }>`. Same shape/pattern as `getStoreSlugs.ts`.
+
+### `/app/discover` — thin wrapper + gate (DOC-7, locked)
+`app/app/discover/page.tsx` owns only: fetching `GET /api/store/address` (credentials: include — bare array response, same as `/app/saved`), and a three-way render:
+- `addresses === null` (loading) → `<DiscoverSkeleton/>`
+- `addresses.length === 0` → `<NoAddressGate onAdded={...}/>` — centered prompt + button opens `AddressForm` in a panel; on save (`POST /api/store/address`), `onAdded(newAddr)` flips local state so `DiscoveryView` mounts immediately with that address — **no navigation, no re-fetch**.
+- `addresses.length > 0` → `<DiscoveryView addresses={addresses} initialAddressId={addresses[0].id}/>` (the GET already orders `isDefault desc, createdAt asc`, so `addresses[0]` is the default-first address).
+
+**There is deliberately no "unsorted list, no address" fallback** — both map and list are gated behind having at least one address. Do not build a third path.
+
+### `components/store/DiscoveryView.tsx` — reusable, prop-driven
+Takes `{ addresses, initialAddressId }` and owns all interaction state: selected address (dropdown, last option "Add new address" → inline `AddressForm`, same save flow as the gate), category/tag filter pills (read-only toggles fetching `GET /api/store/taxonomy?locale=`, reusing the existing `store-categories-label`/`store-tags-label` strings from TAG-STORE-1c rather than duplicating them), and a map/list view toggle.
+
+**One shared fetch** to `GET /api/store/all?categoryIds=&tagIds=&addressLat=&addressLng=` runs on any change to selected address or filters; the map/list toggle is presentation-only and never triggers a refetch.
+
+This component is intentionally **route-agnostic** — it is built for reuse by a future store-owner-facing surface with different inputs (e.g. a different default address or filter set). Do not weld discovery logic into `/app/discover/page.tsx`.
+
+### `components/store/DiscoveryMap.tsx` — multi-marker map
+`dynamic(() => import(...), { ssr: false })`. Leaflet boot/icon-fix/hot-reload-guard/cleanup boilerplate is copied verbatim from `components/transport/TransportMap.tsx`. Maintains one `L.layerGroup` of store markers, diffed against the `stores` prop (add/move/remove — never tears down and rebuilds the whole map), plus one additional marker for the selected address styled like `TransportMap`'s blue self-position dot (`setView` to it on change). Stores with `lat`/`lng` null are excluded from markers; a small note below the map reports how many stores aren't shown.
+
+### New UI strings (`prisma/seed-discover-ui.js`)
+11 new strings (`app-discover-*`) seeded as `Tab`/`TabTranslation` rows across all 16 enabled languages (176 rows): `app-discover-map-view`, `app-discover-list-view`, `app-discover-near-heading`, `app-discover-select-address`, `app-discover-add-address`, `app-discover-distance-km`, `app-discover-distance-unknown`, `app-discover-no-stores-found`, `app-discover-map-missing-count`, `app-discover-gate-title`, `app-discover-gate-button`. `store-categories-label`/`store-tags-label` (TAG-STORE-1c) are reused, not re-seeded.
+
+### Out of scope
+Distance-based pricing is **not** built here — `distanceKm` is sort/display only. Any future delivery-cost-by-distance feature for discovery is a separate schema change.
+
 ## Risks & Fragile Areas
 - `Order.items` is a JSON snapshot — no referential integrity after checkout. Price changes after purchase do not affect existing orders, which is correct, but querying historical pricing requires parsing JSON.
 - Cart is per-user per-store, not per-session. Guest users cannot have carts.
