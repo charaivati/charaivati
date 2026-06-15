@@ -34,7 +34,7 @@ export async function GET(req: Request) {
     }
 
     const pages = await prisma.page.findMany({
-      where: { ownerId: user.id },
+      where: { ownerId: user.id, deletedAt: null },
       orderBy: { createdAt: "desc" },
       select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true, type: true, pageType: true },
     });
