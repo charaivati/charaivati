@@ -370,6 +370,12 @@ Picker UI: `StoreImagePickerModal` (in `components/store/`) — shows grid, sear
 - `scripts/migrateStoreSlugs.ts` was used to backfill slugs for stores created before the field was added
 - **Stale-client warning**: `Store.slug` may not be in the Prisma generated client if `prisma generate` failed (EPERM on Windows while dev server runs). Always use `$queryRaw` for slug-field operations until `prisma generate` succeeds.
 
+### Store Discovery (`/app/discover`, DISCOVER-1b)
+- **Route**: `/app/discover` — customer-facing map+list store discovery. Thin server-component-free wrapper (`app/app/discover/page.tsx`) owns the address gate; all map/list/filter logic lives in the reusable `components/store/DiscoveryView.tsx` (props: `addresses`, `initialAddressId`), with `components/store/DiscoveryMap.tsx` as the Leaflet multi-marker map (`ssr: false`).
+- **Gate (DOC-7, locked)**: no saved address → `NoAddressGate` blocks the whole view (map and list); no unsorted fallback exists.
+- **`GET /api/store/all`** extended (additive) with `categoryIds`, `tagIds`, `addressLat`, `addressLng` — OR-within-axis/AND-across-axis taxonomy filtering, plus `distanceKm` via `lib/store/getStoreGeo.ts` + `lib/geo/haversine.ts`.
+- **`lib/store/getStoreGeo.ts`** — `getStoreGeo(ids[])` raw-SQL helper returning `{lat, lng, acceptingOrders}` per store, mirroring `getStoreSlugs`.
+
 ### Store/Venture Lifecycle — Soft-Delete (whole-venture close)
 A store doesn't just "exist or not exist" — owners can **close** it from `/store/account`, and later **restore** it. This is a soft delete: `Store.deletedAt` + the linked `Page.deletedAt` are stamped (both `db push` fields, no migration file); nothing is removed from the DB, so order history and invoices survive a venture closing. Full design: `docs/modules/store-deletion.md`; summary in `CLAUDE.md` under "Store Soft-Delete (Whole-Venture Delete)".
 
