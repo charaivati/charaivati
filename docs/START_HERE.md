@@ -415,6 +415,7 @@ Quick reference for jumping into a specific area. Read the linked doc before tou
 |---|---|---|
 | **Store** (products, sections, banners) | `app/store/[id]/page.tsx`, `app/api/store/` | `docs/modules/store.md` |
 | **Store taxonomy** (discovery categories/tags, TAG-STORE-1b) | `prisma/schema.prisma` (`StoreCategory`/`StoreTag`/translations/link tables) | `docs/modules/store.md` § Store Taxonomy; seed: standalone `node prisma/seed-store-taxonomy.js` (seeds vocab + translations for all 16 languages, run separately from `seed.js`) |
+| **Store taxonomy picker** (owner Store tab, TAG-STORE-1c-fix) | `GET /api/store/taxonomy`, `components/earn/StoreTaxonomyPicker.tsx`, `components/earn/InitiativeTabs.tsx` | `docs/modules/store.md` § Owner category/tag picker; seed: `node prisma/seed-store-taxonomy-ui.js` (8 UI strings × 16 languages) |
 | **Order management** (owner) | `app/store/[id]/orders/page.tsx` (page B — the one true confirm/workflow surface), `app/store/orders/all/page.tsx` (page A — read-only cross-store monitor + funnel into B; CONFIRM-PARITY-FIX-1) | `docs/modules/store.md` § Key Pages |
 | **Checkout** (cart + Buy Now) | `components/store/QuickOrderModal.tsx`, `app/api/store/orders/quick/route.ts` | `CLAUDE.md` § Buy Now / Quick Order UX |
 | **Guest checkout** | `lib/mergeGuest.ts`, `app/api/user/magic/route.ts` | `CLAUDE.md` § Guest Account Merge |

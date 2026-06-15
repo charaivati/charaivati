@@ -210,6 +210,7 @@ Entry points that use this pipeline:
 | GET/POST | /api/store/address | Delivery addresses |
 | GET/POST | /api/store/billing-profiles | List / create billing profiles |
 | PATCH/DELETE | /api/store/billing-profiles/[profileId] | Update / delete a billing profile |
+| GET | /api/store/taxonomy | `?locale=xx` — public, no auth; returns `{ categories: [{id, slug, title, description}], tags: [{id, slug, title}] }` with locale→en→slug fallback per string |
 | POST | /api/block | Create block |
 | POST | /api/section | Create section |
 
@@ -236,6 +237,7 @@ Entry points that use this pipeline:
 | `components/store/ImageLibraryPicker.tsx` | Compact inline library picker (used in BannerEditForm); fetches from `/api/store/images/list` |
 | `components/store/StoreImagePickerModal.tsx` | Full-screen library picker with search, grid, "Upload new" (calls `uploadStoreImage`); opened from AddBlockModal |
 | `components/store/QuickOrderModal.tsx` | 4-step express checkout modal (Items → Address → Invoice → Confirm); ephemeral React state only, never writes to cart; also used from the Saved page wishlist items |
+| `components/earn/StoreTaxonomyPicker.tsx` | Owner category/tag picker (TAG-STORE-1c-fix) — controlled, `PillButton` toggles; categories soft-capped at 3, tags uncapped; rendered in `InitiativeTabs` Store tab |
 
 ## Database Models Used
 - `Store` — top-level store record; canonical location fields `line1/city/state/pincode/lat/lng` (GEO-STORE-1) — see § Store Location above
@@ -274,7 +276,18 @@ A **separate axis from `Page.pageType`**. `Page.pageType` (`store`/`service`/`fl
 
 **Seeding**: `node prisma/seed-store-taxonomy.js` (standalone, not chained into `seed.js`) — upserts the vocab, then upserts translations for every enabled `Language` row (16 languages × 15 categories + 16 × 15 tags = 480 translation rows). Falls back to copying the English `title`/`description` when `LIBRE_TRANSLATE_URL` is unset or unreachable. Also links the sample store "Breakfast by Arun" (if it exists) to `food` + `home-delivery`/`upi-accepted`/`veg-only`/`made-to-order` for testing.
 
-**Status: data layer only.** `GET /api/store/all`, `PATCH /api/store/[id]`, the owner category/tag picker UI, and discovery filtering are NOT wired to these tables yet — that is deferred to a later prompt (TAG-STORE-2+).
+### Owner category/tag picker (TAG-STORE-1c-fix)
+
+**Status: owner-side wired up.** `GET /api/store/all` and customer-facing discovery/filtering UI are still NOT wired to these tables — that remains deferred (TAG-STORE-2+, Phase 3).
+
+- **`GET /api/store/taxonomy?locale=xx`** — public, no auth. Returns `{ categories: [{id, slug, title, description}], tags: [{id, slug, title}] }`. Each string falls back `locale → "en" → slug` if a translation row is missing.
+- **`GET /api/store/[id]`** additionally returns `categoryIds: string[]` and `tagIds: string[]` (derived from `StoreCategoryLink`/`StoreTagLink` rows via a `select` on the existing query).
+- **`PATCH /api/store/[id]` — `categoryIds`/`tagIds` write contract**:
+  - Both fields are **optional and independent**. Omitting a key leaves that axis untouched.
+  - Passing an array (including `[]`) **replaces** the full set for that axis: each is a `$transaction([deleteMany, createMany({ skipDuplicates: true })])` against `StoreCategoryLink`/`StoreTagLink`. An empty array clears all links for that axis.
+  - `categoryIds.length > 3` → `400 { error: "Pick up to 3 categories" }`. `tagIds` is uncapped.
+- **`components/earn/StoreTaxonomyPicker.tsx`** — controlled component, two `flex flex-wrap gap-2` rows of `PillButton` toggles (categories soft-capped at 3 with a hint when at cap; tags uncapped). Wired into `components/earn/InitiativeTabs.tsx` Store tab, between the "Taking orders" toggle and the location nag. Seeds initial selection from `categoryIds`/`tagIds` on the existing store fetch, fetches `/api/store/taxonomy?locale=` separately, and Saves both arrays via the PATCH contract above (always sends both keys).
+- **UI strings**: 8 new `Tab`/`TabTranslation` rows (`store-categories-label`, `store-categories-prompt`, `store-tags-label`, `store-tags-prompt`, `store-taxonomy-save`, `store-taxonomy-saving`, `store-taxonomy-saved`, `store-categories-cap`), seeded by `prisma/seed-store-taxonomy-ui.js` across all 16 enabled languages (128 rows), consumed via `useTranslations()`.
 
 ## Risks & Fragile Areas
 - `Order.items` is a JSON snapshot — no referential integrity after checkout. Price changes after purchase do not affect existing orders, which is correct, but querying historical pricing requires parsing JSON.

@@ -179,6 +179,13 @@ Store discovery categories and tags are **table-backed controlled vocabulary, NO
 - **Seed**: `prisma/seed-store-taxonomy.js` (standalone, `node prisma/seed-store-taxonomy.js`) — upserts 15 categories + 15 tags and their translations for all 16 enabled `Language` rows (240 rows each). Falls back to copying the English string when `LIBRE_TRANSLATE_URL` is unset/unreachable.
 - **This prompt (TAG-STORE-1b) is data-layer only** — `GET /api/store/all`, `PATCH /api/store/[id]`, and discovery/filtering UI are NOT wired yet. Future prompts add the picker UI and filtering.
 
+### Owner category/tag picker (TAG-STORE-1c-fix)
+- **`GET /api/store/taxonomy?locale=xx`** — public, no auth. Returns `{ categories: [{id, slug, title, description}], tags: [{id, slug, title}] }` with per-string `locale → "en" → slug` fallback.
+- **`GET /api/store/[id]`** additionally returns `categoryIds: string[]` / `tagIds: string[]` derived from `StoreCategoryLink`/`StoreTagLink`.
+- **`PATCH /api/store/[id]` `categoryIds`/`tagIds` doctrine — array-replace, omit-to-skip**: each of `categoryIds`/`tagIds` is independent and optional. **Omitting the key leaves that axis untouched.** Passing an array (including `[]`) **replaces the full set** for that axis via `$transaction([deleteMany, createMany({ skipDuplicates: true })])` — an empty array clears all links. `categoryIds.length > 3` → `400 { error: "Pick up to 3 categories" }`; `tagIds` is uncapped. Apply this same "array replaces, missing key skips, empty array clears" pattern to any future M2M-link PATCH field.
+- **UI**: `components/earn/StoreTaxonomyPicker.tsx`, wired into `InitiativeTabs.tsx` Store tab. 8 new `Tab`/`TabTranslation` strings seeded by `prisma/seed-store-taxonomy-ui.js` (128 rows = 8 × 16 languages).
+- **Still NOT wired**: `GET /api/store/all` and customer-facing discovery/filtering UI (Phase 3, TAG-STORE-2+).
+
 ### Store Soft-Delete (Whole-Venture Delete)
 Owners can close a store from `/store/account`. This is a **soft delete** — `Store.deletedAt` and the linked `Page.deletedAt` (both `DateTime?`, added via `db push`, no migration file — same precedent as the `Order.deliveryStatus`/`assignedToId` fields) are stamped; nothing is removed from the DB. Full design + verification details: `docs/modules/store-deletion.md`.
 

@@ -130,9 +130,43 @@ export default function InitiativeTabs({
         if (!d) return;
         setStoreOpen(d.acceptingOrders ?? false);
         setStoreLocation(d.location ?? null);
+        setSelectedCategoryIds(d.categoryIds ?? []);
+        setSelectedTagIds(d.tagIds ?? []);
       })
       .catch(() => {});
   }, [activeTab, storeId, storeOpen]);
+
+  useEffect(() => {
+    if (activeTab !== "store" || !storeId || taxonomy !== null) return;
+    fetch(`/api/store/taxonomy?locale=${locale}`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d) return;
+        setTaxonomy({ categories: d.categories ?? [], tags: d.tags ?? [] });
+      })
+      .catch(() => {});
+  }, [activeTab, storeId, taxonomy, locale]);
+
+  async function handleSaveTaxonomy() {
+    if (!storeId) return;
+    setTaxonomySaveState("saving");
+    try {
+      const res = await fetch(`/api/store/${storeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ categoryIds: selectedCategoryIds, tagIds: selectedTagIds }),
+      });
+      if (res.ok) {
+        setTaxonomySaveState("saved");
+        setTimeout(() => setTaxonomySaveState("idle"), 2000);
+      } else {
+        setTaxonomySaveState("idle");
+      }
+    } catch {
+      setTaxonomySaveState("idle");
+    }
+  }
 
   async function handleSaveLocation(data: { line1: string; city: string; state: string; pincode: string; lat: number | null; lng: number | null }) {
     if (!storeId) return;
@@ -330,6 +364,41 @@ export default function InitiativeTabs({
                   </p>
                 </div>
               </div>
+
+              {/* Category/tag picker (TAG-STORE-1c) */}
+              {taxonomy && (
+                <div className="space-y-2">
+                  <StoreTaxonomyPicker
+                    taxonomy={taxonomy}
+                    selectedCategoryIds={selectedCategoryIds}
+                    selectedTagIds={selectedTagIds}
+                    onChange={({ categoryIds, tagIds }) => {
+                      setSelectedCategoryIds(categoryIds);
+                      setSelectedTagIds(tagIds);
+                    }}
+                    labels={{
+                      categoriesLabel: t("store-categories-label", "Categories"),
+                      categoriesPrompt: t("store-categories-prompt", "What do you sell?"),
+                      tagsLabel: t("store-tags-label", "Tags"),
+                      tagsPrompt: t("store-tags-prompt", "How you operate"),
+                      categoriesCap: t("store-categories-cap", "Pick up to 3"),
+                    }}
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      onClick={handleSaveTaxonomy}
+                      disabled={taxonomySaveState === "saving"}
+                      className="px-4 py-2 rounded-lg bg-[#534AB7] hover:bg-[#453da0] text-white text-sm font-medium transition-colors disabled:opacity-60"
+                    >
+                      {taxonomySaveState === "saving"
+                        ? t("store-taxonomy-saving", "Saving…")
+                        : taxonomySaveState === "saved"
+                        ? t("store-taxonomy-saved", "Saved ✓")
+                        : t("store-taxonomy-save", "Save")}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Missing-location nag (GEO-STORE-1) */}
               {storeLocation && storeLocation.lat == null && !editingLocation && (
