@@ -28,6 +28,13 @@ const AUTH_SLUGS = [
   "auth-msg-creating-account","auth-msg-account-ok","auth-msg-reg-fail",
   "auth-msg-creating-guest","auth-msg-guest-ok","auth-msg-guest-fail",
   "auth-msg-email-required","auth-msg-email-error",
+  "auth-forgot-password","auth-reset-title","auth-reset-email-label",
+  "auth-reset-send-otp-btn","auth-reset-sending-otp","auth-reset-otp-sent-msg",
+  "auth-reset-resend-otp","auth-reset-verify-otp-btn","auth-reset-verifying",
+  "auth-reset-new-password-label","auth-reset-confirm-password-label",
+  "auth-reset-submit-btn","auth-reset-submitting","auth-reset-cancel-btn",
+  "auth-reset-success-msg","auth-reset-mismatch-error","auth-reset-password-hint",
+  "auth-reset-otp-fail","auth-reset-otp-invalid","auth-reset-generic-error",
 ].join(",");
 
 function StepCard({
@@ -141,6 +148,19 @@ function AuthForm() {
 
   const [showPassword, setShowPassword] = useState(false);
 
+  // Forgot password / inline reset flow
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetStage, setResetStage] = useState<"email" | "otp" | "newpass">("email");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetOtpDigits, setResetOtpDigits] = useState(["", "", "", "", "", ""]);
+  const [resetCooldown, setResetCooldown] = useState(0);
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetMessage, setResetMessage] = useState("");
+  const [resetNewPassword, setResetNewPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetShowPassword, setResetShowPassword] = useState(false);
+  const resetOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
   useEffect(() => {
     if (cooldown > 0) {
       const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
@@ -154,6 +174,13 @@ function AuthForm() {
       return () => clearTimeout(timer);
     }
   }, [resendCooldown]);
+
+  useEffect(() => {
+    if (resetCooldown > 0) {
+      const timer = setTimeout(() => setResetCooldown((s) => s - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [resetCooldown]);
 
   useEffect(() => {
     setShowPassword(false);
@@ -471,6 +498,150 @@ function AuthForm() {
   function handleOtpKeyDown(index: number, e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
       otpRefs.current[index - 1]?.focus();
+    }
+  }
+
+  // ---- Forgot password / inline reset flow ----
+
+  function openResetFlow() {
+    setResetEmail(email);
+    setResetStage("email");
+    setResetOtpDigits(["", "", "", "", "", ""]);
+    setResetNewPassword("");
+    setResetConfirmPassword("");
+    setResetMessage("");
+    setResetShowPassword(false);
+    setResetOpen(true);
+  }
+
+  function closeResetFlow() {
+    setResetOpen(false);
+    setResetStage("email");
+    setResetEmail("");
+    setResetOtpDigits(["", "", "", "", "", ""]);
+    setResetNewPassword("");
+    setResetConfirmPassword("");
+    setResetMessage("");
+    setResetCooldown(0);
+    setResetShowPassword(false);
+  }
+
+  async function handleSendResetOtp() {
+    const target = resetEmail.trim().toLowerCase();
+    if (!target) {
+      setResetMessage("❌ " + t("auth-msg-email-required", "Email is required"));
+      return;
+    }
+    setResetSubmitting(true);
+    setResetMessage(t("auth-reset-sending-otp", "Sending OTP..."));
+    try {
+      const res = await fetch("/api/auth/otp/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ target, targetType: "EMAIL" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setResetMessage("❌ " + (data?.error || t("auth-reset-otp-fail", "Could not send OTP. Please try again.")));
+        return;
+      }
+      setResetStage("otp");
+      setResetOtpDigits(["", "", "", "", "", ""]);
+      setResetMessage("✅ " + t("auth-reset-otp-sent-msg", "OTP sent! Check your email."));
+      setResetCooldown(30);
+    } catch {
+      setResetMessage("❌ " + t("auth-msg-network-error", "Network error. Please retry."));
+    } finally {
+      setResetSubmitting(false);
+    }
+  }
+
+  async function handleResendResetOtp() {
+    if (resetCooldown > 0) return;
+    await handleSendResetOtp();
+  }
+
+  function handleResetOtpDigitChange(index: number, value: string) {
+    const digit = value.replace(/\D/g, "").slice(-1);
+    const newDigits = [...resetOtpDigits];
+    newDigits[index] = digit;
+    setResetOtpDigits(newDigits);
+    if (digit && index < 5) {
+      resetOtpRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handleResetOtpKeyDown(index: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Backspace" && !resetOtpDigits[index] && index > 0) {
+      resetOtpRefs.current[index - 1]?.focus();
+    }
+  }
+
+  async function handleVerifyResetOtp() {
+    const code = resetOtpDigits.join("");
+    if (code.length < 6) {
+      setResetMessage("❌ " + t("auth-reset-otp-invalid", "Please enter all 6 digits"));
+      return;
+    }
+    const target = resetEmail.trim().toLowerCase();
+    setResetSubmitting(true);
+    setResetMessage(t("auth-reset-verifying", "Verifying..."));
+    try {
+      const res = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ target, targetType: "EMAIL", code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setResetMessage("❌ " + (data?.error || t("auth-reset-otp-invalid", "Invalid OTP. Please try again.")));
+        return;
+      }
+      setResetStage("newpass");
+      setResetMessage("");
+    } catch {
+      setResetMessage("❌ " + t("auth-msg-network-error", "Network error. Please retry."));
+    } finally {
+      setResetSubmitting(false);
+    }
+  }
+
+  async function handleResetPasswordSubmit() {
+    if (resetNewPassword.length < 8) {
+      setResetMessage("❌ " + t("auth-reset-password-hint", "Password must be at least 8 characters"));
+      return;
+    }
+    if (resetNewPassword !== resetConfirmPassword) {
+      setResetMessage("❌ " + t("auth-reset-mismatch-error", "Passwords do not match"));
+      return;
+    }
+    const target = resetEmail.trim().toLowerCase();
+    setResetSubmitting(true);
+    setResetMessage(t("auth-reset-submitting", "Resetting password..."));
+    try {
+      const res = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        redirect: "manual",
+        body: JSON.stringify({ email: target, newPassword: resetNewPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setResetMessage("❌ " + (data?.error || t("auth-reset-generic-error", "Something went wrong. Please try again.")));
+        return;
+      }
+      setResetMessage("✅ " + t("auth-reset-success-msg", "Password reset! Redirecting..."));
+      await new Promise((r) => setTimeout(r, 200));
+      await router.replace(redirectTo);
+      try { sessionStorage.removeItem("charaivati.redirect"); } catch {}
+      router.refresh();
+    } catch {
+      setResetMessage("❌ " + t("auth-msg-network-error", "Network error. Please retry."));
+    } finally {
+      setResetSubmitting(false);
     }
   }
 
@@ -797,6 +968,185 @@ function AuthForm() {
               </StepCard>
             )}
           </AnimatePresence>
+        )}
+
+        {/* Forgot Password — inline reset flow, below the login form */}
+        {loginMode === "email" && step === "login" && (
+          <div className="mt-4">
+            {!resetOpen && attempts >= 1 && (
+              <button
+                type="button"
+                onClick={openResetFlow}
+                className="w-full text-center text-sm text-blue-400 hover:text-blue-300 underline-offset-2 hover:underline transition"
+              >
+                {t("auth-forgot-password", "Forgot password?")}
+              </button>
+            )}
+
+            {resetOpen && (
+              <StepCard className="mt-3 space-y-4 bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-sm">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-base font-semibold">{t("auth-reset-title", "Reset your password")}</h3>
+                  <button
+                    type="button"
+                    onClick={closeResetFlow}
+                    aria-label="Close"
+                    className="text-gray-500 hover:text-gray-300 transition text-lg leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* Stage: email -> send OTP */}
+                {resetStage === "email" && (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-300">
+                        {t("auth-reset-email-label", "Email")}
+                      </label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                        <input
+                          type="email"
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          placeholder={t("auth-email-placeholder", "you@example.com")}
+                          className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleSendResetOtp}
+                      disabled={resetSubmitting}
+                      className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold transition"
+                    >
+                      {resetSubmitting ? t("auth-reset-sending-otp", "Sending OTP...") : t("auth-reset-send-otp-btn", "Send OTP")}
+                    </button>
+                  </div>
+                )}
+
+                {/* Stage: otp -> verify */}
+                {resetStage === "otp" && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-400">{resetEmail}</p>
+                    <div className="flex justify-between gap-2">
+                      {resetOtpDigits.map((digit, i) => (
+                        <input
+                          key={i}
+                          ref={(el) => { resetOtpRefs.current[i] = el; }}
+                          type="text"
+                          inputMode="numeric"
+                          maxLength={1}
+                          value={digit}
+                          onChange={(e) => handleResetOtpDigitChange(i, e.target.value)}
+                          onKeyDown={(e) => handleResetOtpKeyDown(i, e)}
+                          className="w-11 h-12 text-center text-lg rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
+                        />
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={handleVerifyResetOtp}
+                      disabled={resetSubmitting}
+                      className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold transition"
+                    >
+                      {resetSubmitting ? t("auth-reset-verifying", "Verifying...") : t("auth-reset-verify-otp-btn", "Verify OTP")}
+                    </button>
+
+                    <button
+                      onClick={handleResendResetOtp}
+                      disabled={resetCooldown > 0 || resetSubmitting}
+                      className="w-full p-2 rounded-lg text-sm font-medium border border-gray-600 hover:border-gray-500 hover:bg-white/5 disabled:opacity-50 transition"
+                    >
+                      {resetCooldown > 0
+                        ? `${t("auth-reset-resend-otp", "Resend OTP")} (${resetCooldown}s)`
+                        : t("auth-reset-resend-otp", "Resend OTP")}
+                    </button>
+                  </div>
+                )}
+
+                {/* Stage: newpass -> set new password */}
+                {resetStage === "newpass" && (
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-300">
+                        {t("auth-reset-new-password-label", "New password")}
+                      </label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                        <input
+                          type={resetShowPassword ? "text" : "password"}
+                          value={resetNewPassword}
+                          onChange={(e) => setResetNewPassword(e.target.value)}
+                          placeholder={t("auth-reset-password-hint", "At least 8 characters")}
+                          className="w-full pl-10 pr-12 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
+                          minLength={8}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setResetShowPassword((v) => !v)}
+                          aria-label={resetShowPassword ? "Hide password" : "Show password"}
+                          className="absolute right-3 top-3.5 text-gray-500 hover:text-gray-300 transition"
+                        >
+                          {resetShowPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500">{t("auth-reset-password-hint", "Must be at least 8 characters")}</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-300">
+                        {t("auth-reset-confirm-password-label", "Confirm password")}
+                      </label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-3.5 w-5 h-5 text-gray-500" />
+                        <input
+                          type={resetShowPassword ? "text" : "password"}
+                          value={resetConfirmPassword}
+                          onChange={(e) => setResetConfirmPassword(e.target.value)}
+                          placeholder={t("auth-reset-confirm-password-label", "Confirm password")}
+                          className="w-full pl-10 pr-4 py-3 rounded-lg bg-black/50 border border-gray-600 focus:border-blue-500 focus:outline-none transition"
+                          minLength={8}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={handleResetPasswordSubmit}
+                      disabled={
+                        resetSubmitting ||
+                        resetNewPassword.length < 8 ||
+                        resetNewPassword !== resetConfirmPassword
+                      }
+                      className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed p-3 rounded-lg font-semibold transition"
+                    >
+                      {resetSubmitting ? t("auth-reset-submitting", "Resetting password...") : t("auth-reset-submit-btn", "Reset password")}
+                    </button>
+                  </div>
+                )}
+
+                {resetMessage && (
+                  <div
+                    className={`p-3 rounded-lg text-sm ${
+                      resetMessage.includes("❌")
+                        ? "bg-red-500/10 border border-red-500/20 text-red-200"
+                        : "bg-green-500/10 border border-green-500/20 text-green-200"
+                    }`}
+                  >
+                    {resetMessage}
+                  </div>
+                )}
+
+                <button
+                  onClick={closeResetFlow}
+                  className="w-full p-2 rounded-lg text-sm font-medium border border-gray-600 hover:border-gray-500 hover:bg-white/5 transition"
+                >
+                  {t("auth-reset-cancel-btn", "Cancel")}
+                </button>
+              </StepCard>
+            )}
+          </div>
         )}
 
         {/* Phone Flow */}
