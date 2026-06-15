@@ -202,6 +202,16 @@ export async function GET(req: NextRequest) {
     }
     storeId = store.id;
 
+    const storeMetaRows = await prisma.$queryRaw<{ slug: string | null; deletedAt: Date | null }[]>`
+      SELECT slug, "deletedAt" FROM "Store" WHERE id = ${storeId} LIMIT 1
+    `;
+    const storeMeta = {
+      id: storeId,
+      name: store.name,
+      slug: storeMetaRows[0]?.slug ?? null,
+      deleted: !!storeMetaRows[0]?.deletedAt,
+    };
+
     const where: { storeId: string; status?: string } = { storeId };
     if (statusFilter) where.status = statusFilter;
 
@@ -369,6 +379,7 @@ export async function GET(req: NextRequest) {
         .sort((a, b) => (a.amount ?? Infinity) - (b.amount ?? Infinity));
       return {
         ...o,
+        store:             storeMeta,
         invoiceSignedUrl:  signedMapStore[o.id] ?? null,
         requiresAttention: wfMap[o.id]?.requiresAttention ?? false,
         quoteSummary:      wfMap[o.id]?.quoteSummary ?? null,

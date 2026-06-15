@@ -210,9 +210,10 @@ function DeliveryNoteInline({ note, busy, onSave }: {
           <button
             disabled={busy}
             onClick={() => onSave(local)}
-            className="text-xs px-2.5 py-1.5 rounded-md font-medium flex-shrink-0"
-            style={{ background: A.accent, color: "#fff", cursor: "pointer" }}>
-            Save
+            className="text-xs px-2.5 py-1.5 rounded-md font-medium flex-shrink-0 flex items-center gap-1.5"
+            style={{ background: A.accent, color: "#fff", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.7 : 1 }}>
+            {busy && <span className="w-3 h-3 rounded-full border border-white border-t-transparent animate-spin inline-block" />}
+            {busy ? "Saving…" : "Save"}
           </button>
         )}
       </div>
@@ -602,9 +603,10 @@ export default function AllOrdersPage() {
                     <button
                       disabled={updating === order.id}
                       onClick={() => updateDeliveryStatus(order.id, "cancelled")}
-                      className="text-xs px-2.5 py-1 rounded"
-                      style={{ border: "1px solid #FECACA", color: "#EF4444", background: "#fff", cursor: "pointer" }}>
-                      Cancel
+                      className="text-xs px-2.5 py-1 rounded flex items-center gap-1.5"
+                      style={{ border: "1px solid #FECACA", color: "#EF4444", background: "#fff", cursor: updating === order.id ? "not-allowed" : "pointer", opacity: updating === order.id ? 0.7 : 1 }}>
+                      {updating === order.id && <span className="w-3 h-3 rounded-full border border-red-500 border-t-transparent animate-spin inline-block" />}
+                      {updating === order.id ? "Cancelling…" : "Cancel"}
                     </button>
                   )}
                 </div>

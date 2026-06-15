@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { createNotification } from "@/lib/notifications/createNotification";
 
-const OPEN_ORDER_STATUSES = ["pending", "confirmed", "shipped"];
-const ACTIVE_DELIVERY_STATUSES = ["confirmed", "processing", "out_for_delivery"];
+const TERMINAL_ORDER_STATUSES = ["delivered", "cancelled"];
+const TERMINAL_DELIVERY_STATUSES = ["delivered", "cancelled"];
 
 export type BlockingOrder = { id: string; reason: string };
 
@@ -19,19 +19,22 @@ export type SoftDeleteResult =
  *
  * Refuses when any order (including sub-orders) for this store is still open.
  *
- * Top-level orders (parentOrderId == null): "open" = status is non-terminal
- * (pending/confirmed/shipped), OR status is terminal (delivered/cancelled) but
- * deliveryStatus is actively mid-delivery (confirmed/processing/out_for_delivery).
- * deliveryStatus="pending" on a terminal-status order means delivery was never
- * initiated and does NOT block.
+ * An order is CLOSED (does not block) if EITHER `status` OR `deliveryStatus`
+ * has reached a terminal value (delivered/cancelled) — it is "open" only when
+ * BOTH fields are non-terminal. This reflects that the two fields are advanced
+ * by different code paths and routinely diverge in practice: `deliveryStatus`
+ * commonly reaches "delivered"/"cancelled" via the GPS/customer-confirm flow
+ * (or owner cancellation) while `Order.status` is left at "pending"/"confirmed"/
+ * "shipped" forever — that divergence is the norm, not the exception, across
+ * real orders. Treating either terminal value as sufficient avoids false
+ * "open_orders" blocks while still correctly blocking genuinely in-progress
+ * orders (e.g. status="confirmed"/deliveryStatus="pending" awaiting dispatch,
+ * or deliveryStatus="out_for_delivery") (STOREDEL-FIX-3).
  *
- * Sub-orders (parentOrderId != null): `status` is largely vestigial here — it
- * defaults to "pending" at creation and is rarely advanced by the normal order
- * lifecycle, since sub-orders represent delivery/service assignment tasks whose
- * real lifecycle lives in `deliveryStatus`/`partnerStatus`/OSP. So a sub-order is
- * "open" purely based on `deliveryStatus NOT IN (delivered, cancelled)` —
- * a sub-order left at status="pending" with deliveryStatus="cancelled" is closed,
- * not open (STOREDEL-FIX-2).
+ * This single rule applies uniformly to top-level orders and sub-orders —
+ * a sub-order left at status="pending" with deliveryStatus="cancelled" is
+ * closed, not open, same as before (STOREDEL-FIX-2's special-case sub-order
+ * branch is now subsumed by this general rule).
  *
  * Nothing is deleted; order/quote/OSP rows are never touched, only deletedAt
  * flags + the collaborations that must end as a result.
@@ -47,24 +50,8 @@ export async function softDeleteStore(storeId: string, ownerId: string): Promise
   const openOrders = await prisma.order.findMany({
     where: {
       storeId,
-      OR: [
-        // Top-level orders
-        {
-          parentOrderId: null,
-          OR: [
-            { status: { in: OPEN_ORDER_STATUSES } },
-            {
-              status: { in: ["delivered", "cancelled"] },
-              deliveryStatus: { in: ACTIVE_DELIVERY_STATUSES },
-            },
-          ],
-        },
-        // Sub-orders — deliveryStatus is the authoritative lifecycle field
-        {
-          parentOrderId: { not: null },
-          deliveryStatus: { notIn: ["delivered", "cancelled"] },
-        },
-      ],
+      status: { notIn: TERMINAL_ORDER_STATUSES },
+      deliveryStatus: { notIn: TERMINAL_DELIVERY_STATUSES },
     },
     select: { id: true, status: true, deliveryStatus: true, parentOrderId: true },
   });
