@@ -607,7 +607,7 @@ Should return JSON with available models (`gemma4:e2b`, `llama3:8b`, `llava:7b`)
 ### Models Available
 - `llama3:8b` — **primary, text-only chat model**, kept resident via `OLLAMA_KEEP_ALIVE=-1` (LOCAL-AI-FIX-1, 2026-06-14) so cold loads don't happen mid-request
 - `gemma4:e2b` — no longer the active chat model; its unified multimodal (vision+audio) weights spilled ~4.4GB to CPU on the 6GB 3050, causing slow/failed loads
-- `llava:7b` — local vision fallback only, used by menu-parse / document OCR when `OPENROUTER_API_KEY` is not set. Loading it would evict the resident `llama3:8b`, so vision now defaults to cloud (`google/gemini-2.5-flash-lite` for menu parse, `anthropic/claude-haiku-4-5` for doc OCR, both via OpenRouter)
+- `llava:7b` — local vision fallback only, used by menu-parse / document OCR when no cloud key is configured. Loading it would evict the resident `llama3:8b`; cloud vision is always preferred. Menu-parse now uses NIM `meta/llama-3.2-11b-vision-instruct` as primary (NVIDIA-VISION-WIRE-1, 2.5–5.4 s), with OpenRouter `google/gemini-2.5-flash-lite` as fallback A and `llava:7b` as fallback B (no cloud keys).
 
 ### Model Tiers
 Models map to tiers (`junior` / `assistant` / `senior` / `council`) that control UI labels in the chatbot widget. See `lib/ai/modelTiers.ts` for the full map and `getTierUI(modelName)` for label strings.
@@ -647,8 +647,11 @@ The Council is always user-triggered — no auto-routing. Entry points: (1) "⚖
 See `CLAUDE.md` § Council Feature for the full structure, prompt design, and API shape.
 
 ### Cloud Fallback Chain
-When Ollama is unreachable: OpenRouter → Groq → Vercel AI Gateway
+When Ollama is unreachable: **NVIDIA NIM** → OpenRouter → Groq → Vercel AI Gateway
 All keys are in Vercel env vars. No action needed — fallback is automatic.
+
+⚠️ NVIDIA NIM has a 40 rpm rate limit on the current account (CHARAIVATI.FORWARD@GMAIL.COM).
+NIM is for interactive single-user fallback only — never batch jobs or loops.
 
 ### Adding a New AI Route
 1. Import `chatComplete` from `@/app/api/aiClient`

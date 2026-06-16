@@ -1,7 +1,12 @@
 // app/api/aiClient.ts
-// chatComplete:         (Ollama if LOCAL_AI_ENABLED) → OpenRouter → Groq → Vercel. Returns string.
+// chatComplete:         (Ollama if LOCAL_AI_ENABLED) → NVIDIA NIM → OpenRouter → Groq → Vercel. Returns string.
 // chatCompleteWithMeta: same chain, also returns source / coldStart / model metadata.
-// callAI:               Ollama → OpenRouter → Groq → Vercel (prompt-string entry point).
+// callAI:               Ollama → NVIDIA NIM → OpenRouter → Groq → Vercel (prompt-string entry point).
+//
+// NVIDIA NIM: 40 rpm rate limit on current account (CHARAIVATI.FORWARD@GMAIL.COM).
+// Do NOT use NIM for batch jobs, bulk AI processing, or any loop that fires
+// multiple requests in quick succession. NIM is fallback for interactive
+// single-user requests only when Ollama tunnel is down.
 
 type ChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
 
@@ -13,10 +18,11 @@ export interface ChatMeta {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-export type AIProvider = "ollama" | "openrouter" | "groq" | "vercel";
+export type AIProvider = "ollama" | "nvidia" | "openrouter" | "groq" | "vercel";
 
 const OLLAMA_MODEL     = process.env.OLLAMA_MODEL     ?? "llama3:8b";
 const OLLAMA_BASE_URL  = process.env.OLLAMA_BASE_URL  ?? "http://127.0.0.1:11434";
+const NIM_MODEL        = process.env.NVIDIA_NIM_MODEL ?? "meta/llama-3.1-8b-instruct";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
 const GROQ_MODEL       = process.env.GROQ_MODEL       ?? "llama-3.1-8b-instant";
 const VERCEL_MODEL     = process.env.VERCEL_MODEL     ?? "openai/gpt-4o-mini";
@@ -73,12 +79,32 @@ export async function callAI({
 }): Promise<string> {
   try {
     if (provider === "ollama")     return await withTimeout(callOllama(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+    if (provider === "nvidia")     return await withTimeout(callNim(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     if (provider === "openrouter") return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     if (provider === "groq")       return await withTimeout(callGroq(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
     return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
   } catch (err) {
     if (provider === "ollama") {
-      console.warn("[aiClient] Ollama failed, trying OpenRouter:", err);
+      console.warn("[aiClient] Ollama failed, trying NVIDIA NIM:", err);
+      try {
+        return await withTimeout(callNim(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+      } catch (err2) {
+        console.warn("[aiClient] NVIDIA NIM failed, trying OpenRouter:", err2);
+        try {
+          return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+        } catch (err3) {
+          console.warn("[aiClient] OpenRouter failed, trying Groq:", err3);
+          try {
+            return await withTimeout(callGroq(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+          } catch (err4) {
+            console.warn("[aiClient] Groq failed, trying Vercel:", err4);
+            return await withTimeout(callVercel(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
+          }
+        }
+      }
+    }
+    if (provider === "nvidia") {
+      console.warn("[aiClient] NVIDIA NIM failed, trying OpenRouter:", err);
       try {
         return await withTimeout(callOpenRouter(prompt, systemPrompt, maxTokens), TIMEOUT_MS);
       } catch (err2) {
@@ -302,7 +328,18 @@ async function chatCompleteInternal({
     console.warn('[aiClient] Ollama unavailable, falling through to cloud');
   }
 
-  // 1 — OpenRouter
+  // 1 — NVIDIA NIM (40 rpm limit — interactive fallback only; skip if NVIDIA_KEY absent)
+  const nimKey = process.env.NVIDIA_KEY?.trim() || undefined;
+  if (nimKey) {
+    try {
+      const content = await callNimMessages(nimKey, NIM_MODEL, cloud, maxTokens, temperature, jsonMode);
+      return { content, source: 'cloud', coldStart: false, model: NIM_MODEL };
+    } catch (err) {
+      console.warn('[chatComplete] NVIDIA NIM failed, trying OpenRouter:', err);
+    }
+  }
+
+  // 2 — OpenRouter
   const orKey = process.env.OPENROUTER_API_KEY?.trim() || undefined;
   if (orKey) {
     try {
@@ -336,7 +373,7 @@ async function chatCompleteInternal({
     }
   }
 
-  // 2 — Groq
+  // 3 — Groq
   const groqKey = process.env.Charaivati_groq?.trim() || undefined;
   if (groqKey) {
     try {
@@ -347,7 +384,7 @@ async function chatCompleteInternal({
     }
   }
 
-  // 3 — Vercel AI Gateway
+  // 4 — Vercel AI Gateway
   const content = await callVercelMessages(VERCEL_MODEL, cloud, maxTokens, temperature);
   return { content, source: 'cloud', coldStart: false, model: VERCEL_MODEL };
 }
@@ -397,6 +434,51 @@ async function callOpenRouter(prompt: string, systemPrompt?: string, maxTokens =
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
   if (!content) throw new Error("OpenRouter returned empty content");
+  return content as string;
+}
+
+// callNim: prompt-string entry point (used by callAI)
+async function callNim(prompt: string, systemPrompt?: string, maxTokens = 800): Promise<string> {
+  const key = process.env.NVIDIA_KEY?.trim();
+  if (!key) throw new Error("NVIDIA_KEY not set");
+  const messages: ChatMessage[] = [
+    ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+    { role: "user", content: prompt },
+  ];
+  return callNimMessages(key, NIM_MODEL, messages, maxTokens);
+}
+
+// callNimMessages: messages entry point (used by chatCompleteInternal)
+async function callNimMessages(
+  key: string,
+  model: string,
+  messages: ChatMessage[],
+  maxTokens = 800,
+  temperature = 0.7,
+  jsonMode = false
+): Promise<string> {
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+    ...(jsonMode ? { response_format: { type: 'json_object' } } : {}),
+  };
+  const res = await fetch("https://integrate.api.nvidia.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`NVIDIA NIM ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("NVIDIA NIM returned empty content");
   return content as string;
 }
 

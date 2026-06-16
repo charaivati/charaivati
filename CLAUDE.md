@@ -363,13 +363,20 @@ Two-route API that creates a complete store from a restaurant menu photo.
 #### `POST /api/store/parse-menu` (multipart/form-data)
 Accepts `image: File` + `storeId: string`. Returns `{ parsed, flags, lowConfidenceItems }`.
 
-**Two-step LLM chain (LOCAL-AI-FIX-1 — vision moved to cloud):**
-1. **Extractor** — calls OpenRouter directly with `model: MENU_VISION_MODEL ?? "google/gemini-2.5-flash-lite"`, sending the image as a base64 `image_url` data URI in a multimodal `content` array. `chatComplete()` is not used here because it does not support multimodal input. Returns raw JSON matching `{ storeName, sections[{ title, items[{ title, description, price, searchQuery }] }], phone, address, hours }`. **Timeout: 60 s**. Falls back to local Ollama llava (`MENU_VISION_FALLBACK_MODEL ?? "llava:7b"`, 120 s timeout, `keep_alive: "10m"`) only if `OPENROUTER_API_KEY` is unset.
-2. **Validator** — calls Anthropic API directly (HTTP, no SDK) with `claude-haiku-4-5-20251001`. Adds `confidence` (0–1) per item and a `flags` array. Items with confidence < 0.5 are surfaced in `lowConfidenceItems` but are **not removed** — the caller decides.
+**Two-step LLM chain (NVIDIA-VISION-WIRE-1 — NIM now primary):**
+1. **Extractor** — three-tier priority:
+   - **NIM (primary, if `NVIDIA_KEY` is set)**: uploads image to Cloudinary (`folder: menu-parse-temp`, `resource_type: image`) to get a public URL, then calls `https://integrate.api.nvidia.com/v1/chat/completions` with `model: meta/llama-3.2-11b-vision-instruct`, `response_format: { type: "json_object" }`, image as `image_url.url` (NOT base64 — URL avoids large payloads and gives 2.5–5.4 s latency). **Timeout: 30 s**. `nemotron-3-nano-omni` was tested and rejected — silent vision failure (returns text, not image data). If NIM fails, falls back to OpenRouter.
+   - **OpenRouter (fallback A, if `OPENROUTER_API_KEY` is set)**: `model: MENU_VISION_MODEL ?? "google/gemini-2.5-flash-lite"`, image as base64 `image_url` data URI. **Timeout: 60 s**.
+   - **Ollama llava (fallback B)**: `MENU_VISION_FALLBACK_MODEL ?? "llava:7b"`, 120 s timeout, `keep_alive: "10m"`. Only used when neither cloud key is configured.
+   - Returns raw JSON matching `{ isMenu: boolean, confidence: number, storeName, sections[{ title, items[{ title, description, price, searchQuery }] }], phone, address, hours }`.
+   - **isMenu gate** (all paths): after Step 1, if `isMenu === false` OR `confidence < 0.4` → return 400 `{ error: "This doesn't look like a menu. Please upload a photo of your menu or price list." }`. Step 2 is NOT called for non-menu images.
+2. **Validator** — calls `chatComplete()` with `MENU_VALIDATOR_MODEL ?? "anthropic/claude-haiku-4-5"`. Adds `confidence` (0–1) per item and a `flags` array. Items with confidence < 0.5 are surfaced in `lowConfidenceItems` but are **not removed** — the caller decides. Unchanged from LOCAL-AI-FIX-1.
 
-Requires env vars: `OPENROUTER_API_KEY` (Step 1 cloud vision + Step 2 validator via `chatComplete`). `OLLAMA_BASE_URL` is only needed for the local llava fallback.
+Requires env vars: `NVIDIA_KEY` (NIM primary), `OPENROUTER_API_KEY` (OpenRouter fallback + Step 2 validator), `CLOUDINARY_API_KEY`/`CLOUDINARY_API_SECRET`/`NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` (Cloudinary upload for NIM path). `OLLAMA_BASE_URL` only needed for the local llava fallback.
 
-**Why cloud vision (2026-06-14):** the 6 GB RTX 3050 dev machine can only fit one model resident at a time. `llava:7b` loading evicted the text chat model (~20 s reload each way) and forced cold starts. Menu-photo vision now runs on `google/gemini-2.5-flash-lite` via OpenRouter — cheap, fast, and keeps the local GPU dedicated to the text chat model. See "Local AI Setup" below.
+**Cloudinary temp cleanup (NVIDIA-VISION-WIRE-1c):** Temp uploads to `menu-parse-temp/` are deleted via fire-and-forget `cloudinary.uploader.destroy()` at all exit points — NIM success (before validator), NIM failure (before fallback), outer 502 catch, and the isMenu gate 400 return. `public_id` is captured from the Cloudinary upload result and passed to `cleanupTemp(id)`. A `finally` block covers any unhandled exit path. Failures are logged as `[parse-menu] Cloudinary cleanup failed` but never propagate.
+
+**Why NIM vision (2026-06-14 → NVIDIA-VISION-WIRE-1):** `meta/llama-3.2-11b-vision-instruct` on NVIDIA NIM delivers 2.5–5.4 s end-to-end. Image must be passed as an HTTP URL — the Cloudinary upload step adds ~1 s but avoids the large base64 JSON payload that made OpenRouter slow. The NIM path uses a single clean JSON response via `response_format: json_object` with no markdown stripping. OpenRouter Gemini Flash-Lite remains the fallback if `NVIDIA_KEY` is not set. **NVIDIA NIM 40 rpm rate limit applies** — this route is single-user interactive (one image upload per session), well within the limit.
 
 #### `POST /api/store/warm-vision` (auth-guarded)
 **No-op since LOCAL-AI-FIX-1** — vision extraction runs on cloud, so there is no local model to pre-warm. Returns `{ warming: false }` immediately. Kept as an endpoint only because the client still fire-and-forgets a POST to it on upload-start.
@@ -579,9 +586,10 @@ Image search (all optional — `lib/imageSearch.ts` skips missing providers and 
 ### Provider Chain
 `chatComplete()` in `app/api/aiClient.ts` tries providers in this order:
 1. **Ollama** (local) — if `LOCAL_AI_ENABLED=true` and `OLLAMA_BASE_URL` is set
-2. **OpenRouter** — if `OPENROUTER_API_KEY` is set
-3. **Groq** — if `Charaivati_groq` is set
-4. **Vercel AI Gateway** — if `Charaivati_Health` is set (final fallback)
+2. **NVIDIA NIM** — if `NVIDIA_KEY` is set; base URL `https://integrate.api.nvidia.com/v1`; default model `meta/llama-3.1-8b-instruct` (override with `NVIDIA_NIM_MODEL`). **NVIDIA NIM: 40 rpm rate limit on current account (CHARAIVATI.FORWARD@GMAIL.COM). Do NOT use NIM for batch jobs, bulk AI processing, or any loop that fires multiple requests in quick succession. NIM is fallback for interactive single-user requests only when Ollama tunnel is down.**
+3. **OpenRouter** — if `OPENROUTER_API_KEY` is set
+4. **Groq** — if `Charaivati_groq` is set
+5. **Vercel AI Gateway** — if `Charaivati_Health` is set (final fallback)
 
 **Footgun fixed (UCTX-1a)** — the Ollama path previously ignored `maxTokens`/`temperature` and set no `num_ctx`, so the `/api/chat`/`/api/listen` token caps had no effect locally and large prompts were **silently top-truncated** to Ollama's default context window. `callOllamaResilient` now sends explicit `options: { num_ctx, num_predict: maxTokens, temperature }` + `keep_alive`, threaded down from `chatCompleteInternal`. Env vars: `OLLAMA_NUM_CTX` (default 8192), `OLLAMA_KEEP_ALIVE` (default `"24h"` as of LOCAL-AI-FIX-1, was `"30m"` — set to `-1` in `.env.local` to never evict). Local Ollama replies now respect `maxTokens` (e.g. `/api/listen`'s 220 cap) — an intended behavior change. Also added a **`cloudMessages?: ChatMessage[]` seam** to `chatCompleteInternal`/`chatCompleteWithMeta` (threaded through `runGuardedCompletion` in `lib/ai/chatPipeline.ts`): the Ollama (local, trusted) branch always uses `messages`; cloud branches use `cloudMessages ?? messages`, so a privacy-tiered prompt can be sent to cloud providers without changing local behavior. Default `undefined` → zero behavior change for all existing callers.
 
