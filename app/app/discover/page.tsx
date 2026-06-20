@@ -137,19 +137,7 @@ export default function DiscoverPage() {
         ) : addresses.length === 0 ? (
           <NoAddressGate onAdded={(a) => setAddresses([a])} />
         ) : (
-          <>
-            <a
-              href="/app/requests"
-              style={{
-                display: "block", textAlign: "center", marginBottom: 12, padding: "10px 16px",
-                borderRadius: 10, fontSize: 13, fontWeight: 600, color: "#fff",
-                background: "#6366f1", textDecoration: "none",
-              }}
-            >
-              🔔 Need a service? Post a request
-            </a>
-            <DiscoveryView addresses={addresses} initialAddressId={addresses[0].id} />
-          </>
+          <DiscoveryView addresses={addresses} initialAddressId={addresses[0].id} />
         )}
       </div>
     </div>

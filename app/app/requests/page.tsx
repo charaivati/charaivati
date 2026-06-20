@@ -8,6 +8,7 @@ import { useLanguage } from "@/components/LanguageProvider";
 import { useTranslations } from "@/hooks/useTranslations";
 import { FilterPill } from "@/components/store/FilterPill";
 import PayToVpa from "@/components/payments/PayToVpa";
+import { suggestErrandPriceHint } from "@/lib/requests/suggestErrandPriceHint";
 
 const SLUGS =
   "requests-title,requests-tab-mine,requests-tab-incoming,requests-post-cta," +
@@ -18,13 +19,16 @@ const SLUGS =
   "requests-message-placeholder,requests-respond,requests-accept,requests-cancel," +
   "requests-handoff-note,requests-status-open,requests-status-accepted," +
   "requests-status-expired,requests-status-cancelled,requests-resp-sent," +
-  "requests-resp-accepted,requests-resp-rejected,requests-need-address,requests-contact";
+  "requests-resp-accepted,requests-resp-rejected,requests-need-address,requests-contact," +
+  "requests-kind-service,requests-kind-errand,requests-pickup-label,requests-drop-label," +
+  "requests-suggested-price-label,requests-suggested-price-help,requests-post-cta-errand," +
+  "requests-errand-title-placeholder";
 
 const A = { border: "#E5E7EB", text: "#111827", muted: "#6B7280", accent: "#6366f1", surface: "#fff", bg: "#F9FAFB" };
 
 type Resp = { id: string; providerId: string; providerName: string | null; providerStoreId: string | null; storeName: string | null; quotedPrice: number | null; message: string | null; status: string };
-type Mine = { id: string; categoryTitle: string; title: string; description: string | null; status: string; radiusKm: number; createdAt: string; responses: Resp[]; acceptedResponseId: string | null; handoff: { providerName: string | null; providerPhone: string | null; vpa: string | null } | null };
-type Incoming = { id: string; requesterName: string | null; categoryTitle: string; title: string; description: string | null; radiusKm: number; storeId: string; storeName: string; distanceKm: number; myResponseStatus: string | null };
+type Mine = { id: string; kind: string; categoryTitle: string; title: string; description: string | null; status: string; radiusKm: number; createdAt: string; pickupLabel: string | null; dropLabel: string | null; suggestedPrice: number | null; responses: Resp[]; acceptedResponseId: string | null; handoff: { providerName: string | null; providerPhone: string | null; vpa: string | null } | null };
+type Incoming = { id: string; kind: string; requesterName: string | null; categoryTitle: string; title: string; description: string | null; radiusKm: number; storeId: string; storeName: string; distanceKm: number; myResponseStatus: string | null; pickupLabel: string | null; dropLabel: string | null; suggestedPrice: number | null };
 type Addr = { id: string; name: string; line1: string; city: string; lat: number | null; lng: number | null; isDefault: boolean };
 type Cat = { id: string; title: string };
 
@@ -42,11 +46,14 @@ export default function RequestsPage() {
 
   // form state
   const [showForm, setShowForm] = useState(false);
+  const [fKind, setFKind] = useState<"service" | "errand">("service");
   const [fCat, setFCat] = useState("");
   const [fTitle, setFTitle] = useState("");
   const [fDesc, setFDesc] = useState("");
   const [fRadius, setFRadius] = useState(5);
   const [fAddr, setFAddr] = useState("");
+  const [fPickup, setFPickup] = useState("");
+  const [fDrop, setFDrop] = useState("");
   const [posting, setPosting] = useState(false);
 
   useEffect(() => {
@@ -70,22 +77,43 @@ export default function RequestsPage() {
       const list: Addr[] = Array.isArray(a) ? a : [];
       setAddrs(list);
       const def = list.find((x) => x.isDefault && x.lat != null) ?? list.find((x) => x.lat != null);
-      if (def) setFAddr(def.id);
+      if (def) { setFAddr(def.id); setFPickup(def.id); }
     }).catch(() => {});
   }, [loc]);
 
   async function post() {
-    const addr = addrs.find((a) => a.id === fAddr);
-    if (!fCat || !fTitle.trim() || !addr || addr.lat == null || addr.lng == null) return;
+    if (!fCat || !fTitle.trim()) return;
+    let body: any;
+    if (fKind === "errand") {
+      const pickup = addrs.find((a) => a.id === fPickup);
+      const drop = addrs.find((a) => a.id === fDrop);
+      if (!pickup || pickup.lat == null || !drop || drop.lat == null) return;
+      body = {
+        kind: "errand", categoryId: fCat, title: fTitle.trim(), description: fDesc.trim() || null, radiusKm: fRadius,
+        pickupLat: pickup.lat, pickupLng: pickup.lng, pickupLabel: `${pickup.name} — ${pickup.city}`,
+        dropLat: drop.lat, dropLng: drop.lng, dropLabel: `${drop.name} — ${drop.city}`,
+      };
+    } else {
+      const addr = addrs.find((a) => a.id === fAddr);
+      if (!addr || addr.lat == null || addr.lng == null) return;
+      body = { kind: "service", categoryId: fCat, title: fTitle.trim(), description: fDesc.trim() || null, addressLat: addr.lat, addressLng: addr.lng, radiusKm: fRadius };
+    }
     setPosting(true);
     try {
       const res = await fetch("/api/requests", {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categoryId: fCat, title: fTitle.trim(), description: fDesc.trim() || null, addressLat: addr.lat, addressLng: addr.lng, radiusKm: fRadius }),
+        body: JSON.stringify(body),
       });
       if (res.ok) { setShowForm(false); setFTitle(""); setFDesc(""); setFCat(""); loadMine(); }
     } finally { setPosting(false); }
   }
+
+  // Display-only suggested price for the errand form (same helper the server uses).
+  const errandHint = (() => {
+    const p = addrs.find((a) => a.id === fPickup), d = addrs.find((a) => a.id === fDrop);
+    if (fKind !== "errand" || !p || p.lat == null || !d || d.lat == null) return null;
+    return suggestErrandPriceHint(p.lat, p.lng!, d.lat, d.lng!);
+  })();
 
   async function accept(broadcastId: string, responseId: string) {
     setBusy(responseId);
@@ -129,27 +157,51 @@ export default function RequestsPage() {
             <button onClick={() => setShowForm(true)} style={btn(A.accent, "#fff")}>+ {t("requests-post-cta", "Post a service request")}</button>
           ) : (
             <div style={card()}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                <FilterPill active={fKind === "service"} onClick={() => setFKind("service")}>{t("requests-kind-service", "Service")}</FilterPill>
+                <FilterPill active={fKind === "errand"} onClick={() => setFKind("errand")}>{t("requests-kind-errand", "Errand")}</FilterPill>
+              </div>
               <Label>{t("requests-category-label", "Service category")}</Label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
                 {cats.map((c) => <FilterPill key={c.id} active={fCat === c.id} onClick={() => setFCat(c.id)}>{c.title}</FilterPill>)}
               </div>
               <Label>{t("requests-title-label", "Title")}</Label>
-              <input value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder={t("requests-title-placeholder", "e.g. Need a plumber for a leak")} style={inp()} />
+              <input value={fTitle} onChange={(e) => setFTitle(e.target.value)} placeholder={fKind === "errand" ? t("requests-errand-title-placeholder", "e.g. Pick up a parcel and drop it across town") : t("requests-title-placeholder", "e.g. Need a plumber for a leak")} style={inp()} />
               <Label>{t("requests-desc-label", "Details")}</Label>
               <textarea value={fDesc} onChange={(e) => setFDesc(e.target.value)} placeholder={t("requests-desc-placeholder", "Describe what you need")} rows={3} style={inp()} />
               <Label>{t("requests-radius-label", "Search radius (km)")}</Label>
               <input type="number" min={1} max={50} value={fRadius} onChange={(e) => setFRadius(Number(e.target.value))} style={inp()} />
-              <Label>{t("requests-address-label", "Your location")}</Label>
-              {hasUsableAddr ? (
-                <select value={fAddr} onChange={(e) => setFAddr(e.target.value)} style={inp()}>
-                  {addrs.filter((a) => a.lat != null).map((a) => <option key={a.id} value={a.id}>{a.name} — {a.line1}, {a.city}</option>)}
-                </select>
-              ) : (
+              {!hasUsableAddr ? (
                 <p style={{ fontSize: 12, color: "#DC2626", marginBottom: 8 }}>{t("requests-need-address", "Add an address with a location to post a request.")}</p>
+              ) : fKind === "errand" ? (
+                <>
+                  <Label>{t("requests-pickup-label", "Pickup location")}</Label>
+                  <select value={fPickup} onChange={(e) => setFPickup(e.target.value)} style={inp()}>
+                    {addrs.filter((a) => a.lat != null).map((a) => <option key={a.id} value={a.id}>{a.name} — {a.line1}, {a.city}</option>)}
+                  </select>
+                  <Label>{t("requests-drop-label", "Drop location")}</Label>
+                  <select value={fDrop} onChange={(e) => setFDrop(e.target.value)} style={inp()}>
+                    <option value="">—</option>
+                    {addrs.filter((a) => a.lat != null).map((a) => <option key={a.id} value={a.id}>{a.name} — {a.line1}, {a.city}</option>)}
+                  </select>
+                  {errandHint != null && (
+                    <div style={{ marginBottom: 10, padding: 10, borderRadius: 8, background: "#F0F9FF", border: "1px solid #BAE6FD" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{t("requests-suggested-price-label", "Suggested price")}: ₹{errandHint}</div>
+                      <div style={{ fontSize: 11, color: A.muted, marginTop: 2 }}>{t("requests-suggested-price-help", "Only a suggestion — you and the runner agree on the final price.")}</div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <Label>{t("requests-address-label", "Your location")}</Label>
+                  <select value={fAddr} onChange={(e) => setFAddr(e.target.value)} style={inp()}>
+                    {addrs.filter((a) => a.lat != null).map((a) => <option key={a.id} value={a.id}>{a.name} — {a.line1}, {a.city}</option>)}
+                  </select>
+                </>
               )}
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 <button onClick={() => setShowForm(false)} style={btn(A.surface, A.muted, true)}>✕</button>
-                <button disabled={posting || !fCat || !fTitle.trim() || !hasUsableAddr} onClick={post} style={{ ...btn(A.accent, "#fff"), flex: 1, opacity: posting || !fCat || !fTitle.trim() || !hasUsableAddr ? 0.5 : 1 }}>
+                <button disabled={posting || !fCat || !fTitle.trim() || !hasUsableAddr || (fKind === "errand" && !fDrop)} onClick={post} style={{ ...btn(A.accent, "#fff"), flex: 1, opacity: posting || !fCat || !fTitle.trim() || !hasUsableAddr || (fKind === "errand" && !fDrop) ? 0.5 : 1 }}>
                   {posting ? t("requests-posting", "Posting…") : t("requests-submit", "Post request")}
                 </button>
               </div>
@@ -166,6 +218,7 @@ export default function RequestsPage() {
                 </div>
                 <Badge status={b.status}>{statusLabel(b.status)}</Badge>
               </div>
+              {b.kind === "errand" && <ErrandLine b={b} t={t} />}
               {b.description && <p style={{ fontSize: 13, color: A.text, marginTop: 6 }}>{b.description}</p>}
 
               {b.status === "accepted" && b.handoff && (
@@ -238,6 +291,7 @@ function IncomingCard({ b, t, onResponded }: { b: Incoming; t: (s: string, f: st
         </div>
         <span style={{ fontSize: 11, fontWeight: 600, color: A.accent }}>{b.distanceKm} km</span>
       </div>
+      {b.kind === "errand" && <ErrandLine b={b} t={t} />}
       {b.description && <p style={{ fontSize: 13, marginTop: 6 }}>{b.description}</p>}
       {b.myResponseStatus ? (
         <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: b.myResponseStatus === "accepted" ? "#059669" : b.myResponseStatus === "rejected" ? A.muted : A.accent }}>
@@ -257,6 +311,19 @@ function IncomingCard({ b, t, onResponded }: { b: Incoming; t: (s: string, f: st
 }
 
 const A2 = A;
+// Errand pickup → drop + display-only suggested price. Shown for kind="errand" only.
+function ErrandLine({ b, t }: { b: { pickupLabel: string | null; dropLabel: string | null; suggestedPrice: number | null }; t: (s: string, f: string) => string }) {
+  return (
+    <div style={{ fontSize: 12, color: A2.text, marginTop: 6 }}>
+      <div>📦 {b.pickupLabel || "—"} → {b.dropLabel || "—"}</div>
+      {b.suggestedPrice != null && (
+        <div style={{ color: A2.muted, marginTop: 2 }}>
+          {t("requests-suggested-price-label", "Suggested price")}: ₹{b.suggestedPrice} · {t("requests-suggested-price-help", "Only a suggestion — you and the runner agree on the final price.")}
+        </div>
+      )}
+    </div>
+  );
+}
 function Label({ children }: { children: React.ReactNode }) { return <div style={{ fontSize: 12, fontWeight: 600, color: A2.muted, marginBottom: 4 }}>{children}</div>; }
 function Empty({ children }: { children: React.ReactNode }) { return <div style={{ textAlign: "center", color: A2.muted, fontSize: 13, padding: 32 }}>{children}</div>; }
 function Badge({ status, children }: { status: string; children: React.ReactNode }) {

@@ -14,15 +14,19 @@ export async function GET(req: NextRequest) {
 
   await expireStale();
 
-  // My (store, category) service offerings with coordinates.
-  const offerings = await prisma.$queryRaw<{ storeId: string; storeName: string; lat: number; lng: number; categoryId: string }[]>(
+  // My (store, category) offerings with coordinates. REQBCAST-1e: track service vs
+  // delivery capability per store — service broadcasts need a service block; errands
+  // accept either (delivery runners qualify).
+  const offerings = await prisma.$queryRaw<{ storeId: string; storeName: string; lat: number; lng: number; categoryId: string; hasService: boolean; hasDelivery: boolean }[]>(
     Prisma.sql`
-      SELECT s.id AS "storeId", s.name AS "storeName", s.lat, s.lng, scl."categoryId"
+      SELECT s.id AS "storeId", s.name AS "storeName", s.lat, s.lng, scl."categoryId",
+             EXISTS (SELECT 1 FROM "Block" b WHERE b."storeId" = s.id AND b."serviceType" = 'service') AS "hasService",
+             EXISTS (SELECT 1 FROM "Block" b WHERE b."storeId" = s.id AND b."serviceType" = 'delivery') AS "hasDelivery"
       FROM "Store" s
       JOIN "StoreCategoryLink" scl ON scl."storeId" = s.id
       WHERE s."ownerId" = ${userId} AND s."deletedAt" IS NULL
         AND s.lat IS NOT NULL AND s.lng IS NOT NULL
-        AND EXISTS (SELECT 1 FROM "Block" b WHERE b."storeId" = s.id AND b."serviceType" = 'service')
+        AND EXISTS (SELECT 1 FROM "Block" b WHERE b."storeId" = s.id AND b."serviceType" IN ('service','delivery'))
     `
   );
   if (!offerings.length) return NextResponse.json({ broadcasts: [] });
@@ -32,13 +36,15 @@ export async function GET(req: NextRequest) {
   const myCategoryIds = Object.keys(byCategory);
 
   const open = await prisma.$queryRaw<{
-    id: string; requesterId: string; requesterName: string | null; categoryId: string;
+    id: string; requesterId: string; requesterName: string | null; categoryId: string; kind: string;
     title: string; description: string | null; addressLat: number | null; addressLng: number | null;
     radiusKm: number; createdAt: Date; expiresAt: Date | null;
+    pickupLabel: string | null; dropLabel: string | null; suggestedPrice: number | null;
   }[]>(
     Prisma.sql`
-      SELECT rb.id, rb."requesterId", u.name AS "requesterName", rb."categoryId", rb.title, rb.description,
-             rb."addressLat", rb."addressLng", rb."radiusKm", rb."createdAt", rb."expiresAt"
+      SELECT rb.id, rb."requesterId", u.name AS "requesterName", rb."categoryId", rb.kind, rb.title, rb.description,
+             rb."addressLat", rb."addressLng", rb."radiusKm", rb."createdAt", rb."expiresAt",
+             rb."pickupLabel", rb."dropLabel", rb."suggestedPrice"
       FROM "RequestBroadcast" rb
       JOIN "User" u ON u.id = rb."requesterId"
       WHERE rb.status = 'open' AND rb."requesterId" <> ${userId}
@@ -57,10 +63,13 @@ export async function GET(req: NextRequest) {
 
   const eligible = open
     .map((b) => {
+      // For errands addressLat/Lng = pickup (set at create) — distance is from pickup.
       if (b.addressLat == null || b.addressLng == null) return null;
-      // nearest of my stores that serves this category and falls within radius
+      // nearest of my stores that serves this category, qualifies for the kind, and is within radius
       let best: { storeId: string; storeName: string; distanceKm: number } | null = null;
       for (const o of byCategory[b.categoryId] || []) {
+        const qualifies = b.kind === "errand" ? (o.hasService || o.hasDelivery) : o.hasService;
+        if (!qualifies) continue;
         const d = Math.round(haversineKm(b.addressLat, b.addressLng, o.lat, o.lng) * 10) / 10;
         if (d <= b.radiusKm && (!best || d < best.distanceKm)) best = { storeId: o.storeId, storeName: o.storeName, distanceKm: d };
       }

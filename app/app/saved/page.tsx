@@ -5,6 +5,7 @@ import Link from "next/link";
 import QuickOrderModal from "@/components/store/QuickOrderModal";
 import DiscoveryFilterModal, { type DiscoveryFilters } from "@/components/store/DiscoveryFilterModal";
 import { FilterPill } from "@/components/store/FilterPill";
+import RequestsPage from "@/app/app/requests/page";
 import { useTranslations } from "@/hooks/useTranslations";
 
 const SAVED_SLUGS =
@@ -16,7 +17,7 @@ const SAVED_SLUGS =
   "app-saved-pin,app-saved-pinned-label,app-saved-pinning,app-saved-visit," +
   "app-saved-filter-button,app-saved-filter-active," +
   "app-discover-distance-km,app-discover-distance-unknown," +
-  "app-search-stores-tab,app-search-products-tab," +
+  "app-search-stores-tab,app-search-products-tab,app-search-services-tab," +
   "app-search-products-placeholder,app-search-products-no-results," +
   "app-search-products-heading,app-search-filter-by-category";
 
@@ -75,7 +76,7 @@ type ProductResult = {
   distanceKm: number | null;
 };
 
-type BrowseTab = "stores" | "products";
+type BrowseTab = "stores" | "products" | "services";
 
 function PinnedSkeleton() {
   return (
@@ -822,9 +823,14 @@ export default function SavedPage() {
             <FilterPill active={browseTab === "products"} onClick={() => setBrowseTab("products")}>
               🔎 {t("app-search-products-tab", "Products")}
             </FilterPill>
+            <FilterPill active={browseTab === "services"} onClick={() => setBrowseTab("services")}>
+              🔔 {t("app-search-services-tab", "Services")}
+            </FilterPill>
           </div>
 
-          {browseTab === "stores" ? (
+          {browseTab === "services" ? (
+            <RequestsPage />
+          ) : browseTab === "stores" ? (
             <>
               {/* Filter + Map row */}
               <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>

@@ -35,6 +35,11 @@ const STRINGS = [
     description: "Saved page — tab label to search for products",
   },
   {
+    slug: "app-search-services-tab",
+    title: "Services",
+    description: "Saved page — tab label for the service-request noticeboard (REQBCAST-1d)",
+  },
+  {
     slug: "app-search-products-placeholder",
     title: "Search products…",
     description: "Saved page — placeholder in the product search input",

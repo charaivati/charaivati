@@ -1961,11 +1961,13 @@ model RequestBroadcast {
   addressLng         Float?
   radiusKm           Float    @default(5)
   acceptedResponseId String?  // plain column, no Prisma relation (avoids FK cycle) — resolved manually
-  // errand-only, dormant (REQBCAST-1c ships service kind only)
+  // errand-only (activated REQBCAST-1e). suggestedPrice is a DISPLAY HINT, never enforced.
   pickupLat          Float?
   pickupLng          Float?
   dropLat            Float?
   dropLng            Float?
+  pickupLabel        String?
+  dropLabel          String?
   suggestedPrice     Float?
   createdAt          DateTime  @default(now())
   expiresAt          DateTime?

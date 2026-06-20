@@ -3,7 +3,8 @@
 The inDrive/noticeboard primitive. A user posts a service request; nearby providers
 who offer that category get a notification card, respond (optionally with a quoted
 price), and the requester accepts ONE — then both settle DIRECTLY via the accepted
-provider's UPI VPA. v1 ships `kind='service'` only.
+provider's UPI VPA. Two kinds: `kind='service'` (1c) and `kind='errand'` (1e — see
+§ Errand mode).
 
 ## Doctrine (non-negotiable)
 
@@ -86,6 +87,61 @@ Expiry: a broadcast past `expiresAt` with no acceptance is flipped to `expired`
 deliberately not an in-process `setTimeout` (doesn't survive restarts). See
 `TECH_DEBT.md` §20(b).
 
+## Errand mode (REQBCAST-1e — `kind='errand'`)
+
+Pick-and-drop of **GOODS/TASKS ONLY** (courier/runner errands: pick up X from A,
+drop at B). **NO passengers, no ride-share, no carpool** — carpool/ride-share is
+deliberately NOT built pending legal review (Assam transport stance + insurance
+liability). Any field or copy implying carrying people is out of scope.
+
+Errand reuses the **entire** broadcast → respond → accept → VPA-handoff flow
+unchanged. It differs from service in exactly three things: a pickup location, a
+drop location, and a suggested price.
+
+### Doctrine additions
+- **Suggested price is a DISPLAY HINT only** — never enforced, never collected,
+  never a floor/ceiling. The platform does not set price. A provider's response MAY
+  quote a different price (pre-accept negotiation, QUOTE-BLOCK-1 intact).
+- **Eligibility anchors on the PICKUP point**, not the requester's home — the runner
+  must reach the pickup first.
+
+### Schema
+The dormant errand fields (`pickupLat/Lng`, `dropLat/Lng`, `suggestedPrice`) were
+activated. Two new columns — `pickupLabel`, `dropLabel` (`String?`) — added via
+raw-SQL `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` on the dev DB only (no migration
+file, 1b/1c precedent). Labels are short readable strings (`"{name} — {city}"`),
+`scanInput`'d, shown to providers so they see the rough pickup/drop area.
+
+### Suggested-price helper — `lib/requests/suggestErrandPriceHint.ts`
+`suggestErrandPriceHint(pLat, pLng, dLat, dLng)` → `Math.round(30 + 12 × km)` where
+`km` is the pickup→drop Haversine distance. Flat placeholder constants — there is no
+Store errand rate card to read (errands are requester-posted, no store at create).
+Pure (imports only `haversineKm`), so the client post-form imports the SAME helper
+for a live preview; the server recomputes and stores its own value at create time.
+Named `*Hint` so no reader mistakes it for an authoritative fare. See TECH_DEBT §20(f).
+
+### Eligibility
+`findEligibleProviders` gained an optional `serviceTypes: string[] = ['service']`.
+Service requests pass the default (`['service']`, unchanged). Errands pass
+`['service','delivery']` so courier/delivery stores (a `StoreBlock
+serviceType='delivery'`) qualify as runners. The broadcast's `addressLat/Lng` is set
+to the pickup coords at create, so both `findEligibleProviders` and the incoming
+reverse-eligibility query (which measure from `addressLat/Lng`) anchor on pickup with
+no query rewrite. The incoming feed matches per-kind: a delivery-only store sees
+errands but NOT service requests (verified).
+
+### Routes & UI
+`respond`/`accept` are 100% kind-agnostic — no change. `POST /api/requests` branches
+on `kind`: errand requires `pickupLat/Lng` + `dropLat/Lng` (+ optional labels),
+computes `suggestedPrice`, fans out with the broadened `serviceTypes`, and sends a
+"New errand nearby" notification. Both GET routes return `kind`, `pickupLabel`,
+`dropLabel`, `suggestedPrice`. UI: a Service ↔ Errand `FilterPill` toggle on the post
+form; errand mode swaps the single location select for pickup + drop saved-address
+selects (NO map) and shows the suggested-price hint live with "only a suggestion"
+copy. Mine/Incoming cards render `📦 pickup → drop` + suggested price via the shared
+`ErrandLine`. 8 new `ui-requests` slugs (see CLAUDE.md) seeded across all enabled
+languages.
+
 ## The VPA handoff
 
 `resolveHandoff(providerId, providerStoreId)` (`lib/requests/common.ts`) →
@@ -102,24 +158,35 @@ Two tabs (`?tab=mine|incoming`):
 - **Incoming** — eligible broadcasts with distance badge + inline respond
   (optional quoted price + message).
 
-Entry point: a "Need a service? Post a request" CTA on `/app/discover` (where the
-user already has location context). Provider notifications deep-link to
-`/app/requests?tab=incoming`.
+Entry point (REQBCAST-1d): the **`/app/saved` Browse toggle Services tab**
+(Stores · Products · Services). `/app/saved` imports `RequestsPage` and renders it
+verbatim when the Services tab is active — products, stores, and services are the
+three peer "what do you need" modes and sit together. `/app/requests` is **kept as a
+standalone deep-link route** so provider notifications (`/app/requests?tab=incoming`)
+still resolve; both surfaces render the same component (one source of truth). The
+Mine/Incoming sub-tabs live inside `RequestsPage`, so the provider's Incoming feed is
+reachable from the Services tab too. The earlier "Need a service? Post a request" CTA
+on `/app/discover` was removed — discover is purely the store filter/map surface
+again.
 
 i18n: 32 slugs (category `ui-requests`) seeded by `prisma/seed-requests-ui.js` across
-all enabled languages.
+all enabled languages, plus `app-search-services-tab` (category `ui-prodsearch`,
+seeded by `prisma/seed-prodsearch-ui.js`) for the Services tab label.
 
 ## Verification
 
 `scripts/test-reqbcast.ts` — drives the REAL HTTP endpoints with REAL minted
-sessions (mints cookies via `createSessionToken`). 16/16 checks: post + radius-scoped
-fan-out (near notified, far not), incoming visibility (near sees, far doesn't),
-respond + double-response 409, requester sees responses, accept → VPA+phone handoff +
-sibling auto-reject + broadcast=accepted, re-accept 409, lazy expiry. Self-cleaning
-fixtures.
+sessions (mints cookies via `createSessionToken`). 25/25 checks (16 service + 9
+errand): post + radius-scoped fan-out (near notified, far not), incoming visibility
+(near sees, far doesn't), respond + double-response 409, requester sees responses,
+accept → VPA+phone handoff + sibling auto-reject + broadcast=accepted, re-accept 409,
+lazy expiry; errand — delivery-only store excluded from SERVICE but notified for
+ERRAND, pickup-anchored fan-out (eligibleCount=2), labels + suggested-price stored,
+runner quotes a different price → accept → runner VPA handoff. Self-cleaning fixtures.
 Run (dev server up): `npx ts-node --project tsconfig.scripts.json scripts/test-reqbcast.ts`
 
 ## Tech debt — see `TECH_DEBT.md` §20
 (a) no spatial index (bounding-box is the v1 mitigation); (b) lazy-on-read expiry;
-(c) store-declared eligibility only (no user-level service offering); (d) errand
-fields dormant; (e) `acceptedResponseId` is a plain column, no FK.
+(c) store-declared eligibility only (no user-level service offering); (d) ~~errand
+fields dormant~~ — activated in 1e; (e) `acceptedResponseId` is a plain column, no
+FK; (f) errand suggested-price uses flat placeholder constants (no Store rate card).

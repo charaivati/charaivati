@@ -21,8 +21,11 @@ export async function findEligibleProviders(opts: {
   lng: number;
   radiusKm: number;
   excludeUserId?: string;
+  // REQBCAST-1e: service requests match 'service' providers (unchanged); errands
+  // also match 'delivery' providers (the runners). Defaults keep service behavior.
+  serviceTypes?: string[];
 }): Promise<EligibleProvider[]> {
-  const { categoryId, lat, lng, radiusKm, excludeUserId } = opts;
+  const { categoryId, lat, lng, radiusKm, excludeUserId, serviceTypes = ["service"] } = opts;
 
   // Bounding box from origin + radius (1° lat ≈ 111.32 km; lng scaled by cos(lat)).
   const latDelta = radiusKm / 111.32;
@@ -42,7 +45,7 @@ export async function findEligibleProviders(opts: {
         ${excludeUserId ? Prisma.sql`AND s."ownerId" <> ${excludeUserId}` : Prisma.empty}
         AND EXISTS (
           SELECT 1 FROM "Block" b
-          WHERE b."storeId" = s.id AND b."serviceType" = 'service'
+          WHERE b."storeId" = s.id AND b."serviceType" = ANY(${serviceTypes}::text[])
         )
     `
   );

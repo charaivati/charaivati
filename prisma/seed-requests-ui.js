@@ -53,6 +53,15 @@ const STRINGS = [
   { slug: "requests-resp-rejected", title: "Not selected" },
   { slug: "requests-need-address", title: "Add an address with a location to post a request." },
   { slug: "requests-contact", title: "Contact" },
+  // REQBCAST-1e — errand mode
+  { slug: "requests-kind-service", title: "Service" },
+  { slug: "requests-kind-errand", title: "Errand" },
+  { slug: "requests-pickup-label", title: "Pickup location" },
+  { slug: "requests-drop-label", title: "Drop location" },
+  { slug: "requests-suggested-price-label", title: "Suggested price" },
+  { slug: "requests-suggested-price-help", title: "Only a suggestion — you and the runner agree on the final price." },
+  { slug: "requests-post-cta-errand", title: "Post an errand" },
+  { slug: "requests-errand-title-placeholder", title: "e.g. Pick up a parcel and drop it across town" },
 ];
 
 async function translateLibre(text, source, target) {
