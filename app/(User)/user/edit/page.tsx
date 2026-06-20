@@ -3,6 +3,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import VpaSettingCard from "@/components/payments/VpaSettingCard";
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -285,7 +286,14 @@ export default function EditProfilePage() {
         {/* Earning section */}
         <section id="earning" tabIndex={-1} className="rounded p-4 bg-black/20 focus:outline-none focus:ring-2 focus:ring-blue-500">
           <h3 className="text-lg font-semibold mb-2">Earning</h3>
-          <div>Earning settings...</div>
+          {!loading && (
+            <VpaSettingCard
+              key={`vpa-${profile?.upiVpa ?? ""}`}
+              endpoint="/api/user/profile"
+              initialVpa={profile?.upiVpa ?? null}
+              tone="dark"
+            />
+          )}
         </section>
 
         {/* Social section */}

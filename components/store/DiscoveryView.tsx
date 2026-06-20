@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import AddressForm, { type AddressFormData } from "@/components/shared/AddressForm";
 import { useTranslations } from "@/hooks/useTranslations";
 import { useLanguage } from "@/components/LanguageProvider";
+import { FilterPill } from "./FilterPill";
 
 const DiscoveryMap = dynamic(() => import("./DiscoveryMap"), { ssr: false });
 
@@ -58,36 +59,6 @@ interface DiscoveryStore {
 interface DiscoveryViewProps {
   addresses: DiscoveryAddress[];
   initialAddressId: string;
-}
-
-function FilterPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: "5px 12px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 600,
-        cursor: "pointer",
-        border: `1px solid ${active ? A.accent : A.border}`,
-        background: active ? "#EEF2FF" : A.surface,
-        color: active ? A.accent : A.textMuted,
-        transition: "background 0.15s",
-      }}
-    >
-      {children}
-    </button>
-  );
 }
 
 export default function DiscoveryView({ addresses: initialAddresses, initialAddressId }: DiscoveryViewProps) {

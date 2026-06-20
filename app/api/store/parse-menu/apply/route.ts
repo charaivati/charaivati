@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
           await tx.storeBlock.create({
             data: {
               sectionId:     createdSection.id,
+              storeId,
               title:         item.title,
               description:   item.description || null,
               price:         item.price ?? null,

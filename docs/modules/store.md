@@ -144,6 +144,37 @@ Entry points that use this pipeline:
 - `BannerEditForm` (`components/store/BannerEditForm.tsx`) — banner image upload
 - `AddTileModal` (`app/store/[id]/page.tsx`) — tile image upload
 
+### Product Search (PRODSEARCH-1b)
+
+Full-text product search across all stores, returning item-level results with distance sorting.
+
+**Migration** (`20260622000000_add_block_storeid_search`):
+- `Block.storeId TEXT` — denormalized FK to `Store` for query shortcut (source of truth for hierarchy is still `section → store`). Backfill via `UPDATE "Block" b SET "storeId" = s."storeId" FROM "Section" s WHERE b."sectionId" = s."id"`. Index: `Block_storeId_idx`.
+- `Block.search_vector tsvector GENERATED ALWAYS AS (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,''))) STORED` — auto-maintained, indexed via `Block_search_vector_idx` (GIN). Query via `search_vector @@ websearch_to_tsquery('english', q)`.
+
+**`GET /api/store/product-search`**
+| Param | Type | Notes |
+|---|---|---|
+| `q` | string | Full-text query via `websearch_to_tsquery` |
+| `addressLat`, `addressLng` | float | When present, compute and sort by haversine distance |
+| `categoryIds` | comma-separated | Category proxy — filters stores matching any of these `StoreCategoryLink` rows; products in those stores are included |
+| `limit`, `offset` | int | Max 100, default 30 |
+
+Response: `{ products: [{ blockId, title, description, price, mediaUrl, storeId, storeName, storeSlug, distanceKm }] }`
+
+Filters applied: `serviceType='product'`, `visibility='public'`, `price IS NOT NULL`, `storeId IS NOT NULL`, store not deleted, store not owned by caller. Uses `DISTINCT ON (b.id)` to prevent any future join fan-out.
+
+**Category proxy doctrine (coarse by design)**: there is no `BlockCategoryLink` table — categories live on stores, not blocks. Filtering by category narrows to stores that carry the category, then shows all matching products within those stores. A product that happens to live in a store with an unrelated category may appear; products in a perfectly relevant store that hasn't set categories won't appear. This is a deliberate trade-off — adding `BlockCategoryLink` would require per-product tag management. See TECH_DEBT.md § Product Search for the known gap.
+
+**Block creators that write `storeId`**:
+- `POST /api/block` — resolves `storeId` from the section's store before the create
+- `POST /api/store/ai-setup/apply` — passes outer `storeId` into each `tx.storeBlock.create`
+- `POST /api/store/parse-menu/apply` — same pattern
+
+Blocks created via the subsection path (only used by the learning module) have `storeId = null` and are intentionally excluded from product search.
+
+**UI (`/app/saved` → Products tab)**: tab toggle "Stores" / "Products" on the Browse section. Products tab has a search bar + category filter button. Results render as 2-column cards (image, title, price, store name link, distance badge). Tapping the store name navigates to `/store/{storeSlug|storeId}` — **never** a Page ID.
+
 ### Store Location (GEO-STORE-1)
 `Store` is the canonical source of a store's physical location: `line1`, `city`, `state`, `pincode` (all `String?`) and `lat`, `lng` (`Float?`), added via migration `20260610000000_add_store_location`. These fields fully replace the previous owner-default-`Address` proxy.
 
@@ -346,8 +377,55 @@ This component is intentionally **route-agnostic** — it is built for reuse by 
 ### New UI strings (`prisma/seed-discover-ui.js`)
 11 new strings (`app-discover-*`) seeded as `Tab`/`TabTranslation` rows across all 16 enabled languages (176 rows): `app-discover-map-view`, `app-discover-list-view`, `app-discover-near-heading`, `app-discover-select-address`, `app-discover-add-address`, `app-discover-distance-km`, `app-discover-distance-unknown`, `app-discover-no-stores-found`, `app-discover-map-missing-count`, `app-discover-gate-title`, `app-discover-gate-button`. `store-categories-label`/`store-tags-label` (TAG-STORE-1c) are reused, not re-seeded.
 
+### `/app/saved` Browse tab — inline filter modal (DISCOVER-INLINE-1b)
+
+The saved/wishlist page (`app/app/saved/page.tsx`) has two tabs: **Saved** (wishlist items) and **Browse** (store discovery). The Browse tab reuses `GET /api/store/all` with the same `categoryIds`/`tagIds`/`addressLat`/`addressLng` filter semantics as `/app/discover`.
+
+**`components/store/DiscoveryFilterModal.tsx`** — a standalone bottom-sheet modal (mobile-first, `z-[150]` to sit above the bottom nav at z-100; `pb-16 sm:pb-0` to push panel content above the nav on mobile). Accepts `{ open, onClose, onApply }`. Lazy-fetches taxonomy and addresses on first open; resets filter selection (not the address) on close without Apply. Wraps `AddressForm` inline for adding a new address mid-filter.
+
+**`components/store/FilterPill.tsx`** — shared atom. Renders a single toggleable pill (`active ? indigo filled : grey outline`). Used in: (1) the DiscoveryFilterModal body (category and tag rows); (2) the Browse tab header to show selected filter chips. No other dependencies — stateless, presentational.
+
+**`activeFilters: DiscoveryFilters`** in `app/app/saved/page.tsx` drives the Browse fetch:
+```ts
+type DiscoveryFilters = {
+  categoryIds: string[];
+  tagIds: string[];
+  addressLat: number | null;
+  addressLng: number | null;
+};
+```
+When filters are empty, `GET /api/store/all` is called with no filter params (returns all stores). When filters are set, the same OR-within/AND-across taxonomy semantics apply. Filter button label: "Filter stores" (0 active) / "{n} filters active" (n > 0).
+
+**UI strings** — 5 new `Tab`/`TabTranslation` keys seeded by `prisma/seed-saved-filters-ui.js` (standalone — `node prisma/seed-saved-filters-ui.js`) across all 16 enabled languages (80 rows): `app-saved-filter-button`, `app-saved-filter-active`, `app-saved-apply-filters`, `app-saved-clear-filters`, `app-saved-filter-modal-title`. English-copy fallback when `LIBRE_TRANSLATE_URL` is unset.
+
+**`/api/store/all` serves two surfaces** — both `/app/discover` and `/app/saved`'s Browse tab call this endpoint. The endpoint is fully filter-param-driven with no caller awareness. The gate (address required) is enforced by the page, not the API.
+
 ### Out of scope
 Distance-based pricing is **not** built here — `distanceKm` is sort/display only. Any future delivery-cost-by-distance feature for discovery is a separate schema change.
+
+## UPI VPA Payment Handle (REQBCAST-1b)
+
+A provider's UPI VPA (`name@bank`) so a paying party can pay them **directly**. **DISPLAY/HANDOFF ONLY** — the platform never validates, collects, or escrows. Shape-validated (`name@bank`) at input, **never** resolution-checked against any bank/PSP. This is the prerequisite handoff primitive for the coming broadcast engine (REQBCAST-1c).
+
+**Field homes** (both nullable `String`, added in migration `20260623000000_add_upi_vpa`):
+- `Store.upiVpa` — a store's pay-to handle (most providers sell via a store).
+- `Profile.upiVpa` — a user's personal pay-to handle, for service providers with no store. Supersedes the unwired `Profile.preferredPayment` (kept, not removed — see TECH_DEBT).
+
+Both read/written via **raw SQL** (`$queryRaw`/`$executeRaw`) — same stale-client pattern as `Store.line1`/`lat`. Do not put `upiVpa` in a typed Prisma `where`/`select` until a full `prisma generate` runs.
+
+**Validation** — `lib/payments/vpa.ts`: `isValidVpa(v)` (regex `^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$`) + `normalizeVpa(v)` (trim → string|null; empty clears). Shape only. Used by both the client setter and both API routes.
+
+**API**:
+- `GET /api/store/[id]` returns `upiVpa`; `PATCH /api/store/[id]` accepts `upiVpa` (omit = skip, `""`/null = clear, invalid shape → `400 { error: "Enter a valid UPI ID like name@bank." }`).
+- `GET /api/user/profile` returns `profile.upiVpa`; `PATCH /api/user/profile` accepts `upiVpa` (same omit/clear/400 semantics).
+
+**Components** (`components/payments/`):
+- `VpaSettingCard` — owner setter; PATCHes `{ upiVpa }` to a given `endpoint`. Mounted in the Initiative Hub **Store tab** (`InitiativeTabs.tsx`, `endpoint=/api/store/[id]`, `tone="dark"`) and the user **Earning** section (`app/(User)/user/edit/page.tsx`, `endpoint=/api/user/profile`).
+- `PayToVpa` — display/handoff atom: "Pay directly to {name}: `vpa` [Copy]". Renders the saved handle in `VpaSettingCard`; **the broadcast engine (REQBCAST-1c) is the intended paying-party consumer.**
+
+**Handoff getter** — `lib/payments/getVpa.ts` `getPayToVpa({ storeId?, userId? })`: store handle first, falls back to the store owner's `Profile.upiVpa`. **No live consumer yet** — built and left ready for REQBCAST-1c (there is no checkout/direct-pay path in the app today).
+
+**i18n** — 8 slugs seeded by `prisma/seed-vpa-ui.js` (category `ui-vpa`, all enabled languages): `pay-vpa-label`, `pay-vpa-placeholder`, `pay-vpa-help`, `pay-vpa-invalid`, `pay-vpa-save`, `pay-vpa-saved`, `pay-to-vpa-label`, `pay-vpa-copy`.
 
 ## Risks & Fragile Areas
 - `Order.items` is a JSON snapshot — no referential integrity after checkout. Price changes after purchase do not affect existing orders, which is correct, but querying historical pricing requires parsing JSON.

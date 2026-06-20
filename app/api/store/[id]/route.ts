@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { isValidVpa, normalizeVpa } from "@/lib/payments/vpa";
 
 export async function GET(
   req: NextRequest,
@@ -58,6 +59,7 @@ export async function GET(
     slug: string | null;
     acceptingOrders: boolean;
     hoursText: string | null;
+    upiVpa: string | null;
     line1: string | null;
     city: string | null;
     state: string | null;
@@ -65,11 +67,12 @@ export async function GET(
     lat: number | null;
     lng: number | null;
   }[]>`
-    SELECT slug, "acceptingOrders", "hoursText", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${storeId} LIMIT 1
+    SELECT slug, "acceptingOrders", "hoursText", "upiVpa", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${storeId} LIMIT 1
   `;
   const slug = extraRow[0]?.slug ?? null;
   const acceptingOrders = extraRow[0]?.acceptingOrders ?? false;
   const hoursText = extraRow[0]?.hoursText ?? null;
+  const upiVpa = extraRow[0]?.upiVpa ?? null;
   const location = {
     line1: extraRow[0]?.line1 ?? null,
     city: extraRow[0]?.city ?? null,
@@ -114,6 +117,7 @@ export async function GET(
     slug,
     acceptingOrders,
     hoursText,
+    upiVpa,
     location,
     sections: processedSections,
     filters,
@@ -141,10 +145,19 @@ export async function PATCH(
   if (store.deletedAt) return NextResponse.json({ error: "This store has been deleted. Restore it before making changes." }, { status: 409 });
 
   const body = await req.json();
-  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText, location, categoryIds, tagIds } = body;
+  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText, upiVpa, location, categoryIds, tagIds } = body;
 
   if (Array.isArray(categoryIds) && categoryIds.length > 3) {
     return NextResponse.json({ error: "Pick up to 3 categories" }, { status: 400 });
+  }
+
+  // UPI VPA (REQBCAST-1b) — shape-validated only, never resolution-checked.
+  let upiVpaUpdate: string | null | undefined;
+  if ("upiVpa" in body) {
+    upiVpaUpdate = normalizeVpa(upiVpa);
+    if (upiVpaUpdate && !isValidVpa(upiVpaUpdate)) {
+      return NextResponse.json({ error: "Enter a valid UPI ID like name@bank." }, { status: 400 });
+    }
   }
 
   const data: Record<string, unknown> = {};
@@ -177,6 +190,11 @@ export async function PATCH(
     `;
   }
 
+  // UPI VPA write (REQBCAST-1b) — raw SQL, stale-client pattern.
+  if (upiVpaUpdate !== undefined) {
+    await prisma.$executeRaw`UPDATE "Store" SET "upiVpa" = ${upiVpaUpdate} WHERE id = ${id}`;
+  }
+
   // Store category/tag links (TAG-STORE-1c) — empty array clears, omitted key
   // leaves the table untouched. Category count is capped at 3 (checked above).
   if (Array.isArray(categoryIds)) {
@@ -201,6 +219,7 @@ export async function PATCH(
   const extraRow = await prisma.$queryRaw<{
     acceptingOrders: boolean;
     hoursText: string | null;
+    upiVpa: string | null;
     line1: string | null;
     city: string | null;
     state: string | null;
@@ -208,13 +227,14 @@ export async function PATCH(
     lat: number | null;
     lng: number | null;
   }[]>`
-    SELECT "acceptingOrders", "hoursText", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${id} LIMIT 1
+    SELECT "acceptingOrders", "hoursText", "upiVpa", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${id} LIMIT 1
   `;
 
   return NextResponse.json({
     ...updated,
     acceptingOrders: extraRow[0]?.acceptingOrders ?? false,
     hoursText: extraRow[0]?.hoursText ?? null,
+    upiVpa: extraRow[0]?.upiVpa ?? null,
     location: {
       line1: extraRow[0]?.line1 ?? null,
       city: extraRow[0]?.city ?? null,

@@ -12,6 +12,7 @@ const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { s
 const WorkflowTab          = dynamic(() => import("./WorkflowTab"),          { ssr: false });
 const TeamTab              = dynamic(() => import("./TeamTab"),              { ssr: false });
 const StoreLocationForm    = dynamic(() => import("./StoreLocationForm"),    { ssr: false });
+const VpaSettingCard       = dynamic(() => import("../payments/VpaSettingCard"), { ssr: false });
 type Tab = "overview" | "store" | "team" | "partners" | "workflow" | "fleet";
 
 const TAXONOMY_SLUGS =
@@ -87,6 +88,7 @@ export default function InitiativeTabs({
   const [storeOpen,       setStoreOpen]       = useState<boolean | null>(null);
   const [togglingOrders,  setTogglingOrders]  = useState(false);
   const [storeLocation,   setStoreLocation]   = useState<StoreLocation | null>(null);
+  const [storeVpa,        setStoreVpa]        = useState<string | null | undefined>(undefined);
   const [editingLocation, setEditingLocation] = useState(false);
   const [savingLocation,  setSavingLocation]  = useState(false);
   const [taxonomy,            setTaxonomy]            = useState<StoreTaxonomy | null>(null);
@@ -130,6 +132,7 @@ export default function InitiativeTabs({
         if (!d) return;
         setStoreOpen(d.acceptingOrders ?? false);
         setStoreLocation(d.location ?? null);
+        setStoreVpa(d.upiVpa ?? null);
         setSelectedCategoryIds(d.categoryIds ?? []);
         setSelectedTagIds(d.tagIds ?? []);
       })
@@ -451,6 +454,16 @@ export default function InitiativeTabs({
                   <p className="text-xs text-gray-500 italic">No location set yet.</p>
                 )}
               </div>
+
+              {/* UPI payment handle (REQBCAST-1b) — display/handoff only */}
+              {storeVpa !== undefined && (
+                <VpaSettingCard
+                  key={`vpa-${storeId}-${storeVpa ?? ""}`}
+                  endpoint={`/api/store/${storeId}`}
+                  initialVpa={storeVpa}
+                  tone="dark"
+                />
+              )}
             </>
           ) : (
             <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/50 text-center space-y-4">

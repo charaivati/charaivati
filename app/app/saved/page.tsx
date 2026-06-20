@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import QuickOrderModal from "@/components/store/QuickOrderModal";
+import DiscoveryFilterModal, { type DiscoveryFilters } from "@/components/store/DiscoveryFilterModal";
+import { FilterPill } from "@/components/store/FilterPill";
 import { useTranslations } from "@/hooks/useTranslations";
 
 const SAVED_SLUGS =
@@ -11,7 +13,12 @@ const SAVED_SLUGS =
   "app-saved-wishlist-empty,app-saved-free,app-saved-buy-now," +
   "app-saved-unsave,app-saved-removing,app-saved-browse-heading," +
   "app-saved-search-placeholder,app-saved-no-stores," +
-  "app-saved-pin,app-saved-pinned-label,app-saved-pinning,app-saved-visit";
+  "app-saved-pin,app-saved-pinned-label,app-saved-pinning,app-saved-visit," +
+  "app-saved-filter-button,app-saved-filter-active," +
+  "app-discover-distance-km,app-discover-distance-unknown," +
+  "app-search-stores-tab,app-search-products-tab," +
+  "app-search-products-placeholder,app-search-products-no-results," +
+  "app-search-products-heading,app-search-filter-by-category";
 
 const A = {
   bg: "#F3F4F6",
@@ -28,6 +35,7 @@ type Store = {
   name: string;
   description?: string | null;
   previewImage?: string | null;
+  distanceKm?: number | null;
 };
 
 type PinnedItem = {
@@ -54,6 +62,20 @@ type QuickItem = {
   blockId: string; title: string; price: number; quantity: number; imageUrl?: string | null;
   storeId: string; storeName: string;
 };
+
+type ProductResult = {
+  blockId: string;
+  title: string;
+  description: string | null;
+  price: number | null;
+  mediaUrl: string | null;
+  storeId: string;
+  storeName: string | null;
+  storeSlug: string | null;
+  distanceKm: number | null;
+};
+
+type BrowseTab = "stores" | "products";
 
 function PinnedSkeleton() {
   return (
@@ -134,6 +156,29 @@ function BrowseSkeleton() {
   );
 }
 
+function ProductsSkeleton() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          style={{
+            background: A.surface, borderRadius: 10,
+            border: `1px solid ${A.border}`, overflow: "hidden",
+          }}
+        >
+          <div className="w-full bg-gray-200 animate-pulse" style={{ aspectRatio: "1/1" }} />
+          <div style={{ padding: "8px 10px" }}>
+            <div className="h-3 bg-gray-200 rounded animate-pulse mb-1" />
+            <div className="h-3 bg-gray-200 rounded animate-pulse mb-1" style={{ width: "60%" }} />
+            <div className="h-3 bg-gray-200 rounded animate-pulse" style={{ width: "40%" }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ButtonSpinner() {
   return (
     <span
@@ -150,7 +195,7 @@ export default function SavedPage() {
   const [pinned, setPinned] = useState<PinnedItem[]>([]);
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
 
-  // Browse all stores (bottom section)
+  // Browse all stores (unfiltered)
   const [stores, setStores] = useState<Store[]>([]);
   const [myStoreIds, setMyStoreIds] = useState<Set<string>>(new Set());
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
@@ -162,6 +207,22 @@ export default function SavedPage() {
   const [loadingPinned, setLoadingPinned] = useState(true);
   const [loadingWishlist, setLoadingWishlist] = useState(true);
   const [loadingBrowse, setLoadingBrowse] = useState(true);
+
+  // Discovery filter state
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<DiscoveryFilters | null>(null);
+  const [filteredStores, setFilteredStores] = useState<Store[]>([]);
+  const [loadingFiltered, setLoadingFiltered] = useState(false);
+
+  // Browse tab toggle (stores vs products)
+  const [browseTab, setBrowseTab] = useState<BrowseTab>("stores");
+
+  // Product search state
+  const [productQuery, setProductQuery] = useState("");
+  const [productResults, setProductResults] = useState<ProductResult[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [productSearched, setProductSearched] = useState(false);
+  const productDebounceRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     fetch("/api/store/pinned", { credentials: "include" })
@@ -196,6 +257,26 @@ export default function SavedPage() {
       .finally(() => setLoadingBrowse(false));
   }, []);
 
+  // Re-fetch with filter params when activeFilters changes
+  useEffect(() => {
+    if (!activeFilters) return;
+    setLoadingFiltered(true);
+    const params = new URLSearchParams();
+    if (activeFilters.categoryIds.length)
+      params.set("categoryIds", activeFilters.categoryIds.join(","));
+    if (activeFilters.tagIds.length)
+      params.set("tagIds", activeFilters.tagIds.join(","));
+    if (activeFilters.addressLat != null && activeFilters.addressLng != null) {
+      params.set("addressLat", String(activeFilters.addressLat));
+      params.set("addressLng", String(activeFilters.addressLng));
+    }
+    fetch(`/api/store/all?${params.toString()}`)
+      .then((r) => r.ok ? r.json() : { stores: [] })
+      .then((json) => setFilteredStores(json.stores ?? []))
+      .catch(() => setFilteredStores([]))
+      .finally(() => setLoadingFiltered(false));
+  }, [activeFilters]);
+
   async function togglePin(storeId: string) {
     setTogglingPin(storeId);
     try {
@@ -213,7 +294,6 @@ export default function SavedPage() {
           nowPinned ? next.add(storeId) : next.delete(storeId);
           return next;
         });
-        // Also update the top pinned list
         if (nowPinned) {
           const store = stores.find((s) => s.id === storeId);
           if (store) {
@@ -256,23 +336,252 @@ export default function SavedPage() {
     }
   }
 
-  const filtered = stores.filter(
+  // Active list depends on whether filters are applied
+  const baseList = activeFilters !== null ? filteredStores : stores;
+  const displayedStores = baseList.filter(
     (s) =>
       !myStoreIds.has(s.id) &&
       (search === "" || s.name.toLowerCase().includes(search.toLowerCase()))
   );
 
+  const filterCount =
+    (activeFilters?.categoryIds.length ?? 0) + (activeFilters?.tagIds.length ?? 0);
+
+  const isLoading = activeFilters !== null ? loadingFiltered : loadingBrowse;
+
+  function handleApply(filters: DiscoveryFilters) {
+    setActiveFilters(filters);
+  }
+
+  async function searchProducts(q: string) {
+    setLoadingProducts(true);
+    setProductSearched(true);
+    try {
+      const params = new URLSearchParams({ q, limit: "30" });
+      if (activeFilters?.categoryIds.length)
+        params.set("categoryIds", activeFilters.categoryIds.join(","));
+      if (activeFilters?.addressLat != null && activeFilters?.addressLng != null) {
+        params.set("addressLat", String(activeFilters.addressLat));
+        params.set("addressLng", String(activeFilters.addressLng));
+      }
+      const res = await fetch(`/api/store/product-search?${params.toString()}`, {
+        credentials: "include",
+      });
+      const json = res.ok ? await res.json() : { products: [] };
+      setProductResults(json.products ?? []);
+    } catch {
+      setProductResults([]);
+    } finally {
+      setLoadingProducts(false);
+    }
+  }
+
+  // Debounced live search as the user types (mirrors UnifiedSearch.tsx's DEBOUNCE_MS=250 pattern)
+  useEffect(() => {
+    window.clearTimeout(productDebounceRef.current);
+    if (browseTab !== "products" || productQuery.trim() === "") return;
+    productDebounceRef.current = window.setTimeout(() => {
+      searchProducts(productQuery);
+    }, 250);
+    return () => window.clearTimeout(productDebounceRef.current);
+  }, [productQuery, browseTab]);
+
+  function renderProductCard(p: ProductResult) {
+    const storeHandle = p.storeSlug ?? p.storeId;
+    return (
+      <div
+        key={p.blockId}
+        style={{ background: "#fff", borderRadius: 10, border: "0.5px solid #e2e8f0", overflow: "hidden" }}
+      >
+        {p.mediaUrl ? (
+          <img
+            src={p.mediaUrl}
+            alt={p.title}
+            style={{ width: "100%", aspectRatio: "1/1", objectFit: "cover", display: "block" }}
+          />
+        ) : (
+          <div style={{
+            width: "100%", aspectRatio: "1/1", background: "#F9FAFB",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <span style={{ fontSize: 28, color: A.textMuted }}>🖼</span>
+          </div>
+        )}
+        <div style={{ padding: "8px 10px" }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: A.text,
+            display: "-webkit-box", WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical", overflow: "hidden",
+          }}>
+            {p.title}
+          </div>
+          {p.price != null && (
+            <div style={{ fontSize: 11, color: A.textMuted, marginTop: 2 }}>
+              ₹{p.price.toLocaleString("en-IN")}
+            </div>
+          )}
+          {p.storeName && (
+            <a
+              href={`/store/${storeHandle}`}
+              style={{
+                display: "block", fontSize: 10, color: A.accent,
+                marginTop: 2, textDecoration: "none",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}
+            >
+              {p.storeName}
+            </a>
+          )}
+          {p.distanceKm != null ? (
+            <div style={{ fontSize: 10, color: A.textMuted, marginTop: 2 }}>
+              {(t("app-discover-distance-km", "{km} km away") || "").replace("{km}", String(p.distanceKm))}
+            </div>
+          ) : activeFilters?.addressLat != null ? (
+            <div style={{ fontSize: 10, color: A.textMuted, marginTop: 2 }}>
+              {t("app-discover-distance-unknown", "Distance unknown")}
+            </div>
+          ) : null}
+          <div style={{ marginTop: 8 }}>
+            <button
+              onClick={() => setQuickOrder({
+                blockId: p.blockId,
+                title: p.title,
+                price: p.price ?? 0,
+                quantity: 1,
+                imageUrl: p.mediaUrl,
+                storeId: p.storeId,
+                storeName: p.storeName ?? "",
+              })}
+              style={{
+                width: "100%", padding: "5px 0", borderRadius: 6,
+                fontSize: 11, fontWeight: 600, cursor: "pointer",
+                background: "#FFA41C", border: "1px solid #FF8F00", color: "#111",
+              }}
+            >
+              {t("app-saved-buy-now", "Buy Now")}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderStoreCard(store: Store) {
+    const isPinned = pinnedIds.has(store.id);
+    const isOwn = myStoreIds.has(store.id);
+    const toggling = togglingPin === store.id;
+
+    return (
+      <div
+        key={store.id}
+        style={{
+          background: "#fff",
+          borderRadius: 12,
+          border: "0.5px solid #e2e8f0",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: 12,
+        }}
+      >
+        {store.previewImage ? (
+          <img
+            src={store.previewImage}
+            alt={store.name}
+            style={{ width: 80, height: 80, borderRadius: 8, objectFit: "cover", flexShrink: 0 }}
+          />
+        ) : (
+          <div
+            style={{
+              width: 80, height: 80, borderRadius: 8, flexShrink: 0,
+              background: "linear-gradient(135deg,#6366f1,#818cf8)",
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
+            }}
+          >
+            🏪
+          </div>
+        )}
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 14, fontWeight: 600, color: A.text,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >
+            {store.name}
+          </div>
+          {store.description && (
+            <div
+              style={{
+                fontSize: 12, color: A.textMuted, marginTop: 2,
+                display: "-webkit-box", WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical", overflow: "hidden",
+              }}
+            >
+              {store.description}
+            </div>
+          )}
+
+          {/* Distance badge — shown only when filters are active */}
+          {activeFilters !== null && (
+            <div style={{ fontSize: 11, color: A.textMuted, marginTop: 4 }}>
+              {store.distanceKm != null
+                ? (t("app-discover-distance-km", "{km} km away") || "").replace(
+                    "{km}",
+                    store.distanceKm.toFixed(1)
+                  )
+                : t("app-discover-distance-unknown", "Distance unknown")}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+            {!isOwn && (
+              <button
+                onClick={() => togglePin(store.id)}
+                disabled={toggling}
+                style={{
+                  padding: "5px 10px", borderRadius: 6,
+                  fontSize: 11, fontWeight: 600,
+                  cursor: toggling ? "default" : "pointer",
+                  opacity: toggling ? 0.5 : 1,
+                  border: `1px solid ${isPinned ? A.accent : A.border}`,
+                  background: isPinned ? "#EEF2FF" : A.surface,
+                  color: isPinned ? A.accent : A.textMuted,
+                  display: "flex", alignItems: "center", gap: 4,
+                  transition: "opacity 0.15s",
+                }}
+              >
+                {toggling && <ButtonSpinner />}
+                {toggling
+                  ? (isPinned ? t("app-saved-unpinning", "Unpinning") : t("app-saved-pinning", "Pinning"))
+                  : (isPinned ? `📌 ${t("app-saved-pinned-label", "Pinned")}` : `🔖 ${t("app-saved-pin", "Pin")}`)}
+              </button>
+            )}
+
+            <a
+              href={`/store/${store.slug ?? store.id}`}
+              style={{
+                padding: "5px 10px", borderRadius: 6,
+                fontSize: 11, fontWeight: 600,
+                color: A.accent, textDecoration: "none",
+                border: `1px solid ${A.accent}`,
+                background: A.surface,
+              }}
+            >
+              {t("app-saved-visit", "Visit →")}
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ background: "#F8FAFC", minHeight: "100vh", fontFamily: "system-ui,-apple-system,sans-serif", paddingBottom: 80 }}>
       <div style={{ maxWidth: 480, margin: "0 auto", width: "100%", padding: "0 16px 16px" }}>
         <h1
-          style={{
-            fontSize: 18,
-            fontWeight: 500,
-            color: "#111827",
-            margin: 0,
-            padding: "16px 0 16px",
-          }}
+          style={{ fontSize: 18, fontWeight: 500, color: "#111827", margin: 0, padding: "16px 0 16px" }}
         >
           {t("app-saved-heading", "Explore")}
         </h1>
@@ -281,12 +590,8 @@ export default function SavedPage() {
         <section style={{ marginBottom: 28 }}>
           <h2
             style={{
-              fontSize: 11,
-              fontWeight: 500,
-              color: "#64748B",
-              margin: "0 0 8px",
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
+              fontSize: 11, fontWeight: 500, color: "#64748B",
+              margin: "0 0 8px", letterSpacing: "0.06em", textTransform: "uppercase",
             }}
           >
             {t("app-saved-pinned-heading", "Saved Stores")}
@@ -306,13 +611,9 @@ export default function SavedPage() {
                   <div
                     key={p.storeId}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      background: "#fff",
-                      borderRadius: 12,
-                      border: "0.5px solid #e2e8f0",
-                      overflow: "hidden",
+                      display: "flex", alignItems: "center", gap: 12,
+                      background: "#fff", borderRadius: 12,
+                      border: "0.5px solid #e2e8f0", overflow: "hidden",
                     }}
                   >
                     <a
@@ -372,12 +673,8 @@ export default function SavedPage() {
         <section style={{ marginBottom: 34 }}>
           <h2
             style={{
-              fontSize: 11,
-              fontWeight: 500,
-              color: "#64748B",
-              margin: "0 0 8px",
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
+              fontSize: 11, fontWeight: 500, color: "#64748B",
+              margin: "0 0 8px", letterSpacing: "0.06em", textTransform: "uppercase",
             }}
           >
             {t("app-saved-wishlist-heading", "Saved Products")}
@@ -390,25 +687,14 @@ export default function SavedPage() {
               {t("app-saved-wishlist-empty", "No saved products yet.")}
             </p>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               {wishlist.map((item) => {
                 const removing = removingWishlist === item.blockId;
                 const storeHandle = item.store.slug ?? item.store.id;
                 return (
                   <div
                     key={item.blockId}
-                    style={{
-                      background: "#fff",
-                      borderRadius: 10,
-                      border: "0.5px solid #e2e8f0",
-                      overflow: "hidden",
-                    }}
+                    style={{ background: "#fff", borderRadius: 10, border: "0.5px solid #e2e8f0", overflow: "hidden" }}
                   >
                     {item.block.mediaUrl ? (
                       <img
@@ -503,203 +789,197 @@ export default function SavedPage() {
           )}
         </section>
 
-        {/* ── Browse All Stores ── */}
+        {/* ── Browse / Search ── */}
         <section>
-          <h2
-            style={{
-              fontSize: 11,
-              fontWeight: 500,
-              color: "#64748B",
-              margin: "0 0 8px",
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-            }}
-          >
-            {t("app-saved-browse-heading", "Browse Stores")}
-          </h2>
+          {/* Section heading */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <h2
+              style={{
+                fontSize: 11, fontWeight: 500, color: "#64748B",
+                margin: 0, letterSpacing: "0.06em", textTransform: "uppercase",
+              }}
+            >
+              {t("app-saved-browse-heading", "Browse")}
+            </h2>
+            {activeFilters !== null && (
+              <button
+                onClick={() => { setActiveFilters(null); setProductResults([]); setProductSearched(false); }}
+                style={{
+                  fontSize: 11, fontWeight: 600, color: "#EF4444",
+                  background: "none", border: "none", cursor: "pointer", padding: "2px 4px",
+                }}
+              >
+                Clear filters ✕
+              </button>
+            )}
+          </div>
 
-          {/* TODO: seed app-saved-discover-link translation; hardcoded English for now */}
-          <Link
-            href="/app/discover"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "12px 16px",
-              borderRadius: 10,
-              border: `1px solid ${A.border}`,
-              background: A.surface,
-              fontSize: 14,
-              fontWeight: 500,
-              color: A.text,
-              textDecoration: "none",
-              marginBottom: 10,
-            }}
-          >
-            📍 Find stores near you
-          </Link>
+          {/* Stores / Products tab toggle */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+            <FilterPill active={browseTab === "stores"} onClick={() => setBrowseTab("stores")}>
+              🏪 {t("app-search-stores-tab", "Stores")}
+            </FilterPill>
+            <FilterPill active={browseTab === "products"} onClick={() => setBrowseTab("products")}>
+              🔎 {t("app-search-products-tab", "Products")}
+            </FilterPill>
+          </div>
 
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("app-saved-search-placeholder", "Search stores...")}
-            style={{
-              width: "100%",
-              boxSizing: "border-box",
-              padding: "12px 16px",
-              borderRadius: 10,
-              border: `1px solid ${A.border}`,
-              background: A.surface,
-              fontSize: 14,
-              color: A.text,
-              outline: "none",
-              marginBottom: 14,
-            }}
-          />
+          {browseTab === "stores" ? (
+            <>
+              {/* Filter + Map row */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                <button
+                  onClick={() => setFilterOpen(true)}
+                  style={{
+                    flex: 1,
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    padding: "12px 16px", borderRadius: 10,
+                    border: `1px solid ${activeFilters !== null && filterCount > 0 ? A.accent : A.border}`,
+                    background: activeFilters !== null && filterCount > 0 ? "#EEF2FF" : A.surface,
+                    fontSize: 13, fontWeight: 500,
+                    color: activeFilters !== null && filterCount > 0 ? A.accent : A.text,
+                    cursor: "pointer", boxSizing: "border-box" as const,
+                  }}
+                >
+                  🔍{" "}
+                  {activeFilters !== null && filterCount > 0
+                    ? (t("app-saved-filter-active", "{n} filters active") || "").replace("{n}", String(filterCount))
+                    : t("app-saved-filter-button", "Filter stores")}
+                </button>
+                <Link
+                  href="/app/discover"
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: "12px 14px", borderRadius: 10,
+                    border: `1px solid ${A.border}`, background: A.surface,
+                    fontSize: 13, fontWeight: 500, color: A.textMuted,
+                    textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
+                  }}
+                >
+                  🗺 Map
+                </Link>
+              </div>
 
-          {loadingBrowse ? (
-            <BrowseSkeleton />
-          ) : filtered.length === 0 ? (
-            <p style={{ fontSize: 13, color: A.textMuted }}>
-              {search ? `No stores match "${search}"` : t("app-saved-no-stores", "No stores yet.")}
-            </p>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("app-saved-search-placeholder", "Search stores...")}
+                style={{
+                  width: "100%", boxSizing: "border-box",
+                  padding: "12px 16px", borderRadius: 10,
+                  border: `1px solid ${A.border}`, background: A.surface,
+                  fontSize: 14, color: A.text, outline: "none", marginBottom: 14,
+                }}
+              />
+
+              {isLoading ? (
+                <BrowseSkeleton />
+              ) : displayedStores.length === 0 ? (
+                <p style={{ fontSize: 13, color: A.textMuted }}>
+                  {search
+                    ? `No stores match "${search}"`
+                    : activeFilters !== null
+                    ? "No stores match these filters."
+                    : t("app-saved-no-stores", "No stores yet.")}
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {displayedStores.map((store) => renderStoreCard(store))}
+                </div>
+              )}
+            </>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {filtered.map((store) => {
-                const isPinned = pinnedIds.has(store.id);
-                const isOwn = myStoreIds.has(store.id);
-                const toggling = togglingPin === store.id;
-
-                return (
-                  <div
-                    key={store.id}
+            <>
+              {/* Category filter chips (reuse activeFilters.categoryIds) */}
+              {activeFilters !== null && filterCount > 0 && (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                  <button
+                    onClick={() => setFilterOpen(true)}
                     style={{
-                      background: "#fff",
-                      borderRadius: 12,
-                      border: "0.5px solid #e2e8f0",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: 12,
+                      padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                      border: `1px solid ${A.accent}`, background: "#EEF2FF", color: A.accent, cursor: "pointer",
                     }}
                   >
-                    {store.previewImage ? (
-                      <img
-                        src={store.previewImage}
-                        alt={store.name}
-                        style={{
-                          width: 80,
-                          height: 80,
-                          borderRadius: 8,
-                          objectFit: "cover",
-                          flexShrink: 0,
-                        }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: 80,
-                          height: 80,
-                          borderRadius: 8,
-                          flexShrink: 0,
-                          background:
-                            "linear-gradient(135deg,#6366f1,#818cf8)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 28,
-                        }}
-                      >
-                        🏪
-                      </div>
-                    )}
+                    {(t("app-saved-filter-active", "{n} filters active") || "").replace("{n}", String(filterCount))}
+                  </button>
+                  <button
+                    onClick={() => { setActiveFilters(null); setProductResults([]); setProductSearched(false); }}
+                    style={{
+                      padding: "5px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600,
+                      border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#EF4444", cursor: "pointer",
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              {/* Product search bar */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  window.clearTimeout(productDebounceRef.current);
+                  searchProducts(productQuery);
+                }}
+                style={{ display: "flex", gap: 8, marginBottom: 14 }}
+              >
+                <input
+                  value={productQuery}
+                  onChange={(e) => setProductQuery(e.target.value)}
+                  placeholder={t("app-search-products-placeholder", "Search products…")}
+                  style={{
+                    flex: 1, boxSizing: "border-box",
+                    padding: "12px 16px", borderRadius: 10,
+                    border: `1px solid ${A.border}`, background: A.surface,
+                    fontSize: 14, color: A.text, outline: "none",
+                  }}
+                />
+                <button
+                  type="submit"
+                  style={{
+                    padding: "12px 16px", borderRadius: 10, flexShrink: 0,
+                    background: A.accent, border: "none", color: "#fff",
+                    fontSize: 14, fontWeight: 600, cursor: "pointer",
+                  }}
+                >
+                  →
+                </button>
+              </form>
+              {/* Also show a filter-by-category button for product search */}
+              <button
+                onClick={() => setFilterOpen(true)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "10px 14px", borderRadius: 10, marginBottom: 14,
+                  border: `1px solid ${activeFilters !== null && filterCount > 0 ? A.accent : A.border}`,
+                  background: activeFilters !== null && filterCount > 0 ? "#EEF2FF" : A.surface,
+                  fontSize: 12, fontWeight: 500,
+                  color: activeFilters !== null && filterCount > 0 ? A.accent : A.textMuted,
+                  cursor: "pointer", width: "100%", boxSizing: "border-box" as const,
+                  justifyContent: "center",
+                }}
+              >
+                🗂{" "}
+                {activeFilters !== null && filterCount > 0
+                  ? (t("app-saved-filter-active", "{n} filters active") || "").replace("{n}", String(filterCount))
+                  : t("app-search-filter-by-category", "Filter by category")}
+              </button>
 
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontSize: 14,
-                          fontWeight: 600,
-                          color: A.text,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {store.name}
-                      </div>
-                      {store.description && (
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: A.textMuted,
-                            marginTop: 2,
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            overflow: "hidden",
-                          }}
-                        >
-                          {store.description}
-                        </div>
-                      )}
-
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 6,
-                          marginTop: 8,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {!isOwn && (
-                          <button
-                            onClick={() => togglePin(store.id)}
-                            disabled={toggling}
-                            style={{
-                              padding: "5px 10px",
-                              borderRadius: 6,
-                              fontSize: 11,
-                              fontWeight: 600,
-                              cursor: toggling ? "default" : "pointer",
-                              opacity: toggling ? 0.5 : 1,
-                              border: `1px solid ${isPinned ? A.accent : A.border}`,
-                              background: isPinned ? "#EEF2FF" : A.surface,
-                              color: isPinned ? A.accent : A.textMuted,
-                              display: "flex", alignItems: "center", gap: 4,
-                              transition: "opacity 0.15s",
-                            }}
-                          >
-                            {toggling && <ButtonSpinner />}
-                            {toggling
-                              ? (isPinned ? t("app-saved-unpinning", "Unpinning") : t("app-saved-pinning", "Pinning"))
-                              : (isPinned ? `📌 ${t("app-saved-pinned-label", "Pinned")}` : `🔖 ${t("app-saved-pin", "Pin")}`)}
-                          </button>
-                        )}
-
-                        <a
-                          href={`/store/${store.slug ?? store.id}`}
-                          style={{
-                            padding: "5px 10px",
-                            borderRadius: 6,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            color: A.accent,
-                            textDecoration: "none",
-                            border: `1px solid ${A.accent}`,
-                            background: A.surface,
-                          }}
-                        >
-                          {t("app-saved-visit", "Visit →")}
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+              {loadingProducts ? (
+                <ProductsSkeleton />
+              ) : !productSearched ? (
+                <p style={{ fontSize: 13, color: A.textMuted }}>
+                  {t("app-search-products-heading", "Search for any product across all stores.")}
+                </p>
+              ) : productResults.length === 0 ? (
+                <p style={{ fontSize: 13, color: A.textMuted }}>
+                  {t("app-search-products-no-results", "No products found. Try a different search.")}
+                </p>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {productResults.map((p) => renderProductCard(p))}
+                </div>
+              )}
+            </>
           )}
         </section>
       </div>
@@ -719,6 +999,12 @@ export default function SavedPage() {
           }}
         />
       )}
+
+      <DiscoveryFilterModal
+        open={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        onApply={handleApply}
+      />
     </div>
   );
 }

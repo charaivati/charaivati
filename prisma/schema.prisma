@@ -89,6 +89,8 @@ model User {
   todos                   Todo[]
   consultSession          ConsultSession?
   personalityProfile      PersonalityProfile?
+  requestBroadcasts       RequestBroadcast[]   @relation("UserRequestBroadcasts")
+  requestResponses        RequestResponse[]    @relation("UserRequestResponses")
 
   @@index([email])
   @@index([phone])
@@ -195,6 +197,10 @@ model Profile {
   weeklyEarningsEstimate Float?
   desiredMonthlyIncome   Float?   @default(0)
   preferredPayment       String?
+  /// UPI VPA payment handle for non-store providers (REQBCAST-1b) — supersedes
+  /// the unwired `preferredPayment`. Display/handoff only; shape-validated, never
+  /// resolution-checked. Platform never collects.
+  upiVpa                 String?
   /// SelfTab — purpose layer
   /// Legacy single drive (kept for backward compat)
   drive                  String?
@@ -304,11 +310,16 @@ model Store {
   lng               Float?
   /// Soft-delete marker — set when the owner deletes the venture. null = active.
   deletedAt         DateTime?
+  /// UPI VPA payment handle (REQBCAST-1b) — DISPLAY/HANDOFF ONLY. Platform never
+  /// validates, collects, or escrows. Shape-validated (name@bank) at input, never
+  /// resolution-checked. Handoff primitive for the coming broadcast engine.
+  upiVpa            String?
   billingProfiles BillingProfile[]
   cartItems       CartItem[]
   orders          Order[]
   pinnedByUsers   PinnedStore[]
   sections        StoreSection[]
+  blocks          StoreBlock[]
   owner           User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   banners         StoreBanner[]
   filters         StoreFilter[]
@@ -316,6 +327,7 @@ model Store {
   wishlistItems   WishlistItem[]
   categories      StoreCategoryLink[]
   tags            StoreTagLink[]
+  requestResponses RequestResponse[]
 
   @@index([ownerId])
 }
@@ -428,6 +440,8 @@ model StoreBlock {
   id             String           @id @default(cuid())
   sectionId      String?
   subsectionId   String?
+  /// Denormalized FK — query shortcut; section→store is the source of truth for hierarchy
+  storeId        String?
   title          String
   description    String?
   mediaType      String           @default("image")
@@ -458,6 +472,7 @@ model StoreBlock {
   imageQuality   Int              @default(0)
   section        StoreSection?    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   subsection     StoreSubsection? @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  store          Store?           @relation(fields: [storeId], references: [id], onDelete: SetNull)
   cartItems      CartItem[]
   courseProgress CourseProgress[]
   ratings        ProductRating[]
@@ -465,6 +480,7 @@ model StoreBlock {
 
   @@index([sectionId])
   @@index([subsectionId])
+  @@index([storeId])
   @@index([order])
   @@map("Block")
 }
@@ -1920,6 +1936,65 @@ model StoreCategory {
   createdAt    DateTime                   @default(now())
   translations StoreCategoryTranslation[]
   stores       StoreCategoryLink[]
+  requestBroadcasts RequestBroadcast[]
+}
+
+/// RequestBroadcast engine (REQBCAST-1c) — the inDrive/noticeboard primitive.
+/// A user posts a service request; nearby providers offering the category get a
+/// notification card, respond (optionally with a quoted price), and the requester
+/// accepts ONE — then both see contact + UPI VPA to settle DIRECTLY.
+/// DOCTRINE: noticeboard, not dispatcher. The platform NEVER assigns, sets the
+/// price, or collects/escrows. `status` here is the broadcast's OWN lifecycle —
+/// deliberately separate from RequestResponse.status (avoids the OSP "one literal
+/// means different things to different readers" footgun).
+/// `kind="errand"` fields (pickup/drop/suggestedPrice) are present but DORMANT —
+/// errand pickup/drop/pricing logic is a later prompt.
+model RequestBroadcast {
+  id                 String   @id @default(cuid())
+  requesterId        String
+  kind               String   @default("service") // "service" | "errand"
+  categoryId         String
+  title              String
+  description        String?
+  status             String   @default("open") // "open" | "accepted" | "cancelled" | "expired"
+  addressLat         Float?
+  addressLng         Float?
+  radiusKm           Float    @default(5)
+  acceptedResponseId String?  // plain column, no Prisma relation (avoids FK cycle) — resolved manually
+  // errand-only, dormant (REQBCAST-1c ships service kind only)
+  pickupLat          Float?
+  pickupLng          Float?
+  dropLat            Float?
+  dropLng            Float?
+  suggestedPrice     Float?
+  createdAt          DateTime  @default(now())
+  expiresAt          DateTime?
+  requester          User          @relation("UserRequestBroadcasts", fields: [requesterId], references: [id], onDelete: Cascade)
+  category           StoreCategory @relation(fields: [categoryId], references: [id])
+  responses          RequestResponse[]
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([createdAt])
+  @@index([addressLat, addressLng])
+}
+
+model RequestResponse {
+  id              String   @id @default(cuid())
+  broadcastId     String
+  providerId      String
+  providerStoreId String?  // provider may respond as a store or as a user
+  quotedPrice     Float?
+  message         String?
+  status          String   @default("pending") // "pending" | "accepted" | "rejected"
+  createdAt       DateTime @default(now())
+  broadcast       RequestBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  provider        User             @relation("UserRequestResponses", fields: [providerId], references: [id], onDelete: Cascade)
+  store           Store?           @relation(fields: [providerStoreId], references: [id], onDelete: SetNull)
+
+  @@unique([broadcastId, providerId]) // one response per provider per broadcast
+  @@index([broadcastId])
+  @@index([providerId])
 }
 
 model StoreCategoryTranslation {

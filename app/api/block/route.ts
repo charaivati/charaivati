@@ -17,6 +17,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "sectionId or subsectionId required" }, { status: 400 });
 
   // Verify ownership via the section → store chain
+  let resolvedStoreId: string | null = null;
   if (sectionId) {
     const section = await prisma.storeSection.findUnique({
       where: { id: sectionId },
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
     });
     if (!section || section.store.ownerId !== user.id)
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    resolvedStoreId = section.storeId;
   }
 
   const maxOrder = await prisma.storeBlock.aggregate({
@@ -35,6 +37,7 @@ export async function POST(req: NextRequest) {
     data: {
       sectionId: sectionId ?? null,
       subsectionId: subsectionId ?? null,
+      storeId: resolvedStoreId,
       title: title.trim(),
       description: description?.trim() ?? null,
       mediaType: mediaType ?? "image",

@@ -343,6 +343,12 @@ Every store has a manual `acceptingOrders Boolean @default(false)` toggle. New s
 - Selected during `QuickOrderModal` step 3 and `CheckoutModal` step 2; selected profile is **serialised into `Order.invoiceData` JSON** — no FK on the Order row
 - API: `GET/POST /api/store/billing-profiles`, `PATCH/DELETE /api/store/billing-profiles/[profileId]`
 
+### UPI VPA Payment Handle (REQBCAST-1b)
+Providers store a UPI VPA (`name@bank`) so a paying party can pay them **directly** — **display/handoff only, the platform never collects or validates payment** (shape-checked at input, never resolution-checked). Two homes: `Store.upiVpa` (set in the Initiative Hub **Store tab**) and `Profile.upiVpa` (set in the user **Earning** section, `/user/edit`), both surfaced via `GET/PATCH /api/store/[id]` and `GET/PATCH /api/user/profile`. Validation lives in `lib/payments/vpa.ts`; the setter is `components/payments/VpaSettingCard.tsx`, the handoff atom is `PayToVpa.tsx`, and the resolver `lib/payments/getVpa.ts` is consumed by the broadcast engine (REQBCAST-1c) at request-accept. See `docs/modules/store.md` § UPI VPA Payment Handle.
+
+### Request Broadcast Engine (REQBCAST-1c — inDrive/noticeboard)
+A user posts a **service request**; nearby providers offering that category get a notification card, respond (optionally with a quoted price), the requester accepts ONE, and both settle DIRECTLY via the provider's UPI VPA. **Noticeboard, not dispatcher** — the platform never assigns, prices, or collects. Models `RequestBroadcast` + `RequestResponse` (separate status fields, deliberately not OSP). Surface: `app/app/requests/page.tsx` (tabs `?tab=mine|incoming`), entry CTA on `/app/discover`. Routes: `POST/GET /api/requests`, `GET /api/requests/incoming`, `POST /api/requests/[id]/respond`, `POST /api/requests/[id]/accept`, `PATCH /api/requests/[id]`. Eligibility = bounding-box + Haversine + store-declared `serviceType='service'` (`lib/requests/eligibility.ts`). Expiry is lazy-on-read. Full design: `docs/modules/requests.md`.
+
 ### Store Image Pool (upload dedup)
 All store image uploads route through `lib/store/uploadImage.ts` — `uploadStoreImage(file, storeId)`. **Never call Cloudinary directly from store UI components.**
 
@@ -374,7 +380,17 @@ Picker UI: `StoreImagePickerModal` (in `components/store/`) — shows grid, sear
 - **Route**: `/app/discover` — customer-facing map+list store discovery. Thin server-component-free wrapper (`app/app/discover/page.tsx`) owns the address gate; all map/list/filter logic lives in the reusable `components/store/DiscoveryView.tsx` (props: `addresses`, `initialAddressId`), with `components/store/DiscoveryMap.tsx` as the Leaflet multi-marker map (`ssr: false`).
 - **Gate (DOC-7, locked)**: no saved address → `NoAddressGate` blocks the whole view (map and list); no unsorted fallback exists.
 - **`GET /api/store/all`** extended (additive) with `categoryIds`, `tagIds`, `addressLat`, `addressLng` — OR-within-axis/AND-across-axis taxonomy filtering, plus `distanceKm` via `lib/store/getStoreGeo.ts` + `lib/geo/haversine.ts`.
+- **`/app/saved` Browse tab reuses the same filter flow (DISCOVER-INLINE-1b)** — `components/store/DiscoveryFilterModal.tsx` is opened from the saved/wishlist page's Browse tab via a "Filter stores" button. `activeFilters: DiscoveryFilters` in `app/app/saved/page.tsx` drives a `GET /api/store/all` call with the selected categories/tags/address coords. `FilterPill` (`components/store/FilterPill.tsx`) is the shared pill atom used in both the modal body and the Browse header. `/api/store/all` is therefore the single endpoint for both map/list discovery and the saved-page browse — the same filter semantics apply.
 - **`lib/store/getStoreGeo.ts`** — `getStoreGeo(ids[])` raw-SQL helper returning `{lat, lng, acceptingOrders}` per store, mirroring `getStoreSlugs`.
+
+### Product Search (PRODSEARCH-1b)
+- **Route**: `GET /api/store/product-search` — auth-gated; returns item-level results (not store-level) sorted by haversine distance when `addressLat`/`addressLng` are supplied.
+- **Params**: `q` (full-text via `websearch_to_tsquery`), `addressLat`/`addressLng` (distance sort + badge), `categoryIds` (comma-separated; category proxy via `StoreCategoryLink`), `limit`, `offset`.
+- **Filters**: `serviceType='product'`, `visibility='public'`, `price IS NOT NULL`, `storeId IS NOT NULL`, store not deleted, own stores excluded. Uses `DISTINCT ON (b.id)`.
+- **Category proxy**: categories are at the store level, not per-block. Filtering by category narrows to stores that carry it, then returns all matching blocks in those stores. See TECH_DEBT.md §15.
+- **tsvector index**: `Block.search_vector` — `GENERATED ALWAYS AS (to_tsvector('english', coalesce(title,'') || ' ' || coalesce(description,''))) STORED` with GIN index `Block_search_vector_idx`. Migration `20260622000000_add_block_storeid_search`.
+- **`StoreBlock.storeId` denormalization**: `Block.storeId TEXT` FK (nullable) added in the same migration; backfilled from `section → store`; set by all three block-creation paths (block POST, ai-setup/apply, parse-menu/apply). Subsection-only blocks (learning module) remain null — intentionally excluded from product search.
+- **UI**: `/app/saved` Browse section gains a "Stores / Products" tab toggle; Products tab has search input + category filter + 2-column result cards (image, title, price, store name, distance badge). Store name taps to `/store/{storeSlug|storeId}` — never a Page ID.
 
 ### Store/Venture Lifecycle — Soft-Delete (whole-venture close)
 A store doesn't just "exist or not exist" — owners can **close** it from `/store/account`, and later **restore** it. This is a soft delete: `Store.deletedAt` + the linked `Page.deletedAt` are stamped (both `db push` fields, no migration file); nothing is removed from the DB, so order history and invoices survive a venture closing. Full design: `docs/modules/store-deletion.md`; summary in `CLAUDE.md` under "Store Soft-Delete (Whole-Venture Delete)".

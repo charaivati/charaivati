@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
+import { isValidVpa, normalizeVpa } from "@/lib/payments/vpa";
 
 // ── Types ─────────────────────────────────────────────
 type DriveType = "learning" | "helping" | "building" | "doing";
@@ -50,7 +51,13 @@ export async function GET(req: Request) {
       where: { userId: user.id },
     });
 
-    return NextResponse.json({ ok: true, profile: profile ?? null });
+    // upiVpa (REQBCAST-1b) — raw SQL, stale-client pattern.
+    const vpaRow = await prisma.$queryRaw<{ upiVpa: string | null }[]>`
+      SELECT "upiVpa" FROM "Profile" WHERE "userId" = ${user.id} LIMIT 1
+    `;
+    const upiVpa = vpaRow[0]?.upiVpa ?? null;
+
+    return NextResponse.json({ ok: true, profile: profile ? { ...profile, upiVpa } : null });
   } catch (err) {
     console.error("GET profile error:", err);
     return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
@@ -166,7 +173,16 @@ export async function PATCH(req: Request) {
       };
     }
 
-    if (Object.keys(patch).length === 0) {
+    // ── UPI VPA (REQBCAST-1b) — shape-validated only, never resolution-checked.
+    let upiVpaUpdate: string | null | undefined;
+    if ("upiVpa" in body) {
+      upiVpaUpdate = normalizeVpa(body.upiVpa);
+      if (upiVpaUpdate && !isValidVpa(upiVpaUpdate)) {
+        return NextResponse.json({ error: "Enter a valid UPI ID like name@bank." }, { status: 400 });
+      }
+    }
+
+    if (Object.keys(patch).length === 0 && upiVpaUpdate === undefined) {
       return NextResponse.json({ ok: true, message: "nothing_to_update" });
     }
 
@@ -176,7 +192,14 @@ export async function PATCH(req: Request) {
       update: patch,
     });
 
-    return NextResponse.json({ ok: true, profile: updated });
+    if (upiVpaUpdate !== undefined) {
+      await prisma.$executeRaw`UPDATE "Profile" SET "upiVpa" = ${upiVpaUpdate} WHERE "userId" = ${user.id}`;
+    }
+
+    return NextResponse.json({
+      ok: true,
+      profile: { ...updated, ...(upiVpaUpdate !== undefined ? { upiVpa: upiVpaUpdate } : {}) },
+    });
   } catch (err: any) {
     console.error("PATCH profile error:", err);
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
