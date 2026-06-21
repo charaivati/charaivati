@@ -3,6 +3,8 @@ const nextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["@react-pdf/renderer", "pdf-parse", "@napi-rs/canvas"],
 
+  devIndicators: false,
+
   eslint: {
     ignoreDuringBuilds: true,
   },

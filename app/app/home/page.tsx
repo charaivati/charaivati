@@ -452,15 +452,6 @@ export default function HomePage() {
               <div style={{ fontSize: 14, fontWeight: 600, color: "#111827", lineHeight: 1.3 }}>{fname}</div>
             </div>
           </div>
-          <button
-            aria-label="Notifications"
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 6, lineHeight: 0 }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-              <path d="M13.73 21a2 2 0 01-3.46 0" />
-            </svg>
-          </button>
         </header>
 
         {/* Companion nudge banner */}
@@ -758,15 +749,6 @@ export default function HomePage() {
             Welcome
           </div>
         </div>
-        <button
-          aria-label="Notifications"
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 6, lineHeight: 0 }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.73 21a2 2 0 01-3.46 0" />
-          </svg>
-        </button>
       </header>
 
       {/* 2. Empty state */}
