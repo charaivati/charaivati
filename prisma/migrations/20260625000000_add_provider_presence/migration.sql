@@ -19,4 +19,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS "ProviderPresence_userId_key" ON "ProviderPres
 CREATE INDEX IF NOT EXISTS "ProviderPresence_lat_lng_idx" ON "ProviderPresence"("lat", "lng");
 CREATE INDEX IF NOT EXISTS "ProviderPresence_seenAt_idx" ON "ProviderPresence"("seenAt");
 
-ALTER TABLE "ProviderPresence" ADD CONSTRAINT "ProviderPresence_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- Postgres has no "ADD CONSTRAINT IF NOT EXISTS" — guard so re-apply is idempotent.
+DO $$ BEGIN
+  ALTER TABLE "ProviderPresence" ADD CONSTRAINT "ProviderPresence_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
