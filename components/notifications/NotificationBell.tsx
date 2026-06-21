@@ -178,15 +178,15 @@ export default function NotificationBell() {
       {/* Dropdown */}
       {open && (
         <div style={{
-          position: "absolute",
-          right: 0,
-          top: 44,
+          position: "fixed",
+          right: 16,
+          top: 64,
           zIndex: 50,
           background: "#fff",
           border: "1px solid #E5E7EB",
           borderRadius: 10,
           boxShadow: "0 8px 32px rgba(0,0,0,0.14)",
-          width: 340,
+          width: "min(340px, calc(100vw - 32px))",
           maxHeight: 420,
           display: "flex",
           flexDirection: "column",
