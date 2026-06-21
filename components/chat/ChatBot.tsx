@@ -95,6 +95,8 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const councilAbortRef = useRef<AbortController | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
 
   // ─── Companion nudge red-dot state ────────────────────────────────────────
   // nudgePendingRef mirrors the state value so event-listener closures (captured
@@ -163,10 +165,72 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
 
   useEffect(() => {
     if (open) {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-      inputRef.current?.focus();
+      const el = messagesRef.current;
+      if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      inputRef.current?.focus({ preventScroll: true });
     }
   }, [open, messages]);
+
+  // ─── Lock background scroll while the panel is open ──────────────────────
+  // overflow:hidden on body alone doesn't stop touch-scroll on iOS/Android;
+  // pin body in place with position:fixed AND hard-block any touchmove that
+  // starts outside the panel — real mobile browsers still let the page pan
+  // behind a fixed overlay with just the CSS trick.
+  useEffect(() => {
+    if (!open) return;
+    const scrollY = window.scrollY;
+    const { style } = document.body;
+    const prev = { overflow: style.overflow, position: style.position, top: style.top, width: style.width };
+    const prevHtmlOverflow = document.documentElement.style.overflow;
+    document.documentElement.style.overflow = "hidden";
+    style.overflow = "hidden";
+    style.position = "fixed";
+    style.top = `-${scrollY}px`;
+    style.width = "100%";
+
+    function blockBackgroundTouch(e: TouchEvent) {
+      if (!panelRef.current?.contains(e.target as Node)) e.preventDefault();
+    }
+    document.addEventListener("touchmove", blockBackgroundTouch, { passive: false });
+
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow;
+      style.overflow = prev.overflow;
+      style.position = prev.position;
+      style.top = prev.top;
+      style.width = prev.width;
+      window.scrollTo(0, scrollY);
+      document.removeEventListener("touchmove", blockBackgroundTouch);
+    };
+  }, [open]);
+
+  // ─── Keyboard-aware panel positioning (mobile) ────────────────────────────
+  // Mobile: near-full-screen with a small top gap, bottom rides above the
+  // keyboard. Desktop (sm:+): the original small bottom-right box, unchanged.
+  // Compare visualViewport.height against a baseline taken when the panel
+  // opens (not window.innerHeight, which itself shifts as mobile browser
+  // chrome show/hides) so the panel only resizes for the real keyboard.
+  const [panelStyle, setPanelStyle] = useState<{ top?: number; bottom: number; height?: number }>({ bottom: 80, height: 540 });
+  useEffect(() => {
+    if (!open || typeof window === "undefined" || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const baseline = vv.height;
+    function update() {
+      const keyboardGap = Math.max(0, baseline - vv.height);
+      const isMobile = window.innerWidth < 640; // tailwind sm breakpoint
+      if (isMobile) {
+        // 64 = mobile bottom nav (56px) + small gap, so the panel clears it
+        setPanelStyle({ top: 8, bottom: (keyboardGap > 0 ? 8 : 64) + keyboardGap, height: undefined });
+      } else {
+        const bottom = 80 + keyboardGap;
+        const height = Math.min(540, Math.max(280, vv.height - bottom - 16));
+        setPanelStyle({ bottom, height });
+      }
+    }
+    vv.addEventListener("resize", update);
+    update();
+    return () => vv.removeEventListener("resize", update);
+  }, [open]);
 
   // ─── Guest account-upgrade nudge (existing, unchanged) ────────────────────
   useEffect(() => {
@@ -572,7 +636,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
         <button
           onClick={() => nudgePendingRef.current ? openCompanion(true) : setOpen(true)}
           aria-label="Open Charaivati guide"
-          className="fixed bottom-20 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-lg hover:bg-indigo-500 transition-colors"
+          className="fixed bottom-20 right-6 z-[110] flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-lg hover:bg-indigo-500 transition-colors"
         >
           <MessageCircle className="h-6 w-6 text-white" />
           {nudgePending && (
@@ -598,8 +662,9 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-20 inset-x-2 sm:inset-x-auto sm:right-6 sm:w-[380px] z-50 flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
-          style={{ height: 540 }}
+          ref={panelRef}
+          className="fixed inset-x-2 sm:inset-x-auto sm:right-6 sm:w-[380px] z-[110] flex flex-col rounded-xl border border-gray-800 bg-gray-950 shadow-2xl"
+          style={{ top: panelStyle.top, bottom: panelStyle.bottom, height: panelStyle.height }}
         >
           {/* Header */}
           <div className="flex items-center justify-between border-b border-gray-800 px-4 py-3">
@@ -626,7 +691,7 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          <div ref={messagesRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
             {nudgeVisible && (
               <div
                 className="rounded-xl px-3 py-2.5"
