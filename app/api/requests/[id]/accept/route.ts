@@ -42,7 +42,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     type: "request_accepted",
     title: "Your response was accepted",
     body: bcast[0].title,
-    link: "/app/requests?tab=incoming",
+    link: "/app/orders?tab=requests",
   });
   const rejected = await prisma.$queryRaw<{ providerId: string }[]>(
     Prisma.sql`SELECT "providerId" FROM "RequestResponse" WHERE "broadcastId" = ${broadcastId} AND status='rejected'`
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       type: "request_rejected",
       title: "A request went to another provider",
       body: bcast[0].title,
-      link: "/app/requests?tab=incoming",
+      link: "/app/orders?tab=requests",
     }).catch(() => {});
   }
 

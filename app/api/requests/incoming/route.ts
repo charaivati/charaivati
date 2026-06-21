@@ -17,15 +17,24 @@ export async function GET(req: NextRequest) {
   // My (store, category) offerings with coordinates. REQBCAST-1e: track service vs
   // delivery capability per store — service broadcasts need a service block; errands
   // accept either (delivery runners qualify).
+  // FLEET-STATE-1b P1 — ADDITIVE live presence (mirror of findEligibleProviders):
+  // if I have a fresh available presence, all my stores effectively report from my
+  // live position; otherwise each store's static coords. No presence row → unchanged.
   const offerings = await prisma.$queryRaw<{ storeId: string; storeName: string; lat: number; lng: number; categoryId: string; hasService: boolean; hasDelivery: boolean }[]>(
     Prisma.sql`
-      SELECT s.id AS "storeId", s.name AS "storeName", s.lat, s.lng, scl."categoryId",
+      SELECT s.id AS "storeId", s.name AS "storeName",
+             COALESCE(pp.lat, s.lat) AS lat, COALESCE(pp.lng, s.lng) AS lng,
+             scl."categoryId",
              EXISTS (SELECT 1 FROM "Block" b WHERE b."storeId" = s.id AND b."serviceType" = 'service') AS "hasService",
              EXISTS (SELECT 1 FROM "Block" b WHERE b."storeId" = s.id AND b."serviceType" = 'delivery') AS "hasDelivery"
       FROM "Store" s
       JOIN "StoreCategoryLink" scl ON scl."storeId" = s.id
+      LEFT JOIN "ProviderPresence" pp ON pp."userId" = s."ownerId"
+        AND pp.mode = 'available'
+        AND pp."seenAt" > NOW() - INTERVAL '5 minutes'
+        AND pp.lat IS NOT NULL AND pp.lng IS NOT NULL
       WHERE s."ownerId" = ${userId} AND s."deletedAt" IS NULL
-        AND s.lat IS NOT NULL AND s.lng IS NOT NULL
+        AND COALESCE(pp.lat, s.lat) IS NOT NULL AND COALESCE(pp.lng, s.lng) IS NOT NULL
         AND EXISTS (SELECT 1 FROM "Block" b WHERE b."storeId" = s.id AND b."serviceType" IN ('service','delivery'))
     `
   );

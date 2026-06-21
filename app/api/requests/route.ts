@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
           type: "request_broadcast_created",
           title: notifTitle,
           body: title,
-          link: "/app/requests?tab=incoming",
+          link: "/app/orders?tab=requests",
         })
       )
     );

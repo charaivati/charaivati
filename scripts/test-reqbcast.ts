@@ -11,7 +11,7 @@ dotenv({ path: ".env.local", override: true });
 import { prisma } from "../lib/prisma";
 import { createSessionToken, COOKIE_NAME } from "../lib/session";
 
-const BASE = "http://localhost:3000";
+const BASE = process.env.TEST_BASE || "http://localhost:3000";
 const TAG = "reqbcast_test_";
 let pass = 0, fail = 0;
 function check(name: string, ok: boolean, extra = "") {

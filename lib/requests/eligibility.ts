@@ -5,7 +5,14 @@
 // Provider eligibility (v1, store-declared): a Store with a StoreCategoryLink to
 // categoryId, not soft-deleted, that has at least one StoreBlock with
 // serviceType='service'. No user-level service declaration exists yet — see
-// TECH_DEBT.md. Stores without lat/lng are excluded (can't measure distance).
+// TECH_DEBT.md.
+//
+// FLEET-STATE-1b P1 — ADDITIVE live presence: the matched position is a FRESH
+// AVAILABLE ProviderPresence (mode='available' AND seenAt within 5 min) if one
+// exists, ELSE the static Store.lat/lng. COALESCE(presence, store) does this —
+// a provider with NO presence row behaves EXACTLY as before. Presence is never
+// required (that would silently un-match every non-moving provider). The 5-min
+// freshness is judged here at read time, not by a scheduler.
 //
 // ponytail: bounding box is the v1 spatial filter — no PostGIS/GiST index yet.
 // Fine until store counts grow; upgrade path is a real spatial index.
@@ -33,15 +40,24 @@ export async function findEligibleProviders(opts: {
   const latMin = lat - latDelta, latMax = lat + latDelta;
   const lngMin = lng - lngDelta, lngMax = lng + lngDelta;
 
+  // pp.* is non-null ONLY for a fresh available presence (the JOIN gates it).
+  // COALESCE(pp, store) = live position when fresh, else the static store coords.
   const rows = await prisma.$queryRaw<{ ownerId: string; storeId: string; lat: number; lng: number }[]>(
     Prisma.sql`
-      SELECT s."ownerId", s.id AS "storeId", s.lat, s.lng
+      SELECT s."ownerId", s.id AS "storeId",
+             COALESCE(pp.lat, s.lat) AS lat,
+             COALESCE(pp.lng, s.lng) AS lng
       FROM "Store" s
       JOIN "StoreCategoryLink" scl ON scl."storeId" = s.id AND scl."categoryId" = ${categoryId}
+      LEFT JOIN "ProviderPresence" pp ON pp."userId" = s."ownerId"
+        AND pp.mode = 'available'
+        AND pp."seenAt" > NOW() - INTERVAL '5 minutes'
+        AND pp.lat IS NOT NULL AND pp.lng IS NOT NULL
       WHERE s."deletedAt" IS NULL
-        AND s.lat IS NOT NULL AND s.lng IS NOT NULL
-        AND s.lat BETWEEN ${latMin} AND ${latMax}
-        AND s.lng BETWEEN ${lngMin} AND ${lngMax}
+        AND COALESCE(pp.lat, s.lat) IS NOT NULL
+        AND COALESCE(pp.lng, s.lng) IS NOT NULL
+        AND COALESCE(pp.lat, s.lat) BETWEEN ${latMin} AND ${latMax}
+        AND COALESCE(pp.lng, s.lng) BETWEEN ${lngMin} AND ${lngMax}
         ${excludeUserId ? Prisma.sql`AND s."ownerId" <> ${excludeUserId}` : Prisma.empty}
         AND EXISTS (
           SELECT 1 FROM "Block" b

@@ -62,6 +62,25 @@ const STRINGS = [
   { slug: "requests-suggested-price-help", title: "Only a suggestion — you and the runner agree on the final price." },
   { slug: "requests-post-cta-errand", title: "Post an errand" },
   { slug: "requests-errand-title-placeholder", title: "e.g. Pick up a parcel and drop it across town" },
+  // REQBCAST-1g — one-off (temporary) pickup/drop locations
+  { slug: "requests-loc-different", title: "Use a different location…" },
+  { slug: "requests-loc-search-placeholder", title: "Search an address or place" },
+  { slug: "requests-loc-search", title: "Search" },
+  { slug: "requests-loc-search-none", title: "No match found — try a more specific search." },
+  // REQBCAST-1g2 — on-demand map picker (live GPS + draggable reverse-geocoding pin)
+  { slug: "requests-loc-current", title: "Use my current location" },
+  { slug: "requests-loc-map", title: "Set on map" },
+  { slug: "requests-loc-map-hint", title: "Drag the pin to adjust" },
+  { slug: "requests-loc-map-confirm", title: "Use this location" },
+  { slug: "requests-loc-map-fallback", title: "Set it on the map instead" },
+  { slug: "requests-loc-reverse", title: "Finding address…" },
+  { slug: "requests-loc-locating", title: "Locating…" },
+  // FLEET-STATE-1b — provider Available toggle (live presence)
+  { slug: "presence-available-label", title: "Available" },
+  { slug: "presence-available-sub", title: "Receive work" },
+  { slug: "presence-visible-note", title: "You're visible to nearby requests" },
+  { slug: "presence-last-updated", title: "Last updated" },
+  { slug: "presence-location-needed", title: "Location permission is needed to receive work." },
 ];
 
 async function translateLibre(text, source, target) {

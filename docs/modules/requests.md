@@ -55,6 +55,13 @@ SetNull), quotedPrice, message, status ("pending"|"accepted"|"rejected"), create
 Returns `{ userId, storeId, distanceKm }[]` sorted by distance. The reverse query
 (provider's incoming feed) lives inline in `GET /api/requests/incoming`.
 
+**FLEET-STATE-1b — live presence override (ADDITIVE).** Both this query and the
+incoming feed now `LEFT JOIN "ProviderPresence"` and resolve the matched position as
+`COALESCE(presence.lat/lng, Store.lat/lng)`. The join is gated to a **fresh available**
+presence (`mode='available' AND seenAt > NOW() - INTERVAL '5 minutes' AND lat/lng NOT NULL`),
+so a provider with no presence row — or a stale one — falls through to their store
+coords exactly as before. Presence is **never required**. See *Fleet provider presence* below.
+
 ## Routes (all under `app/api/requests/`, auth via session cookie)
 
 | Method | Route | Purpose |
@@ -142,6 +149,72 @@ copy. Mine/Incoming cards render `📦 pickup → drop` + suggested price via th
 `ErrandLine`. 8 new `ui-requests` slugs (see CLAUDE.md) seeded across all enabled
 languages.
 
+## One-off (temporary) pickup/drop locations (REQBCAST-1g)
+A requester can be anywhere in the city, so errand pickup/drop are no longer limited
+to saved addresses. **No schema change** — a temporary location is just coords + a
+label that fill the existing `pickupLat/Lng/pickupLabel` (and drop) fields for that
+one broadcast.
+
+- **`LocSelect`** (inline in `app/app/requests/page.tsx`) renders the saved-address
+  dropdown plus a `"Use a different location…"` option (`TEMP = "__temp__"` sentinel).
+  Choosing it reveals `TempSearch` — a Nominatim free-text address search via
+  `geocodeSearch(query)` in `lib/geo/geocode.ts` (reuses the existing pincode-geocode
+  infra; `nominatim.openstreetmap.org` is already in CSP `connect-src`). Returns
+  `{ lat, lng, label }` (label = first 3 comma-parts of `display_name`).
+- **Address-search, not pin-drop** — chosen over a map picker because of the standing
+  no-map-in-modal preference; one Nominatim call gives coords + label.
+- **`resolveLoc(id, temp)`** unifies both sources: `id === TEMP` → the in-memory temp
+  object; otherwise the saved `Address` (label `"{name} — {city}"`). `post()`, the live
+  `errandHint`, and `canSubmit` all read the resolved `pickupLoc`/`dropLoc`, never the
+  address id — so the **suggested price recomputes from the chosen coords**, saved or
+  temporary.
+- **Coords-not-saved doctrine** — a temporary location is NEVER written to the address
+  book. The client never POSTs to `/api/store/address` for it. The optional
+  **"save this address" checkbox was deliberately skipped**: `POST /api/store/address`
+  mandates `name/phone/line1/city/state/pincode`, none of which a geocode search
+  produces, so saving would require the full `AddressForm`.
+- **Gate relaxed for errands only** — the errand form always shows pickup/drop
+  `LocSelect`s (temp covers the zero-saved-address case); the `hasUsableAddr` gate still
+  applies to service requests.
+- **Server unchanged & proven** — the POST route reads `pickupLat/Lng/pickupLabel`
+  from any source; `scripts/test-reqbcast.ts` already posts errands with arbitrary
+  (non-address) coords+labels and verifies storage, pickup-anchored eligibility, and
+  suggested price.
+- **i18n** — 4 new `ui-requests` slugs (`requests-loc-different`,
+  `requests-loc-search-placeholder`, `requests-loc-search`, `requests-loc-search-none`)
+  seeded by `prisma/seed-requests-ui.js` across all 16 languages (English fallback).
+
+## On-demand map picker for pickup/drop (REQBCAST-1g2)
+Text geocoding is too brittle for imprecise queries, so the temp-location flow gained
+an **on-demand** draggable map pin plus live-GPS pickup. **No schema change** — still
+just coords + label. The map stays collapsed until tapped — a **deliberate exception**
+to the no-map-in-modal preference, made because exact point-setting has no text-only
+equivalent.
+
+- **`TempSearch` → `TempPicker`** (inline in `app/app/requests/page.tsx`) — three paths,
+  all resolving to the same `{ lat, lng, label }`:
+  1. **Search** — existing `geocodeSearch()` (1g).
+  2. **"Use my current location"** (pickup only, `allowGps` prop) — one-shot live GPS via
+     `useGeolocation().startWatch`, stopped after the **first** fix (a `gotFix` ref guards
+     a double-fire), then reverse-geocoded to a label. A single fix, **not** continuous
+     tracking — distinct concern from FLEET-STATE-1b presence; do not conflate.
+  3. **"Set on map"** — inline `components/shared/MapPicker.tsx` (Leaflet drag-pin, reused
+     as-is via `dynamic(..., { ssr:false })`), centred on the current point → saved-address
+     `defaultCenter` → Bangalore fallback. On **drag-end** the coords are reverse-geocoded
+     (`reverseGeocode()` in `lib/geo/geocode.ts`, Nominatim `/reverse`, falls back to
+     formatted coords) and the label updates live. Opening the map **seeds** the temp from
+     the centre so "Use this location" works without a drag; Confirm just collapses it.
+- **No-match fallback** — the "No match found" message offers "Set it on the map instead",
+  which opens the picker. The map is the safety net when text search returns nothing.
+- **Drop is search-first** (saved + search + map; GPS not emphasised). Suggested price and
+  pickup-anchored eligibility recompute from the **final** resolved coords (GPS / search /
+  pin-drag), same as 1g. Server unchanged; `scripts/test-reqbcast.ts` 25/25 already posts
+  errands with arbitrary (pin-style) coords+labels.
+- **i18n** — 7 new `ui-requests` slugs (`requests-loc-current`, `requests-loc-map`,
+  `requests-loc-map-hint`, `requests-loc-map-confirm`, `requests-loc-map-fallback`,
+  `requests-loc-reverse`, `requests-loc-locating`) seeded across all 16 languages
+  (English fallback).
+
 ## The VPA handoff
 
 `resolveHandoff(providerId, providerStoreId)` (`lib/requests/common.ts`) →
@@ -149,29 +222,73 @@ languages.
 (store handle first, falls back to the owner's `Profile.upiVpa`). DISPLAY/HANDOFF
 ONLY — nothing here moves or verifies money. Rendered by `PayToVpa` on `/app/requests`.
 
-## UI — `app/app/requests/page.tsx`
+## UI — two surfaces split by role (REQBCAST-1f)
 
-Two tabs (`?tab=mine|incoming`):
-- **My requests** — post form (single-select category via `FilterPill`, title,
-  description, radius, origin from a saved Address), list of own broadcasts with
+The requester and provider sides now live on **different surfaces**:
+
+- **Requester — `app/app/requests/page.tsx` ("My requests" only)**: post form
+  (single-select category via `FilterPill`, Service ↔ Errand toggle, title,
+  description, radius, origin from a saved Address) + list of own broadcasts with
   responses, per-response Accept, Cancel, and the `PayToVpa` handoff once accepted.
-- **Incoming** — eligible broadcasts with distance badge + inline respond
-  (optional quoted price + message).
+  The Mine/Incoming sub-tab toggle was removed — this component is requester-only.
+- **Provider — `components/requests/IncomingRequests.tsx`**, mounted in the
+  **Orders → Requests tab** (`app/app/orders/page.tsx`). Self-fetching
+  (`GET /api/requests/incoming`); renders eligible broadcasts with distance badge +
+  inline respond (optional quoted price + message). It sits as a **separate section
+  above** the existing workflow Quote-request list (the two are different systems —
+  noticeboard broadcasts vs. `OrderStepProgress` quotes — and are kept visually
+  distinct, not merged). **Single source of truth** — the one place the Incoming
+  feed is defined; the Orders tab imports it.
 
-Entry point (REQBCAST-1d): the **`/app/saved` Browse toggle Services tab**
-(Stores · Products · Services). `/app/saved` imports `RequestsPage` and renders it
-verbatim when the Services tab is active — products, stores, and services are the
-three peer "what do you need" modes and sit together. `/app/requests` is **kept as a
-standalone deep-link route** so provider notifications (`/app/requests?tab=incoming`)
-still resolve; both surfaces render the same component (one source of truth). The
-Mine/Incoming sub-tabs live inside `RequestsPage`, so the provider's Incoming feed is
-reachable from the Services tab too. The earlier "Need a service? Post a request" CTA
-on `/app/discover` was removed — discover is purely the store filter/map surface
-again.
+Entry points:
+- **Requester**: the **`/app/saved` Browse toggle Services tab**
+  (Stores · Products · Services) renders `RequestsPage` verbatim — products, stores,
+  and services are the three peer "what do you need" modes. `/app/requests` is **kept
+  as a standalone deep-link route** rendering the same (requester-only) component.
+- **Provider**: **Orders → Requests** (`/app/orders?tab=requests`). All provider
+  notification deep-links (`request_broadcast_created`, `request_accepted`,
+  `request_rejected`) point here. The requester notification
+  (`request_response_submitted`) still points to `/app/requests?tab=mine`.
+
+**Standalone-route reconciliation**: `/app/requests` is requester-only now. A stale
+`/app/requests?tab=incoming` deep-link (from notifications sent before 1f) is
+redirected client-side to `/app/orders?tab=requests` in `RequestsPage`'s mount
+effect — old links never dead-end. The earlier "Need a service? Post a request" CTA
+on `/app/discover` was already removed in 1d.
 
 i18n: 32 slugs (category `ui-requests`) seeded by `prisma/seed-requests-ui.js` across
 all enabled languages, plus `app-search-services-tab` (category `ui-prodsearch`,
 seeded by `prisma/seed-prodsearch-ui.js`) for the Services tab label.
+
+## Fleet provider presence (FLEET-STATE-1b — P1)
+
+Live foreground location so a request matches a fleet/runner where they ARE, not
+where their store sits. **P1 = presence + live-matching + an Available toggle.** Mode
+state machine (P2) and auto-pooling (P3) are NOT built. **Doctrine (locked):
+foreground-only, adaptive cadence, distance-gated, match-on-recent.**
+
+- **Model `ProviderPresence`** (migration `20260625000000_add_provider_presence`, raw-SQL
+  P3006 path — dev DB only, mirrored into `schema.prisma`): `{ id, userId @unique → User
+  cascade, lat Float?, lng Float?, seenAt DateTime?, mode @default("offline") }`, indexed on
+  `(lat,lng)` and `seenAt`. **mode (P1): `"offline" | "available"`** (`"on_job"`/`"near_complete"`
+  reserved for P2). Read/written via raw SQL (not in the stale typed client).
+- **Eligibility resolution order**: bounding-box → Haversine refine → service-block filter,
+  all run on the **effective** coords `COALESCE(fresh-presence, store)`. Additive — see the
+  Eligibility section above. The canary is `scripts/test-reqbcast.ts` (25/25) — existing
+  static providers must stay matched after any eligibility edit.
+- **Freshness = 5 min, judged at READ time** in the eligibility SQL join, not by a
+  scheduler. A stale row (>5 min) is offline-for-matching even if `mode='available'` —
+  covers an app killed without a clean toggle-off.
+- **`POST /api/presence { lat, lng, mode }`** — auth'd upsert on `userId`, stamps
+  `seenAt=NOW()`. `available` requires lat/lng (400 otherwise); `offline` clears position.
+  No GET — eligibility reads the row directly.
+- **Adaptive cadence + distance gate are client-side** (`components/requests/AvailableToggle.tsx`,
+  over `hooks/useGeolocation.ts`): runs only while available AND foregrounded (pauses on
+  `visibilitychange` hidden), POSTs at most ~every 10s, **skips < ~250m** moves
+  (`haversineKm`); toggle-OFF/unmount → stopWatch + `POST mode=offline`. No background
+  location, no foreground service.
+- **Surface**: Orders → Requests tab, above `IncomingRequests` (the provider's nearby-work
+  feed — natural home for "Receive work"). Live pulse + last-updated time when ON.
 
 ## Verification
 
@@ -185,8 +302,17 @@ ERRAND, pickup-anchored fan-out (eligibleCount=2), labels + suggested-price stor
 runner quotes a different price → accept → runner VPA handoff. Self-cleaning fixtures.
 Run (dev server up): `npx ts-node --project tsconfig.scripts.json scripts/test-reqbcast.ts`
 
-## Tech debt — see `TECH_DEBT.md` §20
+`scripts/test-presence.ts` — FLEET-STATE-1b P1: 8/8 checks against the real
+`/api/presence` + `findEligibleProviders`. Proves a provider whose store is parked
+~70km away matches near a request ONLY via a live presence; stale (>5min) and offline
+presence both drop them back to store-fallback (no match). Both scripts accept
+`TEST_BASE` to point at a non-:3000 dev server.
+
+## Tech debt — see `TECH_DEBT.md` §20 (requests) and §22 (presence)
 (a) no spatial index (bounding-box is the v1 mitigation); (b) lazy-on-read expiry;
 (c) store-declared eligibility only (no user-level service offering); (d) ~~errand
 fields dormant~~ — activated in 1e; (e) `acceptedResponseId` is a plain column, no
 FK; (f) errand suggested-price uses flat placeholder constants (no Store rate card).
+**§22 (presence):** P2 mode machine + P3 auto-pool upcoming; geofence-for-near-complete
+deferred; foreground-only (no background location) by design; distance gate is
+client-side only; no spatial index on `ProviderPresence`.

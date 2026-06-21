@@ -91,6 +91,7 @@ model User {
   personalityProfile      PersonalityProfile?
   requestBroadcasts       RequestBroadcast[]   @relation("UserRequestBroadcasts")
   requestResponses        RequestResponse[]    @relation("UserRequestResponses")
+  providerPresence        ProviderPresence?
 
   @@index([email])
   @@index([phone])
@@ -1997,6 +1998,24 @@ model RequestResponse {
   @@unique([broadcastId, providerId]) // one response per provider per broadcast
   @@index([broadcastId])
   @@index([providerId])
+}
+
+// FLEET-STATE-1b P1: live foreground location for fleet/runner providers.
+// Foreground-only, adaptive, distance-gated, match-on-recent. ADDITIVE to
+// eligibility: a fresh available presence is used INSTEAD of Store.lat/lng when
+// present (5-min freshness checked at read time), never required.
+// mode: "offline" | "available" (P1); "on_job" | "near_complete" in P2.
+model ProviderPresence {
+  id     String    @id @default(cuid())
+  userId String    @unique
+  lat    Float?
+  lng    Float?
+  seenAt DateTime?
+  mode   String    @default("offline")
+  user   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lat, lng])
+  @@index([seenAt])
 }
 
 model StoreCategoryTranslation {

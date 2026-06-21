@@ -4,6 +4,8 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "@/hooks/useTranslations";
+import IncomingRequests from "@/components/requests/IncomingRequests";
+import AvailableToggle from "@/components/requests/AvailableToggle";
 
 const TransportMap = dynamic(
   () => import("@/components/transport/TransportMap"),
@@ -662,24 +664,36 @@ export default function OrdersPage() {
 
           /* ── REQUESTS ───────────────────────────────────────────────────── */
           ) : activeTab === "requests" ? (
-            reqLoading ? (
-              <>
-                <OrderCardSkeleton />
-                <OrderCardSkeleton />
-              </>
-            ) : requests.length === 0 ? (
-              <div style={{ textAlign: "center", color: "#64748B", padding: 48, fontSize: 14 }}>
-                No quote requests yet.
+            <>
+              {/* FLEET-STATE-1b — provider Available/Receive-work toggle (live presence) */}
+              <AvailableToggle />
+
+              {/* Service-request noticeboard — broadcast requests near me (REQBCAST-1f) */}
+              <IncomingRequests />
+
+              {/* Workflow quote requests (separate system) */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", letterSpacing: "0.06em", textTransform: "uppercase", margin: "16px 0 8px" }}>
+                Quote requests
               </div>
-            ) : (
-              requests.map((q) => (
-                <RequestCard
-                  key={q.id}
-                  q={q}
-                  onSubmit={(quoteId, amount) => handleQuoteSubmit(quoteId, q.orderId, amount)}
-                />
-              ))
-            )
+              {reqLoading ? (
+                <>
+                  <OrderCardSkeleton />
+                  <OrderCardSkeleton />
+                </>
+              ) : requests.length === 0 ? (
+                <div style={{ textAlign: "center", color: "#64748B", padding: 32, fontSize: 14 }}>
+                  No quote requests yet.
+                </div>
+              ) : (
+                requests.map((q) => (
+                  <RequestCard
+                    key={q.id}
+                    q={q}
+                    onSubmit={(quoteId, amount) => handleQuoteSubmit(quoteId, q.orderId, amount)}
+                  />
+                ))
+              )}
+            </>
 
           /* ── TASKS ──────────────────────────────────────────────────────── */
           ) : activeTab === "tasks" ? (
