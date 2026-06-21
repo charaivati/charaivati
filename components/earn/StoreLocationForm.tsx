@@ -81,12 +81,18 @@ export default function StoreLocationForm({ initialValues, onSave, onCancel, sav
         setHasPin(true);
         setGpsLoading(false);
       },
-      () => {
-        setGpsError("Could not get GPS location. Please drag the pin to your address.");
+      (err) => {
+        const message =
+          err.code === 1
+            ? "Location permission was denied. Drag the pin to your store location."
+            : err.code === 2
+            ? "Location unavailable right now. Drag the pin to your store location."
+            : "Location took too long to load. Drag the pin to your store location.";
+        setGpsError(message);
         setGpsLoading(false);
         setHasPin(true);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { timeout: 15000, maximumAge: 60000, enableHighAccuracy: false }
     );
   }
 
@@ -153,8 +159,8 @@ export default function StoreLocationForm({ initialValues, onSave, onCancel, sav
         </button>
 
         {gpsError && (
-          <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-            ⚠ {gpsError}
+          <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+            {gpsError}
           </p>
         )}
 
