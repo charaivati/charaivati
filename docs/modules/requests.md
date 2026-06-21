@@ -157,12 +157,15 @@ one broadcast.
 
 - **`LocSelect`** (inline in `app/app/requests/page.tsx`) renders the saved-address
   dropdown plus a `"Use a different location…"` option (`TEMP = "__temp__"` sentinel).
-  Choosing it reveals `TempSearch` — a Nominatim free-text address search via
-  `geocodeSearch(query)` in `lib/geo/geocode.ts` (reuses the existing pincode-geocode
-  infra; `nominatim.openstreetmap.org` is already in CSP `connect-src`). Returns
-  `{ lat, lng, label }` (label = first 3 comma-parts of `display_name`).
+  Choosing it reveals `TempSearch`/`TempPicker` — a free-text address search via
+  `geocodeSearch(query, bias?)` in `lib/geo/geocode.ts`. **(MAP-SEARCH-1b, 2026-06)
+  switched this from a single-result Nominatim call to a 300ms-debounced Photon
+  (`photon.komoot.io`) typeahead** returning up to 5 `{ lat, lng, label }` candidates
+  as the user types, biased to the currently-resolved point when known. `photon.komoot.io`
+  is in CSP `connect-src` alongside the still-present `nominatim.openstreetmap.org`
+  entries (Nominatim remains in use for pincode lookup and `reverseGeocode` below).
 - **Address-search, not pin-drop** — chosen over a map picker because of the standing
-  no-map-in-modal preference; one Nominatim call gives coords + label.
+  no-map-in-modal preference; the typeahead gives coords + label without a map.
 - **`resolveLoc(id, temp)`** unifies both sources: `id === TEMP` → the in-memory temp
   object; otherwise the saved `Address` (label `"{name} — {city}"`). `post()`, the live
   `errandHint`, and `canSubmit` all read the resolved `pickupLoc`/`dropLoc`, never the

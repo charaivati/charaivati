@@ -1,8 +1,8 @@
 // app/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Plus } from "lucide-react";
 import Wordmark from "@/components/brand/Wordmark";
@@ -31,6 +31,15 @@ function getBaseUrl(): string {
     return window.location.origin;
   }
   return process.env.NEXT_PUBLIC_SITE_URL || "";
+}
+
+// Open-redirect guard: only an in-app path is a valid return target. Reject, don't sanitize.
+function getValidFrom(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith("/app")) return null;
+  if (raw.startsWith("//") || raw.startsWith("/\\")) return null;
+  if (raw.includes("http:") || raw.includes("https:") || raw.includes("javascript:")) return null;
+  return raw;
 }
 
 function AmbientBackground() {
@@ -82,9 +91,11 @@ const pickerItem = {
   show: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.35, ease: "easeOut" as const } },
 };
 
-export default function LandingPage() {
+function LandingPageInner() {
   const router = useRouter();
   const { setLanguage } = useLanguage();
+  const searchParams = useSearchParams();
+  const validFrom = getValidFrom(searchParams.get("from"));
 
   const [status, setStatus] = useState<"checking" | "showPicker" | "redirect">("checking");
   const [langs, setLangs] = useState<Lang[]>([]);
@@ -107,6 +118,10 @@ export default function LandingPage() {
         if (res.ok) {
           const data = await res.json().catch(() => null);
           if (data?.ok && data.profile) {
+            if (validFrom) {
+              setStatus("showPicker");
+              return;
+            }
             router.replace("/self");
             return;
           }
@@ -148,7 +163,7 @@ export default function LandingPage() {
     return () => {
       alive = false;
     };
-  }, [router]);
+  }, [router, validFrom]);
 
   // load languages for the picker
   useEffect(() => {
@@ -183,7 +198,7 @@ export default function LandingPage() {
     setChoosing(lang.id);
     try {
       await setLanguage(code);
-      router.replace(getLoginUrl());
+      router.replace(validFrom ? validFrom : getLoginUrl());
     } catch (e) {
       setChoosing(null);
       alert(`Failed to set language: ${e}`);
@@ -215,7 +230,7 @@ export default function LandingPage() {
       setLangs((prev) => [...prev, newLang]);
       const newCode = newLang.code || "en";
       await setLanguage(newCode);
-      router.replace(getLoginUrl());
+      router.replace(validFrom ? validFrom : getLoginUrl());
     } catch (e: any) {
       setAddError(String(e?.message ?? e));
       alert(`Failed to add language: ${e}`);
@@ -319,5 +334,13 @@ export default function LandingPage() {
         </motion.p>
       </div>
     </div>
+  );
+}
+
+export default function LandingPage() {
+  return (
+    <Suspense fallback={<BrandSplash />}>
+      <LandingPageInner />
+    </Suspense>
   );
 }

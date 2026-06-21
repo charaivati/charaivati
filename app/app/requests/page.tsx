@@ -307,18 +307,61 @@ function TempPicker({ temp, onResolve, t, defaultCenter, allowGps }: {
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
   const [none, setNone] = useState(false);
+  const [suggestions, setSuggestions] = useState<TempLoc[]>([]);
   const [mapOpen, setMapOpen] = useState(false);
   const [locating, setLocating] = useState(false);
   const [reverse, setReverse] = useState(false);
   const geo = useGeolocation();
   const gotFix = useRef(false);
+  const queryIdRef = useRef(0);
 
+  const center = temp ?? defaultCenter; // most-recently-resolved point, used as search bias
+
+  // Debounced typeahead — shows a pick list as the user types.
+  useEffect(() => {
+    const query = q.trim();
+    if (!query) { setSuggestions([]); setNone(false); return; }
+    const id = ++queryIdRef.current;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const results = await geocodeSearch(query, center);
+        if (id !== queryIdRef.current) return; // stale — a newer keystroke already fired
+        setSuggestions(results);
+        setNone(results.length === 0);
+      } catch {
+        if (id === queryIdRef.current) { setSuggestions([]); setNone(true); }
+      } finally {
+        if (id === queryIdRef.current) setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, center.lat, center.lng]);
+
+  // Enter / Search button — immediate search, auto-picks the first match.
   async function go() {
-    if (!q.trim()) return;
+    const query = q.trim();
+    if (!query) return;
+    const id = ++queryIdRef.current;
     setSearching(true); setNone(false); onResolve(null);
-    const r = await geocodeSearch(q.trim());
-    setSearching(false);
-    if (r) onResolve(r); else setNone(true);
+    try {
+      const results = await geocodeSearch(query, center);
+      if (id !== queryIdRef.current) return;
+      setSuggestions(results);
+      if (results.length > 0) onResolve(results[0]); else setNone(true);
+    } catch {
+      if (id === queryIdRef.current) setNone(true);
+    } finally {
+      if (id === queryIdRef.current) setSearching(false);
+    }
+  }
+
+  function pick(s: TempLoc) {
+    onResolve(s);
+    setSuggestions([]);
+    setNone(false);
+    setQ(s.label);
   }
 
   // One-shot GPS: first fix wins, then stop. Reverse-geocode it to a label.
@@ -346,15 +389,24 @@ function TempPicker({ temp, onResolve, t, defaultCenter, allowGps }: {
     if (!temp) onPin(defaultCenter.lat, defaultCenter.lng); // seed so Confirm works without a drag
   }
 
-  const center = temp ?? defaultCenter;
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", gap: 6, position: "relative" }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); go(); } }}
           placeholder={t("requests-loc-search-placeholder", "Search an address or place")} style={{ ...inp(), marginBottom: 0, flex: 1 }} />
         <button type="button" disabled={searching || !q.trim()} onClick={go} style={{ ...btn(A2.accent, "#fff"), opacity: searching || !q.trim() ? 0.5 : 1 }}>
           {searching ? "…" : t("requests-loc-search", "Search")}
         </button>
+        {suggestions.length > 0 && (
+          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: A2.surface, border: `1px solid ${A2.border}`, borderRadius: 8, marginTop: 2, overflow: "hidden" }}>
+            {suggestions.map((s, i) => (
+              <button key={i} type="button" onClick={() => pick(s)}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", background: "none", cursor: "pointer", fontSize: 13, color: A2.text }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
         {allowGps && (

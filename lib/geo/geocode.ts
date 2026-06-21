@@ -15,18 +15,20 @@ export async function lookupPincode(pin: string): Promise<{ city: string; state:
   return null;
 }
 
-// Nominatim free-text search → lat/lng + short label. One-off locations (errands).
-export async function geocodeSearch(query: string): Promise<{ lat: number; lng: number; label: string } | null> {
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&countrycodes=in&format=json&limit=1`;
-    const res = await fetch(url, { headers: { "User-Agent": "Charaivati/1.0" } });
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      const label = String(data[0].display_name || query).split(",").slice(0, 3).join(",").trim();
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), label };
-    }
-  } catch {}
-  return null;
+// Photon (komoot) free-text typeahead → up to 5 candidates. One-off locations (errands/MAP-SEARCH-1b).
+// Photon GeoJSON coords are [lon, lat] — do not swap.
+export async function geocodeSearch(query: string, bias?: { lat: number; lng: number }): Promise<Array<{ lat: number; lng: number; label: string }>> {
+  let url = `https://photon.komoot.io/api?q=${encodeURIComponent(query)}&limit=5&lang=en`;
+  if (bias) url += `&lat=${bias.lat}&lon=${bias.lng}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  const features = Array.isArray(data?.features) ? data.features : [];
+  return features.map((f: any) => {
+    const [lng, lat] = f.geometry?.coordinates ?? [];
+    const p = f.properties ?? {};
+    const label = [p.name, p.city ?? p.state, p.country].filter(Boolean).join(", ");
+    return { lat, lng, label: label || query };
+  }).filter((r: any) => Number.isFinite(r.lat) && Number.isFinite(r.lng));
 }
 
 // Nominatim reverse geocode → short label for a dropped/dragged pin. India display.

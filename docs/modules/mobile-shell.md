@@ -66,10 +66,22 @@ Provides the native mobile app experience via Capacitor. The shell is a thin lay
 
 | Element | Role |
 |---|---|
-| Header (`<header>`) | 56px sticky; branding link + avatar dropdown |
-| Avatar dropdown | Shows user name/email, "My Account" link, "Sign out" button |
-| Content wrapper (`<div>`) | `paddingBottom: 56px` to clear bottom nav |
+| Header (`<header>`) | 56px sticky; `Wordmark` branding link + `AccountMenu` dropdown |
+| Avatar dropdown | `components/nav/AccountMenu.tsx` — shared with `app/store/[id]/layout.tsx` (see below). First item is always "🏠 Home" → `/app/home`, then "My Account", "Language" (logged-in only), Sign out |
+| Content wrapper (`<div>`) | `paddingBottom: 56px` (`pb-14 md:pb-0`) to clear bottom nav |
 | Bottom nav (`<nav>`) | 56px fixed; 4 tabs with icon + label |
+
+## Shared with `app/store/[id]` layout (LAYOUT-SYNC-1)
+`app/store/[id]/layout.tsx` (store shell, a sibling route — not nested under `app/app/`) was brought into structural parity with this layout: same `Wordmark` logo, same bottom mobile tab nav, same `pb-14 md:pb-0` content wrapper, and the same `components/nav/AccountMenu.tsx` dropdown (rendered at both mobile and desktop breakpoints, since the store header keeps separate `md:hidden`/`hidden md:flex` blocks rather than this layout's single unconditional render). The store layout previously hand-rolled its own lowercase "charaivati" brand button and a separate `MobileProfileMenu` — both were removed in favor of `Wordmark`/`AccountMenu`.
+
+`AccountMenu` takes an optional `storeContext` prop (`{ deliveryLabel, onOpenAddress, isOwner, storeId }`) — only the store layout passes it, adding delivery-address/My Orders/Manage Orders/My Businesses items into the same dropdown. The two layout files remain separate (not merged or re-exported); `app/store/[id]/StoreShellContext.tsx` is unchanged. No i18n in the store layout — `AccountMenu`'s `t` prop is optional and falls back to the English label when omitted.
+
+## Language re-pick (MENU-LANG-1)
+The avatar dropdown (logged-in variant only — not shown for guests) has a "🌐 Language" row: `<a href={`/?from=${encodeURIComponent(pathname)}`}>`. The landing page at `/` doubles as the language picker, so this row just round-trips there with a return address. Plain `<a>` (not a router push) is deliberate — a fresh mount makes `LanguageProvider` re-read from cookie/localStorage.
+
+`app/page.tsx`'s logged-in mount-bounce (`router.replace("/self")`) is skipped when a valid `from` is present, so the grid renders instead of bouncing. After a pick, `setLanguage(code)` then `router.replace(validFrom)` returns the user to the page they came from instead of `/self`. `from` is validated by a same-file guard (`getValidFrom`) — accepted only if it starts with `/app`, doesn't start with `//` or `/\`, and contains no `http:`/`https:`/`javascript:` substring; anything else is treated as if no `from` was given (open-redirect protection — reject, don't sanitize).
+
+`components/UserMenu.tsx` and `components/ProfileMenu.tsx` are NOT this dropdown (dead/divergent — see TECH_DEBT.md) and were not touched by this feature.
 
 ## Capacitor Configuration (`capacitor.config.ts`)
 - `appId`: `com.charaivati.store`
@@ -84,8 +96,8 @@ Provides the native mobile app experience via Capacitor. The shell is a thin lay
 |---|---|---|
 | Home | 🏠 | /app/home |
 | Initiatives | 🌱 | /app/initiatives |
-| Explore | ❤️ | /app/saved |
-| Account | 👤 | /store/account |
+| Explore | 🔍 | /app/saved |
+| Orders | 🛍️ | /app/orders |
 
 ## Home Page Intent (`/app/home`)
 

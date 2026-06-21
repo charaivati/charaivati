@@ -72,7 +72,7 @@ const nextConfig = {
               "img-src 'self' data: blob: https://lh3.googleusercontent.com https://drive.google.com https://*.googleapis.com https://res.cloudinary.com https://*.tile.openstreetmap.org https://tile.openstreetmap.org https://unpkg.com https://images.unsplash.com https://images.pexels.com https://cdn.pixabay.com https://picsum.photos https://fastly.picsum.photos",
               "media-src 'self' blob: https://res.cloudinary.com",
               "font-src 'self'",
-              "connect-src 'self' https://accounts.google.com https://*.googleapis.com https://api.cloudinary.com https://*.tile.openstreetmap.org https://api.postalpincode.in https://*.nominatim.openstreetmap.org https://nominatim.openstreetmap.org",
+              "connect-src 'self' https://accounts.google.com https://*.googleapis.com https://api.cloudinary.com https://*.tile.openstreetmap.org https://api.postalpincode.in https://*.nominatim.openstreetmap.org https://nominatim.openstreetmap.org https://photon.komoot.io",
               "frame-src https://accounts.google.com https://www.youtube.com",
               "object-src 'none'",
               "base-uri 'self'",
