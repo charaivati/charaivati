@@ -15,6 +15,7 @@ type RawOrder = {
   total: number;
   createdAt: Date;
   agreedAmount: number | null;
+  pickupConfirmedAt: Date | null;
   addrName: string;
   addrPhone: string;
   line1: string;
@@ -100,6 +101,7 @@ export default async function DeliveriesPage() {
       o.total,
       o."createdAt",
       o."agreedAmount",
+      o."pickupConfirmedAt",
       a.name      AS "addrName",
       a.phone     AS "addrPhone",
       a.line1,
@@ -150,6 +152,7 @@ export default async function DeliveriesPage() {
       o.total,
       o."createdAt",
       o."agreedAmount",
+      o."pickupConfirmedAt",
       a.name      AS "addrName",
       a.phone     AS "addrPhone",
       a.line1,
@@ -205,6 +208,7 @@ export default async function DeliveriesPage() {
       o.total,
       o."createdAt",
       o."agreedAmount",
+      o."pickupConfirmedAt",
       a.name      AS "addrName",
       a.phone     AS "addrPhone",
       a.line1,
@@ -254,6 +258,7 @@ export default async function DeliveriesPage() {
       o.total,
       o."createdAt",
       o."agreedAmount",
+      o."pickupConfirmedAt",
       a.name      AS "addrName",
       a.phone     AS "addrPhone",
       a.line1,
@@ -311,6 +316,7 @@ export default async function DeliveriesPage() {
       ...rest,
       items: o.items as DeliveryOrder["items"],
       createdAt: o.createdAt.toISOString(),
+      pickupConfirmedAt: o.pickupConfirmedAt ? o.pickupConfirmedAt.toISOString() : null,
       collabRole:     isPersonal ? "employee" : isSelf ? "self" : (collabMeta[o.assignedToId]?.role ?? "employee"),
       requesterTitle: collabMeta[o.assignedToId]?.requesterTitle ?? (o as any).storeName ?? "",
       isPersonal,

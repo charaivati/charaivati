@@ -26,6 +26,15 @@ export async function GET(req: NextRequest) {
     and.push({ tags: { some: { tagId: { in: tagIds } } } });
   }
 
+  // Fleet ventures have their own dedicated page (/fleet/[pageId]) with a booking
+  // flow — their backing Store row has no customer-orderable products and must
+  // not surface in general store discovery (FLEET-ORDER-1 fix).
+  const fleetPages = await prisma.page.findMany({ where: { pageType: "fleet" }, select: { id: true } });
+  if (fleetPages.length) {
+    const fleetPageIds = fleetPages.map((p) => p.id);
+    and.push({ OR: [{ pageId: null }, { pageId: { notIn: fleetPageIds } }] });
+  }
+
   const stores = await prisma.store.findMany({
     where: { deletedAt: null, ...(and.length ? { AND: and } : {}) },
     select: {

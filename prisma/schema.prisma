@@ -1414,6 +1414,8 @@ model Order {
   vehicleId        String?
   /// null = unassigned | "assigned" = pending partner acceptance | "accepted" = partner ready | "rejected" = partner declined | "completed" = partner delivered
   partnerStatus     String?
+  /// Set by the delivery person tapping "Picked up" — switches Navigate from pickup to drop. Never inferred from deliveryStatus/vehicleId (GPS can start before physical pickup).
+  pickupConfirmedAt DateTime?
   /// Set to true when a step fails or a quote times out — owner must take action
   requiresAttention Boolean             @default(false)
   /// Ordered array of { quoteId, partyName, amount, status } — set by respond/accept/reorder

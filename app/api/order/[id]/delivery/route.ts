@@ -136,6 +136,20 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json(updated);
   }
 
+  // ── Picked up — universal (owner, collab partner, direct employee, block employee) ──
+  // Explicit manual milestone, never inferred from deliveryStatus/vehicleId — GPS can
+  // legitimately start before the partner has physically reached the pickup point.
+  if (partnerAction === "picked_up") {
+    if (!isOwner && !isPartner && !isBlockEmployee && !isDirectEmployee)
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Raw SQL: pickupConfirmedAt was added after the last prisma generate.
+    const rows = await prisma.$queryRaw<{ pickupConfirmedAt: Date }[]>`
+      UPDATE "Order" SET "pickupConfirmedAt" = NOW() WHERE id = ${id}
+      RETURNING "pickupConfirmedAt"
+    `;
+    return NextResponse.json({ pickupConfirmedAt: rows[0]?.pickupConfirmedAt ?? null });
+  }
+
   // ── Partner / direct-employee / block-employee / owner-as-partner actions ─
   // isOwnerAsPartner only enters this block for explicit partner actions (accept/reject)
   // or vehicleId (GPS start) — all other owner fields (deliveryNote, deliveryStatus, etc.)
@@ -159,6 +173,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             where: { id },
             data: { assignedToUserId: null, partnerStatus: null, requiresAttention: true },
           });
+          await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${id}`;
           createNotification({
             userId: order.store.ownerId,
             type: "workflow_attention",
@@ -188,6 +203,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
             where: { id },
             data: { assignedToUserId: null, partnerStatus: "rejected" },
           });
+          await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${id}`;
 
           if (deliveryStepId && deliveryOspId) {
             const result = await assignNextPartner({
@@ -240,6 +256,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           where: { id },
           data: { partnerStatus: "rejected", assignedToId: null },
         });
+        await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${id}`;
 
         if (activeOSP) {
           const result = await assignNextPartner({
@@ -337,6 +354,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       where: { id },
       data: { assignedToId: user.id, partnerStatus: "accepted" },
     });
+    await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${id}`;
     createNotification({
       userId: user.id,
       type: "order_assigned",
@@ -387,6 +405,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         items:          updatedItems,
       },
     });
+    await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${id}`;
 
     if (block.assignedUserId) {
       await createNotification({
@@ -432,6 +451,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         partnerStatus:    targetUserId != null ? (targetUserId === user.id ? "accepted" : "assigned") : null,
       },
     });
+    await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${id}`;
 
     if (targetUserId) {
       createNotification({
@@ -493,6 +513,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   const updated = await (prisma as any).order.update({ where: { id }, data });
+
+  // Reassigning the delivery clears the pickup milestone — the new partner hasn't picked up yet.
+  if ("assignedToId" in body) {
+    await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${id}`;
+  }
 
   if ("assignedToId" in body && assignedToId != null && assignedPartnerOwnerId) {
     createNotification({
@@ -575,11 +600,12 @@ export async function GET(req: NextRequest, { params }: Params) {
       }
     : null;
 
-  const invRow = await prisma.$queryRaw<{ invoiceSignedUrl: string | null }[]>`
-    SELECT "invoiceSignedUrl" FROM "Order" WHERE id = ${id} LIMIT 1
+  const invRow = await prisma.$queryRaw<{ invoiceSignedUrl: string | null; pickupConfirmedAt: Date | null }[]>`
+    SELECT "invoiceSignedUrl", "pickupConfirmedAt" FROM "Order" WHERE id = ${id} LIMIT 1
   `;
   const invoiceSignedUrl = invRow[0]?.invoiceSignedUrl ?? null;
+  const pickupConfirmedAt = invRow[0]?.pickupConfirmedAt ?? null;
 
   const { store: _s, userId: _u, ...orderData } = order;
-  return NextResponse.json({ ...orderData, invoiceSignedUrl, assignedCollab });
+  return NextResponse.json({ ...orderData, invoiceSignedUrl, pickupConfirmedAt, assignedCollab });
 }

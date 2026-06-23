@@ -113,6 +113,7 @@ export default function InitiativeTabs({
     ? [
         { id: "overview", label: "Overview" },
         { id: "fleet",    label: "Fleet" },
+        { id: "team",     label: "Team" },
         { id: "partners", label: "Partners" },
         { id: "workflow", label: "Workflow" },
       ]
@@ -125,7 +126,7 @@ export default function InitiativeTabs({
       ];
 
   useEffect(() => {
-    if (activeTab !== "store" || !storeId || storeOpen !== null) return;
+    if ((activeTab !== "store" && activeTab !== "fleet") || !storeId || storeOpen !== null) return;
     fetch(`/api/store/${storeId}`, { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
@@ -293,18 +294,49 @@ export default function InitiativeTabs({
 
       {/* Fleet */}
       {activeTab === "fleet" && (
-        <div>
+        <div className="space-y-4">
           {storeId ? (
-            <a
-              href={`/fleet/${pageId}`}
-              className="flex items-center justify-between p-4 rounded-xl border border-amber-800/60 bg-amber-900/20 hover:bg-amber-900/40 transition-colors"
-            >
-              <div>
-                <p className="font-medium text-amber-300">{storeName ?? "Your Fleet"}</p>
-                <p className="text-sm text-gray-400 mt-0.5">View and manage your fleet</p>
+            <>
+              <a
+                href={`/fleet/${pageId}`}
+                className="flex items-center justify-between p-4 rounded-xl border border-amber-800/60 bg-amber-900/20 hover:bg-amber-900/40 transition-colors"
+              >
+                <div>
+                  <p className="font-medium text-amber-300">{storeName ?? "Your Fleet"}</p>
+                  <p className="text-sm text-gray-400 mt-0.5">View and manage your fleet</p>
+                </div>
+                <span className="text-amber-400">→</span>
+              </a>
+
+              {/* Fleet on Service toggle — same mechanism as Store's "Taking orders" */}
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-gray-800 bg-gray-900/50">
+                <button
+                  onClick={handleToggleOrders}
+                  disabled={togglingOrders || storeOpen === null}
+                  style={{
+                    position: "relative", width: 44, height: 24, borderRadius: 12,
+                    background: storeOpen ? "#22C55E" : "#4B5563",
+                    border: "none", cursor: togglingOrders ? "default" : "pointer",
+                    opacity: storeOpen === null ? 0.5 : 1, flexShrink: 0, transition: "background 0.2s",
+                  }}
+                  aria-label={storeOpen ? "Turn off Fleet on Service" : "Turn on Fleet on Service"}
+                >
+                  <span style={{
+                    position: "absolute", top: 2, left: storeOpen ? 22 : 2, width: 20, height: 20,
+                    borderRadius: "50%", background: "#fff", transition: "left 0.2s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                  }} />
+                </button>
+                <div>
+                  <p className="text-sm font-semibold text-white">
+                    {storeOpen ? "Fleet on Service" : "Fleet off Service"}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {storeOpen ? "Customers can book your fleet services." : "Customers can see your fleet but can't book yet."}
+                  </p>
+                </div>
               </div>
-              <span className="text-amber-400">→</span>
-            </a>
+            </>
           ) : (
             <div className="p-6 rounded-xl border border-gray-800 bg-gray-900/50 text-center space-y-4">
               <p className="text-gray-400">No fleet set up yet.</p>

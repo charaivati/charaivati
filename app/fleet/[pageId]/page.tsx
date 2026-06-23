@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { geocodeSearch, reverseGeocode } from "@/lib/geo/geocode";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import { haversineKm } from "@/lib/geo/haversine";
+
+// On-demand pin picker — Leaflet, loaded client-side only (same pattern as REQBCAST-1g2).
+const MapPicker = dynamic(() => import("@/components/shared/MapPicker"), { ssr: false });
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -416,7 +423,7 @@ function EditableBlockCard({ block, onEdit }: { block: FleetBlock; onEdit: () =>
 
 // ── Public block card (visitor view, same layout as before) ───────────────────
 
-function PublicBlockCard({ block }: { block: FleetBlock }) {
+function PublicBlockCard({ block, disabled, onBook }: { block: FleetBlock; disabled: boolean; onBook: () => void }) {
   const icon = block.vehicleType ? (VEHICLE_ICON[block.vehicleType] ?? "🚛") : "🚛";
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", gap: 14 }}>
@@ -429,12 +436,315 @@ function PublicBlockCard({ block }: { block: FleetBlock }) {
           {block.maxDistanceKm != null && <span>Max {block.maxDistanceKm} km</span>}
         </div>
       </div>
-      <a
-        href="/app/initiatives"
-        style={{ display: "inline-block", padding: "9px 18px", borderRadius: 10, background: "#FEF3C7", color: "#B45309", fontWeight: 700, fontSize: 13, textDecoration: "none", flexShrink: 0, border: "1px solid #FDE68A" }}
+      <button
+        onClick={onBook}
+        disabled={disabled}
+        style={{
+          display: "inline-block", padding: "9px 18px", borderRadius: 10, fontWeight: 700, fontSize: 13, flexShrink: 0,
+          background: disabled ? "#F3F4F6" : "#FEF3C7", color: disabled ? "#9CA3AF" : "#B45309",
+          border: `1px solid ${disabled ? "#E5E7EB" : "#FDE68A"}`, cursor: disabled ? "default" : "pointer",
+        }}
       >
-        Enquire →
-      </a>
+        {disabled ? "Closed" : "Book →"}
+      </button>
+    </div>
+  );
+}
+
+// ── Booking modal — start/drop locations, price computed from the block's pricing model ──
+
+type GeoPoint = { lat: number; lng: number; label: string };
+type Addr = { id: string; name: string; line1: string; city: string; lat: number | null; lng: number | null; isDefault: boolean };
+const TEMP = "__temp__"; // sentinel select value → one-off location, not a saved address
+
+function locBtn(outline = false): React.CSSProperties {
+  return { padding: "7px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", color: outline ? "#6366f1" : "#fff", background: outline ? "#F9FAFB" : "#6366f1", border: outline ? "1px solid #DDDDDD" : "none" };
+}
+
+// Saved-address dropdown + a "different location" option resolved by search,
+// live GPS, or an on-demand draggable map pin — same pattern as the errand
+// pickup/drop picker in app/app/requests/page.tsx (REQBCAST-1g2).
+function LocSelect({ label, value, onChange, addrs, temp, onTemp, defaultCenter, allowGps }: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  addrs: Addr[];
+  temp: GeoPoint | null;
+  onTemp: (l: GeoPoint | null) => void;
+  defaultCenter: GeoPoint;
+  allowGps?: boolean;
+}) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} style={iStyle}>
+        <option value="">— Select —</option>
+        {addrs.filter((a) => a.lat != null).map((a) => <option key={a.id} value={a.id}>{a.name} — {a.line1}, {a.city}</option>)}
+        <option value={TEMP}>Use a different location…</option>
+      </select>
+      {value === TEMP && <TempPicker temp={temp} onResolve={onTemp} defaultCenter={defaultCenter} allowGps={allowGps} />}
+    </div>
+  );
+}
+
+function TempPicker({ temp, onResolve, defaultCenter, allowGps }: {
+  temp: GeoPoint | null;
+  onResolve: (l: GeoPoint | null) => void;
+  defaultCenter: GeoPoint;
+  allowGps?: boolean;
+}) {
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [none, setNone] = useState(false);
+  const [suggestions, setSuggestions] = useState<GeoPoint[]>([]);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [reverse, setReverse] = useState(false);
+  const geo = useGeolocation();
+  const gotFix = useRef(false);
+  const queryIdRef = useRef(0);
+
+  const center = temp ?? defaultCenter;
+
+  useEffect(() => {
+    const query = q.trim();
+    if (!query) { setSuggestions([]); setNone(false); return; }
+    const id = ++queryIdRef.current;
+    const timer = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const results = await geocodeSearch(query, center);
+        if (id !== queryIdRef.current) return;
+        setSuggestions(results);
+        setNone(results.length === 0);
+      } catch {
+        if (id === queryIdRef.current) { setSuggestions([]); setNone(true); }
+      } finally {
+        if (id === queryIdRef.current) setSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, center.lat, center.lng]);
+
+  async function go() {
+    const query = q.trim();
+    if (!query) return;
+    const id = ++queryIdRef.current;
+    setSearching(true); setNone(false); onResolve(null);
+    try {
+      const results = await geocodeSearch(query, center);
+      if (id !== queryIdRef.current) return;
+      setSuggestions(results);
+      if (results.length > 0) onResolve(results[0]); else setNone(true);
+    } catch {
+      if (id === queryIdRef.current) setNone(true);
+    } finally {
+      if (id === queryIdRef.current) setSearching(false);
+    }
+  }
+
+  function pick(s: GeoPoint) {
+    onResolve(s);
+    setSuggestions([]);
+    setNone(false);
+    setQ(s.label);
+  }
+
+  function useCurrent() {
+    setLocating(true); setNone(false); gotFix.current = false;
+    geo.startWatch(async (lat, lng) => {
+      if (gotFix.current) return;
+      gotFix.current = true;
+      geo.stopWatch();
+      const label = await reverseGeocode(lat, lng);
+      onResolve({ lat, lng, label });
+      setLocating(false);
+    }, () => { geo.stopWatch(); setLocating(false); });
+  }
+
+  async function onPin(lat: number, lng: number) {
+    setReverse(true);
+    const label = await reverseGeocode(lat, lng);
+    onResolve({ lat, lng, label });
+    setReverse(false);
+  }
+  function openMap() {
+    setNone(false); setMapOpen(true);
+    if (!temp) onPin(defaultCenter.lat, defaultCenter.lng);
+  }
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", gap: 6, position: "relative" }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); go(); } }}
+          placeholder="Search an address or place" style={{ ...iStyle, marginBottom: 0 }} />
+        <button type="button" disabled={searching || !q.trim()} onClick={go} style={{ ...locBtn(), opacity: searching || !q.trim() ? 0.5 : 1, flexShrink: 0 }}>
+          {searching ? "…" : "Search"}
+        </button>
+        {suggestions.length > 0 && (
+          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, zIndex: 10, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, marginTop: 2, overflow: "hidden" }}>
+            {suggestions.map((s, i) => (
+              <button key={i} type="button" onClick={() => pick(s)}
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", border: "none", background: "none", cursor: "pointer", fontSize: 12, color: "#374151" }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+        {allowGps && (
+          <button type="button" disabled={locating} onClick={useCurrent} style={{ ...locBtn(true), opacity: locating ? 0.5 : 1 }}>
+            {locating ? "Locating…" : "📍 Use my current location"}
+          </button>
+        )}
+        <button type="button" onClick={() => (mapOpen ? setMapOpen(false) : openMap())} style={locBtn(true)}>
+          🗺️ Set on map
+        </button>
+      </div>
+      {mapOpen && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>Drag the pin to adjust</div>
+          <MapPicker lat={center.lat} lng={center.lng} onMove={onPin} />
+          <button type="button" onClick={() => setMapOpen(false)} style={{ ...locBtn(), marginTop: 6, width: "100%" }}>
+            Use this location
+          </button>
+        </div>
+      )}
+      {(reverse || (locating && !mapOpen)) && <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 4 }}>Finding address…</div>}
+      {temp && <div style={{ fontSize: 12, color: "#059669", marginTop: 4 }}>📍 {temp.label}</div>}
+      {none && (
+        <div style={{ fontSize: 12, color: "#DC2626", marginTop: 4 }}>
+          No match found — try a more specific search.{" "}
+          <button type="button" onClick={openMap} style={{ background: "none", border: "none", color: "#6366f1", cursor: "pointer", padding: 0, fontSize: 12, textDecoration: "underline" }}>
+            Set it on the map instead
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BookModal({ pageId, block, addrs, onClose }: { pageId: string; block: FleetBlock; addrs: Addr[]; onClose: () => void }) {
+  const defaultAddr = addrs.find((a) => a.isDefault && a.lat != null) ?? addrs.find((a) => a.lat != null);
+  const [fStart, setFStart] = useState(defaultAddr?.id ?? "");
+  const [startTemp, setStartTemp] = useState<GeoPoint | null>(null);
+  const [fDrop, setFDrop] = useState("");
+  const [dropTemp, setDropTemp] = useState<GeoPoint | null>(null);
+  const [weightKg, setWeightKg] = useState("1");
+  const [booking, setBooking] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState<{ total: number; distanceKm: number } | null>(null);
+
+  const needsWeight = (block.pricingModel ?? "fixed") === "per_kg_km";
+
+  // Resolve a pickup/drop selection to coords + label, from a saved address OR a one-off temp location.
+  function resolveLoc(id: string, temp: GeoPoint | null): GeoPoint | null {
+    if (id === TEMP) return temp;
+    const a = addrs.find((x) => x.id === id);
+    if (!a || a.lat == null || a.lng == null) return null;
+    return { lat: a.lat, lng: a.lng, label: `${a.name} — ${a.city}` };
+  }
+  const start = resolveLoc(fStart, startTemp);
+  const drop = resolveLoc(fDrop, dropTemp);
+  const defaultCenter: GeoPoint = defaultAddr && defaultAddr.lat != null && defaultAddr.lng != null
+    ? { lat: defaultAddr.lat, lng: defaultAddr.lng, label: "" }
+    : { lat: 12.9716, lng: 77.5946, label: "" }; // Bangalore — last-resort map centre
+
+  const distanceKm = start && drop ? haversineKm(start.lat, start.lng, drop.lat, drop.lng) : null;
+  const weight = parseFloat(weightKg) || 1;
+  const estimate = distanceKm == null ? null : (() => {
+    const model = block.pricingModel ?? "fixed";
+    if (model === "per_km") return (block.price ?? 0) + (block.perKmRate ?? 0) * distanceKm;
+    if (model === "per_kg_km") return (block.perKgRate ?? 0) * weight + (block.perKmRate ?? 0) * distanceKm;
+    return block.price ?? 0;
+  })();
+
+  async function submit() {
+    if (!start || !drop) return;
+    setBooking(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/fleet/${pageId}/book`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          blockId: block.id,
+          startLat: start.lat, startLng: start.lng, startLabel: start.label,
+          dropLat: drop.lat, dropLng: drop.lng, dropLabel: drop.label,
+          weightKg: needsWeight ? weight : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? "Booking failed"); return; }
+      setDone({ total: data.total, distanceKm: data.distanceKm });
+    } catch {
+      setError("Booking failed");
+    } finally {
+      setBooking(false);
+    }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.55)", padding: 16 }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 24, width: "100%", maxWidth: 440, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+        {done ? (
+          <div style={{ textAlign: "center", padding: "12px 0" }}>
+            <p style={{ fontSize: 28, marginBottom: 8 }}>✅</p>
+            <h3 style={{ fontSize: 16, fontWeight: 700, margin: "0 0 4px" }}>Booked!</h3>
+            <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>
+              ₹{done.total.toLocaleString("en-IN")} · {done.distanceKm} km
+            </p>
+            <a href="/app/orders?tab=my"
+              style={{ display: "inline-block", padding: "10px 20px", borderRadius: 8, background: "#6366f1", color: "#fff", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+              View my orders →
+            </a>
+          </div>
+        ) : (
+          <>
+            <h3 style={{ fontSize: 15, fontWeight: 700, margin: "0 0 4px" }}>Book {block.title}</h3>
+            <p style={{ fontSize: 12, color: "#9CA3AF", margin: "0 0 16px" }}>{pricingLabel(block)}</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <LocSelect
+                label="Start location"
+                value={fStart} onChange={setFStart}
+                addrs={addrs} temp={startTemp} onTemp={setStartTemp}
+                defaultCenter={defaultCenter} allowGps
+              />
+              <LocSelect
+                label="Drop location"
+                value={fDrop} onChange={setFDrop}
+                addrs={addrs} temp={dropTemp} onTemp={setDropTemp}
+                defaultCenter={defaultCenter}
+              />
+              {needsWeight && (
+                <div>
+                  <label style={labelStyle}>Approx. weight (kg)</label>
+                  <input type="number" min="0.1" step="0.1" value={weightKg} onChange={(e) => setWeightKg(e.target.value)} style={iStyle} />
+                </div>
+              )}
+              {estimate != null && distanceKm != null && (
+                <div style={{ padding: "10px 12px", borderRadius: 8, background: "#EEF2FF", fontSize: 13, color: "#4338CA", fontWeight: 600 }}>
+                  Estimated ₹{Math.round(estimate).toLocaleString("en-IN")} · {distanceKm.toFixed(1)} km
+                </div>
+              )}
+              {error && <p style={{ fontSize: 12, color: "#EF4444", margin: 0 }}>{error}</p>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={submit} disabled={!start || !drop || booking}
+                  style={{ flex: 1, padding: "10px 0", borderRadius: 8, background: "#6366f1", color: "#fff", border: "none", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: (!start || !drop || booking) ? 0.5 : 1 }}>
+                  {booking ? "Booking…" : "Confirm booking"}
+                </button>
+                <button type="button" onClick={onClose} style={{ padding: "10px 16px", borderRadius: 8, border: "1px solid #DDDDDD", background: "#fff", color: "#374151", fontSize: 13, cursor: "pointer" }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -451,10 +761,13 @@ export default function FleetPage() {
   const [sectionId, setSectionId] = useState<string | null>(null);
   const [deliveryFee, setDeliveryFee] = useState<number | null>(null);
   const [freeDeliveryAbove, setFreeDeliveryAbove] = useState<number | null>(null);
+  const [acceptingOrders, setAcceptingOrders] = useState(false);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editBlock, setEditBlock] = useState<FleetBlock | null>(null);
+  const [bookBlock, setBookBlock] = useState<FleetBlock | null>(null);
+  const [addrs, setAddrs] = useState<Addr[]>([]);
 
   // API returns storeId only for the page owner
   const isOwner = !!storeId;
@@ -470,8 +783,13 @@ export default function FleetPage() {
         setSectionId(d.sectionId ?? null);
         setDeliveryFee(d.deliveryFee ?? null);
         setFreeDeliveryAbove(d.freeDeliveryAbove ?? null);
+        setAcceptingOrders(d.acceptingOrders ?? false);
       })
       .finally(() => setLoading(false));
+    fetch("/api/store/address", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((a) => setAddrs(Array.isArray(a) ? a : []))
+      .catch(() => {});
   }, [pageId]);
 
   if (loading) {
@@ -528,6 +846,18 @@ export default function FleetPage() {
           <DeliveryFeePanel storeId={storeId} initialFee={deliveryFee} initialFreeAbove={freeDeliveryAbove} />
         )}
 
+        {/* Taking-bookings banner — visitors only, same idea as the store "Taking orders" banner */}
+        {!isOwner && (
+          <div style={{
+            marginBottom: 16, padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600,
+            background: acceptingOrders ? "#F0FDF4" : "#FFFBEB",
+            color: acceptingOrders ? "#15803D" : "#B45309",
+            border: `1px solid ${acceptingOrders ? "#BBF7D0" : "#FDE68A"}`,
+          }}>
+            {acceptingOrders ? "Fleet on Service — accepting bookings" : "Not taking bookings right now"}
+          </div>
+        )}
+
         {blocks.length === 0 ? (
           <div style={{ textAlign: "center", padding: "48px 0", color: "#9CA3AF" }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🚛</div>
@@ -541,7 +871,12 @@ export default function FleetPage() {
               editMode ? (
                 <EditableBlockCard key={block.id} block={block} onEdit={() => setEditBlock(block)} />
               ) : (
-                <PublicBlockCard key={block.id} block={block} />
+                <PublicBlockCard
+                  key={block.id}
+                  block={block}
+                  disabled={!acceptingOrders}
+                  onBook={() => setBookBlock(block)}
+                />
               )
             )}
           </div>
@@ -584,6 +919,9 @@ export default function FleetPage() {
           onSaved={(updated) => setBlocks((prev) => prev.map((b) => b.id === updated.id ? updated : b))}
           onDeleted={(id) => setBlocks((prev) => prev.filter((b) => b.id !== id))}
         />
+      )}
+      {bookBlock && (
+        <BookModal pageId={pageId} block={bookBlock} addrs={addrs} onClose={() => setBookBlock(null)} />
       )}
     </div>
   );

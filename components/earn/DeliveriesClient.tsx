@@ -46,9 +46,19 @@ export type DeliveryOrder = {
   pickupLat: number | null;
   pickupLng: number | null;
   ownerPhone: string | null;
+  /** set when the delivery person has tapped "Picked up" — switches Navigate to the drop point */
+  pickupConfirmedAt: string | null;
   /** true when assigned via Order.assignedToUserId (direct personal assignment) */
   isPersonal?: boolean;
 };
+
+// Google Maps directions link. Origin is omitted on purpose — the Maps app/site
+// uses the device's live GPS as the start point, so the link is correct no matter
+// where the delivery person currently is, and never replays a stale origin.
+function navLink(lat: number | null, lng: number | null, addressText: string): string {
+  const destination = lat != null && lng != null ? `${lat},${lng}` : addressText;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+}
 
 // ── Order card ────────────────────────────────────────────────────────────────
 function OrderCard({
@@ -147,18 +157,22 @@ function OrderCard({
                   📞 {order.ownerPhone}
                 </a>
               )}
-              <a
-                href={
-                  order.pickupLat != null && order.pickupLng != null
-                    ? `https://maps.google.com/?q=${order.pickupLat},${order.pickupLng}`
-                    : `https://maps.google.com/?q=${encodeURIComponent(`${order.pickupLine1}, ${order.pickupCity}, ${order.pickupState} ${order.pickupPincode}`)}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-              >
-                🗺️ Navigate to pickup
-              </a>
+              {order.pickupConfirmedAt ? (
+                <span className="text-xs text-emerald-400">📦 Picked up ✓</span>
+              ) : (
+                <a
+                  href={navLink(
+                    order.pickupLat,
+                    order.pickupLng,
+                    `${order.pickupLine1}, ${order.pickupCity}, ${order.pickupState} ${order.pickupPincode}`
+                  )}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                >
+                  🗺️ Navigate to pickup
+                </a>
+              )}
             </div>
           </>
         ) : (
@@ -263,19 +277,38 @@ function OrderCard({
           )
         ) : isAccepted ? (
           // ── Accepted: GPS + Confirm Delivery ──
+          // Navigate target follows pickupConfirmedAt, not GPS/deliveryStatus — GPS can
+          // legitimately start before the partner physically reaches the pickup point,
+          // so it must never be read as "picked up" (would point Maps at the customer too early).
           <div className="flex flex-col gap-3">
-            <a
-              href={
-                order.addrLat != null && order.addrLng != null
-                  ? `https://maps.google.com/?q=${order.addrLat},${order.addrLng}`
-                  : `https://maps.google.com/?q=${encodeURIComponent(`${order.line1}, ${order.city}, ${order.state} ${order.pincode}`)}`
-              }
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-sm px-4 py-2.5 rounded-lg font-medium bg-indigo-600 hover:bg-indigo-700 text-white text-center transition-colors w-full"
-            >
-              🗺️ Navigate to delivery
-            </a>
+            {order.pickupConfirmedAt ? (
+              <a
+                href={navLink(order.addrLat, order.addrLng, `${order.line1}, ${order.city}, ${order.state} ${order.pincode}`)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block text-sm px-4 py-2.5 rounded-lg font-medium bg-indigo-600 hover:bg-indigo-700 text-white text-center transition-colors w-full"
+              >
+                🗺️ Navigate to customer
+              </a>
+            ) : (
+              <>
+                <a
+                  href={navLink(order.pickupLat, order.pickupLng, `${order.pickupLine1 ?? order.storeName}, ${order.pickupCity ?? ""}, ${order.pickupState ?? ""} ${order.pickupPincode ?? ""}`)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-sm px-4 py-2.5 rounded-lg font-medium bg-indigo-600 hover:bg-indigo-700 text-white text-center transition-colors w-full"
+                >
+                  🗺️ Navigate to pickup
+                </a>
+                <button
+                  disabled={isBusy}
+                  onClick={() => onAction({ partnerAction: "picked_up" })}
+                  className="text-sm px-4 py-2 rounded-lg font-medium border border-gray-700 text-gray-300 hover:border-gray-500 disabled:opacity-50 transition-colors w-fit"
+                >
+                  📦 Mark picked up
+                </button>
+              </>
+            )}
             {order.vehicleId ? (
               <div className="flex items-center gap-2 text-sm text-emerald-400">
                 <span className="relative flex h-2.5 w-2.5">
@@ -365,6 +398,8 @@ export default function DeliveriesClient({
                       : o.deliveryStatus,
                   vehicleId:
                     "vehicleId" in updated ? updated.vehicleId : o.vehicleId,
+                  pickupConfirmedAt:
+                    "pickupConfirmedAt" in updated ? updated.pickupConfirmedAt : o.pickupConfirmedAt,
                 }
           )
         );

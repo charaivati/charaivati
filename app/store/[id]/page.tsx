@@ -1041,6 +1041,12 @@ export default function StorePage() {
           router.replace(`/store/${data.slug}`);
           return;
         }
+        // Fleet venture redirect: this Store is just the backing record for a Fleet
+        // initiative — the real customer/owner page is /fleet/[pageId] (FLEET-ORDER-1 fix).
+        if (data.pageType === "fleet" && data.pageId) {
+          window.location.replace(`/fleet/${data.pageId}`);
+          return;
+        }
         // New-store redirect: owner with 0 sections → setup wizard
         if (data.isOwner && (data.sections ?? []).length === 0) {
           const skipped = typeof window !== "undefined"

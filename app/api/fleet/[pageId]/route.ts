@@ -61,6 +61,7 @@ export async function GET(
     sectionId: section?.id ?? null,
     deliveryFee: (store as any).deliveryFee ?? null,
     freeDeliveryAbove: (store as any).freeDeliveryAbove ?? null,
+    acceptingOrders: (store as any).acceptingOrders ?? false,
     blocks,
   });
 }

@@ -207,6 +207,9 @@ export async function assignNextPartner({
       ...(calculatedCost > 0 ? { agreedAmount: calculatedCost } : {}),
     },
   });
+  // Raw SQL: pickupConfirmedAt was added after the last prisma generate. A newly
+  // assigned partner hasn't picked up yet, regardless of what the prior assignee did.
+  await prisma.$executeRaw`UPDATE "Order" SET "pickupConfirmedAt" = NULL WHERE id = ${orderId}`;
 
   // Create sub-order; use its final settled cost for the notification
   const subOrderTotal = await createSubOrder({
