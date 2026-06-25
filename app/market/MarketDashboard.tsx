@@ -28,6 +28,21 @@ type Position = {
   last_price: number;
   pnl: number;
 };
+type Analysis = {
+  verdict?: "accumulate" | "hold" | "trim" | "exit";
+  confidence?: string;
+  reasons?: string[];
+  risk_flag?: string;
+  note?: string;
+  error?: string;
+};
+
+const verdictTone: Record<string, string> = {
+  accumulate: "bg-green-500/15 text-green-400",
+  hold: "bg-gray-500/15 text-gray-300",
+  trim: "bg-amber-500/15 text-amber-400",
+  exit: "bg-red-500/15 text-red-400",
+};
 
 const TABS = [
   { key: "overview", label: "Overview", href: "/market" },
@@ -44,7 +59,7 @@ export default function MarketDashboard({ tab }: { tab: string }) {
   const [err, setErr] = useState("");
 
   const [analysing, setAnalysing] = useState<string | null>(null);
-  const [analysis, setAnalysis] = useState<Record<string, string>>({});
+  const [analysis, setAnalysis] = useState<Record<string, Analysis>>({});
 
   const load = useCallback(async () => {
     setState("loading");
@@ -92,12 +107,15 @@ export default function MarketDashboard({ tab }: { tab: string }) {
       const res = await fetch("/api/market/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ holding: h }),
+        body: JSON.stringify({ symbol: h.tradingsymbol }),
       });
       const j = await res.json();
-      setAnalysis((a) => ({ ...a, [h.tradingsymbol]: j.analysis || j.error || "No analysis." }));
+      setAnalysis((a) => ({
+        ...a,
+        [h.tradingsymbol]: j.analysis ?? { error: j.error || "No analysis." },
+      }));
     } catch {
-      setAnalysis((a) => ({ ...a, [h.tradingsymbol]: "Analysis failed." }));
+      setAnalysis((a) => ({ ...a, [h.tradingsymbol]: { error: "Analysis failed." } }));
     } finally {
       setAnalysing(null);
     }
@@ -208,8 +226,8 @@ export default function MarketDashboard({ tab }: { tab: string }) {
                       </tr>
                       {analysis[h.tradingsymbol] && (
                         <tr className="border-t border-gray-900 bg-gray-950/60">
-                          <td colSpan={7} className="px-3 py-3 text-sm text-gray-300 whitespace-pre-wrap">
-                            {analysis[h.tradingsymbol]}
+                          <td colSpan={7} className="px-3 py-3">
+                            <AnalysisPanel a={analysis[h.tradingsymbol]} />
                           </td>
                         </tr>
                       )}
@@ -239,6 +257,31 @@ export default function MarketDashboard({ tab }: { tab: string }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function AnalysisPanel({ a }: { a: Analysis }) {
+  if (a.error) return <p className="text-sm text-red-400">{a.error}</p>;
+  return (
+    <div className="text-sm text-gray-300">
+      <div className="flex items-center gap-2">
+        <span className={`rounded px-2 py-0.5 text-xs font-semibold uppercase ${verdictTone[a.verdict ?? "hold"]}`}>
+          {a.verdict ?? "—"}
+        </span>
+        {a.confidence && <span className="text-xs text-gray-500">{a.confidence} confidence</span>}
+      </div>
+      {a.reasons && (
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          {a.reasons.map((r, i) => (
+            <li key={i}>{r}</li>
+          ))}
+        </ul>
+      )}
+      {a.risk_flag && a.risk_flag !== "none" && (
+        <p className="mt-2 text-xs text-amber-400">⚠ {a.risk_flag}</p>
+      )}
+      <p className="mt-2 text-xs italic text-gray-600">{a.note ?? "Not financial advice."}</p>
     </div>
   );
 }

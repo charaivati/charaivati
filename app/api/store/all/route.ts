@@ -27,12 +27,15 @@ export async function GET(req: NextRequest) {
   }
 
   // Fleet ventures have their own dedicated page (/fleet/[pageId]) with a booking
-  // flow — their backing Store row has no customer-orderable products and must
-  // not surface in general store discovery (FLEET-ORDER-1 fix).
+  // flow — their backing Store row has no customer-orderable products, so by default
+  // they're hidden from general store discovery (FLEET-ORDER-1). The /app/saved Browse
+  // list opts in with ?includeFleet=1 and links them to /fleet/[pageId] instead of the
+  // empty store page; everything else (e.g. /app/discover map) keeps them hidden.
+  const includeFleet = url.searchParams.get("includeFleet") === "1";
   const fleetPages = await prisma.page.findMany({ where: { pageType: "fleet" }, select: { id: true } });
-  if (fleetPages.length) {
-    const fleetPageIds = fleetPages.map((p) => p.id);
-    and.push({ OR: [{ pageId: null }, { pageId: { notIn: fleetPageIds } }] });
+  const fleetPageIds = new Set(fleetPages.map((p) => p.id));
+  if (!includeFleet && fleetPageIds.size) {
+    and.push({ OR: [{ pageId: null }, { pageId: { notIn: [...fleetPageIds] } }] });
   }
 
   const stores = await prisma.store.findMany({
@@ -41,6 +44,7 @@ export async function GET(req: NextRequest) {
       id: true,
       name: true,
       description: true,
+      pageId: true,
       sections: {
         take: 1,
         include: {
@@ -93,6 +97,8 @@ export async function GET(req: NextRequest) {
       categoryIds: categoryMap[s.id] ?? [],
       tagIds: tagMap[s.id] ?? [],
       distanceKm,
+      pageId: s.pageId,
+      isFleet: s.pageId != null && fleetPageIds.has(s.pageId),
     };
   });
 

@@ -12,7 +12,10 @@ function normalizeQuery(q: string): string {
   return q.toLowerCase().trim().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ");
 }
 
-export async function resolveImage(query: string): Promise<{
+export async function resolveImage(
+  query: string,
+  opts: { allowUnsplash?: boolean } = {}
+): Promise<{
   url: string;
   provider: string;
   quality: number;
@@ -28,7 +31,7 @@ export async function resolveImage(query: string): Promise<{
     return { url: cached.imageUrl, provider: cached.provider, quality: cached.quality };
   }
 
-  const [url] = await fetchImages([query]);
+  const [url] = await fetchImages([query], opts);
   const resolved = url ?? `https://picsum.photos/seed/${encodeURIComponent(key)}/800/400`;
   const { provider, quality } = detectProvider(resolved);
 

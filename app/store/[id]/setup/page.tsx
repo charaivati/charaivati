@@ -63,8 +63,8 @@ export default function StoreSetupPage() {
   // ── Menu image path state ────────────────────────────────────────────────────
   const menuFileRef                   = useRef<HTMLInputElement>(null);
   const warmupFiredRef                = useRef(false);
-  const [menuImage, setMenuImage]     = useState<File | null>(null);
-  const [menuPreview, setMenuPreview] = useState<string | null>(null);
+  const [menuImages, setMenuImages]     = useState<File[]>([]);
+  const [menuPreviews, setMenuPreviews] = useState<string[]>([]);
   const [parsing, setParsing]         = useState(false);
   const [parseError, setParseError]   = useState("");
   const [parseResult, setParseResult] = useState<ParseResult | null>(null);
@@ -152,22 +152,68 @@ export default function StoreSetupPage() {
 
   // ── Menu image path handlers ─────────────────────────────────────────────────
 
-  function handleMenuImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setMenuImage(file);
+  // Downscale + re-encode client-side so 6 phone photos can't blow the
+  // serverless request-body cap (Vercel ~4.5 MB) and vision inference stays fast.
+  async function downscaleImage(
+    file: File,
+    maxEdge = 1600,
+    quality = 0.8
+  ): Promise<{ file: File; preview: string }> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const im = document.createElement("img");
+      im.onload = () => resolve(im);
+      im.onerror = reject;
+      im.src = dataUrl;
+    });
+    const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+    // Already small (both dimensions and bytes) — keep as-is.
+    if (scale === 1 && file.size <= 1_500_000) return { file, preview: dataUrl };
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return { file, preview: dataUrl };
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, "image/jpeg", quality));
+    if (!blob) return { file, preview: dataUrl };
+    const out = new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" });
+    return { file: out, preview: canvas.toDataURL("image/jpeg", quality) };
+  }
+
+  async function handleMenuImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // allow re-selecting the same file
+    if (!files.length) return;
     setParseError("");
-    const reader = new FileReader();
-    reader.onload = () => setMenuPreview(reader.result as string);
-    reader.readAsDataURL(file);
+    const room = Math.max(0, 6 - menuImages.length);
+    const picked = files.slice(0, room);
+    const processed = await Promise.all(picked.map((f) => downscaleImage(f).catch(() => null)));
+    const ok = processed.filter((p): p is { file: File; preview: string } => p !== null);
+    if (ok.length < picked.length) {
+      setParseError("Some photos couldn't be read — try JPG or PNG.");
+    }
+    setMenuImages((prev) => [...prev, ...ok.map((o) => o.file)].slice(0, 6));
+    setMenuPreviews((prev) => [...prev, ...ok.map((o) => o.preview)].slice(0, 6));
+  }
+
+  function removeMenuImage(idx: number) {
+    setMenuImages((prev) => prev.filter((_, i) => i !== idx));
+    setMenuPreviews((prev) => prev.filter((_, i) => i !== idx));
   }
 
   async function handleParseMenu() {
-    if (!menuImage) return;
+    if (!menuImages.length) return;
     setParsing(true);
     setParseError("");
     const fd = new FormData();
-    fd.append("image", menuImage);
+    menuImages.forEach((f) => fd.append("image", f));
     fd.append("storeId", id);
     try {
       const res = await fetch("/api/store/parse-menu", {
@@ -545,7 +591,7 @@ export default function StoreSetupPage() {
 
                 {/* Primary CTA — mutually exclusive based on image selection */}
                 <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
-                  {menuImage ? (
+                  {menuImages.length ? (
                     <button
                       onClick={handleParseMenu}
                       style={{
@@ -554,7 +600,7 @@ export default function StoreSetupPage() {
                         border: "none", fontSize: 15, fontWeight: 600,
                         cursor: "pointer",
                       }}>
-                      ✦ Set up from this menu
+                      ✦ Set up from {menuImages.length === 1 ? "this menu" : `${menuImages.length} photos`}
                     </button>
                   ) : (
                     <button
@@ -581,19 +627,36 @@ export default function StoreSetupPage() {
                   <div style={{ flex: 1, height: 1, background: A.border }} />
                 </div>
 
-                {/* Thumbnail preview */}
-                {menuPreview && (
-                  <div style={{ marginBottom: 12, textAlign: "center" }}>
-                    <img
-                      src={menuPreview}
-                      alt="Menu preview"
-                      style={{
-                        maxHeight: 120, borderRadius: 8, display: "inline-block",
-                        maxWidth: "100%", objectFit: "contain", marginBottom: 6,
-                      }}
-                    />
-                    <p style={{ fontSize: 12, color: A.textMuted, margin: 0 }}>
-                      {menuImage?.name}
+                {/* Thumbnail previews */}
+                {menuPreviews.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center" }}>
+                      {menuPreviews.map((src, i) => (
+                        <div key={i} style={{ position: "relative" }}>
+                          <img
+                            src={src}
+                            alt={`Menu ${i + 1}`}
+                            style={{
+                              height: 80, width: 80, borderRadius: 8,
+                              objectFit: "cover", border: `1px solid ${A.border}`,
+                            }}
+                          />
+                          <button
+                            onClick={() => removeMenuImage(i)}
+                            aria-label="Remove photo"
+                            style={{
+                              position: "absolute", top: -6, right: -6,
+                              width: 20, height: 20, borderRadius: "50%",
+                              background: "#111", color: "#fff", border: "none",
+                              fontSize: 12, lineHeight: "20px", cursor: "pointer",
+                            }}>
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: 12, color: A.textMuted, margin: "6px 0 0", textAlign: "center" }}>
+                      {menuPreviews.length} photo{menuPreviews.length === 1 ? "" : "s"} selected{menuPreviews.length >= 6 ? " (max 6)" : ""}
                     </p>
                   </div>
                 )}
@@ -615,27 +678,30 @@ export default function StoreSetupPage() {
                   ref={menuFileRef}
                   type="file"
                   accept="image/*"
+                  multiple
                   style={{ display: "none" }}
                   onChange={handleMenuImageSelect}
                 />
 
                 {/* Upload button */}
-                <button
-                  onClick={() => {
-                    if (!warmupFiredRef.current) {
-                      warmupFiredRef.current = true;
-                      fetch("/api/store/warm-vision", { method: "POST", credentials: "include" }).catch(() => {});
-                    }
-                    menuFileRef.current?.click();
-                  }}
-                  style={{
-                    width: "100%", padding: "12px", borderRadius: 12,
-                    background: "#fff", color: A.text,
-                    border: `1.5px dashed ${A.border}`,
-                    fontSize: 14, cursor: "pointer", fontWeight: 500,
-                  }}>
-                  📷 {menuImage ? "Change image" : "Upload menu image"}
-                </button>
+                {menuImages.length < 6 && (
+                  <button
+                    onClick={() => {
+                      if (!warmupFiredRef.current) {
+                        warmupFiredRef.current = true;
+                        fetch("/api/store/warm-vision", { method: "POST", credentials: "include" }).catch(() => {});
+                      }
+                      menuFileRef.current?.click();
+                    }}
+                    style={{
+                      width: "100%", padding: "12px", borderRadius: 12,
+                      background: "#fff", color: A.text,
+                      border: `1.5px dashed ${A.border}`,
+                      fontSize: 14, cursor: "pointer", fontWeight: 500,
+                    }}>
+                    📷 {menuImages.length ? "Add another photo" : "Upload menu photos"}
+                  </button>
+                )}
 
                 {/* Skip */}
                 <button

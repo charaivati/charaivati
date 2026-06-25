@@ -21,14 +21,24 @@ type ResolvedItem = ParsedItem & {
   imageQuality: number;
 };
 
+// Unsplash (50/hr free tier) is rationed per store build; the rest of the menu's
+// images come from free providers (Pexels/Pixabay/Picsum). ponytail: per-build
+// cap, not a persistent per-user quota — for the normal one-store flow it's the
+// same thing. Switch to a Redis rolling counter only if users build many stores.
+const UNSPLASH_PER_BUILD = 10;
+
+type ResolveJob = { query: string; allowUnsplash: boolean };
+
 async function resolveInBatches(
-  queries: string[],
+  jobs: ResolveJob[],
   concurrency: number
 ): Promise<Array<{ url: string; provider: string; quality: number }>> {
   const results: Array<{ url: string; provider: string; quality: number }> = [];
-  for (let i = 0; i < queries.length; i += concurrency) {
-    const batch = queries.slice(i, i + concurrency);
-    const batchResults = await Promise.all(batch.map(q => resolveImage(q)));
+  for (let i = 0; i < jobs.length; i += concurrency) {
+    const batch = jobs.slice(i, i + concurrency);
+    const batchResults = await Promise.all(
+      batch.map(j => resolveImage(j.query, { allowUnsplash: j.allowUnsplash }))
+    );
     results.push(...batchResults);
   }
   return results;
@@ -65,14 +75,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // First UNSPLASH_PER_BUILD items (by menu order) may use Unsplash; the rest
+  // are routed to free providers to conserve quota.
+  const jobs: ResolveJob[] = allItems.map((it, idx) => ({
+    query: it.query,
+    allowUnsplash: idx < UNSPLASH_PER_BUILD,
+  }));
+
   // Items 0 and 1 resolved first (priority), then the rest in batches of 5
   const priorityCount = Math.min(2, allItems.length);
-  const priorityQueries = allItems.slice(0, priorityCount).map(i => i.query);
-  const restQueries     = allItems.slice(priorityCount).map(i => i.query);
 
   const [priorityImages, restImages] = await Promise.all([
-    resolveInBatches(priorityQueries, priorityCount || 1),
-    resolveInBatches(restQueries, 5),
+    resolveInBatches(jobs.slice(0, priorityCount), priorityCount || 1),
+    resolveInBatches(jobs.slice(priorityCount), 5),
   ]);
 
   const allImages = [...priorityImages, ...restImages];

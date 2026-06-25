@@ -6,7 +6,8 @@
       "Bash(npx tsc:*)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('exports',{}\\), indent=2\\)\\)\")",
       "mcp__Neon__run_sql",
-      "Bash(grep -i -E \"app[\\\\\\\\/]fleet|InitiativeTabs|book[\\\\\\\\/]route\")"
+      "Bash(grep -i -E \"app[\\\\\\\\/]fleet|InitiativeTabs|book[\\\\\\\\/]route\")",
+      "Bash(netstat -ano)"
     ]
   },
   "enabledMcpjsonServers": [

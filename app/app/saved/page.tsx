@@ -37,6 +37,8 @@ type Store = {
   description?: string | null;
   previewImage?: string | null;
   distanceKm?: number | null;
+  pageId?: string | null;
+  isFleet?: boolean;
 };
 
 type PinnedItem = {
@@ -245,7 +247,7 @@ export default function SavedPage() {
       .finally(() => setLoadingWishlist(false));
 
     Promise.all([
-      fetch("/api/store/all").then((r) => r.ok ? r.json() : { stores: [] }),
+      fetch("/api/store/all?includeFleet=1").then((r) => r.ok ? r.json() : { stores: [] }),
       fetch("/api/store/my-stores", { credentials: "include" }).then((r) => r.ok ? r.json() : { stores: [] }),
     ])
       .then(([allData, myData]) => {
@@ -263,6 +265,7 @@ export default function SavedPage() {
     if (!activeFilters) return;
     setLoadingFiltered(true);
     const params = new URLSearchParams();
+    params.set("includeFleet", "1");
     if (activeFilters.categoryIds.length)
       params.set("categoryIds", activeFilters.categoryIds.join(","));
     if (activeFilters.tagIds.length)
@@ -495,22 +498,33 @@ export default function SavedPage() {
           <div
             style={{
               width: 80, height: 80, borderRadius: 8, flexShrink: 0,
-              background: "linear-gradient(135deg,#6366f1,#818cf8)",
+              background: store.isFleet ? "linear-gradient(135deg,#f59e0b,#fbbf24)" : "linear-gradient(135deg,#6366f1,#818cf8)",
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
             }}
           >
-            🏪
+            {store.isFleet ? "🚛" : "🏪"}
           </div>
         )}
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 14, fontWeight: 600, color: A.text,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}
-          >
-            {store.name}
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div
+              style={{
+                fontSize: 14, fontWeight: 600, color: A.text,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}
+            >
+              {store.name}
+            </div>
+            {store.isFleet && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+                background: "#FEF3C7", color: "#B45309", textTransform: "uppercase",
+                letterSpacing: "0.05em", flexShrink: 0, whiteSpace: "nowrap",
+              }}>
+                🚛 Fleet
+              </span>
+            )}
           </div>
           {store.description && (
             <div
@@ -537,7 +551,7 @@ export default function SavedPage() {
           )}
 
           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            {!isOwn && (
+            {!isOwn && !store.isFleet && (
               <button
                 onClick={() => togglePin(store.id)}
                 disabled={toggling}
@@ -561,7 +575,7 @@ export default function SavedPage() {
             )}
 
             <a
-              href={`/store/${store.slug ?? store.id}`}
+              href={store.isFleet && store.pageId ? `/fleet/${store.pageId}` : `/store/${store.slug ?? store.id}`}
               style={{
                 padding: "5px 10px", borderRadius: 6,
                 fontSize: 11, fontWeight: 600,
@@ -570,7 +584,7 @@ export default function SavedPage() {
                 background: A.surface,
               }}
             >
-              {t("app-saved-visit", "Visit →")}
+              {store.isFleet ? "Book →" : t("app-saved-visit", "Visit →")}
             </a>
           </div>
         </div>

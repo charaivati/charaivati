@@ -332,6 +332,7 @@ New optional query params, all additive — existing callers (e.g. `/app/saved`,
 - `categoryIds` — comma-separated `StoreCategory.id` list
 - `tagIds` — comma-separated `StoreTag.id` list
 - `addressLat` / `addressLng` — floats; when both present, response is sorted by distance
+- `includeFleet` — `"1"` to opt Fleet-backed (`pageType === "fleet"`) Stores back into the result; default excludes them (FLEET-ORDER-1 — a Fleet's backing Store has no customer-orderable products). See `### Fleet discovery in /app/saved` below.
 
 **Filter semantics — OR within an axis, AND across axes (locked)**: each axis (`categoryIds`, `tagIds`) is only added to the `where.AND` array when it has selections. Within an axis, matching is `some: { id: { in: [...] } }` (OR). Across axes, the conditions are combined with `AND`:
 ```ts
@@ -347,8 +348,9 @@ A store matching ANY selected category AND ANY selected tag is returned. No filt
 
 **Response per store** (extended):
 ```ts
-{ id, name, slug, description, previewImage, lat, lng, acceptingOrders, categoryIds, tagIds, distanceKm }
+{ id, name, slug, description, previewImage, lat, lng, acceptingOrders, categoryIds, tagIds, distanceKm, pageId, isFleet }
 ```
+- `pageId` — the linked `Page.id` (or `null`); `isFleet` — `true` when `pageId` resolves to a `pageType === "fleet"` Page. Both are present on every row regardless of `includeFleet`, so a caller that explicitly opts a fleet in always knows to link `/fleet/{pageId}` instead of `/store/{slug|id}`.
 - `lat`/`lng`/`acceptingOrders` come from `lib/store/getStoreGeo.ts` — a raw-SQL batch helper mirroring `getStoreSlugs.ts` (`SELECT id, lat, lng, "acceptingOrders" FROM "Store" WHERE id IN (...)`), per the stale-Prisma-client doctrine — lat/lng are never put in a typed `select`.
 - `categoryIds`/`tagIds` come from batched `prisma.storeCategoryLink.findMany`/`storeTagLink.findMany` (typed — these models are current), grouped client-side into `{ [storeId]: id[] }` maps.
 - `distanceKm` — `haversineKm(addressLat, addressLng, store.lat, store.lng)` when both the address and the store have coordinates, else `null`. A store with no coordinates is **never excluded** — it just sorts last and shows "Distance unknown".
@@ -400,6 +402,19 @@ When filters are empty, `GET /api/store/all` is called with no filter params (re
 **UI strings** — 5 new `Tab`/`TabTranslation` keys seeded by `prisma/seed-saved-filters-ui.js` (standalone — `node prisma/seed-saved-filters-ui.js`) across all 16 enabled languages (80 rows): `app-saved-filter-button`, `app-saved-filter-active`, `app-saved-apply-filters`, `app-saved-clear-filters`, `app-saved-filter-modal-title`. English-copy fallback when `LIBRE_TRANSLATE_URL` is unset.
 
 **`/api/store/all` serves two surfaces** — both `/app/discover` and `/app/saved`'s Browse tab call this endpoint. The endpoint is fully filter-param-driven with no caller awareness. The gate (address required) is enforced by the page, not the API.
+
+### Fleet discovery in `/app/saved` (FLEET-DISCOVER-1)
+
+Fleet initiatives (`Page.pageType === "fleet"`) auto-create a backing `Store` row purely to reuse the block/delivery machinery (see `CLAUDE.md` § Fleet Initiative Type) — that Store has no real products, just internal delivery blocks, so `GET /api/store/all` excludes it by default (FLEET-ORDER-1). Before this prompt there was no customer-facing way to *find* a fleet at all (only a social-feed post link).
+
+`/app/saved` Browse → Stores now passes `includeFleet=1` on both the unfiltered and filtered fetches (`app/app/saved/page.tsx`), so fleets appear inline with regular stores. `/app/discover`'s map fetch is untouched (no `includeFleet` param) — fleets have no plottable product list there and stay excluded.
+
+`renderStoreCard` branches on the response's `isFleet` flag:
+- Placeholder: 🚛 amber gradient instead of the generic 🏪 indigo gradient, plus a small "🚛 Fleet" pill next to the store name.
+- Action link: `/fleet/{pageId}` labelled **"Book →"**, instead of `/store/{slug|id}` labelled "Visit →". **This is the one piece of code that must never regress** — `/store/[id]` deliberately hides every `serviceType: "delivery"` block (the FLEET-ORDER-1 footgun in `CLAUDE.md`), so linking a fleet card there renders an empty store.
+- Pin button hidden for fleets — pinning saves a `/store/{id}` reference (`POST /api/store/pinned`), which would persist a dead link.
+
+Verified with a temporary fixture (fleet Page + Store + delivery block) against the live route: default `/api/store/all` excludes it; `?includeFleet=1` returns it tagged `isFleet: true` with the correct `pageId`.
 
 ### Out of scope
 Distance-based pricing is **not** built here — `distanceKm` is sort/display only. Any future delivery-cost-by-distance feature for discovery is a separate schema change.

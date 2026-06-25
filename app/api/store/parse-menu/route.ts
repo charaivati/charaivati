@@ -3,6 +3,7 @@ import { v2 as cloudinary } from "cloudinary";
 import getServerUser from "@/lib/serverAuth";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
 import { prisma } from "@/lib/prisma";
+import { mergeMenuSections } from "@/lib/store/mergeMenuSections";
 
 cloudinary.config({
   cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
@@ -99,6 +100,9 @@ async function uploadMenuImage(
 // PRIMARY: NIM meta/llama-3.2-11b-vision-instruct
 // Image is passed as a public Cloudinary URL (not base64) — 2.5-5.4s, clean JSON.
 // nemotron-3-nano-omni was tested and rejected: silent vision failure (returns text, not image data).
+// One image per call — llama-3.2-11b-vision is a single-image model; multiple
+// images in one content array are silently ignored beyond the first. Batching
+// (one call per image, merged later) is what makes multi-photo menus work.
 async function extractMenuViaNIM(imageUrl: string): Promise<string> {
   const apiKey = process.env.NVIDIA_KEY?.trim();
   if (!apiKey) throw new Error("NVIDIA_KEY not set");
@@ -166,7 +170,7 @@ async function extractMenuViaOpenRouter(base64Image: string, mimeType: string): 
           ],
         },
       ],
-      max_tokens: 3000,
+      max_tokens: 2048,
       temperature: 0.1,
     }),
     signal: AbortSignal.timeout(60_000),
@@ -209,6 +213,34 @@ async function extractMenuViaOllama(base64Image: string): Promise<string> {
   return content;
 }
 
+// Run the provider cascade for ONE image and return its raw JSON string.
+// NIM uploads to Cloudinary and cleans up its own temp asset.
+async function extractOneImage(image: { base64: string; mimeType: string }): Promise<string> {
+  if (process.env.NVIDIA_KEY?.trim()) {
+    let publicId: string | null = null;
+    try {
+      const { url, publicId: pid } = await uploadMenuImage(image.base64, image.mimeType);
+      publicId = pid;
+      const out = await extractMenuViaNIM(url);
+      return out;
+    } catch (nimErr) {
+      console.error("[parse-menu] NIM failed for one image, falling back:", nimErr);
+      return process.env.OPENROUTER_API_KEY?.trim()
+        ? extractMenuViaOpenRouter(image.base64, image.mimeType)
+        : extractMenuViaOllama(image.base64);
+    } finally {
+      if (publicId) {
+        cloudinary.uploader
+          .destroy(publicId, { resource_type: "image" })
+          .catch((e) => console.error("[parse-menu] Cloudinary cleanup failed:", e));
+      }
+    }
+  }
+  return process.env.OPENROUTER_API_KEY?.trim()
+    ? extractMenuViaOpenRouter(image.base64, image.mimeType)
+    : extractMenuViaOllama(image.base64);
+}
+
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -222,10 +254,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Expected multipart/form-data" }, { status: 400 });
   }
 
-  const imageFile = formData.get("image") as File | null;
-  const storeId   = formData.get("storeId") as string | null;
+  const imageFiles = (formData.getAll("image") as File[]).filter((f) => f && f.size > 0).slice(0, 6);
+  const storeId    = formData.get("storeId") as string | null;
 
-  if (!imageFile || !storeId) {
+  if (!imageFiles.length || !storeId) {
     return NextResponse.json({ error: "image and storeId required" }, { status: 400 });
   }
 
@@ -234,121 +266,102 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // ─── Step 1: vision extraction ────────────────────────────────────────────
-  // Priority: NIM (Cloudinary URL) → OpenRouter (base64) → Ollama (base64)
-  // NIM path: image must be publicly reachable, so we upload to Cloudinary first.
+  // ─── Step 1: per-image vision extraction (batched) ────────────────────────
+  // Each image runs the provider cascade independently (the vision models are
+  // single-image), then results are merged. Concurrency is capped so we never
+  // fire all 6 at NIM at once (40 rpm limit — see CLAUDE.md).
 
-  const base64Image = Buffer.from(await imageFile.arrayBuffer()).toString("base64");
-  const mimeType = imageFile.type || "image/jpeg";
+  const images = await Promise.all(
+    imageFiles.map(async (f) => ({
+      base64: Buffer.from(await f.arrayBuffer()).toString("base64"),
+      mimeType: f.type || "image/jpeg",
+    }))
+  );
 
-  let publicId: string | null = null;
-
-  const cleanupTemp = (id: string | null) => {
-    if (!id) return;
-    cloudinary.uploader
-      .destroy(id, { resource_type: "image" })
-      .catch((e) => console.error("[parse-menu] Cloudinary cleanup failed:", e));
-  };
-
-  try {
-    let rawJson: string;
-    try {
-      if (process.env.NVIDIA_KEY?.trim()) {
-        try {
-          const { url: imageUrl, publicId: pid } = await uploadMenuImage(base64Image, mimeType);
-          publicId = pid;
-          rawJson = await extractMenuViaNIM(imageUrl);
-          cleanupTemp(publicId); // temp upload no longer needed after NIM extracts
-          publicId = null;
-        } catch (nimErr) {
-          console.error("[parse-menu] NIM failed, falling back:", nimErr);
-          cleanupTemp(publicId); // temp upload not needed for the OpenRouter/Ollama fallback
-          publicId = null;
-          rawJson = process.env.OPENROUTER_API_KEY?.trim()
-            ? await extractMenuViaOpenRouter(base64Image, mimeType)
-            : await extractMenuViaOllama(base64Image);
-        }
-      } else {
-        rawJson = process.env.OPENROUTER_API_KEY?.trim()
-          ? await extractMenuViaOpenRouter(base64Image, mimeType)
-          : await extractMenuViaOllama(base64Image);
-      }
-    } catch (err) {
-      console.error("[parse-menu] Step 1 (vision) failed:", err);
-      cleanupTemp(publicId); // 502 path
-      publicId = null;
-      return NextResponse.json({ error: "Menu extraction failed — please try again" }, { status: 502 });
+  const CONCURRENCY = 3; // ponytail: 6 fits 40 rpm, but stagger to avoid bursts
+  const rawResults: string[] = [];
+  for (let i = 0; i < images.length; i += CONCURRENCY) {
+    const settled = await Promise.allSettled(
+      images.slice(i, i + CONCURRENCY).map((img) => extractOneImage(img))
+    );
+    for (const s of settled) {
+      if (s.status === "fulfilled") rawResults.push(s.value);
+      else console.error("[parse-menu] image extraction failed:", s.reason);
     }
-
-    // ─── isMenu gate ─────────────────────────────────────────────────────────
-    // Both NIM and the updated OpenRouter/Ollama prompts return isMenu + confidence.
-    // Reject non-menu images before running the validator.
-
-    let step1: any = {};
-    try { step1 = safeJsonParse(rawJson); } catch { /* step1 stays {} */ }
-
-    if (
-      step1.isMenu === false ||
-      (typeof step1.confidence === "number" && step1.confidence < 0.4)
-    ) {
-      cleanupTemp(publicId); // isMenu gate: 400 early return
-      publicId = null;
-      return NextResponse.json(
-        { error: "This doesn't look like a menu. Please upload a photo of your menu or price list." },
-        { status: 400 }
-      );
-    }
-
-    // ─── Step 2: validation via chatComplete (OpenRouter → Groq → Vercel) ────
-
-    let validated: any;
-    try {
-      const validatorResponse = await chatComplete({
-        model: VALIDATOR_MODEL,
-        messages: [
-          { role: "system", content: VALIDATOR_SYSTEM },
-          { role: "user",   content: rawJson },
-        ],
-        maxTokens: 2000,
-        temperature: 0.1,
-      });
-
-      if (!validatorResponse.trim()) throw new Error("Validator returned empty content");
-      validated = safeJsonParse(validatorResponse);
-    } catch (err) {
-      console.error("[parse-menu] Step 2 (validation) failed:", err);
-      try {
-        validated = safeJsonParse(rawJson);
-        validated.flags = ["Validator unavailable — using raw extraction"];
-      } catch {
-        return NextResponse.json({ error: "Failed to parse menu data from image" }, { status: 500 });
-      }
-    }
-
-    const flags: string[] = validated.flags ?? [];
-    const lowConfidenceItems: string[] = [];
-
-    for (const section of validated.sections ?? []) {
-      for (const item of section.items ?? []) {
-        if (typeof item.confidence === "number" && item.confidence < 0.5) {
-          lowConfidenceItems.push(item.title ?? "(unnamed)");
-        }
-        delete item.confidence;
-      }
-    }
-
-    return NextResponse.json({
-      parsed: {
-        storeName: validated.storeName ?? null,
-        sections:  validated.sections  ?? [],
-        phone:     validated.phone     ?? null,
-        address:   validated.address   ?? null,
-        hours:     validated.hours     ?? null,
-      },
-      flags,
-      lowConfidenceItems,
-    });
-  } finally {
-    cleanupTemp(publicId); // last safety net for any unhandled exit path
   }
+
+  if (!rawResults.length) {
+    return NextResponse.json({ error: "Menu extraction failed — please try again" }, { status: 502 });
+  }
+
+  // ─── isMenu gate (per image) ──────────────────────────────────────────────
+  // Keep only images that parse as menus; a stray non-menu photo is skipped, not
+  // fatal. If NONE qualify, return the menu-gate 400.
+
+  const menuParsed: any[] = [];
+  for (const raw of rawResults) {
+    let p: any;
+    try { p = safeJsonParse(raw); } catch { continue; }
+    if (p.isMenu === false || (typeof p.confidence === "number" && p.confidence < 0.4)) continue;
+    if ((p.sections ?? []).length) menuParsed.push(p);
+  }
+
+  if (!menuParsed.length) {
+    return NextResponse.json(
+      { error: "This doesn't look like a menu. Please upload a photo of your menu or price list." },
+      { status: 400 }
+    );
+  }
+
+  const rawJson = JSON.stringify(mergeMenuSections(menuParsed));
+
+  // ─── Step 2: validation via chatComplete (OpenRouter → Groq → Vercel) ────
+
+  let validated: any;
+  try {
+    const validatorResponse = await chatComplete({
+      model: VALIDATOR_MODEL,
+      messages: [
+        { role: "system", content: VALIDATOR_SYSTEM },
+        { role: "user",   content: rawJson },
+      ],
+      maxTokens: 2000,
+      temperature: 0.1,
+    });
+
+    if (!validatorResponse.trim()) throw new Error("Validator returned empty content");
+    validated = safeJsonParse(validatorResponse);
+  } catch (err) {
+    console.error("[parse-menu] Step 2 (validation) failed:", err);
+    try {
+      validated = safeJsonParse(rawJson);
+      validated.flags = ["Validator unavailable — using raw extraction"];
+    } catch {
+      return NextResponse.json({ error: "Failed to parse menu data from image" }, { status: 500 });
+    }
+  }
+
+  const flags: string[] = validated.flags ?? [];
+  const lowConfidenceItems: string[] = [];
+
+  for (const section of validated.sections ?? []) {
+    for (const item of section.items ?? []) {
+      if (typeof item.confidence === "number" && item.confidence < 0.5) {
+        lowConfidenceItems.push(item.title ?? "(unnamed)");
+      }
+      delete item.confidence;
+    }
+  }
+
+  return NextResponse.json({
+    parsed: {
+      storeName: validated.storeName ?? null,
+      sections:  validated.sections  ?? [],
+      phone:     validated.phone     ?? null,
+      address:   validated.address   ?? null,
+      hours:     validated.hours     ?? null,
+    },
+    flags,
+    lowConfidenceItems,
+  });
 }

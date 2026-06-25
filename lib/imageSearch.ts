@@ -63,8 +63,15 @@ function getProviderOrder(): Array<(q: string) => Promise<ImageResult>> {
   return [fromPixabay, fromUnsplash, fromPexels];
 }
 
-export async function fetchImage(query: string): Promise<string | null> {
-  const providers = getProviderOrder();
+export async function fetchImage(
+  query: string,
+  opts: { allowUnsplash?: boolean } = {}
+): Promise<string | null> {
+  const { allowUnsplash = true } = opts;
+  let providers = getProviderOrder();
+  // allowUnsplash=false drops Unsplash from the chain so this query lands on a
+  // free provider (Pexels/Pixabay/Picsum) — used to ration Unsplash's quota.
+  if (!allowUnsplash) providers = providers.filter((p) => p !== fromUnsplash);
   for (const provider of providers) {
     const result = await provider(query);
     if (result?.url) {
@@ -77,6 +84,9 @@ export async function fetchImage(query: string): Promise<string | null> {
   return fallback?.url ?? null;
 }
 
-export async function fetchImages(queries: string[]): Promise<(string | null)[]> {
-  return Promise.all(queries.map(fetchImage));
+export async function fetchImages(
+  queries: string[],
+  opts: { allowUnsplash?: boolean } = {}
+): Promise<(string | null)[]> {
+  return Promise.all(queries.map((q) => fetchImage(q, opts)));
 }
