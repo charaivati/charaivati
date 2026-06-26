@@ -14,8 +14,9 @@ export async function POST(
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { pageId } = await params;
-  const { code } = await req.json();
-  if (!code || typeof code !== "string")
+  const raw = await req.json();
+  const code = typeof raw.code === "string" ? raw.code.trim() : String(raw.code ?? "").trim();
+  if (!code)
     return NextResponse.json({ error: "code required" }, { status: 400 });
 
   const transfer = await prisma.initiativeTransfer.findFirst({
@@ -29,18 +30,28 @@ export async function POST(
   if (!transfer.otpExpiresAt || transfer.otpExpiresAt < new Date())
     return NextResponse.json({ error: "Code expired. Start a new transfer." }, { status: 400 });
 
-  if (transfer.otpAttempts >= 5)
+  const MAX_ATTEMPTS = 5;
+  if (transfer.otpAttempts >= MAX_ATTEMPTS)
     return NextResponse.json({ error: "Too many attempts. Start a new transfer." }, { status: 429 });
 
   // Verify OTP
   const salt = Buffer.from(transfer.otpSalt ?? "", "hex");
   const computed = crypto.scryptSync(code, salt, 64).toString("hex");
   if (computed !== transfer.otpHash) {
+    const newAttempts = transfer.otpAttempts + 1;
     await prisma.initiativeTransfer.update({
       where: { id: transfer.id },
-      data: { otpAttempts: { increment: 1 } },
+      data: { otpAttempts: newAttempts },
     });
-    return NextResponse.json({ error: "Incorrect code" }, { status: 400 });
+    const remaining = MAX_ATTEMPTS - newAttempts;
+    return NextResponse.json(
+      {
+        error: remaining > 0
+          ? `Incorrect code. Check your most recent email. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+          : "Too many attempts. Start a new transfer.",
+      },
+      { status: 400 }
+    );
   }
 
   // Look up recipient — must have an existing account (MVP)

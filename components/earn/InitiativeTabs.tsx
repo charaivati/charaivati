@@ -246,6 +246,22 @@ export default function InitiativeTabs({
     } finally { setXferLoading(false); }
   }
 
+  async function handleTransferResend() {
+    if (!xfer?.toEmail || xferLoading) return;
+    setXferLoading(true); setXferOtp(""); setXferError(null);
+    try {
+      const res = await fetch(`/api/initiative/${pageId}/transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ toEmail: xfer.toEmail }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setXferError(d.error ?? "Something went wrong"); return; }
+      setXfer(d.transfer);
+    } finally { setXferLoading(false); }
+  }
+
   async function handleTransferOtp() {
     if (xferOtp.length !== 6 || xferLoading) return;
     setXferLoading(true); setXferError(null);
@@ -431,6 +447,13 @@ export default function InitiativeTabs({
                         Cancel
                       </button>
                     </div>
+                    <button
+                      onClick={handleTransferResend}
+                      disabled={xferLoading}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 disabled:opacity-40 underline-offset-2 hover:underline"
+                    >
+                      Resend code
+                    </button>
                   </div>
                 )}
 
