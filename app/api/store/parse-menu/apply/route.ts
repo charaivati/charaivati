@@ -21,23 +21,16 @@ type ResolvedItem = ParsedItem & {
   imageQuality: number;
 };
 
-// Unsplash (50/hr free tier) is rationed per store build; the rest of the menu's
-// images come from free providers (Pexels/Pixabay/Picsum). ponytail: per-build
-// cap, not a persistent per-user quota — for the normal one-store flow it's the
-// same thing. Switch to a Redis rolling counter only if users build many stores.
-const UNSPLASH_PER_BUILD = 10;
-
-type ResolveJob = { query: string; allowUnsplash: boolean };
-
 async function resolveInBatches(
-  jobs: ResolveJob[],
-  concurrency: number
+  queries: string[],
+  concurrency: number,
+  allowUnsplash: boolean
 ): Promise<Array<{ url: string; provider: string; quality: number }>> {
   const results: Array<{ url: string; provider: string; quality: number }> = [];
-  for (let i = 0; i < jobs.length; i += concurrency) {
-    const batch = jobs.slice(i, i + concurrency);
+  for (let i = 0; i < queries.length; i += concurrency) {
+    const batch = queries.slice(i, i + concurrency);
     const batchResults = await Promise.all(
-      batch.map(j => resolveImage(j.query, { allowUnsplash: j.allowUnsplash }))
+      batch.map(q => resolveImage(q, { allowUnsplash }))
     );
     results.push(...batchResults);
   }
@@ -63,7 +56,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Flatten all items in order so we can do a single batched resolution pass
+  // Flatten all items in order
   const allItems: Array<{ sectionIdx: number; itemIdx: number; query: string }> = [];
   for (let si = 0; si < parsed.sections.length; si++) {
     for (let ii = 0; ii < (parsed.sections[si].items ?? []).length; ii++) {
@@ -75,24 +68,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // First UNSPLASH_PER_BUILD items (by menu order) may use Unsplash; the rest
-  // are routed to free providers to conserve quota.
-  const jobs: ResolveJob[] = allItems.map((it, idx) => ({
-    query: it.query,
-    allowUnsplash: idx < UNSPLASH_PER_BUILD,
-  }));
-
-  // Items 0 and 1 resolved first (priority), then the rest in batches of 5
   const priorityCount = Math.min(2, allItems.length);
 
-  const [priorityImages, restImages] = await Promise.all([
-    resolveInBatches(jobs.slice(0, priorityCount), priorityCount || 1),
-    resolveInBatches(jobs.slice(priorityCount), 5),
+  // Product items → free providers only (Pexels/Pixabay/Picsum)
+  // Section banners + global banner → Unsplash (high-visibility slots)
+  // All four fetches run in parallel.
+  const [priorityImages, restImages, sectionImages, globalBannerImg] = await Promise.all([
+    resolveInBatches(allItems.slice(0, priorityCount).map(i => i.query), priorityCount || 1, false),
+    resolveInBatches(allItems.slice(priorityCount).map(i => i.query), 5, false),
+    Promise.all(parsed.sections.map(s => resolveImage(s.title, { allowUnsplash: true }))),
+    resolveImage(store.name ?? "restaurant food", { allowUnsplash: true }),
   ]);
 
   const allImages = [...priorityImages, ...restImages];
 
-  // Map resolved images back to sections
+  // Map resolved item images back to sections
   const resolvedSections: Array<{ title: string; items: ResolvedItem[] }> = parsed.sections.map(s => ({
     title: s.title,
     items: (s.items ?? []).map(item => ({ ...item, imageUrl: "", imageProvider: "picsum", imageQuality: 0 })),
@@ -106,7 +96,6 @@ export async function POST(req: NextRequest) {
     resolvedSections[sectionIdx].items[itemIdx].imageQuality  = img.quality;
   }
 
-  // Build sections in the same shape expected by ai-setup/apply but call Prisma directly
   let sectionCount = 0;
   let blockCount   = 0;
 
@@ -132,6 +121,27 @@ export async function POST(req: NextRequest) {
         });
         sectionCount++;
 
+        // One filter + Unsplash banner per section — mirrors what ai-setup/apply does
+        const filter = await tx.storeFilter.create({
+          data: { storeId, name: section.title, order: si + 1 },
+        });
+        const sectionBanner = await tx.storeBanner.create({
+          data: {
+            storeId,
+            isGlobal: false,
+            imageUrl: sectionImages[si].url,
+            heading: section.title,
+          },
+        });
+        await tx.storeFilter.update({
+          where: { id: filter.id },
+          data: { bannerId: sectionBanner.id },
+        });
+        await tx.storeSectionFilter.create({
+          data: { sectionId: createdSection.id, filterId: filter.id },
+        });
+
+        // Product blocks — free images (Pexels/Pixabay/Picsum)
         for (let ii = 0; ii < section.items.length; ii++) {
           const item = section.items[ii];
           await tx.storeBlock.create({
@@ -153,21 +163,15 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Global banner using the first product image
-      const firstImage = resolvedSections
-        .flatMap(s => s.items)
-        .find(i => i.imageUrl)?.imageUrl ?? null;
-
-      if (firstImage) {
-        await tx.storeBanner.create({
-          data: {
-            storeId,
-            isGlobal: true,
-            imageUrl: firstImage,
-            heading: store.name,
-          },
-        });
-      }
+      // Global banner — dedicated Unsplash image keyed on the store name
+      await tx.storeBanner.create({
+        data: {
+          storeId,
+          isGlobal: true,
+          imageUrl: globalBannerImg.url,
+          heading: store.name,
+        },
+      });
     }, { timeout: 30_000 });
   } catch (err) {
     console.error("[parse-menu/apply] transaction failed:", err);
