@@ -96,6 +96,7 @@ export async function POST(
       status: transfer.status,
       toEmail: transfer.toEmail,
       otpExpiresAt: transfer.otpExpiresAt,
+      sentTo: user.email,
     },
   });
 }

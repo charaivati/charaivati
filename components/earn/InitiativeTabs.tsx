@@ -97,7 +97,7 @@ export default function InitiativeTabs({
   const [taxonomySaveState,   setTaxonomySaveState]   = useState<"idle" | "saving" | "saved">("idle");
 
   // Transfer ownership state
-  type XferStatus = { id: string; status: string; toEmail: string; otpExpiresAt?: string | null; recipientExpiry?: string | null } | null;
+  type XferStatus = { id: string; status: string; toEmail: string; sentTo?: string | null; otpExpiresAt?: string | null; recipientExpiry?: string | null } | null;
   const [xfer,        setXfer]        = useState<XferStatus | undefined>(undefined); // undefined = not yet fetched
   const [xferEmail,   setXferEmail]   = useState("");
   const [xferOtp,     setXferOtp]     = useState("");
@@ -413,8 +413,11 @@ export default function InitiativeTabs({
                 {xfer?.status === "otp_pending" && (
                   <div className="space-y-3 pt-3">
                     <p className="text-xs text-gray-300">
-                      A 6-digit code was sent to your email. Enter it to confirm the transfer to{" "}
+                      A 6-digit code was sent to{" "}
+                      <strong className="text-white">{xfer.sentTo ?? "your email"}</strong>.
+                      {" "}Enter it to confirm the transfer to{" "}
                       <strong className="text-white">{xfer.toEmail}</strong>.
+                      {" "}Check your spam folder if you don't see it.
                     </p>
                     {xfer.otpExpiresAt && (
                       <p className="text-xs text-gray-500">

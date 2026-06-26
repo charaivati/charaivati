@@ -6,6 +6,7 @@ import QuickOrderModal from "@/components/store/QuickOrderModal";
 import DiscoveryFilterModal, { type DiscoveryFilters } from "@/components/store/DiscoveryFilterModal";
 import { FilterPill } from "@/components/store/FilterPill";
 import RequestsPage from "@/app/app/requests/page";
+import UnifiedSearch from "@/components/UnifiedSearch";
 import { useTranslations } from "@/hooks/useTranslations";
 
 const SAVED_SLUGS =
@@ -17,7 +18,7 @@ const SAVED_SLUGS =
   "app-saved-pin,app-saved-pinned-label,app-saved-pinning,app-saved-visit," +
   "app-saved-filter-button,app-saved-filter-active," +
   "app-discover-distance-km,app-discover-distance-unknown," +
-  "app-search-stores-tab,app-search-products-tab,app-search-services-tab," +
+  "app-search-stores-tab,app-search-products-tab,app-search-services-tab,app-search-people-tab," +
   "app-search-products-placeholder,app-search-products-no-results," +
   "app-search-products-heading,app-search-filter-by-category";
 
@@ -78,7 +79,7 @@ type ProductResult = {
   distanceKm: number | null;
 };
 
-type BrowseTab = "stores" | "products" | "services";
+type BrowseTab = "stores" | "products" | "services" | "people";
 
 function PinnedSkeleton() {
   return (
@@ -226,6 +227,47 @@ export default function SavedPage() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [productSearched, setProductSearched] = useState(false);
   const productDebounceRef = useRef<number | undefined>(undefined);
+
+  // People tab — friend/follow state (lazy-loaded on first tab open)
+  const [friendState, setFriendState] = useState<{ friends: string[]; outgoing: string[]; incoming: string[]; following: string[] }>({ friends: [], outgoing: [], incoming: [], following: [] });
+  const friendStateLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (browseTab !== "people" || friendStateLoadedRef.current) return;
+    friendStateLoadedRef.current = true;
+    Promise.all([
+      fetch("/api/user/friends", { credentials: "include" }),
+      fetch("/api/user/follows", { credentials: "include" }),
+    ])
+      .then(([fr, fo]) => Promise.all([fr.json(), fo.json()]))
+      .then(([fd, fod]) => {
+        setFriendState({
+          friends: (fd.friends ?? []).map((x: any) => x?.id ?? x),
+          outgoing: (fd.outgoingRequests ?? []).map((x: any) => x?.receiverId ?? x?.receiver?.id ?? x),
+          incoming: (fd.incomingRequests ?? []).map((x: any) => x?.senderId ?? x?.sender?.id ?? x),
+          following: (fod.follows ?? []).map((x: any) => x?.pageId ?? x),
+        });
+      })
+      .catch(() => {});
+  }, [browseTab]);
+
+  async function sendFriend(userId: string) {
+    await fetch("/api/user/friends", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ receiverId: userId }) });
+  }
+  async function unfriend(userId: string) {
+    await fetch("/api/friends/remove", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ friendId: userId }) });
+  }
+  async function followPage(pageId: string) {
+    await fetch("/api/user/follows", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pageId }) });
+  }
+  function handleFriendAction(_kind: "page" | "person", id: string, status: string) {
+    setFriendState((prev) => {
+      if (status === "requested") return { ...prev, outgoing: [...prev.outgoing, id] };
+      if (status === "unfriended") return { ...prev, friends: prev.friends.filter((x) => x !== id) };
+      if (status === "following") return { ...prev, following: [...prev.following, id] };
+      return prev;
+    });
+  }
 
   useEffect(() => {
     fetch("/api/store/pinned", { credentials: "include" })
@@ -840,9 +882,24 @@ export default function SavedPage() {
             <FilterPill active={browseTab === "services"} onClick={() => setBrowseTab("services")}>
               🔔 {t("app-search-services-tab", "Services")}
             </FilterPill>
+            <FilterPill active={browseTab === "people"} onClick={() => setBrowseTab("people")}>
+              👥 {t("app-search-people-tab", "People")}
+            </FilterPill>
           </div>
 
-          {browseTab === "services" ? (
+          {browseTab === "people" ? (
+            <div style={{ paddingTop: 4 }}>
+              <UnifiedSearch
+                placeholder="Search people or pages…"
+                friendState={friendState}
+                onSendFriend={sendFriend}
+                onUnfriend={unfriend}
+                onFollowPage={followPage}
+                onActionComplete={handleFriendAction}
+                className=""
+              />
+            </div>
+          ) : browseTab === "services" ? (
             <RequestsPage />
           ) : browseTab === "stores" ? (
             <>
