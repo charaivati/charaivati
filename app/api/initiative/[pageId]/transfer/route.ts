@@ -26,10 +26,16 @@ export async function POST(
   if (page.deletedAt)
     return NextResponse.json({ error: "Page is deleted" }, { status: 409 });
 
+  if (!user.email)
+    return NextResponse.json(
+      { error: "Your account needs an email address to transfer ownership." },
+      { status: 400 }
+    );
+
   const { toEmail } = await req.json();
   if (!toEmail || typeof toEmail !== "string")
     return NextResponse.json({ error: "toEmail required" }, { status: 400 });
-  if (toEmail.toLowerCase() === user.email?.toLowerCase())
+  if (toEmail.toLowerCase() === user.email.toLowerCase())
     return NextResponse.json({ error: "You cannot transfer to yourself" }, { status: 400 });
 
   // Cancel any existing non-terminal transfer for this page
@@ -56,16 +62,9 @@ export async function POST(
     },
   });
 
-  if (
-    process.env.NODE_ENV === "development" &&
-    (!process.env.EMAIL_USER || !process.env.EMAIL_PASS)
-  ) {
-    console.log(`\n[transfer] OTP (dev only): ${code}\n`);
-  }
-
   try {
     await sendEmail({
-      to: user.email!,
+      to: user.email,
       subject: `Confirm transfer of "${page.title}"`,
       text: `Your transfer confirmation code is: ${code}\n\nThis code expires in 10 minutes.\n\nIf you did not request this transfer, ignore this email.`,
       html: `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;background:#f4f4f5;padding:32px 16px;">
@@ -80,8 +79,14 @@ export async function POST(
     });
   } catch (e) {
     console.error("[transfer] sendEmail failed:", e);
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\n[transfer] OTP (dev — email not configured): ${code}\n`);
+    }
     await prisma.initiativeTransfer.delete({ where: { id: transfer.id } });
-    return NextResponse.json({ error: "email_send_failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Could not send confirmation email. Contact support." },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({

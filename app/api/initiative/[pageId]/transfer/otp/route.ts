@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import sendEmail from "@/lib/sendEmail";
+import { absoluteUrl } from "@/lib/config";
 import crypto from "crypto";
-
-const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://charaivati.com";
 
 // POST /api/initiative/[pageId]/transfer/otp — verify OTP, send recipient confirmation email
 export async function POST(
@@ -80,14 +79,7 @@ export async function POST(
     },
   });
 
-  const acceptUrl = `${BASE_URL}/api/initiative/transfer/accept?token=${rawToken}`;
-
-  if (
-    process.env.NODE_ENV === "development" &&
-    (!process.env.EMAIL_USER || !process.env.EMAIL_PASS)
-  ) {
-    console.log(`\n[transfer] Accept URL (dev only): ${acceptUrl}\n`);
-  }
+  const acceptUrl = absoluteUrl(`/api/initiative/transfer/accept?token=${rawToken}`);
 
   try {
     await sendEmail({
@@ -109,12 +101,17 @@ export async function POST(
     });
   } catch (e) {
     console.error("[transfer/otp] sendEmail to recipient failed:", e);
-    // Roll back — recipient doesn't get notified, restart needed
+    if (process.env.NODE_ENV === "development") {
+      console.log(`\n[transfer] Accept URL (dev — email not configured): ${acceptUrl}\n`);
+    }
     await prisma.initiativeTransfer.update({
       where: { id: transfer.id },
       data: { status: "cancelled" },
     });
-    return NextResponse.json({ error: "email_send_failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Could not send invitation email. Contact support." },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({
