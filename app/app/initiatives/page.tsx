@@ -252,6 +252,14 @@ export default function InitiativesPage() {
   // per-card delete tracking — null means no deletion in flight
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  type RevokableTransfer = {
+    id: string; pageId: string; toEmail: string;
+    completedAt: string; revokeDeadline: string;
+    page: { title: string; pageType: string } | null;
+  };
+  const [revokable,   setRevokable]   = useState<RevokableTransfer[]>([]);
+  const [revokingId,  setRevokingId]  = useState<string | null>(null);
+
   // post composer initiative selector
   const [selectedPageId, setSelectedPageId] = useState<string>("");
 
@@ -293,7 +301,24 @@ export default function InitiativesPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    fetch("/api/initiative/transfer", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : { transfers: [] })
+      .then((d) => setRevokable(d.transfers ?? []))
+      .catch(() => {});
   }, []);
+
+  async function handleRevoke(pageId: string, transferId: string) {
+    if (revokingId) return;
+    setRevokingId(transferId);
+    try {
+      const res = await fetch(`/api/initiative/${pageId}/transfer/revoke`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) setRevokable((prev) => prev.filter((t) => t.id !== transferId));
+    } finally { setRevokingId(null); }
+  }
 
   function resetCreateForm() {
     setNewTitle(""); setNewDesc(""); setSelectedType("store"); setCourseType("skill");
@@ -739,6 +764,60 @@ export default function InitiativesPage() {
                 );
               })}
             </>
+          )}
+
+          {/* Recently Transferred — show for 7 days after transfer, with revoke button */}
+          {revokable.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8, paddingLeft: 2 }}>
+                Recently Transferred
+              </p>
+              {revokable.map((t) => (
+                <div key={t.id} style={{
+                  background: "#fff", borderRadius: 12,
+                  border: "0.5px solid #e2e8f0", padding: "12px 14px",
+                  marginBottom: 8, opacity: 0.75,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "#374151", flex: 1 }}>
+                      {t.page?.title ?? "Initiative"}
+                    </span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+                      color: "#6B7280", background: "#F3F4F6",
+                      textTransform: "uppercase", letterSpacing: "0.08em",
+                    }}>Transferred</span>
+                  </div>
+                  <p style={{ fontSize: 12, color: "#9CA3AF", margin: "0 0 10px" }}>
+                    To {t.toEmail} · Revoke before {new Date(t.revokeDeadline).toLocaleDateString()}
+                  </p>
+                  <button
+                    onClick={() => handleRevoke(t.pageId, t.id)}
+                    disabled={revokingId !== null}
+                    style={{
+                      width: "100%", padding: "8px", borderRadius: 8,
+                      border: "1px solid #FCA5A5", background: "none", color: "#DC2626",
+                      fontSize: 13, fontWeight: 500,
+                      cursor: revokingId !== null ? "not-allowed" : "pointer",
+                      opacity: revokingId === t.id ? 0.5 : revokingId !== null ? 0.4 : 1,
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                      transition: "opacity 0.15s",
+                    }}
+                  >
+                    {revokingId === t.id && (
+                      <span style={{
+                        width: 11, height: 11,
+                        border: "2px solid rgba(239,68,68,0.3)",
+                        borderTopColor: "#EF4444",
+                        borderRadius: "50%", display: "inline-block",
+                        animation: "spin 0.7s linear infinite", flexShrink: 0,
+                      }} />
+                    )}
+                    {revokingId === t.id ? "Revoking…" : "Revoke Transfer"}
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
 
           {!loading && (

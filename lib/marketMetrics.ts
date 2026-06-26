@@ -51,27 +51,34 @@ function realizedVol(closes: number[], period = 20): number | null {
   return Math.sqrt(variance) * Math.sqrt(252) * 100;
 }
 
+// NaN guard: a wrong field name / missing data yields undefined → NaN, which
+// won't throw. Coerce to null so the AI sees an honest gap, never garbage.
+const nz = (x: number | null): number | null => (x !== null && Number.isFinite(x) ? x : null);
+
 export function computeMetrics(candles: Candle[], ltp: number): Metrics {
-  const closes = candles.map((c) => c[4]);
-  const highs = candles.map((c) => c[2]);
-  const lows = candles.map((c) => c[3]);
+  // drop rows where any OHLC field isn't a finite number (bad/partial candles)
+  const valid = candles.filter((c) => [c[1], c[2], c[3], c[4]].every(Number.isFinite));
+  const closes = valid.map((c) => c[4]);
+  const highs = valid.map((c) => c[2]);
+  const lows = valid.map((c) => c[3]);
   const high52w = highs.length ? Math.max(...highs) : null;
   const low52w = lows.length ? Math.min(...lows) : null;
+  const okLtp = Number.isFinite(ltp);
   return {
-    dma50: sma(closes, 50),
-    dma200: sma(closes, 200),
+    dma50: nz(sma(closes, 50)),
+    dma200: nz(sma(closes, 200)),
     high52w,
     low52w,
-    pctFrom52wHigh: high52w ? (ltp / high52w - 1) * 100 : null,
-    pctFrom52wLow: low52w ? (ltp / low52w - 1) * 100 : null,
+    pctFrom52wHigh: okLtp && high52w ? nz((ltp / high52w - 1) * 100) : null,
+    pctFrom52wLow: okLtp && low52w ? nz((ltp / low52w - 1) * 100) : null,
     returns: {
-      "1W": ret(closes, ltp, 5),
-      "1M": ret(closes, ltp, 21),
-      "3M": ret(closes, ltp, 63),
-      "6M": ret(closes, ltp, 126),
-      "1Y": ret(closes, ltp, 250),
+      "1W": okLtp ? nz(ret(closes, ltp, 5)) : null,
+      "1M": okLtp ? nz(ret(closes, ltp, 21)) : null,
+      "3M": okLtp ? nz(ret(closes, ltp, 63)) : null,
+      "6M": okLtp ? nz(ret(closes, ltp, 126)) : null,
+      "1Y": okLtp ? nz(ret(closes, ltp, 250)) : null,
     },
-    rsi14: rsi(closes, 14),
-    realizedVol20: realizedVol(closes, 20),
+    rsi14: nz(rsi(closes, 14)),
+    realizedVol20: nz(realizedVol(closes, 20)),
   };
 }

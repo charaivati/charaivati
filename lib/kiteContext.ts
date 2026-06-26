@@ -39,9 +39,14 @@ export async function buildContext(symbol: string, token: string): Promise<Stock
   ]);
 
   const quote = quoteData?.[`NSE:${sym}`];
-  if (!quote) throw new Error("No quote returned.");
+  if (!quote) throw new Error(`No quote for NSE:${sym} (keys: ${Object.keys(quoteData ?? {}).join(",")})`);
 
   const ltp: number = quote.last_price;
+  // canary: if last_price isn't a finite number the field mapping is wrong —
+  // fail loudly rather than emit a NaN-poisoned packet the AI will confidently judge.
+  if (!Number.isFinite(ltp)) {
+    throw new Error(`Quote for NSE:${sym} missing numeric last_price (got ${JSON.stringify(ltp)}) — check field mapping`);
+  }
   const candles: Candle[] = hist?.candles ?? [];
 
   let holding: Record<string, number> | null = null;

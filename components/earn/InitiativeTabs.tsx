@@ -96,6 +96,15 @@ export default function InitiativeTabs({
   const [selectedTagIds,      setSelectedTagIds]      = useState<string[]>([]);
   const [taxonomySaveState,   setTaxonomySaveState]   = useState<"idle" | "saving" | "saved">("idle");
 
+  // Transfer ownership state
+  type XferStatus = { id: string; status: string; toEmail: string; otpExpiresAt?: string | null; recipientExpiry?: string | null } | null;
+  const [xfer,        setXfer]        = useState<XferStatus | undefined>(undefined); // undefined = not yet fetched
+  const [xferEmail,   setXferEmail]   = useState("");
+  const [xferOtp,     setXferOtp]     = useState("");
+  const [xferLoading, setXferLoading] = useState(false);
+  const [xferError,   setXferError]   = useState<string | null>(null);
+  const [xferOpen,    setXferOpen]    = useState(false);
+
   // Fetch team role to determine edit permissions (founder / co_founder = can edit)
   useEffect(() => {
     fetch(`/api/initiative/${pageId}/team`, { credentials: "include" })
@@ -212,6 +221,60 @@ export default function InitiativeTabs({
     }
   }
 
+  useEffect(() => {
+    if (activeTab !== "overview" || xfer !== undefined) return;
+    fetch(`/api/initiative/${pageId}/transfer/status`, { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => setXfer(d?.transfer ?? null))
+      .catch(() => setXfer(null));
+  }, [activeTab, pageId, xfer]);
+
+  async function handleTransferInitiate() {
+    if (!xferEmail || xferLoading) return;
+    setXferLoading(true); setXferError(null);
+    try {
+      const res = await fetch(`/api/initiative/${pageId}/transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ toEmail: xferEmail }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setXferError(d.error ?? "Something went wrong"); return; }
+      setXfer(d.transfer);
+      setXferEmail("");
+    } finally { setXferLoading(false); }
+  }
+
+  async function handleTransferOtp() {
+    if (xferOtp.length !== 6 || xferLoading) return;
+    setXferLoading(true); setXferError(null);
+    try {
+      const res = await fetch(`/api/initiative/${pageId}/transfer/otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ code: xferOtp }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setXferError(d.error ?? "Something went wrong"); return; }
+      setXfer(d.transfer);
+      setXferOtp("");
+    } finally { setXferLoading(false); }
+  }
+
+  async function handleTransferCancel() {
+    if (xferLoading) return;
+    setXferLoading(true); setXferError(null);
+    try {
+      const res = await fetch(`/api/initiative/${pageId}/transfer`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) { setXfer(null); setXferOpen(false); }
+    } finally { setXferLoading(false); }
+  }
+
   async function handleOpenStore() {
     setOpeningStore(true);
     try {
@@ -289,6 +352,112 @@ export default function InitiativeTabs({
               </a>
             </>
           )}
+
+          {/* Transfer Ownership */}
+          <div className="border border-gray-800 rounded-xl overflow-hidden mt-2">
+            <button
+              onClick={() => setXferOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-900/30 transition-colors"
+            >
+              <span className="text-sm text-gray-500 font-medium">Transfer Ownership</span>
+              <span className="text-gray-700 text-xs">{xferOpen ? "▲" : "▼"}</span>
+            </button>
+
+            {xferOpen && (
+              <div className="px-4 pb-4 space-y-3 border-t border-gray-800">
+                {xfer === undefined && (
+                  <p className="text-xs text-gray-500 pt-3">Loading…</p>
+                )}
+
+                {/* Step 0 — idle */}
+                {xfer === null && (
+                  <div className="space-y-3 pt-3">
+                    <p className="text-xs text-orange-400/80">
+                      ⚠️ Transfers full control to another user. You have 7 days to revoke after they accept.
+                    </p>
+                    <input
+                      type="email"
+                      value={xferEmail}
+                      onChange={(e) => setXferEmail(e.target.value)}
+                      placeholder="Recipient's email address"
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+                    />
+                    {xferError && <p className="text-xs text-red-400">{xferError}</p>}
+                    <button
+                      onClick={handleTransferInitiate}
+                      disabled={xferLoading || !xferEmail}
+                      className="w-full py-2 rounded-lg bg-orange-700/80 text-white text-sm font-medium disabled:opacity-40 hover:bg-orange-700 transition-colors"
+                    >
+                      {xferLoading ? "Sending code…" : "Start Transfer"}
+                    </button>
+                  </div>
+                )}
+
+                {/* Step 1 — OTP pending */}
+                {xfer?.status === "otp_pending" && (
+                  <div className="space-y-3 pt-3">
+                    <p className="text-xs text-gray-300">
+                      A 6-digit code was sent to your email. Enter it to confirm the transfer to{" "}
+                      <strong className="text-white">{xfer.toEmail}</strong>.
+                    </p>
+                    {xfer.otpExpiresAt && (
+                      <p className="text-xs text-gray-500">
+                        Expires: {new Date(xfer.otpExpiresAt).toLocaleTimeString()}
+                      </p>
+                    )}
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={xferOtp}
+                      onChange={(e) => setXferOtp(e.target.value.replace(/\D/g, ""))}
+                      placeholder="123456"
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 text-center tracking-widest"
+                    />
+                    {xferError && <p className="text-xs text-red-400">{xferError}</p>}
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleTransferOtp}
+                        disabled={xferLoading || xferOtp.length !== 6}
+                        className="flex-1 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium disabled:opacity-40 hover:bg-indigo-700 transition-colors"
+                      >
+                        {xferLoading ? "Verifying…" : "Confirm"}
+                      </button>
+                      <button
+                        onClick={handleTransferCancel}
+                        disabled={xferLoading}
+                        className="px-4 py-2 rounded-lg border border-gray-700 text-gray-400 text-sm disabled:opacity-40 hover:border-gray-600 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2 — awaiting recipient */}
+                {xfer?.status === "awaiting_recipient" && (
+                  <div className="space-y-3 pt-3">
+                    <p className="text-xs text-gray-300">
+                      ✉️ Confirmation email sent to{" "}
+                      <strong className="text-white">{xfer.toEmail}</strong>. Waiting for them to accept.
+                    </p>
+                    {xfer.recipientExpiry && (
+                      <p className="text-xs text-gray-500">
+                        Link expires: {new Date(xfer.recipientExpiry).toLocaleString()}
+                      </p>
+                    )}
+                    <button
+                      onClick={handleTransferCancel}
+                      disabled={xferLoading}
+                      className="w-full py-2 rounded-lg border border-gray-700 text-gray-400 text-sm disabled:opacity-40 hover:border-gray-600 transition-colors"
+                    >
+                      {xferLoading ? "Cancelling…" : "Cancel Transfer"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

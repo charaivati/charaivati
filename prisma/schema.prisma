@@ -272,6 +272,7 @@ model Page {
   healthBookings    HealthBooking[]
   owner             User?              @relation("UserPages", fields: [ownerId], references: [id])
   followers         PageFollow[]
+  transfers         InitiativeTransfer[]
 
   @@index([ownerId])
 }
@@ -2070,4 +2071,28 @@ model StoreTagLink {
 
   @@id([storeId, tagId])
   @@index([tagId])
+}
+
+model InitiativeTransfer {
+  id              String    @id @default(cuid())
+  pageId          String
+  fromUserId      String
+  toEmail         String
+  toUserId        String?
+  status          String    @default("otp_pending")
+  // status values: otp_pending | awaiting_recipient | completed | revoked | cancelled
+  otpHash         String?
+  otpSalt         String?
+  otpExpiresAt    DateTime?
+  otpAttempts     Int       @default(0)
+  recipientToken  String?   @unique
+  recipientExpiry DateTime?
+  completedAt     DateTime?
+  revokeDeadline  DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  page            Page      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@index([fromUserId])
 }
