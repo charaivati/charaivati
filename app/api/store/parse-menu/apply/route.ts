@@ -121,6 +121,11 @@ export async function POST(req: NextRequest) {
         });
         sectionCount++;
 
+        // One tile per section so the store main page shows an image instead of a grey placeholder
+        await tx.sectionTile.create({
+          data: { sectionId: createdSection.id, label: section.title, imageUrl: sectionImages[si].url, order: 0 },
+        });
+
         // One filter + Unsplash banner per section — mirrors what ai-setup/apply does
         const filter = await tx.storeFilter.create({
           data: { storeId, name: section.title, order: si + 1 },
