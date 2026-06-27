@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import PartnersTab from "./PartnersTab";
 import StoreTaxonomyPicker, { StoreTaxonomy } from "./StoreTaxonomyPicker";
 import { useLanguage } from "@/components/LanguageProvider";
 import { useTranslations } from "@/hooks/useTranslations";
+import { uploadStoreImage } from "@/lib/store/uploadImage";
 
 const CommunityGroupStudio = dynamic(() => import("./CommunityGroupStudio"), { ssr: false });
 const WorkflowTab          = dynamic(() => import("./WorkflowTab"),          { ssr: false });
@@ -89,6 +90,9 @@ export default function InitiativeTabs({
   const [togglingOrders,  setTogglingOrders]  = useState(false);
   const [storeLocation,   setStoreLocation]   = useState<StoreLocation | null>(null);
   const [storeVpa,        setStoreVpa]        = useState<string | null | undefined>(undefined);
+  const [storeAvatarUrl,  setStoreAvatarUrl]  = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
   const [editingLocation, setEditingLocation] = useState(false);
   const [savingLocation,  setSavingLocation]  = useState(false);
   const [taxonomy,            setTaxonomy]            = useState<StoreTaxonomy | null>(null);
@@ -143,6 +147,7 @@ export default function InitiativeTabs({
         setStoreOpen(d.acceptingOrders ?? false);
         setStoreLocation(d.location ?? null);
         setStoreVpa(d.upiVpa ?? null);
+        setStoreAvatarUrl(d.avatarUrl ?? null);
         setSelectedCategoryIds(d.categoryIds ?? []);
         setSelectedTagIds(d.tagIds ?? []);
       })
@@ -198,6 +203,25 @@ export default function InitiativeTabs({
       }
     } finally {
       setSavingLocation(false);
+    }
+  }
+
+  async function handleAvatarUpload(file: File) {
+    if (!storeId || avatarUploading) return;
+    setAvatarUploading(true);
+    try {
+      const { url } = await uploadStoreImage(file, storeId);
+      setStoreAvatarUrl(url);
+      await fetch(`/api/store/${storeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ avatarUrl: url }),
+      });
+    } catch (e) {
+      console.error("[avatar upload]", e);
+    } finally {
+      setAvatarUploading(false);
     }
   }
 
@@ -555,16 +579,40 @@ export default function InitiativeTabs({
             </div>
           ) : storeId ? (
             <>
-              <a
-                href={`/store/${storeSlug ?? storeId}`}
-                className="flex items-center justify-between p-4 rounded-xl border border-emerald-800/60 bg-emerald-900/20 hover:bg-emerald-900/40 transition-colors"
-              >
-                <div>
-                  <p className="font-medium text-emerald-300">{storeName ?? "Your Store"}</p>
-                  <p className="text-sm text-gray-400 mt-0.5">View and manage your store</p>
+              {/* Store profile pic + visit link — single combined card */}
+              <div className="flex items-center gap-4 p-4 rounded-xl border border-emerald-800/60 bg-emerald-900/20">
+                <div
+                  className="relative w-16 h-16 rounded-full overflow-hidden flex-shrink-0"
+                  style={{ background: "#1f2937", border: "2px solid #374151", cursor: avatarUploading ? "default" : "pointer" }}
+                  onClick={() => !avatarUploading && avatarFileRef.current?.click()}
+                  title="Change store profile picture"
+                >
+                  {storeAvatarUrl
+                    ? <img src={storeAvatarUrl} alt="store avatar" className="w-full h-full object-cover" />
+                    : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>🏪</span>
+                  }
+                  <span style={{
+                    position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                    background: "rgba(0,0,0,0.5)", color: "#fff", fontSize: 18,
+                    opacity: avatarUploading ? 1 : 0, transition: "opacity 0.15s",
+                  }}
+                    onMouseEnter={e => { if (!avatarUploading) (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+                    onMouseLeave={e => { if (!avatarUploading) (e.currentTarget as HTMLElement).style.opacity = "0"; }}
+                  >
+                    {avatarUploading ? "⏳" : "📷"}
+                  </span>
                 </div>
-                <span className="text-emerald-400">→</span>
-              </a>
+                <input ref={avatarFileRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) { handleAvatarUpload(f); e.target.value = ""; } }}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-emerald-300">{storeName ?? "Your Store"}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {avatarUploading ? "Uploading…" : "Click photo to change · View and manage your store"}
+                  </p>
+                </div>
+                <a href={`/store/${storeSlug ?? storeId}`} className="text-emerald-400 text-lg flex-shrink-0">→</a>
+              </div>
 
               {/* Taking orders toggle */}
               <div className="flex items-center gap-4 p-4 rounded-xl border border-gray-800 bg-gray-900/50">

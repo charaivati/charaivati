@@ -60,6 +60,7 @@ export async function GET(
     acceptingOrders: boolean;
     hoursText: string | null;
     upiVpa: string | null;
+    avatarUrl: string | null;
     line1: string | null;
     city: string | null;
     state: string | null;
@@ -67,12 +68,13 @@ export async function GET(
     lat: number | null;
     lng: number | null;
   }[]>`
-    SELECT slug, "acceptingOrders", "hoursText", "upiVpa", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${storeId} LIMIT 1
+    SELECT slug, "acceptingOrders", "hoursText", "upiVpa", "avatarUrl", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${storeId} LIMIT 1
   `;
   const slug = extraRow[0]?.slug ?? null;
   const acceptingOrders = extraRow[0]?.acceptingOrders ?? false;
   const hoursText = extraRow[0]?.hoursText ?? null;
   const upiVpa = extraRow[0]?.upiVpa ?? null;
+  const avatarUrl = extraRow[0]?.avatarUrl ?? null;
   const location = {
     line1: extraRow[0]?.line1 ?? null,
     city: extraRow[0]?.city ?? null,
@@ -118,6 +120,7 @@ export async function GET(
     acceptingOrders,
     hoursText,
     upiVpa,
+    avatarUrl,
     location,
     sections: processedSections,
     filters,
@@ -145,7 +148,7 @@ export async function PATCH(
   if (store.deletedAt) return NextResponse.json({ error: "This store has been deleted. Restore it before making changes." }, { status: 409 });
 
   const body = await req.json();
-  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText, upiVpa, location, categoryIds, tagIds } = body;
+  const { name, description, deliveryFee, freeDeliveryAbove, acceptingOrders, hoursText, upiVpa, avatarUrl, location, categoryIds, tagIds } = body;
 
   if (Array.isArray(categoryIds) && categoryIds.length > 3) {
     return NextResponse.json({ error: "Pick up to 3 categories" }, { status: 400 });
@@ -195,6 +198,12 @@ export async function PATCH(
     await prisma.$executeRaw`UPDATE "Store" SET "upiVpa" = ${upiVpaUpdate} WHERE id = ${id}`;
   }
 
+  // avatarUrl — raw SQL, column added post-generate.
+  if ("avatarUrl" in body) {
+    const url = typeof avatarUrl === "string" ? avatarUrl.trim() || null : null;
+    await prisma.$executeRaw`UPDATE "Store" SET "avatarUrl" = ${url} WHERE id = ${id}`;
+  }
+
   // Store category/tag links (TAG-STORE-1c) — empty array clears, omitted key
   // leaves the table untouched. Category count is capped at 3 (checked above).
   if (Array.isArray(categoryIds)) {
@@ -220,6 +229,7 @@ export async function PATCH(
     acceptingOrders: boolean;
     hoursText: string | null;
     upiVpa: string | null;
+    avatarUrl: string | null;
     line1: string | null;
     city: string | null;
     state: string | null;
@@ -227,7 +237,7 @@ export async function PATCH(
     lat: number | null;
     lng: number | null;
   }[]>`
-    SELECT "acceptingOrders", "hoursText", "upiVpa", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${id} LIMIT 1
+    SELECT "acceptingOrders", "hoursText", "upiVpa", "avatarUrl", "line1", "city", "state", "pincode", "lat", "lng" FROM "Store" WHERE id = ${id} LIMIT 1
   `;
 
   return NextResponse.json({
@@ -235,6 +245,7 @@ export async function PATCH(
     acceptingOrders: extraRow[0]?.acceptingOrders ?? false,
     hoursText: extraRow[0]?.hoursText ?? null,
     upiVpa: extraRow[0]?.upiVpa ?? null,
+    avatarUrl: extraRow[0]?.avatarUrl ?? null,
     location: {
       line1: extraRow[0]?.line1 ?? null,
       city: extraRow[0]?.city ?? null,

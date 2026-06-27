@@ -120,10 +120,15 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return createdSections;
+      return { sections: createdSections, firstImage };
     }, { timeout: 30000 });
 
-    return NextResponse.json({ ok: true, sectionsCreated: results.length });
+    // Set avatar from first section image (outside transaction — raw SQL, stale-client pattern)
+    if (results.firstImage) {
+      await prisma.$executeRaw`UPDATE "Store" SET "avatarUrl" = ${results.firstImage} WHERE id = ${storeId}`;
+    }
+
+    return NextResponse.json({ ok: true, sectionsCreated: results.sections.length });
   } catch (err) {
     console.error("[ai-setup/apply] error:", err);
     return NextResponse.json({ error: "Failed to create store structure" }, { status: 500 });

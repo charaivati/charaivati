@@ -606,12 +606,24 @@ function BulkImageUploadModal({ storeId, onClose }: { storeId: string; onClose: 
   );
 }
 
-function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner, onToggleOrders }: {
+function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner, onToggleOrders, onRename, onAvatarUpload }: {
   store: Store; totalBlocks: number;
   isPinned: boolean; onPin: () => void; isOwner: boolean;
   onToggleOrders?: () => void;
+  onRename?: (name: string) => void;
+  onAvatarUpload?: (file: File) => void;
 }) {
   const open = store.acceptingOrders ?? false;
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [nameVal, setNameVal] = useState(store.name);
+  useEffect(() => { if (!editingName) setNameVal(store.name); }, [store.name]);
+
+  function commitName() {
+    setEditingName(false);
+    if (nameVal.trim() && nameVal.trim() !== store.name) onRename?.(nameVal.trim());
+  }
+
   return (
     <div className="w-full" style={{ background: A.surface, borderBottom: `1px solid ${A.border}` }}>
       {store.bannerUrl && <img src={store.bannerUrl} alt="banner" className="w-full h-40 sm:h-56 object-cover" />}
@@ -631,11 +643,55 @@ function StoreHero({ store, totalBlocks, isPinned, onPin, isOwner, onToggleOrder
       )}
 
       <div className="max-w-7xl mx-auto px-3 py-3 flex items-center gap-3">
-        <div className="w-12 h-12 rounded-full overflow-hidden" style={{ background: "#fff", border: `1px solid ${A.border}` }}>
-          {store.avatarUrl && <img src={store.avatarUrl} alt="avatar" className="w-full h-full object-cover" />}
+        {/* Avatar circle — clickable for owners */}
+        <div
+          className="relative w-12 h-12 rounded-full overflow-hidden flex-shrink-0"
+          style={{ background: "#f1f5f9", border: `1px solid ${A.border}`, cursor: isOwner ? "pointer" : "default" }}
+          onClick={() => isOwner && fileRef.current?.click()}
+          title={isOwner ? "Change profile picture" : undefined}
+        >
+          {store.avatarUrl
+            ? <img src={store.avatarUrl} alt="avatar" className="w-full h-full object-cover" />
+            : <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🏪</span>
+          }
+          {isOwner && (
+            <span style={{
+              position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+              background: "rgba(0,0,0,0.45)", color: "#fff", fontSize: 14, opacity: 0, transition: "opacity 0.15s",
+            }}
+              onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = "1")}
+              onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = "0")}
+            >📷</span>
+          )}
         </div>
-        <div className="min-w-0">
-          <h1 className="text-lg sm:text-xl font-bold truncate" style={{ color: A.text }}>{store.name}</h1>
+        {isOwner && (
+          <input ref={fileRef} type="file" accept="image/*" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) { onAvatarUpload?.(f); e.target.value = ""; } }}
+          />
+        )}
+
+        <div className="min-w-0 flex-1">
+          {editingName && isOwner ? (
+            <input
+              className="text-lg sm:text-xl font-bold w-full bg-transparent outline-none border-b"
+              style={{ color: A.text, borderColor: A.accent }}
+              value={nameVal}
+              autoFocus
+              onChange={e => setNameVal(e.target.value)}
+              onBlur={commitName}
+              onKeyDown={e => { if (e.key === "Enter") commitName(); if (e.key === "Escape") { setNameVal(store.name); setEditingName(false); } }}
+            />
+          ) : (
+            <h1
+              className="text-lg sm:text-xl font-bold truncate"
+              style={{ color: A.text, cursor: isOwner ? "text" : "default" }}
+              onClick={() => isOwner && setEditingName(true)}
+              title={isOwner ? "Click to rename" : undefined}
+            >
+              {store.name}
+              {isOwner && <span style={{ color: A.textMuted, fontSize: 11, marginLeft: 5, verticalAlign: "middle" }}>✎</span>}
+            </h1>
+          )}
           <div className="flex items-center gap-2 flex-wrap">
             {store.slug && (
               <span className="text-xs font-mono" style={{ color: A.textMuted }}>@{store.slug}</span>
@@ -1173,6 +1229,35 @@ export default function StorePage() {
     }
   }
 
+  async function handleRename(newName: string) {
+    if (!store || !newName.trim() || newName.trim() === store.name) return;
+    const prev = store.name;
+    setStore({ ...store, name: newName.trim() });
+    const res = await fetch(`/api/store/${store.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ name: newName.trim() }),
+    });
+    if (!res.ok) setStore({ ...store, name: prev });
+  }
+
+  async function handleAvatarUpload(file: File) {
+    if (!store) return;
+    try {
+      const { url } = await uploadStoreImage(file, store.id);
+      setStore({ ...store, avatarUrl: url });
+      await fetch(`/api/store/${store.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ avatarUrl: url }),
+      });
+    } catch (e) {
+      console.error("[avatar upload]", e);
+    }
+  }
+
   async function handlePinStore() {
     if (!store) return;
     const res = await fetch("/api/store/pinned", {
@@ -1252,7 +1337,7 @@ export default function StorePage() {
         <>
           <FilterBar filters={storeFilters} activeFilterId={activeFilterId} onFilterChange={setActiveFilterId} editMode={editMode && store.isOwner} onEditFilters={() => setShowManageFilters(true)} />
           <BannerZone banner={activeBanner} globalBanner={globalBanner} editMode={editMode && store.isOwner} onEdit={() => setShowManageFilters(true)} />
-          <StoreHero store={store} totalBlocks={totalBlocks} isPinned={isPinned} onPin={handlePinStore} isOwner={store.isOwner} onToggleOrders={store.isOwner ? handleToggleOrders : undefined} />
+          <StoreHero store={store} totalBlocks={totalBlocks} isPinned={isPinned} onPin={handlePinStore} isOwner={store.isOwner} onToggleOrders={store.isOwner ? handleToggleOrders : undefined} onRename={store.isOwner ? handleRename : undefined} onAvatarUpload={store.isOwner ? handleAvatarUpload : undefined} />
         </>
       )}
 

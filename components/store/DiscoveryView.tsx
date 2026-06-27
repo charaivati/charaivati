@@ -6,6 +6,8 @@ import AddressForm, { type AddressFormData } from "@/components/shared/AddressFo
 import { useTranslations } from "@/hooks/useTranslations";
 import { useLanguage } from "@/components/LanguageProvider";
 import { FilterPill } from "./FilterPill";
+import StoreMapCard from "./StoreMapCard";
+import type { DiscoveryMapStore } from "./DiscoveryMap";
 
 const DiscoveryMap = dynamic(() => import("./DiscoveryMap"), { ssr: false });
 
@@ -79,6 +81,7 @@ export default function DiscoveryView({ addresses: initialAddresses, initialAddr
   const [view, setView] = useState<"map" | "list">("list");
   const [stores, setStores] = useState<DiscoveryStore[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedMapStore, setSelectedMapStore] = useState<DiscoveryMapStore | null>(null);
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId) ?? null;
 
@@ -105,8 +108,8 @@ export default function DiscoveryView({ addresses: initialAddresses, initialAddr
     }
     fetch(`/api/store/all?${params.toString()}`)
       .then((r) => r.json())
-      .then((json) => setStores(json.stores ?? []))
-      .catch(() => setStores([]))
+      .then((json) => { setStores(json.stores ?? []); setSelectedMapStore(null); })
+      .catch(() => { setStores([]); setSelectedMapStore(null); })
       .finally(() => setLoading(false));
   }, [selectedAddressId, selectedCategoryIds, selectedTagIds, selectedAddress?.lat, selectedAddress?.lng]);
 
@@ -262,13 +265,30 @@ export default function DiscoveryView({ addresses: initialAddresses, initialAddr
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ height: 360, borderRadius: 12, overflow: "hidden" }}>
             <DiscoveryMap
-              stores={mapStores.map((s) => ({ id: s.id, name: s.name, slug: s.slug, lat: s.lat, lng: s.lng }))}
+              stores={mapStores.map((s) => ({
+                id: s.id,
+                name: s.name,
+                slug: s.slug,
+                description: s.description,
+                previewImage: s.previewImage,
+                acceptingOrders: s.acceptingOrders,
+                distanceKm: s.distanceKm,
+                lat: s.lat,
+                lng: s.lng,
+              }))}
               selectedAddress={
                 selectedAddress?.lat != null && selectedAddress?.lng != null
                   ? { lat: selectedAddress.lat, lng: selectedAddress.lng }
                   : null
               }
+              onStoreClick={setSelectedMapStore}
             />
+            {selectedMapStore && (
+              <StoreMapCard
+                store={selectedMapStore}
+                onClose={() => setSelectedMapStore(null)}
+              />
+            )}
           </div>
           {missingCount > 0 && (
             <p style={{ fontSize: 12, color: A.textMuted, textAlign: "center" }}>

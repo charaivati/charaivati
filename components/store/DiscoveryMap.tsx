@@ -7,6 +7,10 @@ export interface DiscoveryMapStore {
   id: string;
   name: string;
   slug?: string | null;
+  description?: string | null;
+  previewImage?: string | null;
+  acceptingOrders?: boolean;
+  distanceKm?: number | null;
   lat: number;
   lng: number;
 }
@@ -14,16 +18,19 @@ export interface DiscoveryMapStore {
 interface DiscoveryMapProps {
   stores: DiscoveryMapStore[];
   selectedAddress: { lat: number; lng: number } | null;
+  onStoreClick: (store: DiscoveryMapStore) => void;
 }
 
 const FALLBACK_CENTER: [number, number] = [22.5726, 88.3639]; // Kolkata
 
-export default function DiscoveryMap({ stores, selectedAddress }: DiscoveryMapProps) {
+export default function DiscoveryMap({ stores, selectedAddress, onStoreClick }: DiscoveryMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
   const storeLayerRef = useRef<LayerGroup | null>(null);
-  const storeMarkersRef = useRef<Map<string, Marker> | null>(null);
   const addressMarkerRef = useRef<Marker | null>(null);
+  // Keep latest onStoreClick in a ref so marker closures don't go stale
+  const onStoreClickRef = useRef(onStoreClick);
+  useEffect(() => { onStoreClickRef.current = onStoreClick; });
 
   // Boot Leaflet once — guard against double-init from React Strict Mode
   useEffect(() => {
@@ -59,26 +66,25 @@ export default function DiscoveryMap({ stores, selectedAddress }: DiscoveryMapPr
 
       mapRef.current = map;
       storeLayerRef.current = L.layerGroup().addTo(map);
-      storeMarkersRef.current = new globalThis.Map();
     });
 
     return () => {
       mapRef.current?.remove();
       mapRef.current = null;
       storeLayerRef.current = null;
-      storeMarkersRef.current = null;
       addressMarkerRef.current = null;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once only
 
-  // Diff store markers
+  // Rebuild store markers on every stores change (clear+add avoids stale-marker _leaflet_pos crash)
   useEffect(() => {
+    let cancelled = false;
     if (!mapRef.current) return;
     import("leaflet").then((L) => {
-      if (!mapRef.current || !storeLayerRef.current || !storeMarkersRef.current) return;
-      const markers = storeMarkersRef.current;
-      const seen = new Set<string>();
+      if (cancelled || !mapRef.current || !storeLayerRef.current) return;
+
+      storeLayerRef.current.clearLayers();
 
       const icon = L.divIcon({
         html: `<div style="font-size:28px;line-height:1;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.35))">🏪</div>`,
@@ -86,33 +92,20 @@ export default function DiscoveryMap({ stores, selectedAddress }: DiscoveryMapPr
       });
 
       for (const store of stores) {
-        seen.add(store.id);
-        const existing = markers.get(store.id);
-        if (existing) {
-          existing.setLatLng([store.lat, store.lng]);
-        } else {
-          const marker = L.marker([store.lat, store.lng], { icon })
-            .addTo(storeLayerRef.current)
-            .bindPopup(`<b>${store.name}</b>`);
-          markers.set(store.id, marker);
-        }
-      }
-
-      // Remove markers for stores no longer present
-      for (const [id, marker] of markers) {
-        if (!seen.has(id)) {
-          storeLayerRef.current.removeLayer(marker);
-          markers.delete(id);
-        }
+        L.marker([store.lat, store.lng], { icon })
+          .addTo(storeLayerRef.current!)
+          .on("click", () => onStoreClickRef.current(store));
       }
     });
+    return () => { cancelled = true; };
   }, [stores]);
 
   // Selected address marker
   useEffect(() => {
+    let cancelled = false;
     if (!mapRef.current || !selectedAddress) return;
     import("leaflet").then((L) => {
-      if (!mapRef.current) return;
+      if (cancelled || !mapRef.current) return;
       const { lat, lng } = selectedAddress;
       const icon = L.divIcon({
         html: `<div style="width:14px;height:14px;border-radius:50%;background:#2563EB;border:3px solid white;box-shadow:0 0 0 3px rgba(37,99,235,0.3)"></div>`,
@@ -127,6 +120,7 @@ export default function DiscoveryMap({ stores, selectedAddress }: DiscoveryMapPr
       }
       mapRef.current.setView([lat, lng], 13);
     });
+    return () => { cancelled = true; };
   }, [selectedAddress]);
 
   return (
