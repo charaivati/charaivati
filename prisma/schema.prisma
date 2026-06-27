@@ -1757,6 +1757,45 @@ model ImageCache {
   lastUsedAt  DateTime @updatedAt
 }
 
+model CityLivingCost {
+  id            String   @id @default(cuid())
+  city          String
+  state         String?
+  country       String
+  currency      String   @default("INR")
+  rent1br       Float?
+  foodMonthly   Float?
+  transportPass Float?
+  utilities     Float?
+  mealCheap     Float?
+  internetMo    Float?
+  source        String
+  updatedAt     DateTime @updatedAt
+  @@unique([city, country])
+}
+
+model CountryLivingCost {
+  id            String   @id @default(cuid())
+  country       String   @unique
+  countryCode   String?
+  localCurrency String?
+  isDeveloping  Boolean?
+  // Numbeo CSV data (USD)
+  rent1brOutUSD Float?
+  rent1brCtrUSD Float?
+  mealCheapUSD  Float?
+  mealMidUSD    Float?
+  transportUSD  Float?
+  utilitiesUSD  Float?
+  internetUSD   Float?
+  salaryUSD     Float?
+  // World Bank
+  cpiLatest     Float?
+  cpiPrev       Float?
+  gdpPerCapUSD  Float?
+  fetchedAt     DateTime @updatedAt
+}
+
 model GuardrailEvent {
   id             String   @id @default(cuid())
   userId         String?

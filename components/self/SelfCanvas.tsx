@@ -591,7 +591,7 @@ function ExpandedPanel({
           />
         )}
         {id === "network"     && <CirclesPanel />}
-        {id === "funds"       && <FundsSection funds={fundsProfile} goals={goals} generalSkills={generalSkills} pages={pages} drives={drives} onChange={onFundsChange} />}
+        {id === "funds"       && <FundsSection funds={fundsProfile} goals={goals} generalSkills={generalSkills} pages={pages} drives={drives} onChange={onFundsChange} environmentProfile={environmentProfile} />}
         {id === "environment" && (
           <EnvironmentSection
             env={environmentProfile}

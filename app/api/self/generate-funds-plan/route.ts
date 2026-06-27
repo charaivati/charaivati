@@ -3,10 +3,10 @@ import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
 
 const FUNDS_MODEL = process.env.FUNDS_AI_MODEL ?? "openai/gpt-4o-mini";
 
-const SYSTEM_PROMPT = `You are a financial independence advisor for an Indian user building their life around a personal drive.
+const SYSTEM_PROMPT = `You are a financial independence advisor helping a user build financial independence around their personal drive.
 Your suggestions must be grounded in the user's actual drive, goals, skills, and businesses — never generic.
 Suggest income opportunities that connect directly to what they are already working on.
-All amounts in INR. User location: Rajarhat, Kolkata, West Bengal.
+All amounts in the user's local currency (default INR for India).
 Respond ONLY in JSON matching this exact structure:
 {
   "suggestions": ["string"],
@@ -28,6 +28,19 @@ function buildPrompt(body: Record<string, unknown>): string {
   const expenses   = body.totalExpenses   ?? 0;
   const netWorth   = body.netWorth        ?? 0;
   const runway     = body.runwayMonths    ?? 0;
+  const city       = body.city       as string | undefined;
+  const state      = body.state      as string | undefined;
+  const country    = body.country    as string | undefined;
+  const benchmarks = body.cityBenchmarks as Record<string, number> | undefined;
+  const macro      = body.macro      as { inflationRate?: number; gdpPerCapUSD?: number } | undefined;
+
+  const locationLine = [city, state, country].filter(Boolean).join(", ");
+  const benchmarkLines = benchmarks ? [
+    benchmarks.rent1br      && `Rent (1BR): ₹${benchmarks.rent1br}/mo`,
+    benchmarks.foodMonthly  && `Food/groceries: ₹${benchmarks.foodMonthly}/mo`,
+    benchmarks.transportPass && `Transport pass: ₹${benchmarks.transportPass}/mo`,
+    benchmarks.utilities    && `Utilities: ₹${benchmarks.utilities}/mo`,
+  ].filter(Boolean).join(", ") : null;
 
   return `
 Drive: ${drive}
@@ -38,11 +51,15 @@ Current monthly income: ₹${income}
 Current monthly expenses: ₹${expenses}
 Net worth: ₹${netWorth}
 Runway: ${runway} months
+${locationLine ? `User location: ${locationLine}` : ""}
+${benchmarkLines ? `Local cost benchmarks (${locationLine}): ${benchmarkLines}` : ""}
+${macro?.inflationRate != null ? `Local inflation: ${macro.inflationRate}%` : ""}
+${macro?.gdpPerCapUSD  != null ? `Country GDP/capita: $${Math.round(macro.gdpPerCapUSD)}` : ""}
 
 Give me:
-1. 4–5 income opportunities specific to my profile (title, rationale explaining why it fits ME, effort level)
-2. A 3-sentence savings plan
-3. One government scheme I am most likely to qualify for (include in incomeOpportunities with effort level)
+1. 4–5 income opportunities specific to my profile and location (title, rationale explaining why it fits ME, effort level)
+2. A 3-sentence savings plan grounded in local costs
+3. One government scheme I am most likely to qualify for in my location (include in incomeOpportunities)
 `.trim();
 }
 

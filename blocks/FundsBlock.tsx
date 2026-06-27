@@ -13,6 +13,7 @@ import { useAIBlock } from "@/hooks/useAIBlock";
 import type {
   GoalEntry, SkillEntry, PageItem, DriveType, FundsProfile,
   FundItem, FundGroup, FutureCost, IncomeOpportunity, AIFundsPlanV2,
+  EnvironmentProfile,
 } from "@/types/self";
 
 // ─── Local alias matching spec interface name ─────────────────────────────────
@@ -579,6 +580,20 @@ function OpportunityCard({ opp }: { opp: IncomeOpportunity }) {
 
 // ─── FundsSection ─────────────────────────────────────────────────────────────
 
+type CityData = {
+  benchmarks: Record<string, number>;
+  source: string;
+  label: string;
+  macro?: { inflationRate?: number; gdpPerCapUSD?: number } | null;
+} | null;
+
+const SOURCE_BADGE: Record<string, string> = {
+  city:         "text-green-400",
+  state_avg:    "text-amber-400",
+  country_avg:  "text-sky-400",
+  country:      "text-sky-400",
+};
+
 export function FundsSection({
   funds,
   goals,
@@ -586,6 +601,7 @@ export function FundsSection({
   pages,
   drives,
   onChange,
+  environmentProfile,
 }: {
   funds: FundsProfile;
   goals: GoalEntry[];
@@ -593,6 +609,7 @@ export function FundsSection({
   pages: PageItem[];
   drives: DriveType[];
   onChange: (f: FundsProfile) => void;
+  environmentProfile?: EnvironmentProfile;
 }) {
   const drive = drives[0] ?? "building";
 
@@ -609,6 +626,73 @@ export function FundsSection({
     funds.futureCosts?.length   ? funds.futureCosts   : buildInitialFutureCosts());
   const [fundsPlanV2,   setFundsPlanV2]   = useState<AIFundsPlan | null>(funds.fundsPlanV2 ?? null);
   const [isExpanded,    setIsExpanded]    = useState(false);
+  const [cityData,      setCityData]      = useState<CityData>(null);
+  const [localCity,     setLocalCity]     = useState(environmentProfile?.location?.city    || environmentProfile?.city    || "");
+  const [localCountry,  setLocalCountry]  = useState(environmentProfile?.location?.country || environmentProfile?.country || "");
+  const [locSaving,     setLocSaving]     = useState(false);
+  const [editingLoc,    setEditingLoc]    = useState(false);
+  const [locStatus,     setLocStatus]     = useState<"found" | "not-found" | null>(null);
+  const [draftCity,     setDraftCity]     = useState("");
+  const [draftCountry,  setDraftCountry]  = useState("");
+
+  // Fetch city benchmarks whenever localCity/localCountry changes
+  useEffect(() => {
+    if (!localCity || !localCountry) return;
+    const params = new URLSearchParams({ city: localCity, country: localCountry });
+    fetch(`/api/city/cost-of-living?${params}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => d && setCityData(d))
+      .catch(() => {});
+  }, [localCity, localCountry]);
+
+  async function saveLocation(city: string, country: string) {
+    setLocSaving(true);
+    setLocStatus(null);
+    try {
+      const existing: any = environmentProfile ?? {};
+      await fetch("/api/user/profile", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          environmentProfile: {
+            ...existing,
+            location: { city, country, timezone: existing.location?.timezone ?? "" },
+            city,
+            country,
+          },
+        }),
+      });
+      // Bust cache so a stale "none" entry (from before data was seeded) doesn't block validation
+      const params = new URLSearchParams({ city, country, bust: "1" });
+      const d = await fetch(`/api/city/cost-of-living?${params}`).then(r => r.ok ? r.json() : null);
+      if (d) setCityData(d);
+      setLocStatus(d?.source !== "none" ? "found" : "not-found");
+      setLocalCity(city);
+      setLocalCountry(country);
+      setEditingLoc(false);
+    } finally {
+      setLocSaving(false);
+    }
+  }
+
+  function fillFromBenchmarks() {
+    if (!cityData?.benchmarks) return;
+    const b = cityData.benchmarks as any;
+    const FILL: Record<string, number | undefined> = {
+      "hous-rent":  b.rent1br,
+      "liv-food":   b.foodMonthly,
+      "tr-commute": b.transportPass,
+    };
+    const updated = expenseGroups.map(g => ({
+      ...g,
+      items: g.items.map(item =>
+        item.id in FILL && !item.value ? { ...item, value: FILL[item.id] ?? 0 } : item
+      ),
+    }));
+    setExpenseGroups(updated);
+    saveAll({ eg: updated });
+  }
 
   // ── Merge newly added goals/skills/pages into existing saved state ────────────
   useEffect(() => {
@@ -725,6 +809,9 @@ export function FundsSection({
   const { loading, generate } = useAIBlock<AIFundsPlan>("/api/self/generate-funds-plan");
 
   function handleGenerate() {
+    const city    = localCity;
+    const country = localCountry;
+    const state   = (environmentProfile?.location as { state?: string })?.state;
     generate(
       {
         drive,
@@ -735,6 +822,11 @@ export function FundsSection({
         totalExpenses,
         netWorth,
         runwayMonths: isFinite(runwayMonths) ? runwayMonths : 999,
+        ...(city    && { city }),
+        ...(country && { country }),
+        ...(state   && { state }),
+        ...(cityData?.benchmarks && { cityBenchmarks: cityData.benchmarks }),
+        ...(cityData?.macro      && { macro: cityData.macro }),
       },
       (data) => {
         setFundsPlanV2(data);
@@ -754,6 +846,10 @@ export function FundsSection({
       <MetricPill label="Net worth" value={formatINR(netWorth)} />
       <MetricPill label="Income"    value={formatINR(totalIncome)} />
       <MetricPill label="Burn"      value={formatINR(totalExpenses)} />
+      {cityData && cityData.source !== "none" && cityData.benchmarks.rent1br && cityData.benchmarks.foodMonthly && (
+        <MetricPill label={`${cityData.label} avg`}
+          value={formatINR((cityData.benchmarks.rent1br ?? 0) + (cityData.benchmarks.foodMonthly ?? 0) + (cityData.benchmarks.transportPass ?? 0))} />
+      )}
       <MetricPill label="Runway"    value={runwayLabel} />
       <MetricPill label="Score"     value={`${independenceScore}`} highlight />
     </div>
@@ -790,12 +886,60 @@ export function FundsSection({
     { id: "st-cc",    label: "Credit card balance" },
   ];
 
+  const locationWidget = (
+    <div onClick={e => e.stopPropagation()} className="flex items-center mr-1">
+      {editingLoc ? (
+        <div className="flex items-center gap-1">
+          <input
+            value={draftCity}
+            onChange={e => setDraftCity(e.target.value)}
+            placeholder="City"
+            className="text-[10px] w-20 bg-gray-800 rounded px-1.5 py-0.5 text-white outline-none border border-gray-700"
+          />
+          <input
+            value={draftCountry}
+            onChange={e => setDraftCountry(e.target.value)}
+            placeholder="Country"
+            className="text-[10px] w-20 bg-gray-800 rounded px-1.5 py-0.5 text-white outline-none border border-gray-700"
+          />
+          <button
+            onClick={() => saveLocation(draftCity.trim(), draftCountry.trim())}
+            disabled={locSaving || !draftCity.trim() || !draftCountry.trim()}
+            className="text-[10px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 disabled:opacity-40"
+          >
+            {locSaving ? "…" : "Save"}
+          </button>
+          <button onClick={() => setEditingLoc(false)} className="text-[10px] text-gray-500 px-1 hover:text-gray-300">✕</button>
+        </div>
+      ) : localCity ? (
+        <button
+          onClick={() => { setDraftCity(localCity); setDraftCountry(localCountry); setEditingLoc(true); }}
+          className="text-[9px] text-gray-400 bg-gray-800/60 px-2 py-0.5 rounded-full hover:bg-gray-700/60 flex items-center gap-1"
+          title="Edit location"
+        >
+          📍 {localCity}{localCountry ? `, ${localCountry}` : ""}
+          {locStatus === "not-found" && <span className="text-amber-400 ml-0.5" title="City not in database — saved for AI context">⚠</span>}
+          {locStatus === "found"     && <span className="text-green-400 ml-0.5">✓</span>}
+          <span className="text-gray-600 ml-0.5 text-[8px]">✎</span>
+        </button>
+      ) : (
+        <button
+          onClick={() => { setDraftCity(""); setDraftCountry(""); setEditingLoc(true); }}
+          className="text-[9px] text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-full hover:bg-sky-500/20 border border-sky-500/20"
+        >
+          📍 Add location
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <CollapsibleSection
       title="Funds & Independence"
       subtitle="Balance sheet · Cash flow · Independence score"
       defaultOpen={true}
       collapsedPreview={collapsedPreview}
+      headerExtra={locationWidget}
     >
       <div className="space-y-5 pt-1">
 
@@ -874,6 +1018,26 @@ export function FundsSection({
                   <span className="text-[9px] text-gray-600 uppercase tracking-wider">Total</span>
                   <span className="text-[11px] font-bold text-white tabular-nums">{formatINR(totalExpenses)}</span>
                 </div>
+                {cityData && cityData.source !== "none" && (
+                  <div className="mt-1.5 rounded px-2 py-1 bg-gray-800/50 space-y-0.5">
+                    <div className="flex justify-between items-center">
+                      <span className={`text-[9px] uppercase tracking-wider ${SOURCE_BADGE[cityData.source] ?? "text-gray-500"}`}>
+                        {cityData.label} benchmarks
+                      </span>
+                    </div>
+                    {(cityData.benchmarks as any).rent1br      && <div className="flex justify-between text-[9px] text-gray-500"><span>Rent</span><span>{formatINR((cityData.benchmarks as any).rent1br)}/mo</span></div>}
+                    {(cityData.benchmarks as any).foodMonthly  && <div className="flex justify-between text-[9px] text-gray-500"><span>Food</span><span>{formatINR((cityData.benchmarks as any).foodMonthly)}/mo</span></div>}
+                    {(cityData.benchmarks as any).transportPass && <div className="flex justify-between text-[9px] text-gray-500"><span>Transport</span><span>{formatINR((cityData.benchmarks as any).transportPass)}/mo</span></div>}
+                    {(cityData.benchmarks as any).utilities     && <div className="flex justify-between text-[9px] text-gray-500"><span>Utilities</span><span>{formatINR((cityData.benchmarks as any).utilities)}/mo</span></div>}
+                    {cityData.macro?.inflationRate != null && <div className="flex justify-between text-[9px] text-gray-500"><span>Inflation</span><span>{cityData.macro.inflationRate}%</span></div>}
+                    <button
+                      onClick={fillFromBenchmarks}
+                      className="mt-1 w-full text-[9px] py-1 rounded bg-sky-500/15 text-sky-400 hover:bg-sky-500/25 font-medium"
+                    >
+                      ↓ Fill expense estimates from {cityData.label}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
