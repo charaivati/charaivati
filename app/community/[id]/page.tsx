@@ -62,6 +62,178 @@ type GroupPost = {
   user: { id: string; name: string | null; avatarUrl: string | null };
 };
 
+type PostComment = {
+  id: string;
+  postId: string;
+  userId: string;
+  parentId: string | null;
+  content: string;
+  createdAt: string;
+  userName: string | null;
+  userAvatar: string | null;
+  replies: PostComment[];
+};
+
+function CommentThread({
+  groupId, postId, currentUserId, isAdmin,
+}: { groupId: string; postId: string; currentUserId: string | null; isAdmin: boolean }) {
+  const [comments, setComments] = useState<PostComment[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [replyTo, setReplyTo] = useState<{ id: string; name: string | null } | null>(null);
+
+  function load() {
+    if (loaded) return;
+    fetch(`/api/community-group/${groupId}/posts/${postId}/comments`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => { if (d.ok) setComments(d.comments); })
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }
+
+  function toggle() {
+    if (!open) load();
+    setOpen((o) => !o);
+  }
+
+  async function submit() {
+    if (!text.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/community-group/${groupId}/posts/${postId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ content: text.trim(), parentId: replyTo?.id ?? null }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setText("");
+        if (replyTo) {
+          // Append reply to the correct parent
+          setComments((prev) => prev.map((c) =>
+            c.id === data.comment.parentId
+              ? { ...c, replies: [...c.replies, data.comment] }
+              : c
+          ));
+          setReplyTo(null);
+        } else {
+          setComments((prev) => [...prev, data.comment]);
+        }
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function deleteComment(commentId: string, parentId: string | null) {
+    await fetch(`/api/community-group/${groupId}/posts/${postId}/comments/${commentId}`, {
+      method: "DELETE", credentials: "include",
+    });
+    if (parentId) {
+      setComments((prev) => prev.map((c) =>
+        c.id === parentId ? { ...c, replies: c.replies.filter((r) => r.id !== commentId) } : c
+      ));
+    } else {
+      setComments((prev) => prev.filter((c) => c.id !== commentId));
+    }
+  }
+
+  const canComment = !!currentUserId;
+  const totalCount = comments.reduce((n, c) => n + 1 + c.replies.length, 0);
+
+  return (
+    <div className="border-t border-gray-800 mt-2 pt-2">
+      <button onClick={toggle} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
+        {open ? "Hide comments" : `💬 ${totalCount > 0 ? totalCount : "Add a"} comment${totalCount !== 1 ? "s" : ""}`}
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {/* Comment list */}
+          {comments.map((c) => (
+            <div key={c.id} className="space-y-2">
+              <div className="flex gap-2 group">
+                <span className="w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-xs text-gray-300 font-bold flex-shrink-0">
+                  {(c.userName?.[0] ?? "?").toUpperCase()}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="bg-gray-800 rounded-xl px-3 py-2 text-sm text-gray-200">
+                    <span className="font-medium text-gray-100 mr-1">{c.userName ?? "Unknown"}</span>
+                    {c.content}
+                  </div>
+                  <div className="flex gap-3 mt-1 ml-1">
+                    {canComment && (
+                      <button onClick={() => { setReplyTo({ id: c.id, name: c.userName }); }} className="text-xs text-gray-600 hover:text-emerald-400 transition-colors">Reply</button>
+                    )}
+                    {(isAdmin || c.userId === currentUserId) && (
+                      <button onClick={() => deleteComment(c.id, null)} className="text-xs text-gray-600 hover:text-red-400 transition-colors">Delete</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Replies */}
+              {c.replies.map((r) => (
+                <div key={r.id} className="flex gap-2 ml-8">
+                  <span className="w-5 h-5 rounded-full bg-gray-700 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
+                    {(r.userName?.[0] ?? "?").toUpperCase()}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="bg-gray-800/70 rounded-xl px-3 py-1.5 text-sm text-gray-300">
+                      <span className="font-medium text-gray-200 mr-1">{r.userName ?? "Unknown"}</span>
+                      {r.content}
+                    </div>
+                    {(isAdmin || r.userId === currentUserId) && (
+                      <button onClick={() => deleteComment(r.id, c.id)} className="text-xs text-gray-600 hover:text-red-400 mt-0.5 ml-1 transition-colors">Delete</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {/* Compose */}
+          {canComment && (
+            <div className="flex gap-2 items-start">
+              <div className="flex-1 space-y-1">
+                {replyTo && (
+                  <div className="flex items-center gap-1 text-xs text-emerald-400">
+                    <span>Replying to {replyTo.name ?? "comment"}</span>
+                    <button onClick={() => setReplyTo(null)} className="text-gray-500 hover:text-gray-300 ml-1">✕</button>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
+                    placeholder={replyTo ? `Reply to ${replyTo.name ?? "comment"}…` : "Write a comment…"}
+                    className="flex-1 bg-gray-800 text-sm text-white rounded-full px-4 py-2 placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <button
+                    onClick={submit}
+                    disabled={submitting || !text.trim()}
+                    className="px-3 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+                  >
+                    {submitting ? "…" : "Send"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!canComment && (
+            <p className="text-xs text-gray-600">Sign in to comment.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CommunityGroupPublicPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -625,6 +797,12 @@ export default function CommunityGroupPublicPage() {
                     )}
                   </div>
                   <p className="text-sm text-gray-200 whitespace-pre-wrap">{post.content}</p>
+                  <CommentThread
+                    groupId={group.id}
+                    postId={post.id}
+                    currentUserId={currentUserId}
+                    isAdmin={isAdmin}
+                  />
                 </div>
               ))}
             </div>
