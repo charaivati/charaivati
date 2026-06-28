@@ -19,6 +19,8 @@
 // prompt (after the static + semi-static blocks).
 
 import { db } from "@/lib/db";
+import { computeEnergy } from "@/lib/self/energy";
+import type { HealthProfile, EnvironmentProfile, WeekSchedule, FundsProfile } from "@/types/self";
 import { normalizePersonality, summarizePersonalityForComposer, type PersonalityData } from "@/lib/listener/personality";
 
 const PERSONALITY_COMPOSER_THRESHOLD = 0.3;
@@ -58,7 +60,10 @@ async function buildLocalBlock(userId: string, opts: UserContextOptions): Promis
   const [profile, pages, ucp, personalityRow] = await Promise.all([
     db.profile.findUnique({
       where: { userId },
-      select: { drives: true, goals: true, stepsToday: true, sleepHours: true, health: true, generalSkills: true },
+      select: {
+        drives: true, goals: true, health: true, generalSkills: true,
+        environmentProfile: true, fundsProfile: true, weekSchedule: true,
+      },
     }),
     db.page.findMany({
       where: { ownerId: userId, status: "active" },
@@ -89,14 +94,15 @@ Avoid suggesting changes to their profile or goals — ask first.
 --- END ---`;
   }
 
-  const stepsToday = profile?.stepsToday ?? 0;
-  const sleepHours = profile?.sleepHours ?? 0;
-  let energyScore = 50;
-  if (stepsToday > 0 || sleepHours > 0) {
-    const stepScore = Math.min((stepsToday / 10000) * 40, 40);
-    const sleepScore = Math.min((sleepHours / 8) * 40, 40);
-    energyScore = Math.round(stepScore + sleepScore + 20);
-  }
+  // Energy — the SAME computation the Self-page Energy block uses (lib/self/energy),
+  // folding health + environment + time/schedule + funds. Was previously a separate
+  // crude steps+sleep formula here that ignored the health block entirely.
+  const energy = computeEnergy(
+    (profile?.health ?? {}) as HealthProfile,
+    (profile?.environmentProfile ?? undefined) as EnvironmentProfile | undefined,
+    (profile?.weekSchedule ?? undefined) as WeekSchedule | undefined,
+    (profile?.fundsProfile ?? undefined) as FundsProfile | undefined,
+  );
 
   const drivesStr = drives.length > 0 ? drives.join(", ") : "not set";
 
@@ -113,7 +119,7 @@ Avoid suggesting changes to their profile or goals — ask first.
   const lines: string[] = [
     `Drives: ${drivesStr}`,
     `Active goals: ${goalsStr}`,
-    `Energy score: ${energyScore}/100`,
+    `Energy: ${energy.overall}/10 (physical ${energy.physical}, mental ${energy.mental}, joy ${energy.joy}, funds ${energy.funds})`,
     `Active initiatives: ${initiativesStr}`,
     `Current section: ${currentSection}`,
   ];

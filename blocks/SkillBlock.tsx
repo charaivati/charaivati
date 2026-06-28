@@ -136,11 +136,19 @@ function SkillEditModal({
 
 // ─── Skill Row ────────────────────────────────────────────────────────────────
 
-export function SkillRow({ skill, onEdit, onRemove }: {
+export function SkillRow({ skill, onEdit, onRemove, onSetStatus }: {
   skill: SkillEntry;
   onEdit: () => void;
   onRemove: () => void;
+  onSetStatus: (status: "have" | "learn") => void;
 }) {
+  // Triage (SKILL-TRIAGE-1): "Have" = already capable (not a learning target);
+  // "Learn" = a study target. Neither highlighted = AI-suggested, not yet decided.
+  const seg = (active: boolean, color: string) =>
+    `px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors ${
+      active ? color : "border-gray-700 text-gray-500 hover:text-gray-300"
+    }`;
+
   return (
     <div className="flex items-center gap-2 group py-0.5">
       <span className="text-gray-600 flex-shrink-0 text-base leading-none">·</span>
@@ -148,6 +156,16 @@ export function SkillRow({ skill, onEdit, onRemove }: {
         className="flex-1 min-w-0 text-left text-sm text-gray-200 hover:text-white transition-colors truncate">
         {skill.name}
       </button>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button type="button" onClick={e => { e.stopPropagation(); onSetStatus("have"); }}
+          className={seg(skill.status === "have", "border-green-500/50 bg-green-500/10 text-green-300")}>
+          Have
+        </button>
+        <button type="button" onClick={e => { e.stopPropagation(); onSetStatus("learn"); }}
+          className={seg(skill.status === "learn", "border-sky-500/50 bg-sky-500/10 text-sky-300")}>
+          Learn
+        </button>
+      </div>
       <button type="button" onClick={e => { e.stopPropagation(); onRemove(); }}
         className="text-gray-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0">
         <Trash2 className="w-3 h-3" />
@@ -284,6 +302,7 @@ function GoalSkillBox({
             <SkillRow key={skill.id} skill={skill}
               onEdit={() => openEdit(skill)}
               onRemove={() => onUpdateGoalSkills(goal.id, goal.skills.filter(gs => gs.id !== skill.id))}
+              onSetStatus={(status) => onUpdateGoalSkills(goal.id, goal.skills.map(gs => gs.id === skill.id ? { ...gs, status } : gs))}
             />
           ))}
           {namedSkills.length === 0 && !skillsLoading[goal.id] && (
@@ -380,6 +399,7 @@ function GeneralSkillBox({
             <SkillRow key={skill.id} skill={skill}
               onEdit={() => openEdit(skill)}
               onRemove={() => onUpdateGeneralSkills(generalSkills.filter(gs => gs.id !== skill.id))}
+              onSetStatus={(status) => onUpdateGeneralSkills(generalSkills.map(gs => gs.id === skill.id ? { ...gs, status } : gs))}
             />
           ))}
           {namedSkills.length === 0 && (

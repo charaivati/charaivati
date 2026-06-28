@@ -7,6 +7,10 @@ export type SkillEntry = {
   name: string;
   level: "Beginner" | "Intermediate" | "Advanced";
   monetize: boolean;
+  // Triage state (SKILL-TRIAGE-1): "have" = already capable, not a learning target;
+  // "learn" = a study target (drives the learning list); absent = AI-suggested,
+  // awaiting the user's Have/Learn decision in the Skills block.
+  status?: "have" | "learn";
 };
 
 export type Phase = {

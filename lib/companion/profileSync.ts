@@ -9,7 +9,7 @@
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
-import type { DriveType, GoalEntry, SkillEntry } from "@/types/self";
+import type { DriveType, GoalEntry } from "@/types/self";
 import type { DriveSignal } from "@/lib/companion/signalParser";
 
 export const DRIVE_SIGNAL_TO_TYPE: Record<DriveSignal, DriveType> = {
@@ -26,7 +26,6 @@ export const DRIVE_LABELS: Record<DriveType, string> = {
   doing: "Doing",
 };
 
-const VALID_LEVELS = new Set(["Beginner", "Intermediate", "Advanced"]);
 const SKILLS_MODEL = process.env.SKILLS_AI_MODEL ?? "openai/gpt-4o-mini";
 
 export type ProfileProposal =
@@ -149,33 +148,6 @@ export async function tryProposeGoal({
   }
 }
 
-async function suggestSkillsFor(statement: string): Promise<SkillEntry[]> {
-  try {
-    const raw = await chatComplete({
-      model: SKILLS_MODEL,
-      messages: [
-        { role: "system", content: "You are a career coach. Respond ONLY with valid JSON — no markdown, no explanation." },
-        {
-          role: "user",
-          content: `Goal: "${statement}"\n\nReturn ONLY this JSON: {"needsSkills":true,"skills":[{"name":"Skill Name","level":"Beginner","monetize":false}]} with 3-5 skills, or {"needsSkills":false,"skills":[]} if no learnable skills are needed.`,
-        },
-      ],
-      maxTokens: 300,
-    });
-    const parsed = safeJsonParse<{ needsSkills: boolean; skills: Array<{ name: string; level: string; monetize: boolean }> }>(raw);
-    if (!parsed?.needsSkills || !Array.isArray(parsed.skills)) return [];
-    return parsed.skills.slice(0, 5).map((s, i) => ({
-      id: `ai-${i}-${Date.now()}`,
-      name: String(s.name ?? "").slice(0, 100),
-      level: (VALID_LEVELS.has(s.level) ? s.level : "Beginner") as SkillEntry["level"],
-      monetize: Boolean(s.monetize),
-    }));
-  } catch (err) {
-    console.error("[profileSync] suggestSkillsFor failed:", err);
-    return [];
-  }
-}
-
 /** Performs the actual Profile write for an accepted proposal. */
 export async function applyProfileProposal(userId: string, proposal: ProfileProposal) {
   const profile = await db.profile.findUnique({ where: { userId } });
@@ -192,15 +164,16 @@ export async function applyProfileProposal(userId: string, proposal: ProfileProp
   } else if (proposal.type === "health") {
     data.health = { ...health, [proposal.payload.field]: proposal.payload.value };
   } else if (proposal.type === "goal") {
-    const skills = await suggestSkillsFor(proposal.payload.statement);
+    // SKILL-TRIAGE-1: do NOT auto-suggest skills here. The chat asks the user
+    // first (gap:goal-skills card → Skills block), where they add what they know
+    // or tap Suggest, then mark each Have/Learn. Seed one empty placeholder so the
+    // goal's skill box renders with Add/Suggest controls.
     const newGoal: GoalEntry = {
       id: `g${randomUUID().replace(/-/g, "").slice(0, 20)}`,
       driveId: proposal.payload.driveType,
       statement: proposal.payload.statement,
       description: proposal.payload.description,
-      skills: skills.length
-        ? skills
-        : [{ id: `s${randomUUID().replace(/-/g, "").slice(0, 8)}`, name: "", level: "Beginner", monetize: false }],
+      skills: [{ id: `s${randomUUID().replace(/-/g, "").slice(0, 8)}`, name: "", level: "Beginner", monetize: false }],
       linkedBusinessIds: [],
       saved: true,
     };

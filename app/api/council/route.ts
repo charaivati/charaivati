@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { callAI } from "@/app/api/aiClient";
 import { COUNCIL_PERSONAS, buildPersonaPrompt, type UserContext } from "@/lib/ai/councilPersonas";
 import { warmContextOverrides, loadSection } from "@/lib/ai/contextLoader";
+import { computeEnergy } from "@/lib/self/energy";
+import type { HealthProfile, EnvironmentProfile, WeekSchedule, FundsProfile } from "@/types/self";
 
 export async function POST(req: Request) {
   const requestStart = Date.now();
@@ -29,17 +31,22 @@ export async function POST(req: Request) {
 
   const profile = await db.profile.findUnique({
     where: { userId },
-    select: { drives: true, goals: true, stepsToday: true, sleepHours: true },
+    select: {
+      drives: true, goals: true, health: true,
+      environmentProfile: true, fundsProfile: true, weekSchedule: true,
+    },
   });
 
-  const stepsToday = profile?.stepsToday ?? 0;
-  const sleepHours = profile?.sleepHours ?? 0;
-  let energyScore = 50;
-  if (stepsToday > 0 || sleepHours > 0) {
-    const stepScore = Math.min((stepsToday / 10000) * 40, 40);
-    const sleepScore = Math.min((sleepHours / 8) * 40, 40);
-    energyScore = Math.round(stepScore + sleepScore + 20);
-  }
+  // Energy via the shared Self-page computation (health + env + time + funds),
+  // not the old steps+sleep formula. Kept on a 0-100 scale for the existing
+  // `/100` persona prompt and `/10` verdict display below.
+  const energy = computeEnergy(
+    (profile?.health ?? {}) as HealthProfile,
+    (profile?.environmentProfile ?? undefined) as EnvironmentProfile | undefined,
+    (profile?.weekSchedule ?? undefined) as WeekSchedule | undefined,
+    (profile?.fundsProfile ?? undefined) as FundsProfile | undefined,
+  );
+  const energyScore = energy.overall * 10;
 
   const drives = Array.isArray(profile?.drives)
     ? (profile.drives as string[]).join(", ")
