@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
 
-const PROTECTED_ROUTES = ["/self", "/nation", "/earth", "/society"];
+const PROTECTED_ROUTES = ["/self", "/nation", "/earth", "/society", "/admin"];
 
 // Paths where neither the language gate nor auth gate should fire.
 // /api/* and /_next/* are excluded at the matcher level (see config below).
