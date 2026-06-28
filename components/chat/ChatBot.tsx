@@ -5,10 +5,9 @@ import { useRouter } from "next/navigation";
 import { MessageCircle, X, Trash2, Send, Paperclip, FileText } from "lucide-react";
 import CouncilView, { type CouncilResponse, type CouncilPosition, type StatusStep } from "./CouncilView";
 import ProposalCard from "./ProposalCard";
-import GuideActionCard from "./GuideActionCard";
 import { isCouncilWorthy } from "@/lib/ai/councilTrigger";
 import type { ProfileProposal } from "@/lib/companion/profileSync";
-import type { GuideAction } from "@/lib/companion/gapDetector";
+import type { FocusKey } from "@/lib/companion/gapDetector";
 
 interface TierUI {
   label: string;
@@ -30,8 +29,6 @@ interface Message {
   originUserMessage?: string;
   proposal?: ProfileProposal;
   proposalStatus?: "pending" | "accepted" | "dismissed";
-  guide?: GuideAction;
-  guideStatus?: "pending" | "accepted" | "dismissed";
   attachedDocName?: string;
 }
 
@@ -44,6 +41,17 @@ interface AttachedDoc {
   ocrPagesUsed: number;
   warnings: string[];
 }
+
+// Conversational openers per structure focus — the first line the guide says
+// when the chat opens and that piece isn't set yet. The AI carries it from there.
+const FOCUS_OPENERS: Record<string, string> = {
+  drive: "Hey — before anything else, you haven't set what drives you yet. There are four forces: learning, helping, building, doing. Which one pulls you most?",
+  goal: "Good to see you. Your drive's set — what's one thing you want to make happen in the next few weeks? Let's shape it into a goal.",
+  "goal-skills": "Let's figure out what your goal actually needs. Want me to suggest a few skills, or do you already know what it takes?",
+  health: "Quick check-in on your foundation first — how's your sleep been lately? You can change the topic anytime if this isn't what's on your mind.",
+  funds: "Want to map your money situation? Income and runway shape what's realistic — but only if you're up for it.",
+  time: "Shall we block out some time in your week, so your goals actually have hours to live in?",
+};
 
 const NUDGE_KEY = "charaivati.nudge.profile";
 const NUDGE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -271,97 +279,27 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
       .catch(() => {});
   }, [isLoggedIn, userId, userStatus]);
 
-  // ─── Active-guide gap card (floating chat only) ───────────────────────────
-  // Fetches the user's top unmet essential (drive, then goal) and injects one
-  // GuideActionCard. Proactive: runs when the panel opens. After a drive is
-  // saved we re-run so the goal card can follow.
-  function loadGuide() {
+  // ─── Conversational guide opener (floating chat only) ─────────────────────
+  // On open, fetch the user's current structure focus and seed ONE assistant
+  // greeting that opens that topic. The AI then carries it conversationally
+  // (steered by STRUCTURE.txt + the live focus state in the system prompt) and
+  // fires confirm cards to save. No blocks, no nav.
+  const guideOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!open || guideOpenedRef.current) return;
     if (!isLoggedIn || !userId || userStatus === "guest") return;
-    const dismissed = getDismissedProposals();
-    const qs = dismissed.length ? `?dismissed=${encodeURIComponent(dismissed.join(","))}` : "";
-    fetch(`/api/self/gaps${qs}`, { credentials: "include" })
+    guideOpenedRef.current = true;
+    fetch("/api/self/gaps", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        const gap = data?.gap as GuideAction | undefined;
-        if (!gap) return;
-        setMessages((prev) => {
-          // one live guide card at a time; never re-add the same gap id
-          if (prev.some((m) => m.guide && m.guideStatus === "pending")) return prev;
-          if (prev.some((m) => m.guide?.id === gap.id)) return prev;
-          return [...prev, { role: "assistant" as const, content: "", guide: gap, guideStatus: "pending" as const }];
-        });
+        const focus = (data?.focus ?? null) as FocusKey | null;
+        const opener = focus ? FOCUS_OPENERS[focus] : null;
+        if (!opener) return;
+        setMessages((prev) => (prev.length > 0 ? prev : [{ role: "assistant" as const, content: opener }]));
       })
       .catch(() => {});
-  }
-
-  // Runs each time the panel opens — loadGuide() dedups (one live card at a time,
-  // never the same gap twice) so this surfaces the *next* gap after the user fills
-  // one on another page and returns, without ever stacking cards.
-  useEffect(() => {
-    if (!open) return;
-    loadGuide();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  async function guidePickDrive(messageIndex: number, value: string) {
-    const proposal = { id: `drive:${value}`, type: "drive", summary: "", payload: { driveType: value } } as unknown as ProfileProposal;
-    try {
-      const res = await fetch("/api/self/profile-proposal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proposal }),
-        credentials: "include",
-      });
-      const data = await res.json();
-      if (res.ok && data.ok) {
-        setMessages((prev) => prev.map((m, i) => (i === messageIndex ? { ...m, guideStatus: "accepted" } : m)));
-        window.dispatchEvent(new CustomEvent("charaivati:profile-updated", { detail: data.profile }));
-        loadGuide(); // surface the goal card next
-      }
-    } catch {
-      /* non-critical */
-    }
-  }
-
-  async function guideDraftGoal(driveType: string, text: string) {
-    try {
-      const res = await fetch("/api/self/draft-goal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, driveType }),
-        credentials: "include",
-      });
-      const data = await res.json();
-      if (res.ok && data.statement) return { statement: data.statement as string, description: (data.description ?? "") as string };
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  async function guideSaveGoal(messageIndex: number, driveType: string, statement: string, description: string) {
-    const proposal = { id: `goal:${driveType}`, type: "goal", summary: "", payload: { driveType, statement, description } } as unknown as ProfileProposal;
-    try {
-      const res = await fetch("/api/self/profile-proposal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ proposal }),
-        credentials: "include",
-      });
-      const data = await res.json();
-      if (res.ok && data.ok) {
-        setMessages((prev) => prev.map((m, i) => (i === messageIndex ? { ...m, guideStatus: "accepted" } : m)));
-        window.dispatchEvent(new CustomEvent("charaivati:profile-updated", { detail: data.profile }));
-      }
-    } catch {
-      /* non-critical */
-    }
-  }
-
-  function guideDismiss(messageIndex: number, guide: GuideAction) {
-    addDismissedProposal(guide.id);
-    setMessages((prev) => prev.map((m, i) => (i === messageIndex ? { ...m, guideStatus: "dismissed" } : m)));
-  }
+  }, [open, isLoggedIn, userId, userStatus]);
 
   function snoozeNudge() {
     try { localStorage.setItem(NUDGE_KEY, String(Date.now())); } catch {}
@@ -908,23 +846,6 @@ export default function ChatBot({ currentSection = "Self", isLoggedIn = false, u
                       {...m.council}
                       onCancel={m.council._pending ? cancelCouncil : undefined}
                     />
-                  </div>
-                );
-              }
-              if (m.guide) {
-                const g = m.guide;
-                return (
-                  <div key={i} className="flex justify-start">
-                    <div className="flex flex-col max-w-[85%]">
-                      <GuideActionCard
-                        action={g}
-                        status={m.guideStatus ?? "pending"}
-                        onPickDrive={(v) => guidePickDrive(i, v)}
-                        onDraftGoal={(t) => guideDraftGoal(g.kind === "draft-goal" ? g.driveType : "building", t)}
-                        onSaveGoal={(s, d) => guideSaveGoal(i, g.kind === "draft-goal" ? g.driveType : "building", s, d)}
-                        onDismiss={() => guideDismiss(i, g)}
-                      />
-                    </div>
                   </div>
                 );
               }

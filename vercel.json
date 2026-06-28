@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/upgrade-images",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/profile-review",
+      "schedule": "0 3 * * *"
     }
   ]
 }

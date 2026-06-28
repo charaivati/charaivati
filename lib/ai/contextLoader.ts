@@ -20,6 +20,7 @@ export const CONTEXT_FILES = [
   "BUSINESS_AI_PHILOSOPHY.txt",
   "CONSULT_LISTENER.txt",
   "COUNCIL.txt",
+  "STRUCTURE.txt",
 ] as const;
 
 export function listContextFiles(): string[] {

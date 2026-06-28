@@ -1,27 +1,20 @@
-// app/api/self/gaps/route.ts — top "what should this user set up next?" gap for the
-// floating chat's active-guide card. Read-only; safe to call on every chat open.
+// app/api/self/gaps/route.ts — returns the user's current structure focus
+// (drive → goal → goal-skills → health → funds → time → null) so the floating
+// chat can open the right conversational topic. Read-only; safe on every open.
 import { NextRequest, NextResponse } from "next/server";
 import getServerUser from "@/lib/serverAuth";
 import { db } from "@/lib/db";
-import { detectGap } from "@/lib/companion/gapDetector";
+import { nextFocus } from "@/lib/companion/gapDetector";
 
 export async function GET(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (user.status === "guest") return NextResponse.json({ gap: null });
-
-  const dismissed = (new URL(req.url).searchParams.get("dismissed") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  if (user.status === "guest") return NextResponse.json({ focus: null });
 
   const profile = await db.profile.findUnique({
     where: { userId: user.id },
-    select: {
-      drives: true, goals: true, health: true,
-      fundsProfile: true, weekSchedule: true,
-    },
+    select: { drives: true, goals: true, health: true, fundsProfile: true, weekSchedule: true },
   });
 
-  return NextResponse.json({ gap: detectGap(profile, dismissed) });
+  return NextResponse.json({ focus: nextFocus(profile, []) });
 }

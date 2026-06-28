@@ -2144,3 +2144,17 @@ model AiContextFile {
   body      String   @db.Text
   updatedAt DateTime @updatedAt
 }
+
+// Compiled per-user context doc, written by a periodic reviewer (cron +
+// opportunistic). `kind` keys the lens ("profile-review" now; security/etc.
+// later — same table). `body` = human-readable markdown; `meta` = structured
+// facets for programmatic consumers. Read/written via raw SQL until generate.
+model UserContext {
+  userId    String
+  kind      String
+  body      String   @db.Text
+  meta      Json?
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, kind])
+}
