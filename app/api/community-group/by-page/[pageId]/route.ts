@@ -67,7 +67,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ pageId: 
           })
         : [];
 
-    return NextResponse.json({ ok: true, group, viewerStatus, pendingMemberships });
+    const extra = await db.$queryRaw<{ emergencyContacts: unknown; bannerUrl: string | null }[]>`SELECT "emergencyContacts", "bannerUrl" FROM "CommunityGroup" WHERE id = ${group.id}`;
+    return NextResponse.json({ ok: true, group: { ...group, bannerUrl: extra[0]?.bannerUrl ?? null, emergencyContacts: extra[0]?.emergencyContacts ?? [] }, viewerStatus, pendingMemberships });
   } catch (err: any) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

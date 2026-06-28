@@ -57,7 +57,7 @@ type InitiativeType = "store" | "learning" | "service" | "health" | "helping" | 
 type CourseType = "skill" | "academic" | "art" | "growth";
 
 // To re-enable a type, just add its key to this array — nothing else needs to change.
-const ACTIVE_INITIATIVE_TYPES: InitiativeType[] = ["store", "service", "fleet"];
+const ACTIVE_INITIATIVE_TYPES: InitiativeType[] = ["store", "service", "fleet", "community_group"];
 
 function InitiativeCardSkeleton() {
   return (

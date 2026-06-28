@@ -1,7 +1,20 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+
+const CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? "";
+const UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? "";
+
+async function uploadToCloudinary(file: File, folder: string): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("upload_preset", UPLOAD_PRESET);
+  fd.append("folder", folder);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, { method: "POST", body: fd });
+  const data = await res.json();
+  return data.secure_url as string;
+}
 
 type BoardMember = {
   id: string;
@@ -23,11 +36,15 @@ type Membership = {
 type Milestone = { id: string; title: string; status: string };
 type Meeting = { id: string; title: string; date: string; location: string | null; link: string | null };
 
+type EmergencyContact = { name: string; phone: string; role: string };
+
 type Group = {
   id: string;
   name: string;
   logoUrl: string | null;
+  bannerUrl: string | null;
   objective: string | null;
+  emergencyContacts: EmergencyContact[];
   boardMembers: BoardMember[];
   memberships: Membership[];
   milestones: Milestone[];
@@ -43,6 +60,17 @@ export default function CommunityGroupPublicPage() {
   const [viewerStatus, setViewerStatus] = useState<ViewerStatus>("guest");
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [ecSearch, setEcSearch] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
+
+  // Admin editing
+  const [editingName, setEditingName] = useState(false);
+  const [nameVal, setNameVal] = useState("");
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(`/api/community-group/by-page/${id}`, { credentials: "include" })
@@ -50,6 +78,7 @@ export default function CommunityGroupPublicPage() {
       .then((d) => {
         if (d.ok) {
           setGroup(d.group);
+          setNameVal(d.group.name);
           setViewerStatus(d.viewerStatus ?? "guest");
           setPendingMemberships(d.pendingMemberships ?? []);
         }
@@ -57,6 +86,48 @@ export default function CommunityGroupPublicPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
+
+  async function patchGroup(body: Record<string, unknown>) {
+    if (!group) return;
+    await fetch(`/api/community-group/${group.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function commitName() {
+    setEditingName(false);
+    const trimmed = nameVal.trim();
+    if (!trimmed || trimmed === group?.name) return;
+    setGroup((g) => g ? { ...g, name: trimmed } : g);
+    await patchGroup({ name: trimmed });
+  }
+
+  async function handleBannerUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !group) return;
+    e.target.value = "";
+    setUploadingBanner(true);
+    try {
+      const url = await uploadToCloudinary(file, "community_banners");
+      setGroup((g) => g ? { ...g, bannerUrl: url } : g);
+      await patchGroup({ bannerUrl: url });
+    } finally { setUploadingBanner(false); }
+  }
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !group) return;
+    e.target.value = "";
+    setUploadingLogo(true);
+    try {
+      const url = await uploadToCloudinary(file, "community_logos");
+      setGroup((g) => g ? { ...g, logoUrl: url } : g);
+      await patchGroup({ logoUrl: url });
+    } finally { setUploadingLogo(false); }
+  }
 
   async function requestJoin() {
     if (!group) return;
@@ -111,65 +182,140 @@ export default function CommunityGroupPublicPage() {
     );
   }
 
-  const approvedUsers = group.memberships.filter((m) => m.memberUser);
-  const approvedGroups = group.memberships.filter((m) => m.memberGroup);
+  const ecQ = ecSearch.toLowerCase();
+  const filteredContacts = (group.emergencyContacts ?? []).filter((ec) =>
+    !ecQ || ec.name.toLowerCase().includes(ecQ) || ec.phone.includes(ecQ) || ec.role?.toLowerCase().includes(ecQ)
+  );
+
+  const mQ = memberSearch.toLowerCase();
+  const approvedUsers = group.memberships
+    .filter((m) => m.memberUser)
+    .filter((m) => !mQ || m.memberUser!.name?.toLowerCase().includes(mQ));
+  const approvedGroups = group.memberships
+    .filter((m) => m.memberGroup)
+    .filter((m) => !mQ || m.memberGroup!.name.toLowerCase().includes(mQ));
   const upcomingMeetings = group.meetings.filter((m) => new Date(m.date) >= new Date());
   const isAdmin = viewerStatus === "admin";
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <div className="max-w-2xl mx-auto px-4 py-10 space-y-10">
 
-        {/* ── Header ── */}
-        <div className="flex items-start gap-5">
-          {group.logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={group.logoUrl} alt="logo" className="w-20 h-20 rounded-2xl object-cover flex-shrink-0 border border-gray-700" />
-          ) : (
-            <div className="w-20 h-20 rounded-2xl bg-sky-900/40 border border-sky-700/50 flex items-center justify-center flex-shrink-0">
-              <span className="text-sky-300 text-3xl font-bold">{group.name[0]?.toUpperCase()}</span>
+      {/* ── Banner ── */}
+      <div className="relative w-full">
+        {group.bannerUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={group.bannerUrl} alt="banner" className="w-full h-40 sm:h-56 object-cover" />
+        ) : isAdmin ? (
+          <button
+            onClick={() => bannerInputRef.current?.click()}
+            disabled={uploadingBanner}
+            className="w-full h-36 sm:h-48 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-700 bg-gray-900 hover:border-sky-600 hover:bg-gray-800 transition-colors disabled:opacity-50"
+          >
+            <span className="text-3xl">🖼️</span>
+            <span className="text-sm text-gray-400 font-medium">{uploadingBanner ? "Uploading…" : "Add cover photo"}</span>
+          </button>
+        ) : null}
+        {group.bannerUrl && isAdmin && (
+          <button
+            onClick={() => bannerInputRef.current?.click()}
+            disabled={uploadingBanner}
+            className="absolute bottom-3 right-3 px-3 py-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white text-xs font-medium transition-colors disabled:opacity-50"
+          >
+            {uploadingBanner ? "Uploading…" : "Change cover"}
+          </button>
+        )}
+        <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerUpload} />
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4 pb-16 space-y-10">
+
+        {/* ── Hero row ── */}
+        <div className="flex items-end gap-4 -mt-10 pb-4 border-b border-gray-800">
+          {/* Logo */}
+          <div className="relative flex-shrink-0">
+            <div
+              className="w-20 h-20 rounded-2xl overflow-hidden border-2 border-gray-900"
+              style={{ background: "#0c4a6e", cursor: isAdmin ? "pointer" : "default" }}
+              onClick={() => isAdmin && logoInputRef.current?.click()}
+            >
+              {group.logoUrl
+                ? <img src={group.logoUrl} alt="logo" className="w-full h-full object-cover" /> // eslint-disable-line @next/next/no-img-element
+                : <span className="absolute inset-0 flex items-center justify-center text-sky-300 text-3xl font-bold">{group.name[0]?.toUpperCase()}</span>
+              }
             </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-white leading-tight">{group.name}</h1>
-            {group.objective && <p className="text-sm text-gray-400 mt-1 leading-relaxed">{group.objective}</p>}
+            {isAdmin && (
+              <button
+                onClick={() => logoInputRef.current?.click()}
+                disabled={uploadingLogo}
+                className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-gray-700 hover:bg-sky-700 border border-gray-900 flex items-center justify-center text-xs transition-colors disabled:opacity-50"
+                title="Change logo"
+              >
+                {uploadingLogo ? "…" : "📷"}
+              </button>
+            )}
+          </div>
+          <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+
+          <div className="flex-1 min-w-0 pt-10">
+            {editingName && isAdmin ? (
+              <input
+                className="text-xl sm:text-2xl font-bold w-full bg-transparent border-b border-sky-500 outline-none text-white"
+                value={nameVal}
+                autoFocus
+                onChange={(e) => setNameVal(e.target.value)}
+                onBlur={commitName}
+                onKeyDown={(e) => { if (e.key === "Enter") commitName(); if (e.key === "Escape") { setNameVal(group.name); setEditingName(false); } }}
+              />
+            ) : (
+              <h1
+                className="text-xl sm:text-2xl font-bold text-white leading-tight truncate"
+                style={{ cursor: isAdmin ? "text" : "default" }}
+                onClick={() => isAdmin && setEditingName(true)}
+                title={isAdmin ? "Click to rename" : undefined}
+              >
+                {group.name}
+                {isAdmin && <span className="text-gray-500 text-xs ml-2 align-middle">✎</span>}
+              </h1>
+            )}
+            {group.objective && <p className="text-sm text-gray-400 mt-0.5 leading-relaxed">{group.objective}</p>}
 
             <div className="mt-3 flex gap-2 flex-wrap">
               {viewerStatus === "guest" && (
-                <a
-                  href={`/login?redirect=/community/${id}`}
-                  className="px-4 py-2 rounded-lg border border-sky-600 text-sky-300 text-sm font-medium hover:bg-sky-900/30 transition-colors"
-                >
+                <a href={`/login?redirect=/community/${id}`} className="px-4 py-2 rounded-lg border border-sky-600 text-sky-300 text-sm font-medium hover:bg-sky-900/30 transition-colors">
                   Log in to join
                 </a>
               )}
               {viewerStatus === "non_member" && (
-                <button
-                  onClick={requestJoin}
-                  disabled={joining}
-                  className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
-                >
+                <button onClick={requestJoin} disabled={joining} className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium disabled:opacity-50 transition-colors">
                   {joining ? "Sending…" : "Request to join"}
                 </button>
               )}
               {viewerStatus === "pending" && (
-                <span className="px-4 py-2 rounded-lg bg-amber-900/30 border border-amber-700/50 text-amber-300 text-sm">
-                  Request pending
-                </span>
+                <span className="px-4 py-2 rounded-lg bg-amber-900/30 border border-amber-700/50 text-amber-300 text-sm">Request pending</span>
               )}
               {viewerStatus === "member" && (
-                <span className="px-4 py-2 rounded-lg bg-emerald-900/30 border border-emerald-700/50 text-emerald-300 text-sm">
-                  ✓ Member
-                </span>
+                <span className="px-4 py-2 rounded-lg bg-emerald-900/30 border border-emerald-700/50 text-emerald-300 text-sm">✓ Member</span>
               )}
               {isAdmin && (
-                <a
-                  href={`/earn/initiative/${id}`}
-                  className="px-4 py-2 rounded-lg bg-sky-800 hover:bg-sky-700 text-white text-sm font-medium transition-colors"
-                >
+                <a href={`/earn/initiative/${id}`} className="px-4 py-2 rounded-lg bg-sky-800 hover:bg-sky-700 text-white text-sm font-medium transition-colors">
                   Manage →
                 </a>
               )}
+              <button
+                onClick={async () => {
+                  const url = window.location.href;
+                  if (navigator.share) {
+                    await navigator.share({ title: group.name, url }).catch(() => {});
+                  } else {
+                    await navigator.clipboard?.writeText(url).catch(() => {});
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }
+                }}
+                className="px-4 py-2 rounded-lg border border-gray-700 text-gray-400 text-sm font-medium hover:border-gray-500 hover:text-gray-200 transition-colors"
+              >
+                {copied ? "✓ Copied" : "Share"}
+              </button>
             </div>
           </div>
         </div>
@@ -199,11 +345,44 @@ export default function CommunityGroupPublicPage() {
           </section>
         )}
 
+        {/* ── Emergency Contacts ── */}
+        {(group.emergencyContacts ?? []).length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-base font-bold text-red-400 border-b border-gray-800 pb-2">Emergency Contacts</h2>
+            <input
+              value={ecSearch}
+              onChange={(e) => setEcSearch(e.target.value)}
+              placeholder="Search by name, role or number…"
+              className="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-red-700 focus:outline-none"
+            />
+            {filteredContacts.length === 0 && <p className="text-sm text-gray-500">No contacts match.</p>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {filteredContacts.map((ec, i) => (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-900 border border-gray-800">
+                  <div className="w-9 h-9 rounded-full bg-red-900/40 border border-red-700/50 flex items-center justify-center text-red-300 text-lg flex-shrink-0">🚨</div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{ec.name}</p>
+                    <p className="text-xs text-gray-400">{ec.role && <span className="mr-2">{ec.role}</span>}<a href={`tel:${ec.phone}`} className="text-red-400 hover:underline">{ec.phone}</a></p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* ── Members ── */}
         <section className="space-y-3">
           <h2 className="text-base font-bold text-sky-300 border-b border-gray-800 pb-2">
             Members ({approvedUsers.length + approvedGroups.length})
           </h2>
+          {(group.memberships.filter(m => m.memberUser || m.memberGroup).length > 0) && (
+            <input
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              placeholder="Search members…"
+              className="w-full bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-sky-700 focus:outline-none"
+            />
+          )}
 
           {approvedGroups.length > 0 && (
             <div className="space-y-1">

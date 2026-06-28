@@ -40,6 +40,7 @@ type Store = {
   distanceKm?: number | null;
   pageId?: string | null;
   isFleet?: boolean;
+  isCommunity?: boolean;
 };
 
 type PinnedItem = {
@@ -291,12 +292,19 @@ export default function SavedPage() {
     Promise.all([
       fetch("/api/store/all?includeFleet=1").then((r) => r.ok ? r.json() : { stores: [] }),
       fetch("/api/store/my-stores", { credentials: "include" }).then((r) => r.ok ? r.json() : { stores: [] }),
+      fetch("/api/community-group", { credentials: "include" }).then((r) => r.ok ? r.json() : { groups: [] }),
     ])
-      .then(([allData, myData]) => {
-        setStores(allData.stores ?? []);
-        setMyStoreIds(
-          new Set((myData.stores ?? []).map((s: Store) => s.id))
-        );
+      .then(([allData, myData, groupData]) => {
+        const groups: Store[] = (groupData.groups ?? []).map((g: any) => ({
+          id: g.id,
+          pageId: g.pageId,
+          name: g.name,
+          description: g.objective ?? null,
+          previewImage: g.logoUrl ?? null,
+          isCommunity: true,
+        }));
+        setStores([...(allData.stores ?? []), ...groups]);
+        setMyStoreIds(new Set((myData.stores ?? []).map((s: Store) => s.id)));
       })
       .catch(() => {})
       .finally(() => setLoadingBrowse(false));
@@ -540,11 +548,15 @@ export default function SavedPage() {
           <div
             style={{
               width: 80, height: 80, borderRadius: 8, flexShrink: 0,
-              background: store.isFleet ? "linear-gradient(135deg,#f59e0b,#fbbf24)" : "linear-gradient(135deg,#6366f1,#818cf8)",
+              background: store.isFleet
+                ? "linear-gradient(135deg,#f59e0b,#fbbf24)"
+                : store.isCommunity
+                ? "linear-gradient(135deg,#10b981,#34d399)"
+                : "linear-gradient(135deg,#6366f1,#818cf8)",
               display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
             }}
           >
-            {store.isFleet ? "🚛" : "🏪"}
+            {store.isFleet ? "🚛" : store.isCommunity ? "🏘️" : "🏪"}
           </div>
         )}
 
@@ -565,6 +577,15 @@ export default function SavedPage() {
                 letterSpacing: "0.05em", flexShrink: 0, whiteSpace: "nowrap",
               }}>
                 🚛 Fleet
+              </span>
+            )}
+            {store.isCommunity && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 20,
+                background: "#D1FAE5", color: "#065F46", textTransform: "uppercase",
+                letterSpacing: "0.05em", flexShrink: 0, whiteSpace: "nowrap",
+              }}>
+                🏘️ Group
               </span>
             )}
           </div>
@@ -593,7 +614,7 @@ export default function SavedPage() {
           )}
 
           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            {!isOwn && !store.isFleet && (
+            {!isOwn && !store.isFleet && !store.isCommunity && (
               <button
                 onClick={() => togglePin(store.id)}
                 disabled={toggling}
@@ -617,16 +638,23 @@ export default function SavedPage() {
             )}
 
             <a
-              href={store.isFleet && store.pageId ? `/fleet/${store.pageId}` : `/store/${store.slug ?? store.id}`}
+              href={
+                store.isCommunity && store.pageId
+                  ? `/community/${store.pageId}`
+                  : store.isFleet && store.pageId
+                  ? `/fleet/${store.pageId}`
+                  : `/store/${store.slug ?? store.id}`
+              }
               style={{
                 padding: "5px 10px", borderRadius: 6,
                 fontSize: 11, fontWeight: 600,
-                color: A.accent, textDecoration: "none",
-                border: `1px solid ${A.accent}`,
+                color: store.isCommunity ? "#10b981" : A.accent,
+                textDecoration: "none",
+                border: `1px solid ${store.isCommunity ? "#10b981" : A.accent}`,
                 background: A.surface,
               }}
             >
-              {store.isFleet ? "Book →" : t("app-saved-visit", "Visit →")}
+              {store.isFleet ? "Book →" : store.isCommunity ? "View →" : t("app-saved-visit", "Visit →")}
             </a>
           </div>
         </div>
@@ -874,7 +902,7 @@ export default function SavedPage() {
           {/* Stores / Products tab toggle */}
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
             <FilterPill active={browseTab === "stores"} onClick={() => setBrowseTab("stores")}>
-              🏪 {t("app-search-stores-tab", "Stores")}
+              🚀 Initiatives
             </FilterPill>
             <FilterPill active={browseTab === "products"} onClick={() => setBrowseTab("products")}>
               🔎 {t("app-search-products-tab", "Products")}
@@ -921,7 +949,7 @@ export default function SavedPage() {
                   🔍{" "}
                   {activeFilters !== null && filterCount > 0
                     ? (t("app-saved-filter-active", "{n} filters active") || "").replace("{n}", String(filterCount))
-                    : t("app-saved-filter-button", "Filter stores")}
+                    : t("app-saved-filter-button", "Filter")}
                 </button>
                 <Link
                   href="/app/discover"
@@ -954,10 +982,10 @@ export default function SavedPage() {
               ) : displayedStores.length === 0 ? (
                 <p style={{ fontSize: 13, color: A.textMuted }}>
                   {search
-                    ? `No stores match "${search}"`
+                    ? `No initiatives match "${search}"`
                     : activeFilters !== null
-                    ? "No stores match these filters."
-                    : t("app-saved-no-stores", "No stores yet.")}
+                    ? "No initiatives match these filters."
+                    : t("app-saved-no-stores", "No initiatives yet.")}
                 </p>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

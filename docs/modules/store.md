@@ -437,11 +437,37 @@ Both read/written via **raw SQL** (`$queryRaw`/`$executeRaw`) — same stale-cli
 
 **Components** (`components/payments/`):
 - `VpaSettingCard` — owner setter; PATCHes `{ upiVpa }` to a given `endpoint`. Mounted in the Initiative Hub **Store tab** (`InitiativeTabs.tsx`, `endpoint=/api/store/[id]`, `tone="dark"`) and the user **Earning** section (`app/(User)/user/edit/page.tsx`, `endpoint=/api/user/profile`).
-- `PayToVpa` — display/handoff atom: "Pay directly to {name}: `vpa` [Copy]". Renders the saved handle in `VpaSettingCard`; **the broadcast engine (REQBCAST-1c) is the intended paying-party consumer.**
+- `PayToVpa` — display/handoff atom. Optional props `amount`, `payeeName`, `note`: when `amount` is provided, renders: (1) a `upi://pay` deep-link button (mobile tap → UPI app-chooser), (2) a `UpiQr` QR code with "Scan to pay" caption (desktop user scans with phone), (3) copy-VPA row. When `amount` is absent, copy-row only (backwards compatible). **QR and button share one `buildUpiIntent()` call** — single source of truth (UPI-QR-1).
+- `UpiQr` (`components/payments/UpiQr.tsx`) — presentational canvas QR. Props `{ value: string, size?: number }`. Encodes `value` via the `qrcode` npm package (client-side canvas, `useEffect`). Renders nothing when `value` is empty. **`qrcode` is a deliberate local dependency** — the UPI intent string contains payee VPA and amount and must not transit a third-party QR-image API.
 
-**Handoff getter** — `lib/payments/getVpa.ts` `getPayToVpa({ storeId?, userId? })`: store handle first, falls back to the store owner's `Profile.upiVpa`. **No live consumer yet** — built and left ready for REQBCAST-1c (there is no checkout/direct-pay path in the app today).
+**Desktop QR / mobile button parity model (UPI-QR-1)** — a laptop user scans the QR with their phone's UPI app; both the QR and the button decode to the identical `upi://pay?pa=…&am=…&cu=INR…` string produced by `buildUpiIntent()`. No mobile-detection or viewport-gating — both controls are always rendered when `amount` is set (QR is harmless on mobile, button is harmless on desktop). Verify parity on a real device: scan the desktop QR with GPay / PhonePe / Paytm and confirm the payee VPA and pre-filled amount match.
 
-**i18n** — 8 slugs seeded by `prisma/seed-vpa-ui.js` (category `ui-vpa`, all enabled languages): `pay-vpa-label`, `pay-vpa-placeholder`, `pay-vpa-help`, `pay-vpa-invalid`, `pay-vpa-save`, `pay-vpa-saved`, `pay-to-vpa-label`, `pay-vpa-copy`.
+**UPI-direct doctrine (UPI-INTENT-1b)** — the `upi://pay` link dispatches customer's UPI app → seller VPA directly. The platform **never** touches funds, validates the transaction, or escrows. The button is a plain `<a>` with no `target` attribute (triggers OS app-chooser on Android, is harmless on desktop). The `am` (amount) field in the link pre-fills the payment amount in most UPI apps; personal-handle VPAs (e.g. `…@okhdfcbank`) may leave the amount editable — this is a UPI app behaviour outside the platform's control and must be verified on a real device before relying on it.
+
+**Checkout integration** — both checkout modals pass `amount`/`payeeName`/`note` to `PayToVpa` when a store VPA is set:
+- `QuickOrderModal` step 3 (`components/store/QuickOrderModal.tsx`): `amount={total}`, `payeeName={storeName}`, `note="Quick order from {storeName}"`.
+- `CheckoutModal` step 3 (`app/store/[id]/section/[sectionId]/page.tsx`): `amount={total}`, `payeeName={storeName}`, `note="Order from {storeName}"`. `storeName` threaded from page state into the modal props.
+
+**`lib/upiIntent.ts`** — `buildUpiIntent({ vpa, payeeName, amount, note })`: returns `upi://pay?pa=…&pn=…&am=…&cu=INR&tn=…`; returns `""` when `vpa` is falsy; omits `am` when amount is 0/null. Uses `URLSearchParams` so `pn`/`tn` are properly encoded. Also exports `parseUpiIntent(url)` (UPI-QRUPLOAD-1b) — parses a `upi://pay` URL back into `{ vpa, payeeName, amount, note }` or returns null for non-upi: schemes or unparseable URLs.
+
+**Handoff getter** — `lib/payments/getVpa.ts` `getPayToVpa({ storeId?, userId? })`: store handle first, falls back to the store owner's `Profile.upiVpa`. **No live consumer yet** — built and left ready for REQBCAST-1c.
+
+### QR upload → VPA pre-fill (UPI-QRUPLOAD-1b)
+
+Owners can upload an existing GPay/PhonePe shopkeeper QR image to pre-fill the VPA input — no typing required. **Convergence doctrine**: the decoded VPA flows into the same text input + same `PATCH /api/store/[id]` save path that manual typing uses. No second write path.
+
+**Client-side decode only** — the image never leaves the browser (no Cloudinary, no upload, no network hop for the image). Flow: file selected → `decodeQrFromFile(file)` → `parseUpiIntent(rawString)` → `normalizeVpa` + `isValidVpa` → populate input → owner reviews → taps existing "Save UPI ID".
+
+**`lib/payments/decodeQrImage.ts`** — `decodeQrFromFile(file: File): Promise<string | null>`. Primary: browser-native `BarcodeDetector` (Chrome 83+, Edge, Android WebView — zero-dep). Fallback: `jsQR` (dynamically imported, covers Safari/Firefox). Returns the raw decoded string or null. No UPI knowledge — pure QR→text.
+
+**jsQR dependency** (`jsqr` npm, ~10KB) — deliberate client-side-only dep. Added because `BarcodeDetector` is unavailable in Safari <17 and Firefox. The package is lazy-imported in `decodeQrImage.ts` so it never loads unless the fallback path is needed.
+
+**Three malformed-QR error paths** (input left untouched on all failure paths):
+1. No QR found in image → "Couldn't read a QR in that image."
+2. Decoded string is not a `upi:` URL → "That doesn't look like a UPI QR."
+3. `pa=` param missing or fails `VPA_RE` shape check → appropriate typed message.
+
+**i18n** — 8 slugs seeded by `prisma/seed-vpa-ui.js` (category `ui-vpa`, all enabled languages): `pay-vpa-label`, `pay-vpa-placeholder`, `pay-vpa-help`, `pay-vpa-invalid`, `pay-vpa-save`, `pay-vpa-saved`, `pay-to-vpa-label`, `pay-vpa-copy`. 8 slugs seeded by `prisma/seed-upi-pay-ui.js` (category `ui-upi-pay`): `pay-via-upi-btn`, `pay-qr-scan`, `pay-qr-upload-btn`, `pay-qr-prefill-hint`, `pay-qr-err-read`, `pay-qr-err-not-upi`, `pay-qr-err-no-vpa`, `pay-qr-err-invalid`.
 
 ## Risks & Fragile Areas
 - `Order.items` is a JSON snapshot — no referential integrity after checkout. Price changes after purchase do not affect existing orders, which is correct, but querying historical pricing requires parsing JSON.

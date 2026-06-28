@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AddressForm, { type AddressFormData } from "@/components/shared/AddressForm";
+import PayToVpa from "@/components/payments/PayToVpa";
 
 const A = {
   bg: "#E3E6E6",
@@ -62,13 +63,14 @@ interface QuickOrderModalProps {
   initialItem: QuickItem;
   deliveryFee?: number | null;
   freeDeliveryAbove?: number | null;
+  upiVpa?: string | null;
 }
 
 function Spinner() {
   return <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />;
 }
 
-export default function QuickOrderModal({ open, onClose, storeId, storeName, initialItem, deliveryFee, freeDeliveryAbove }: QuickOrderModalProps) {
+export default function QuickOrderModal({ open, onClose, storeId, storeName, initialItem, deliveryFee, freeDeliveryAbove, upiVpa }: QuickOrderModalProps) {
   const [step, setStep] = useState<Step>(1);
   const [items, setItems] = useState<QuickItem[]>([]);
 
@@ -432,6 +434,7 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
                 <div className="text-xs px-3 py-2 rounded-lg text-center" style={{ background: "#F0FDF4", color: "#16A34A" }}>
                   💵 Cash on Delivery
                 </div>
+                {upiVpa && <PayToVpa vpa={upiVpa} amount={total} payeeName={storeName} note={`Quick order from ${storeName}`} />}
                 <div className="flex gap-2">
                   <button onClick={() => setStep(2)}
                     className="px-4 py-2 rounded-lg text-sm"

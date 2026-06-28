@@ -24,7 +24,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ groupI
   }
 
   try {
-    const { name, logoUrl, objective } = await req.json();
+    const { name, logoUrl, bannerUrl, objective, emergencyContacts } = await req.json();
     const group = await db.communityGroup.update({
       where: { id: groupId },
       data: {
@@ -33,7 +33,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ groupI
         ...(objective !== undefined ? { objective: objective.trim() || null } : {}),
       },
     });
-    return NextResponse.json({ ok: true, group });
+    if (bannerUrl !== undefined) {
+      await db.$executeRaw`UPDATE "CommunityGroup" SET "bannerUrl" = ${bannerUrl} WHERE id = ${groupId}`;
+    }
+    if (emergencyContacts !== undefined) {
+      await db.$executeRaw`UPDATE "CommunityGroup" SET "emergencyContacts" = ${JSON.stringify(emergencyContacts)}::jsonb WHERE id = ${groupId}`;
+    }
+    const extra = await db.$queryRaw<{ emergencyContacts: unknown; bannerUrl: string | null }[]>`SELECT "emergencyContacts", "bannerUrl" FROM "CommunityGroup" WHERE id = ${groupId}`;
+    return NextResponse.json({ ok: true, group: { ...group, bannerUrl: extra[0]?.bannerUrl ?? null, emergencyContacts: extra[0]?.emergencyContacts ?? [] } });
   } catch (err: any) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

@@ -26,11 +26,14 @@ type Membership = {
 type Milestone = { id: string; title: string; status: string; createdAt: string };
 type Meeting = { id: string; title: string; date: string; location: string | null; link: string | null };
 
+type EmergencyContact = { name: string; phone: string; role: string };
+
 type Group = {
   id: string;
   name: string;
   logoUrl: string | null;
   objective: string | null;
+  emergencyContacts: EmergencyContact[];
   boardMembers: BoardMember[];
   memberships: Membership[];
   milestones: Milestone[];
@@ -58,6 +61,12 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
   const [boardRole, setBoardRole] = useState("");
   const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null);
   const [addingBoard, setAddingBoard] = useState(false);
+
+  // Emergency contacts
+  const [ecName, setEcName] = useState("");
+  const [ecPhone, setEcPhone] = useState("");
+  const [ecRole, setEcRole] = useState("");
+  const [savingEc, setSavingEc] = useState(false);
 
   // Milestone add
   const [msTitle, setMsTitle] = useState("");
@@ -202,6 +211,35 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
     if (!group) return;
     await fetch(`/api/community-group/${group.id}/membership/${membershipId}`, { method: "DELETE", credentials: "include" });
     setGroup((g) => g ? { ...g, memberships: g.memberships.filter((m) => m.id !== membershipId) } : g);
+  }
+
+  async function saveEmergencyContacts(contacts: EmergencyContact[]) {
+    if (!group) return;
+    await fetch(`/api/community-group/${group.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ emergencyContacts: contacts }),
+    });
+    setGroup((g) => g ? { ...g, emergencyContacts: contacts } : g);
+  }
+
+  async function addEmergencyContact() {
+    if (!group || !ecName.trim() || !ecPhone.trim()) return;
+    setSavingEc(true);
+    try {
+      const updated = [...(group.emergencyContacts ?? []), { name: ecName.trim(), phone: ecPhone.trim(), role: ecRole.trim() }];
+      await saveEmergencyContacts(updated);
+      setEcName(""); setEcPhone(""); setEcRole("");
+    } finally {
+      setSavingEc(false);
+    }
+  }
+
+  async function removeEmergencyContact(idx: number) {
+    if (!group) return;
+    const updated = group.emergencyContacts.filter((_, i) => i !== idx);
+    await saveEmergencyContacts(updated);
   }
 
   async function addMilestone() {
@@ -409,6 +447,41 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
             className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
           >
             {addingBoard ? "Adding…" : "Add"}
+          </button>
+        </div>
+      </section>
+
+      {/* ── Emergency Contacts ── */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Emergency Contacts</h2>
+
+        {(group.emergencyContacts ?? []).length > 0 && (
+          <div className="space-y-2">
+            {group.emergencyContacts.map((ec, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-900 border border-gray-800">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white font-medium">{ec.name}</p>
+                  <p className="text-xs text-gray-400">{ec.role && <span className="mr-2">{ec.role}</span>}<a href={`tel:${ec.phone}`} className="text-sky-400 hover:underline">{ec.phone}</a></p>
+                </div>
+                <button onClick={() => removeEmergencyContact(i)} className="text-gray-500 hover:text-red-400 text-xs transition-colors">Remove</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="p-4 rounded-xl bg-gray-900 border border-gray-800 space-y-3">
+          <p className="text-xs font-semibold text-gray-400">Add contact</p>
+          <div className="flex gap-2">
+            <input value={ecName} onChange={(e) => setEcName(e.target.value)} placeholder="Name *"
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:border-sky-500 focus:outline-none" />
+            <input value={ecPhone} onChange={(e) => setEcPhone(e.target.value)} placeholder="Phone *"
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:border-sky-500 focus:outline-none" />
+          </div>
+          <input value={ecRole} onChange={(e) => setEcRole(e.target.value)} placeholder="Role (e.g. Fire Marshal, Doctor)"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:border-sky-500 focus:outline-none" />
+          <button onClick={addEmergencyContact} disabled={savingEc || !ecName.trim() || !ecPhone.trim()}
+            className="px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-sm font-medium disabled:opacity-50 transition-colors">
+            {savingEc ? "Saving…" : "Add"}
           </button>
         </div>
       </section>

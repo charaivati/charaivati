@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useStoreShell } from "@/app/store/[id]/StoreShellContext";
 import QuickOrderModal from "@/components/store/QuickOrderModal";
+import PayToVpa from "@/components/payments/PayToVpa";
 import StoreImagePickerModal from "@/components/store/StoreImagePickerModal";
 
 const A = {
@@ -207,9 +208,9 @@ type CheckoutBillingProfile = {
   linkedStore: { name: string } | null;
 };
 
-function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: {
+function CheckoutModal({ open, onClose, items, total, storeId, storeName, onOrderPlaced, upiVpa }: {
   open: boolean; onClose: () => void; items: CartItem[];
-  total: number; storeId: string; onOrderPlaced: () => void;
+  total: number; storeId: string; storeName?: string; onOrderPlaced: () => void; upiVpa?: string | null;
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -371,6 +372,7 @@ function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: 
                 <div className="text-xs px-2 py-1 rounded" style={{ background: "#F0FDF4", color: "#16A34A" }}>
                   💵 Cash on Delivery
                 </div>
+                {upiVpa && <PayToVpa vpa={upiVpa} amount={total} payeeName={storeName} note={storeName ? `Order from ${storeName}` : undefined} />}
                 <button onClick={() => setStep(2)} className="text-xs" style={{ color: A.link }}>← Change invoice</button>
                 <button disabled={placing} onClick={handlePlaceOrder}
                   className="w-full py-2 rounded text-xs font-semibold" style={{ background: A.accent, color: "#fff" }}>
@@ -874,6 +876,7 @@ export default function SectionPage() {
   const [storeFreeDeliveryAbove, setStoreFreeDeliveryAbove] = useState<number | null>(null);
   const [storeAcceptingOrders, setStoreAcceptingOrders] = useState<boolean>(true);
   const [storeHoursText, setStoreHoursText] = useState<string | null>(null);
+  const [storeUpiVpa, setStoreUpiVpa] = useState<string | null>(null);
   const [sectionTitle, setSectionTitle] = useState("");
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [loading, setLoading] = useState(true);
@@ -907,6 +910,7 @@ export default function SectionPage() {
         setStoreFreeDeliveryAbove(data.freeDeliveryAbove ?? null);
         setStoreAcceptingOrders(data.acceptingOrders ?? true);
         setStoreHoursText(data.hoursText ?? null);
+        setStoreUpiVpa(data.upiVpa ?? null);
         const found = (data.sections ?? []).find((s: any) => s.id === sectionId);
         if (found) {
           setSectionTitle(found.title);
@@ -1113,8 +1117,9 @@ export default function SectionPage() {
 
       <CheckoutModal
         open={checkoutOpen} onClose={() => setCheckoutOpen(false)}
-        items={cartItems} total={cartTotal} storeId={storeId}
+        items={cartItems} total={cartTotal} storeId={storeId} storeName={storeName}
         onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }}
+        upiVpa={storeUpiVpa}
       />
 
       <AddressModal
@@ -1142,6 +1147,7 @@ export default function SectionPage() {
           initialItem={quickOrderItem}
           deliveryFee={storeDeliveryFee}
           freeDeliveryAbove={storeFreeDeliveryAbove}
+          upiVpa={storeUpiVpa}
         />
       )}
     </div>
