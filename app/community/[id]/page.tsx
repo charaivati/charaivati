@@ -133,13 +133,13 @@ export default function CommunityGroupPublicPage() {
     if (!group) return;
     setJoining(true);
     try {
-      await fetch(`/api/community-group/${group.id}/membership/request`, {
+      const res = await fetch(`/api/community-group/${group.id}/membership/request`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({}),
       });
-      setViewerStatus("pending");
+      if (res.ok) setViewerStatus("pending");
     } finally {
       setJoining(false);
     }
@@ -412,7 +412,7 @@ export default function CommunityGroupPublicPage() {
               )}
               <div className="flex flex-wrap gap-2">
                 {approvedUsers.map((m) => (
-                  <span key={m.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-800 text-sm text-gray-300">
+                  <a key={m.id} href={`/user/${m.memberUser!.id}`} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-800 hover:bg-gray-700 text-sm text-gray-300 hover:text-white transition-colors no-underline">
                     {m.memberUser!.avatarUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={m.memberUser!.avatarUrl} alt="" className="w-4 h-4 rounded-full object-cover" />
@@ -422,7 +422,7 @@ export default function CommunityGroupPublicPage() {
                       </span>
                     )}
                     {m.memberUser!.name ?? "Unknown"}
-                  </span>
+                  </a>
                 ))}
               </div>
             </div>
