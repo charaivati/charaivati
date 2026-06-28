@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
+import { generateSlug, randomSuffix } from "@/lib/store/generateSlug";
 
 export const dynamic = "force-dynamic";
 
@@ -26,10 +27,21 @@ export async function GET(req: Request) {
     ? groups.filter((g) => g.name.toLowerCase().includes(q) || g.objective?.toLowerCase().includes(q))
     : groups;
 
+  // Fetch slugs via raw SQL — column added after last prisma generate
+  const slugMap: Record<string, string | null> = {};
+  if (filtered.length) {
+    const inList = filtered.map((g) => `'${g.id}'`).join(","); // safe: ids are our own cuids
+    const rows = await db.$queryRawUnsafe<{ id: string; slug: string | null }[]>(
+      `SELECT id, slug FROM "CommunityGroup" WHERE id IN (${inList})`
+    );
+    for (const r of rows) slugMap[r.id] = r.slug;
+  }
+
   return NextResponse.json({
     groups: filtered.map((g) => ({
       id: g.id,
       pageId: g.pageId,
+      slug: slugMap[g.id] ?? null,
       name: g.name,
       logoUrl: g.logoUrl,
       objective: g.objective,
@@ -51,9 +63,11 @@ export async function POST(req: Request) {
     if (!page) return NextResponse.json({ error: "page_not_found" }, { status: 404 });
     if (page.ownerId !== payload.userId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+    const slug = `${generateSlug(page.title)}-${randomSuffix()}`;
     const group = await db.communityGroup.create({
       data: { pageId, name: page.title },
     });
+    await db.$executeRaw`UPDATE "CommunityGroup" SET slug = ${slug} WHERE id = ${group.id}`;
 
     return NextResponse.json({ ok: true, group }, { status: 201 });
   } catch (err: any) {

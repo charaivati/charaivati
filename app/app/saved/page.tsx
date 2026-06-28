@@ -640,7 +640,7 @@ export default function SavedPage() {
             <a
               href={
                 store.isCommunity && store.pageId
-                  ? `/community/${store.pageId}`
+                  ? `/community/${(store as any).slug ?? store.pageId}`
                   : store.isFleet && store.pageId
                   ? `/fleet/${store.pageId}`
                   : `/store/${store.slug ?? store.id}`

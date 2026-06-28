@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 const CLOUD_NAME = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ?? "";
 const UPLOAD_PRESET = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET ?? "";
@@ -40,6 +40,7 @@ type EmergencyContact = { name: string; phone: string; role: string };
 
 type Group = {
   id: string;
+  slug: string | null;
   name: string;
   logoUrl: string | null;
   bannerUrl: string | null;
@@ -55,6 +56,7 @@ type ViewerStatus = "guest" | "non_member" | "pending" | "member" | "admin";
 
 export default function CommunityGroupPublicPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [group, setGroup] = useState<Group | null>(null);
   const [pendingMemberships, setPendingMemberships] = useState<Membership[]>([]);
   const [viewerStatus, setViewerStatus] = useState<ViewerStatus>("guest");
@@ -81,6 +83,10 @@ export default function CommunityGroupPublicPage() {
           setNameVal(d.group.name);
           setViewerStatus(d.viewerStatus ?? "guest");
           setPendingMemberships(d.pendingMemberships ?? []);
+          // Canonical redirect: if loaded by pageId cuid, replace URL with slug
+          if (d.group.slug && id !== d.group.slug) {
+            router.replace(`/community/${d.group.slug}`);
+          }
         }
       })
       .catch(() => {})

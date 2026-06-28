@@ -11,8 +11,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ pageId: 
   const userId = payload?.userId ?? null;
 
   try {
+    // Accept either a pageId cuid or a slug
+    const isCuid = /^c[a-z0-9]{24}$/i.test(pageId);
+    let groupId: string | null = null;
+    if (isCuid) {
+      const row = await db.communityGroup.findUnique({ where: { pageId }, select: { id: true } });
+      groupId = row?.id ?? null;
+    } else {
+      const rows = await db.$queryRaw<{ id: string }[]>`SELECT id FROM "CommunityGroup" WHERE slug = ${pageId} LIMIT 1`;
+      groupId = rows[0]?.id ?? null;
+    }
+    if (!groupId) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
     const group = await db.communityGroup.findUnique({
-      where: { pageId },
+      where: { id: groupId },
       include: {
         boardMembers: {
           include: { user: { select: { id: true, name: true, avatarUrl: true } } },
@@ -50,7 +62,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ pageId: 
       }
 
       if (viewerStatus !== "admin") {
-        const page = await db.page.findUnique({ where: { id: pageId }, select: { ownerId: true } });
+        const page = await db.page.findUnique({ where: { id: group.pageId }, select: { ownerId: true } });
         if (page?.ownerId === userId) viewerStatus = "admin";
       }
     }
@@ -67,8 +79,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ pageId: 
           })
         : [];
 
-    const extra = await db.$queryRaw<{ emergencyContacts: unknown; bannerUrl: string | null }[]>`SELECT "emergencyContacts", "bannerUrl" FROM "CommunityGroup" WHERE id = ${group.id}`;
-    return NextResponse.json({ ok: true, group: { ...group, bannerUrl: extra[0]?.bannerUrl ?? null, emergencyContacts: extra[0]?.emergencyContacts ?? [] }, viewerStatus, pendingMemberships });
+    const extra = await db.$queryRaw<{ emergencyContacts: unknown; bannerUrl: string | null; slug: string | null }[]>`SELECT "emergencyContacts", "bannerUrl", slug FROM "CommunityGroup" WHERE id = ${group.id}`;
+    return NextResponse.json({ ok: true, group: { ...group, bannerUrl: extra[0]?.bannerUrl ?? null, emergencyContacts: extra[0]?.emergencyContacts ?? [], slug: extra[0]?.slug ?? null }, viewerStatus, pendingMemberships });
   } catch (err: any) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
