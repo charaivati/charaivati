@@ -1,11 +1,48 @@
 import fs from "fs";
 import path from "path";
+import { db } from "@/lib/db";
 
 const CONTEXT_DIR = path.join(process.cwd(), "ai-context");
 
 // Module-level cache — values written once per server process, never evicted.
 // Key format: "filename:__raw__" for raw file text, "filename:sectionName" for parsed sections.
 const cache: Record<string, string> = {};
+
+// The full set of context files surfaced by the admin editor (/admin/context).
+// COUNCIL.txt holds the Council persona/verdict/synthesis prompts that used to
+// be hardcoded in TS.
+export const CONTEXT_FILES = [
+  "PLATFORM.txt",
+  "DRIVES.txt",
+  "RESPONSE_GUIDE.txt",
+  "INITIATIVES.txt",
+  "COMPANION_PHILOSOPHY.txt",
+  "BUSINESS_AI_PHILOSOPHY.txt",
+  "CONSULT_LISTENER.txt",
+  "COUNCIL.txt",
+] as const;
+
+export function listContextFiles(): string[] {
+  return [...CONTEXT_FILES];
+}
+
+// Drops every cache key for one file (raw + any parsed sections), so the next
+// read re-pulls from fs or the just-written override. Called after an admin save.
+export function clearFileCache(filename: string): void {
+  for (const key of Object.keys(cache)) {
+    if (key === `${filename}:__raw__` || key.startsWith(`${filename}:`)) {
+      delete cache[key];
+    }
+  }
+}
+
+// Seed the cache with an override immediately so the instance that just saved
+// reflects the edit without waiting for the TTL warm. Other instances pick it up
+// via warmContextOverrides() within the TTL.
+export function primeFileCache(filename: string, body: string): void {
+  clearFileCache(filename);
+  cache[`${filename}:__raw__`] = body;
+}
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -88,4 +125,39 @@ export function loadSection(filename: string, sectionName: string): string {
   const result = sections[sectionName] ?? "";
   cache[key] = result;
   return result;
+}
+
+// ─── DB override layer ──────────────────────────────────────────────────────────
+// Admins edit context from /admin/context; edits land in AiContextFile (shared by
+// localhost + production via the same DATABASE_URL). warmContextOverrides() injects
+// those rows into the cache above so the sync loaders (readRaw/loadSection/…) prefer
+// them over the bundled files — keeping the whole loader API synchronous.
+//
+// ponytail: 60s TTL refetch; add Redis pub/sub invalidation only if a minute's lag
+// ever matters. Edits the admin makes are reflected instantly for them because the
+// save route calls clearFileCache() directly.
+
+const CONTEXT_OVERRIDE_TTL_MS = 60_000;
+let lastWarmAt = 0;
+
+export async function warmContextOverrides(): Promise<void> {
+  const now = Date.now();
+  if (now - lastWarmAt < CONTEXT_OVERRIDE_TTL_MS) return;
+  lastWarmAt = now;
+  try {
+    // Raw SQL: AiContextFile is a new model not yet in the generated client.
+    const rows = await db.$queryRaw<{ fileName: string; body: string }[]>`
+      SELECT "fileName", "body" FROM "AiContextFile"`;
+    for (const { fileName, body } of rows) {
+      // Only re-seed if the override text differs from what's cached, so we don't
+      // needlessly drop parsed-section keys every cycle.
+      if (cache[`${fileName}:__raw__`] !== body) {
+        clearFileCache(fileName);
+        cache[`${fileName}:__raw__`] = body;
+      }
+    }
+  } catch (err) {
+    // DB unreachable / table missing (pre-migration) — fall back to bundled files.
+    console.warn("[contextLoader] warmContextOverrides failed:", (err as Error).message);
+  }
 }

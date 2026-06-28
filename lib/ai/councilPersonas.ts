@@ -1,3 +1,5 @@
+import { loadSection } from "@/lib/ai/contextLoader";
+
 export type PersonaKey = 'guardian' | 'seeker' | 'builder';
 
 export interface Persona {
@@ -47,8 +49,11 @@ export function buildPersonaPrompt(
   question: string,
 ): { systemPrompt: string; prompt: string } {
   const p = COUNCIL_PERSONAS[persona];
+  // Admin-editable override (COUNCIL.txt section) wins; falls back to the
+  // hardcoded instruction when the file/override is absent.
+  const systemPrompt = loadSection("COUNCIL.txt", persona) || p.systemInstruction;
   return {
-    systemPrompt: p.systemInstruction,
+    systemPrompt,
     prompt: `User drives: ${userContext.drives}
 Energy level: ${userContext.energyScore}/100
 Active goals: ${userContext.goalsStr}

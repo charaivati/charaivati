@@ -44,7 +44,7 @@ export async function GET() {
     OPENROUTER_API_KEY:    !!env.OPENROUTER_API_KEY,
     Charaivati_groq:       !!env.Charaivati_groq,
     Charaivati_Health:     !!env.Charaivati_Health,
-    GROQ_MODEL:            env.GROQ_MODEL ?? "(default: llama-3.1-8b-instant)",
+    GROQ_MODEL:            env.GROQ_MODEL ?? "(default: openai/gpt-oss-20b)",
     VERCEL_MODEL:          env.VERCEL_MODEL ?? null,
     VERCEL_AI_GATEWAY_URL: env.VERCEL_AI_GATEWAY_URL ?? "(default: https://ai-gateway.vercel.sh)",
     NEXT_PUBLIC_SITE_URL:  env.NEXT_PUBLIC_SITE_URL ?? null,
@@ -64,7 +64,7 @@ export async function GET() {
   };
 
   const orModel       = env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
-  const groqModel     = env.GROQ_MODEL ?? "llama-3.1-8b-instant";
+  const groqModel     = env.GROQ_MODEL ?? "openai/gpt-oss-20b";
   const vercelModel   = env.VERCEL_MODEL ?? "openai/gpt-4o-mini";
   const skillsModel   = env.SKILLS_AI_MODEL ?? orModel;
   const envCueModel   = env.ENVIRONMENT_AI_MODEL ?? orModel;

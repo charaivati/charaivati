@@ -2135,3 +2135,12 @@ model InitiativeTransfer {
   @@index([pageId])
   @@index([fromUserId])
 }
+
+// Admin-editable override for an ai-context/*.txt file. When a row exists, its
+// `body` (full file text) wins over the bundled file in lib/ai/contextLoader.ts.
+// Empty table => loader behaves exactly as before (files win). See /admin/context.
+model AiContextFile {
+  fileName  String   @id
+  body      String   @db.Text
+  updatedAt DateTime @updatedAt
+}

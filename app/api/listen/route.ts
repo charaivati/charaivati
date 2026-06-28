@@ -15,7 +15,7 @@
 import { NextResponse, after } from "next/server";
 import { db } from "@/lib/db";
 import { chatComplete, safeJsonParse } from "@/app/api/aiClient";
-import { loadSection } from "@/lib/ai/contextLoader";
+import { loadSection, warmContextOverrides } from "@/lib/ai/contextLoader";
 import { authenticateChat, runInputGuard, runGuardedCompletion } from "@/lib/ai/chatPipeline";
 import { scanInputCrisis } from "@/lib/ai/guardRail";
 import { notifyAdmin } from "@/lib/ai/adminNotify";
@@ -356,6 +356,9 @@ export async function POST(req: Request) {
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const userId = payload.userId;
   const isAdmin = await isAdminUser(userId);
+
+  // Pull any admin context overrides into the loader cache before prompt assembly.
+  await warmContextOverrides();
 
   const body = await req.json();
   const { message, steer, correction, dismissedProposals } = body as {

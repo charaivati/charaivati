@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { loadPlatformContext, loadInitiativeContext, loadRawFile } from "@/lib/ai/contextLoader";
+import { loadPlatformContext, loadInitiativeContext, loadRawFile, warmContextOverrides } from "@/lib/ai/contextLoader";
 import { getArcInstruction } from "@/lib/companion/arcStateMachine";
 import { buildProfileProposal, tryProposeGoal } from "@/lib/companion/profileSync";
 import { authenticateChat, runInputGuard, runGuardedCompletion } from "@/lib/ai/chatPipeline";
@@ -82,6 +82,7 @@ export async function POST(req: Request) {
   console.log(`[chat] userId=${userId} section=${currentSection} historyLen=${conversationHistory?.length ?? 0}`);
 
   // ── Context loading ────────────────────────────────────────────────────────
+  await warmContextOverrides();
   const platformContext = loadPlatformContext();
   const initiativeContext = loadInitiativeContext();
 

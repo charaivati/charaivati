@@ -3,6 +3,7 @@ import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 import { db } from "@/lib/db";
 import { callAI } from "@/app/api/aiClient";
 import { COUNCIL_PERSONAS, buildPersonaPrompt, type UserContext } from "@/lib/ai/councilPersonas";
+import { warmContextOverrides, loadSection } from "@/lib/ai/contextLoader";
 
 export async function POST(req: Request) {
   const requestStart = Date.now();
@@ -10,6 +11,9 @@ export async function POST(req: Request) {
   const token = getTokenFromRequest(req);
   const payload = await verifySessionToken(token);
   if (!payload) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Pull any admin context overrides into the loader cache before assembling prompts.
+  await warmContextOverrides();
 
   const body = await req.json();
   const { message, trigger = "auto" } = body as {
@@ -144,10 +148,16 @@ export async function POST(req: Request) {
         send({ type: "status", step: 5, message: "🔨 Builder has spoken. ⚖️ Council reaching their verdict..." });
         if (isAborted()) { send({ type: "aborted" }); controller.close(); return; }
 
+        // Admin-editable (COUNCIL.txt) with hardcoded fallback. verdict = system
+        // prompt; synthesis = the trailing instruction spliced into a dynamic frame.
         const verdictSystemPrompt =
+          loadSection("COUNCIL.txt", "verdict") ||
           "You are the deciding voice of a life advice council. Three perspectives have been heard. Now give ONE clear, decisive recommendation in 2-3 sentences. Be direct. Start with an action verb. No hedging. Use the user's context: drive type, energy score, goals.";
+        const synthInstruction =
+          loadSection("COUNCIL.txt", "synthesis") ||
+          "what is the single most important question they are really asking? One sentence. Poetic but grounded.";
         const verdictPrompt = `Guardian said: ${guardianText}\nSeeker said: ${seekerText}\nBuilder said: ${builderText}\nUser context: ${drives} type, energy ${Math.round(energyScore / 10)}/10, goals: ${goalsStr}\nQuestion: ${message}\nGive the Council's decisive verdict.`;
-        const synthesisPrompt = `Given these three perspectives on "${message}":\n\nGuardian: ${guardianText}\n\nSeeker: ${seekerText}\n\nBuilder: ${builderText}\n\nAnd that this user is a ${firstDrive} type with energy ${Math.round(energyScore / 10)}/10, what is the single most important question they are really asking? One sentence. Poetic but grounded.`;
+        const synthesisPrompt = `Given these three perspectives on "${message}":\n\nGuardian: ${guardianText}\n\nSeeker: ${seekerText}\n\nBuilder: ${builderText}\n\nAnd that this user is a ${firstDrive} type with energy ${Math.round(energyScore / 10)}/10, ${synthInstruction}`;
 
         const [verdict, synthesis] = await Promise.all([
           callAI({ prompt: verdictPrompt, systemPrompt: verdictSystemPrompt, provider: "groq", maxTokens: 150 }),

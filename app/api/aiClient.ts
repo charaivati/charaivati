@@ -24,7 +24,8 @@ const OLLAMA_MODEL     = process.env.OLLAMA_MODEL     ?? "llama3:8b";
 const OLLAMA_BASE_URL  = process.env.OLLAMA_BASE_URL  ?? "http://127.0.0.1:11434";
 const NIM_MODEL        = process.env.NVIDIA_NIM_MODEL ?? "meta/llama-3.1-8b-instruct";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL ?? "openai/gpt-4o-mini";
-const GROQ_MODEL       = process.env.GROQ_MODEL       ?? "llama-3.1-8b-instant";
+// Groq deprecated llama-3.1-8b-instant (decommission 2026-08-16); GPT OSS 20B is the replacement.
+const GROQ_MODEL       = process.env.GROQ_MODEL       ?? "openai/gpt-oss-20b";
 const VERCEL_MODEL     = process.env.VERCEL_MODEL     ?? "openai/gpt-4o-mini";
 const VERCEL_GATEWAY   = (process.env.VERCEL_AI_GATEWAY_URL ?? "https://ai-gateway.vercel.sh").replace(/\/$/, "");
 const TIMEOUT_MS       = 60_000;

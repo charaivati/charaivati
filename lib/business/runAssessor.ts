@@ -4,7 +4,7 @@
 // Ollama entirely and falls through Groq → Vercel if OpenRouter fails.
 
 import { callAI, safeJsonParse } from "@/app/api/aiClient";
-import { loadRawFile } from "@/lib/ai/contextLoader";
+import { loadRawFile, warmContextOverrides } from "@/lib/ai/contextLoader";
 import {
   buildAssessorPrompt,
   buildVerdictPrompt,
@@ -13,8 +13,9 @@ import {
   type AssessorResult,
 } from "./interviewConfig";
 
-// Load philosophy once — contextLoader caches it.
-function getPhilosophy(): string {
+// Load philosophy — contextLoader caches it; warm pulls admin DB overrides first.
+async function getPhilosophy(): Promise<string> {
+  await warmContextOverrides();
   return loadRawFile("BUSINESS_AI_PHILOSOPHY.txt");
 }
 
@@ -42,7 +43,7 @@ export async function runAssessor(
   sector: string,
   dimensionTranscript: string // all user answers relevant to this dimension
 ): Promise<AssessorResult | null> {
-  const systemPrompt = buildAssessorPrompt(getPhilosophy());
+  const systemPrompt = buildAssessorPrompt(await getPhilosophy());
 
   const userPrompt = `Idea: "${ideaTitle}" — ${ideaDescription}
 Sector: ${sector}
@@ -86,7 +87,7 @@ export async function runFinalVerdict(
   finalScores: Record<string, number>,
   assessorReasons: Record<string, string>
 ): Promise<FinalVerdictResult> {
-  const systemPrompt = buildVerdictPrompt(getPhilosophy());
+  const systemPrompt = buildVerdictPrompt(await getPhilosophy());
 
   const dimSummary = Object.entries(finalScores)
     .map(([dim, score]) => {

@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getTokenFromRequest, verifySessionToken } from "@/lib/session";
 import { chatComplete } from "@/app/api/aiClient";
-import { loadRawFile } from "@/lib/ai/contextLoader";
+import { loadRawFile, warmContextOverrides } from "@/lib/ai/contextLoader";
 
 const GUEST_COOKIE = "biz-guest";
 const MODEL = process.env.CHAT_AI_MODEL ?? "llama3:8b";
@@ -124,6 +124,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
+    await warmContextOverrides();
     const systemPrompt = buildSystemPrompt();
     const userPrompt = buildUserPrompt(type, idea);
 
