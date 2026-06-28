@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { geocodeSearch, reverseGeocode } from "@/lib/geo/geocode";
 import { useGeolocation } from "@/hooks/useGeolocation";
@@ -16,6 +16,7 @@ interface PageInfo {
   title: string;
   description: string | null;
   avatarUrl: string | null;
+  slug: string | null;
 }
 
 interface FleetBlock {
@@ -754,6 +755,7 @@ function BookModal({ pageId, block, addrs, onClose }: { pageId: string; block: F
 export default function FleetPage() {
   const params = useParams();
   const pageId = params?.pageId as string;
+  const router = useRouter();
 
   const [page, setPage] = useState<PageInfo | null>(null);
   const [blocks, setBlocks] = useState<FleetBlock[]>([]);
@@ -784,6 +786,8 @@ export default function FleetPage() {
         setDeliveryFee(d.deliveryFee ?? null);
         setFreeDeliveryAbove(d.freeDeliveryAbove ?? null);
         setAcceptingOrders(d.acceptingOrders ?? false);
+        // Canonical redirect: cuid → slug
+        if (d.page?.slug && pageId !== d.page.slug) router.replace(`/fleet/${d.page.slug}`);
       })
       .finally(() => setLoading(false));
     fetch("/api/store/address", { credentials: "include" })

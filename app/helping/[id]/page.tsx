@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { X, Heart, Users } from "lucide-react";
 import InitiativePostsBlock from "@/components/initiative/InitiativePostsBlock";
 
@@ -28,6 +28,7 @@ type Initiative = {
 
 export default function HelpingInitiativePublicPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [initiative, setInitiative] = useState<Initiative | null>(null);
   const [loading, setLoading] = useState(true);
   const [showDonate, setShowDonate] = useState(false);
@@ -36,7 +37,12 @@ export default function HelpingInitiativePublicPage() {
   useEffect(() => {
     fetch(`/api/helping-initiative/by-page/${id}`)
       .then((r) => r.json())
-      .then((d) => { if (d.ok) setInitiative(d.initiative); })
+      .then((d) => {
+        if (d.ok) {
+          setInitiative(d.initiative);
+          if (d.initiative.slug && id !== d.initiative.slug) router.replace(`/helping/${d.initiative.slug}`);
+        }
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);

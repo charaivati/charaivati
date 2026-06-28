@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { softDeleteStore } from "@/lib/store/softDeleteStore";
+import { generateSlug, randomSuffix } from "@/lib/store/generateSlug";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,12 @@ export async function POST(req: Request) {
       data: { ownerId: user.id, title, description: description || null, type, pageType },
       select: { id: true, title: true, description: true, avatarUrl: true, createdAt: true, type: true, pageType: true },
     });
+
+    // Assign slug for initiative types that have public-facing slug URLs
+    if (["fleet", "helping", "service"].includes(pageType)) {
+      const slug = `${generateSlug(title)}-${randomSuffix()}`;
+      await prisma.$executeRaw`UPDATE "Page" SET slug = ${slug} WHERE id = ${page.id}`;
+    }
 
     return NextResponse.json({ ok: true, page }, { status: 201 });
   } catch (err: any) {
