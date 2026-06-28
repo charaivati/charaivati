@@ -378,83 +378,6 @@ export default function CommunityGroupPublicPage() {
           </div>
         </div>
 
-        {/* ── Posts ── */}
-        <section className="space-y-4">
-          <h2 className="text-base font-bold text-emerald-400 border-b border-gray-800 pb-2">Community Posts</h2>
-
-          {/* Compose box — logged-in users only */}
-          {viewerStatus !== "guest" && (
-            <div className="bg-gray-900 rounded-xl p-4 space-y-3">
-              <textarea
-                value={postText}
-                onChange={(e) => setPostText(e.target.value)}
-                placeholder="Share something with the group…"
-                rows={3}
-                className="w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 resize-none placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-              <div className="flex justify-end">
-                <button
-                  onClick={submitPost}
-                  disabled={submittingPost || !postText.trim()}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
-                >
-                  {submittingPost ? "Posting…" : "Post"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Flagged posts — admin only */}
-          {isAdmin && posts.filter((p) => p.status === "flagged").length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-amber-400 font-semibold uppercase tracking-wide">Under review</p>
-              {posts.filter((p) => p.status === "flagged").map((post) => (
-                <div key={post.id} className="bg-gray-900/60 border border-amber-800/40 rounded-xl p-4 opacity-70 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs text-gray-300 font-bold flex-shrink-0">
-                      {(post.user.name?.[0] ?? "?").toUpperCase()}
-                    </span>
-                    <span className="text-sm text-gray-400">{post.user.name ?? "Unknown"}</span>
-                    <span className="text-xs text-amber-500 ml-auto">⚠ Flagged by AI</span>
-                  </div>
-                  <p className="text-sm text-gray-400 whitespace-pre-wrap">{post.content}</p>
-                  <button onClick={() => deletePost(post.id)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Active posts */}
-          {posts.filter((p) => p.status === "active").length === 0 ? (
-            <p className="text-gray-500 text-sm">No posts yet. Be the first to share something!</p>
-          ) : (
-            <div className="space-y-3">
-              {posts.filter((p) => p.status === "active").map((post) => (
-                <div key={post.id} className="bg-gray-900 rounded-xl p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    {post.user.avatarUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={post.user.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                    ) : (
-                      <span className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs text-gray-300 font-bold flex-shrink-0">
-                        {(post.user.name?.[0] ?? "?").toUpperCase()}
-                      </span>
-                    )}
-                    <a href={`/user/${post.user.id}`} className="text-sm text-gray-300 hover:text-white font-medium">{post.user.name ?? "Unknown"}</a>
-                    <span className="text-xs text-gray-600 ml-auto">
-                      {new Date(post.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                    </span>
-                    {(isAdmin || post.user.id === currentUserId) && (
-                      <button onClick={() => deletePost(post.id)} className="text-xs text-gray-600 hover:text-red-400 transition-colors" title="Delete">🗑</button>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-200 whitespace-pre-wrap">{post.content}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
         {/* ── Board Members ── */}
         {group.boardMembers.length > 0 && (
           <section className="space-y-3">
@@ -630,6 +553,83 @@ export default function CommunityGroupPublicPage() {
             ))}
           </section>
         )}
+
+        {/* ── Posts ── */}
+        <section className="space-y-4">
+          <h2 className="text-base font-bold text-emerald-400 border-b border-gray-800 pb-2">Community Posts</h2>
+
+          {/* Compose box — logged-in users only */}
+          {viewerStatus !== "guest" && (
+            <div className="bg-gray-900 rounded-xl p-4 space-y-3">
+              <textarea
+                value={postText}
+                onChange={(e) => setPostText(e.target.value)}
+                placeholder="Share something with the group…"
+                rows={3}
+                className="w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 resize-none placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={submitPost}
+                  disabled={submittingPost || !postText.trim()}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-sm font-semibold transition-colors"
+                >
+                  {submittingPost ? "Posting…" : "Post"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Flagged posts — admin only */}
+          {isAdmin && posts.filter((p) => p.status === "flagged").length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-amber-400 font-semibold uppercase tracking-wide">Under review</p>
+              {posts.filter((p) => p.status === "flagged").map((post) => (
+                <div key={post.id} className="bg-gray-900/60 border border-amber-800/40 rounded-xl p-4 opacity-70 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs text-gray-300 font-bold flex-shrink-0">
+                      {(post.user.name?.[0] ?? "?").toUpperCase()}
+                    </span>
+                    <span className="text-sm text-gray-400">{post.user.name ?? "Unknown"}</span>
+                    <span className="text-xs text-amber-500 ml-auto">⚠ Flagged by AI</span>
+                  </div>
+                  <p className="text-sm text-gray-400 whitespace-pre-wrap">{post.content}</p>
+                  <button onClick={() => deletePost(post.id)} className="text-xs text-red-400 hover:text-red-300">Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Active posts */}
+          {posts.filter((p) => p.status === "active").length === 0 ? (
+            <p className="text-gray-500 text-sm">No posts yet. Be the first to share something!</p>
+          ) : (
+            <div className="space-y-3">
+              {posts.filter((p) => p.status === "active").map((post) => (
+                <div key={post.id} className="bg-gray-900 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    {post.user.avatarUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={post.user.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                    ) : (
+                      <span className="w-7 h-7 rounded-full bg-gray-700 flex items-center justify-center text-xs text-gray-300 font-bold flex-shrink-0">
+                        {(post.user.name?.[0] ?? "?").toUpperCase()}
+                      </span>
+                    )}
+                    <a href={`/user/${post.user.id}`} className="text-sm text-gray-300 hover:text-white font-medium">{post.user.name ?? "Unknown"}</a>
+                    <span className="text-xs text-gray-600 ml-auto">
+                      {new Date(post.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                    {(isAdmin || post.user.id === currentUserId) && (
+                      <button onClick={() => deletePost(post.id)} className="text-xs text-gray-600 hover:text-red-400 transition-colors" title="Delete">🗑</button>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-200 whitespace-pre-wrap">{post.content}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
 
       </div>
     </div>
