@@ -1417,6 +1417,14 @@ model Order {
   partnerStatus     String?
   /// Set by the delivery person tapping "Picked up" — switches Navigate from pickup to drop. Never inferred from deliveryStatus/vehicleId (GPS can start before physical pickup).
   pickupConfirmedAt DateTime?
+  /// "cod" | "upi" — buyer's chosen payment method at checkout
+  paymentMethod     String              @default("cod")
+  /// "unpaid" (COD, collect on delivery) | "claimed" (buyer says they paid via UPI, proof attached) | "verified" (owner confirmed receipt). Platform never auto-verifies — manual reconciliation only.
+  paymentStatus     String              @default("unpaid")
+  /// UPI transaction reference / UTR the buyer pasted as proof
+  paymentRef        String?
+  /// Cloudinary URL of the payment screenshot the buyer uploaded as proof
+  paymentProofUrl   String?
   /// Set to true when a step fails or a quote times out — owner must take action
   requiresAttention Boolean             @default(false)
   /// Ordered array of { quoteId, partyName, amount, status } — set by respond/accept/reorder

@@ -15,10 +15,14 @@ export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { storeId, addressId, items, billingProfileId, invoiceData } = await req.json();
+  const { storeId, addressId, items, billingProfileId, invoiceData, paymentMethod, paymentRef, paymentProofUrl } = await req.json();
 
   if (!storeId || !addressId || !Array.isArray(items) || items.length === 0) {
     return NextResponse.json({ error: "storeId, addressId, and items are required" }, { status: 400 });
+  }
+  const payMethod = paymentMethod === "upi" ? "upi" : "cod";
+  if (payMethod === "upi" && !paymentRef && !paymentProofUrl) {
+    return NextResponse.json({ error: "Share a UPI transaction number or screenshot to confirm payment." }, { status: 400 });
   }
 
   const address = await db.address.findUnique({ where: { id: addressId } });
@@ -86,6 +90,14 @@ export async function POST(req: NextRequest) {
     data: orderData as any,
     include: { store: true, address: true },
   });
+
+  // Payment columns are db-push fields — write via raw SQL (typed client may be stale)
+  const payStatus = payMethod === "upi" ? "claimed" : "unpaid";
+  await db.$executeRaw`
+    UPDATE "Order" SET "paymentMethod" = ${payMethod}, "paymentStatus" = ${payStatus},
+      "paymentRef" = ${paymentRef ?? null}, "paymentProofUrl" = ${paymentProofUrl ?? null}
+    WHERE id = ${order.id}
+  `;
 
   const storeWithOwner = await db.store.findUnique({
     where: { id: storeId },

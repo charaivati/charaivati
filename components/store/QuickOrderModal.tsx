@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import AddressForm, { type AddressFormData } from "@/components/shared/AddressForm";
-import PayToVpa from "@/components/payments/PayToVpa";
+import CheckoutPayment, { PaymentChoice, isPaymentReady } from "@/components/payments/CheckoutPayment";
 
 const A = {
   bg: "#E3E6E6",
@@ -88,6 +88,7 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
 
   // Order
   const [placing, setPlacing] = useState(false);
+  const [pay, setPay] = useState<PaymentChoice>({ method: "cod" });
   const [orderId, setOrderId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -180,6 +181,9 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
         storeId,
         addressId: selectedAddrId,
         items: items.map((i) => ({ blockId: i.blockId, title: i.title, price: i.price, quantity: i.quantity, imageUrl: i.imageUrl })),
+        paymentMethod: pay.method,
+        paymentRef: pay.ref ?? null,
+        paymentProofUrl: pay.proofUrl ?? null,
       };
 
       if (selectedProfileId === PERSONAL_ID) {
@@ -431,19 +435,16 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
                   <span>Total</span>
                   <span className="font-bold" style={{ color: A.text }}>₹{total.toLocaleString("en-IN")}</span>
                 </div>
-                <div className="text-xs px-3 py-2 rounded-lg text-center" style={{ background: "#F0FDF4", color: "#16A34A" }}>
-                  💵 Cash on Delivery
-                </div>
-                {upiVpa && <PayToVpa vpa={upiVpa} amount={total} payeeName={storeName} note={`Quick order from ${storeName}`} />}
+                <CheckoutPayment vpa={upiVpa} amount={total} payeeName={storeName} note={`Quick order from ${storeName}`} value={pay} onChange={setPay} />
                 <div className="flex gap-2">
                   <button onClick={() => setStep(2)}
                     className="px-4 py-2 rounded-lg text-sm"
                     style={{ border: `1px solid ${A.border}`, color: A.textMuted, background: A.surface }}>
                     ← Back
                   </button>
-                  <button onClick={placeOrder} disabled={placing}
+                  <button onClick={placeOrder} disabled={placing || !isPaymentReady(pay)}
                     className="flex-1 py-2 rounded-lg text-sm font-bold"
-                    style={{ background: A.accent, color: "#fff", opacity: placing ? 0.7 : 1 }}>
+                    style={{ background: A.accent, color: "#fff", opacity: placing || !isPaymentReady(pay) ? 0.6 : 1 }}>
                     {placing ? "Placing…" : "Place Order"}
                   </button>
                 </div>

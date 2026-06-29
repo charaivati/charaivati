@@ -8,9 +8,13 @@ export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { storeId, addressId, billingProfileId, invoiceData } = await req.json();
+  const { storeId, addressId, billingProfileId, invoiceData, paymentMethod, paymentRef, paymentProofUrl } = await req.json();
   if (!storeId || !addressId) {
     return NextResponse.json({ error: "storeId and addressId required" }, { status: 400 });
+  }
+  const payMethod = paymentMethod === "upi" ? "upi" : "cod";
+  if (payMethod === "upi" && !paymentRef && !paymentProofUrl) {
+    return NextResponse.json({ error: "Share a UPI transaction number or screenshot to confirm payment." }, { status: 400 });
   }
 
   const address = await prisma.address.findUnique({ where: { id: addressId } });
@@ -86,6 +90,14 @@ export async function POST(req: NextRequest) {
     } as any,
     include: { store: true, address: true },
   });
+
+  // Payment columns are db-push fields — write via raw SQL (typed client may be stale)
+  const payStatus = payMethod === "upi" ? "claimed" : "unpaid";
+  await prisma.$executeRaw`
+    UPDATE "Order" SET "paymentMethod" = ${payMethod}, "paymentStatus" = ${payStatus},
+      "paymentRef" = ${paymentRef ?? null}, "paymentProofUrl" = ${paymentProofUrl ?? null}
+    WHERE id = ${order.id}
+  `;
 
   await prisma.cartItem.deleteMany({ where: { userId: user.id, storeId } });
 
@@ -356,10 +368,10 @@ export async function GET(req: NextRequest) {
 
     // requiresAttention + quoteSummary + agreedAmount (new columns — raw SQL)
     const wfRows = orderIds.length > 0 ? await prisma.$queryRaw<
-      { id: string; requiresAttention: boolean; quoteSummary: unknown; agreedAmount: number | null }[]
-    >`SELECT id, "requiresAttention", "quoteSummary", "agreedAmount" FROM "Order" WHERE id = ANY(${orderIds}::text[])` : [];
-    const wfMap: Record<string, { requiresAttention: boolean; quoteSummary: unknown; agreedAmount: number | null }> = {};
-    for (const r of wfRows) wfMap[r.id] = { requiresAttention: r.requiresAttention, quoteSummary: r.quoteSummary, agreedAmount: r.agreedAmount ?? null };
+      { id: string; requiresAttention: boolean; quoteSummary: unknown; agreedAmount: number | null; paymentMethod: string; paymentStatus: string; paymentRef: string | null; paymentProofUrl: string | null }[]
+    >`SELECT id, "requiresAttention", "quoteSummary", "agreedAmount", "paymentMethod", "paymentStatus", "paymentRef", "paymentProofUrl" FROM "Order" WHERE id = ANY(${orderIds}::text[])` : [];
+    const wfMap: Record<string, { requiresAttention: boolean; quoteSummary: unknown; agreedAmount: number | null; paymentMethod: string; paymentStatus: string; paymentRef: string | null; paymentProofUrl: string | null }> = {};
+    for (const r of wfRows) wfMap[r.id] = { requiresAttention: r.requiresAttention, quoteSummary: r.quoteSummary, agreedAmount: r.agreedAmount ?? null, paymentMethod: r.paymentMethod, paymentStatus: r.paymentStatus, paymentRef: r.paymentRef, paymentProofUrl: r.paymentProofUrl };
 
     // Sub-orders (new columns — raw SQL)
     const subOrderRows = orderIds.length > 0 ? await prisma.$queryRaw<
@@ -384,6 +396,10 @@ export async function GET(req: NextRequest) {
         requiresAttention: wfMap[o.id]?.requiresAttention ?? false,
         quoteSummary:      wfMap[o.id]?.quoteSummary ?? null,
         agreedAmount:      wfMap[o.id]?.agreedAmount ?? null,
+        paymentMethod:     wfMap[o.id]?.paymentMethod ?? "cod",
+        paymentStatus:     wfMap[o.id]?.paymentStatus ?? "unpaid",
+        paymentRef:        wfMap[o.id]?.paymentRef ?? null,
+        paymentProofUrl:   wfMap[o.id]?.paymentProofUrl ?? null,
         initiativeId:      storePageId,
         activeStep: osp ? {
           stepId:        osp.stepId,

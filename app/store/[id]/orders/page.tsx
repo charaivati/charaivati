@@ -36,6 +36,10 @@ type Order = {
   initiativeId?: string | null;
   deliveryStatus?: string | null;
   vehicleId?: string | null;
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  paymentRef?: string | null;
+  paymentProofUrl?: string | null;
   subOrders?: { id: string; subOrderType: string | null; agreedAmount: number | null; userId: string }[];
   allSteps?:  StepStatus[];
 };
@@ -797,6 +801,19 @@ export default function StoreOrdersPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [invoiceStates, setInvoiceStates] = useState<Record<string, InvoiceState>>({});
   const [toast, setToast] = useState<string | null>(null);
+  const [verifyingPay, setVerifyingPay] = useState<string | null>(null);
+
+  async function markPaymentReceived(orderId: string) {
+    if (verifyingPay === orderId) return;
+    setVerifyingPay(orderId);
+    try {
+      const r = await fetch(`/api/order/${orderId}/payment`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ paymentStatus: "verified" }),
+      });
+      if (r.ok) { setToast("Payment marked received ✓"); setTimeout(() => setToast(null), 3000); loadOrders(); }
+    } finally { setVerifyingPay(null); }
+  }
 
   // Delivery partner/assignment state — keyed by orderId
   const [assignedTos, setAssignedTos] = useState<Record<string, string | null>>({});
@@ -1080,9 +1097,32 @@ export default function StoreOrdersPage() {
                 </div>
                 <div className="text-right">
                   <div className="font-bold" style={{ color: A.text }}>₹{order.total.toLocaleString("en-IN")}</div>
-                  <div className="text-xs" style={{ color: A.textMuted }}>Cash on Delivery</div>
+                  <div className="text-xs" style={{ color: A.textMuted }}>
+                    {order.paymentMethod === "upi" ? "📲 Paid via UPI" : "💵 Cash on Delivery"}
+                  </div>
                 </div>
               </div>
+
+              {/* ── UPI payment proof + verify ── */}
+              {order.paymentMethod === "upi" && (
+                <div className="mb-4 px-3 py-2 rounded-lg flex flex-wrap items-center gap-3"
+                  style={{ background: order.paymentStatus === "verified" ? "#F0FDF4" : "#FFFBEB", border: `1px solid ${order.paymentStatus === "verified" ? "#86EFAC" : "#FDE68A"}` }}>
+                  <span className="text-xs font-semibold" style={{ color: order.paymentStatus === "verified" ? "#16A34A" : "#B45309" }}>
+                    {order.paymentStatus === "verified" ? "✓ Payment confirmed" : "⏳ Payment claimed — confirm in your UPI app"}
+                  </span>
+                  {order.paymentRef && <span className="text-xs font-mono" style={{ color: A.text }}>Ref: {order.paymentRef}</span>}
+                  {order.paymentProofUrl && (
+                    <a href={order.paymentProofUrl} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: A.link }}>View screenshot</a>
+                  )}
+                  {order.paymentStatus !== "verified" && (
+                    <button onClick={() => markPaymentReceived(order.id)} disabled={verifyingPay === order.id}
+                      className="text-xs px-3 py-1 rounded-md font-semibold ml-auto"
+                      style={{ background: "#16A34A", color: "#fff", opacity: verifyingPay === order.id ? 0.6 : 1 }}>
+                      {verifyingPay === order.id ? "Saving…" : "Mark payment received ✓"}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* ── Items / Customer / Address grid ── */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

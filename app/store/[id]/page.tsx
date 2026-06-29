@@ -8,6 +8,7 @@ import FilterBar, { type StoreFilterItem } from "@/components/store/FilterBar";
 import BannerZone, { type StoreBannerData } from "@/components/store/BannerZone";
 import ManageFiltersPanel from "@/components/store/ManageFiltersPanel";
 import { resilientFetch } from "@/lib/writeQueue";
+import CheckoutPayment, { type PaymentChoice, isPaymentReady } from "@/components/payments/CheckoutPayment";
 import { useStoreShell } from "./StoreShellContext";
 import ImageLibraryPicker from "@/components/store/ImageLibraryPicker";
 import { uploadStoreImage } from "@/lib/store/uploadImage";
@@ -87,6 +88,7 @@ type Store = {
   freeDeliveryAbove?: number | null;
   acceptingOrders?: boolean;
   hoursText?: string | null;
+  upiVpa?: string | null;
 };
 
 
@@ -987,15 +989,16 @@ function CartDrawer({ open, onClose, items, onRemove, storeName, onCheckout }: {
   </div>;
 }
 
-function CheckoutModal({ open, onClose, items, total, storeId, onOrderPlaced }: { open: boolean; onClose: () => void; items: CartItem[]; total: number; storeId: string; onOrderPlaced: () => void; }) {
+function CheckoutModal({ open, onClose, items, total, storeId, storeName, upiVpa, onOrderPlaced }: { open: boolean; onClose: () => void; items: CartItem[]; total: number; storeId: string; storeName?: string; upiVpa?: string | null; onOrderPlaced: () => void; }) {
   const [step, setStep] = useState<1|2>(1); const [addresses, setAddresses] = useState<Address[]>([]); const [selected, setSelected] = useState<string>("");
   const [adding, setAdding] = useState(false); const [placing, setPlacing] = useState(false); const [success, setSuccess] = useState(false);
+  const [pay, setPay] = useState<PaymentChoice>({ method: "cod" });
   const [form, setForm] = useState({ name:"", phone:"", line1:"", city:"", state:"", pincode:"" });
   useEffect(()=>{ if(!open) return; setStep(1); fetch('/api/store/address',{credentials:'include'}).then(r=>r.ok?r.json():[]).then((a:Address[])=>{setAddresses(a); const d=a.find(x=>x.isDefault)??a[0]; if(d) setSelected(d.id);}).catch(()=>{}); },[open]);
   if(!open) return null;
   return <Overlay onClose={onClose}><div className="space-y-3" style={{ maxWidth: 480 }}>
     <h3 className="text-sm font-semibold">Checkout</h3>
-    {step===1 ? <><div className="space-y-2 max-h-56 overflow-auto">{addresses.map(a=><button key={a.id} onClick={()=>setSelected(a.id)} className="w-full text-left p-2 rounded-md" style={{ border:`1px solid ${selected===a.id?A.accent:A.border}` }}><div className="text-xs font-semibold">{a.name} · {a.phone}</div><div className="text-xs" style={{ color:A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div></button>)}</div><button className="text-xs" style={{ color:A.link }} onClick={()=>setAdding(v=>!v)}>+ Add new address</button>{adding&&<div className="space-y-2">{Object.keys(form).map((k)=><input key={k} value={(form as any)[k]} onChange={(e)=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={k} className={inputCls} style={inputStyle} />)}<button className="text-xs px-3 py-1 rounded" style={{ background:A.accent,color:'#fff' }} onClick={async()=>{const r=await fetch('/api/store/address',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({...form,isDefault:false})}); if(r.ok){const a=await r.json(); setAddresses(p=>[...p,a]); setSelected(a.id); setAdding(false);}}}>Save address</button></div>}<button disabled={!selected} onClick={()=>setStep(2)} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff',opacity:selected?1:0.5 }}>Next →</button></> : <>{success?<div className="text-sm" style={{ color:'#16A34A' }}>✓ Order placed! The store owner will contact you shortly.</div>:<><div className="text-xs space-y-1">{items.map(i=><div key={i.id}>{i.block.title} x{i.quantity} — ₹{(i.block.price ?? 0)*i.quantity}</div>)}</div><div className="text-xs">Total: ₹{total}</div><div className="text-xs">Cash on Delivery</div><button disabled={placing} onClick={async()=>{setPlacing(true); const r=await fetch('/api/store/orders',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({storeId,addressId:selected})}); setPlacing(false); if(r.ok){setSuccess(true); onOrderPlaced(); setTimeout(onClose,3000);}}} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff' }}>{placing?'Placing…':'Place Order'}</button></>}</>} </div></Overlay>;
+    {step===1 ? <><div className="space-y-2 max-h-56 overflow-auto">{addresses.map(a=><button key={a.id} onClick={()=>setSelected(a.id)} className="w-full text-left p-2 rounded-md" style={{ border:`1px solid ${selected===a.id?A.accent:A.border}` }}><div className="text-xs font-semibold">{a.name} · {a.phone}</div><div className="text-xs" style={{ color:A.textMuted }}>{a.line1}, {a.city}, {a.state} {a.pincode}</div></button>)}</div><button className="text-xs" style={{ color:A.link }} onClick={()=>setAdding(v=>!v)}>+ Add new address</button>{adding&&<div className="space-y-2">{Object.keys(form).map((k)=><input key={k} value={(form as any)[k]} onChange={(e)=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={k} className={inputCls} style={inputStyle} />)}<button className="text-xs px-3 py-1 rounded" style={{ background:A.accent,color:'#fff' }} onClick={async()=>{const r=await fetch('/api/store/address',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({...form,isDefault:false})}); if(r.ok){const a=await r.json(); setAddresses(p=>[...p,a]); setSelected(a.id); setAdding(false);}}}>Save address</button></div>}<button disabled={!selected} onClick={()=>setStep(2)} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff',opacity:selected?1:0.5 }}>Next →</button></> : <>{success?<div className="text-sm" style={{ color:'#16A34A' }}>✓ Order placed! The store owner will contact you shortly.</div>:<><div className="text-xs space-y-1">{items.map(i=><div key={i.id}>{i.block.title} x{i.quantity} — ₹{(i.block.price ?? 0)*i.quantity}</div>)}</div><div className="text-xs">Total: ₹{total}</div><CheckoutPayment vpa={upiVpa} amount={total} payeeName={storeName} note={storeName?`Order from ${storeName}`:undefined} value={pay} onChange={setPay} /><button disabled={placing || !isPaymentReady(pay)} onClick={async()=>{setPlacing(true); const r=await fetch('/api/store/orders',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify({storeId,addressId:selected,paymentMethod:pay.method,paymentRef:pay.ref??null,paymentProofUrl:pay.proofUrl??null})}); setPlacing(false); if(r.ok){setSuccess(true); onOrderPlaced(); setTimeout(onClose,3000);}}} className="w-full py-2 rounded text-xs" style={{ background:A.accent,color:'#fff',opacity:placing||!isPaymentReady(pay)?0.6:1 }}>{placing?'Placing…':'Place Order'}</button></>}</>} </div></Overlay>;
 }
 
 function LoadingSkeleton() {
@@ -1494,7 +1497,7 @@ export default function StorePage() {
         <BulkImageUploadModal storeId={store.id} onClose={() => setShowBulkUpload(false)} />
       )}
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} items={cartItems} onRemove={handleRemoveFromCart} storeId={store.id} storeName={store.name} onCheckout={() => setCheckoutOpen(true)} />
-      <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={(() => { const sub = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0); const fee = store.deliveryFee; const freeA = store.freeDeliveryAbove; return sub + (fee != null && (freeA == null || sub < freeA) ? fee : 0); })()} storeId={store.id} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />
+      <CheckoutModal open={checkoutOpen} onClose={() => setCheckoutOpen(false)} items={cartItems} total={(() => { const sub = cartItems.reduce((s, i) => s + (i.block.price ?? 0) * i.quantity, 0); const fee = store.deliveryFee; const freeA = store.freeDeliveryAbove; return sub + (fee != null && (freeA == null || sub < freeA) ? fee : 0); })()} storeId={store.id} storeName={store.name} upiVpa={store.upiVpa} onOrderPlaced={() => { setCartItems([]); setCartOpen(false); setCheckoutOpen(false); }} />
       {showManageFilters && store && (
         <ManageFiltersPanel storeId={store.id} filters={storeFilters} sections={store.sections.map((s) => ({ id: s.id, title: s.title }))} globalBanner={globalBanner}
           onClose={(updatedFilters, updatedGlobalBanner) => { setStoreFilters(updatedFilters); setGlobalBanner(updatedGlobalBanner); setShowManageFilters(false); }} />

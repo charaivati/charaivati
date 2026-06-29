@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useStoreShell } from "@/app/store/[id]/StoreShellContext";
 import QuickOrderModal from "@/components/store/QuickOrderModal";
-import PayToVpa from "@/components/payments/PayToVpa";
+import CheckoutPayment, { PaymentChoice, isPaymentReady } from "@/components/payments/CheckoutPayment";
 import StoreImagePickerModal from "@/components/store/StoreImagePickerModal";
 
 const A = {
@@ -218,6 +218,7 @@ function CheckoutModal({ open, onClose, items, total, storeId, storeName, onOrde
   const [adding, setAdding] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [pay, setPay] = useState<PaymentChoice>({ method: "cod" });
   const [form, setForm] = useState({ name: "", phone: "", line1: "", city: "", state: "", pincode: "" });
   const [formError, setFormError] = useState("");
 
@@ -251,7 +252,10 @@ function CheckoutModal({ open, onClose, items, total, storeId, storeName, onOrde
 
   async function handlePlaceOrder() {
     setPlacing(true);
-    const body: Record<string, unknown> = { storeId, addressId: selected };
+    const body: Record<string, unknown> = {
+      storeId, addressId: selected,
+      paymentMethod: pay.method, paymentRef: pay.ref ?? null, paymentProofUrl: pay.proofUrl ?? null,
+    };
     if (selectedProfileId === CHECKOUT_PERSONAL_ID) {
       body.invoiceData = {
         legalName: userName ?? selectedAddr?.name ?? "Customer",
@@ -369,13 +373,10 @@ function CheckoutModal({ open, onClose, items, total, storeId, storeName, onOrde
                 <div className="text-xs font-semibold flex justify-between border-t pt-1" style={{ borderColor: A.border }}>
                   <span>Total</span><span>₹{total.toLocaleString("en-IN")}</span>
                 </div>
-                <div className="text-xs px-2 py-1 rounded" style={{ background: "#F0FDF4", color: "#16A34A" }}>
-                  💵 Cash on Delivery
-                </div>
-                {upiVpa && <PayToVpa vpa={upiVpa} amount={total} payeeName={storeName} note={storeName ? `Order from ${storeName}` : undefined} />}
+                <CheckoutPayment vpa={upiVpa} amount={total} payeeName={storeName} note={storeName ? `Order from ${storeName}` : undefined} value={pay} onChange={setPay} />
                 <button onClick={() => setStep(2)} className="text-xs" style={{ color: A.link }}>← Change invoice</button>
-                <button disabled={placing} onClick={handlePlaceOrder}
-                  className="w-full py-2 rounded text-xs font-semibold" style={{ background: A.accent, color: "#fff" }}>
+                <button disabled={placing || !isPaymentReady(pay)} onClick={handlePlaceOrder}
+                  className="w-full py-2 rounded text-xs font-semibold" style={{ background: A.accent, color: "#fff", opacity: placing || !isPaymentReady(pay) ? 0.6 : 1 }}>
                   {placing ? "Placing…" : "Place Order"}
                 </button>
               </>
