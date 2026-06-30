@@ -3,6 +3,7 @@ import { chatComplete } from '@/app/api/aiClient';
 import { prisma } from '@/lib/prisma';
 import getServerUser from '@/lib/serverAuth';
 import { SECTIONS } from '@/lib/site/capabilityRegistry';
+import { ARCHETYPE_CHAKRA } from '@/lib/chakra/keys';
 import type { ExecutionPlan, PlanPhase, PlanTask } from '@/lib/site/executionPlanTypes';
 import type { GoalArchetype, GoalMode } from '@prisma/client';
 
@@ -212,6 +213,22 @@ export async function POST(req: NextRequest) {
       where: { id: goalId },
       data: { executionPlan: merged as object },
     });
+
+    // CHAKRA-1: mirror plan tasks into the unified Todo channel. source="execution_plan",
+    // chakra derived from the goal's archetype. Non-blocking — never fail plan generation.
+    const planChakra = ARCHETYPE_CHAKRA[ctx.archetype as string] ?? "solar";
+    for (const phase of mergedPhases) {
+      for (const task of phase.tasks ?? []) {
+        try {
+          const todo = await prisma.todo.create({
+            data: { userId: user.id, title: task.text, freq: task.frequency ?? null },
+          });
+          await prisma.$executeRaw`UPDATE "Todo" SET chakra = ${planChakra}, source = 'execution_plan' WHERE id = ${todo.id}`;
+        } catch (err) {
+          console.warn("[execution-plan] todo mirror failed", err);
+        }
+      }
+    }
 
     return NextResponse.json({ plan: merged, fallback: usedFallback });
   }

@@ -95,7 +95,7 @@ async function createValidationTodos(
 ): Promise<void> {
   for (const assumption of sizing.assumptions) {
     try {
-      await db.todo.create({
+      const t = await db.todo.create({
         data: {
           userId,
           ideaId,
@@ -107,6 +107,8 @@ async function createValidationTodos(
           assumptionKey: assumption.id,
         },
       });
+      // CHAKRA-1: tag source via raw SQL (column may be unknown to a stale client).
+      await db.$executeRaw`UPDATE "Todo" SET source = 'validation' WHERE id = ${t.id}`;
     } catch (err) {
       // Tolerate duplicate or DB errors — non-blocking
       console.warn("[interview] todo creation failed for assumption", assumption.id, err);

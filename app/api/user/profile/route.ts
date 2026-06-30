@@ -51,13 +51,14 @@ export async function GET(req: Request) {
       where: { userId: user.id },
     });
 
-    // upiVpa (REQBCAST-1b) — raw SQL, stale-client pattern.
-    const vpaRow = await prisma.$queryRaw<{ upiVpa: string | null }[]>`
-      SELECT "upiVpa" FROM "Profile" WHERE "userId" = ${user.id} LIMIT 1
+    // upiVpa (REQBCAST-1b) + chakraSelfReport (CHAKRA-1) — raw SQL, stale-client pattern.
+    const rawRow = await prisma.$queryRaw<{ upiVpa: string | null; chakraSelfReport: Record<string, number> | null }[]>`
+      SELECT "upiVpa", "chakraSelfReport" FROM "Profile" WHERE "userId" = ${user.id} LIMIT 1
     `;
-    const upiVpa = vpaRow[0]?.upiVpa ?? null;
+    const upiVpa = rawRow[0]?.upiVpa ?? null;
+    const chakraSelfReport = rawRow[0]?.chakraSelfReport ?? null;
 
-    return NextResponse.json({ ok: true, profile: profile ? { ...profile, upiVpa } : null });
+    return NextResponse.json({ ok: true, profile: profile ? { ...profile, upiVpa, chakraSelfReport } : null });
   } catch (err) {
     console.error("GET profile error:", err);
     return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
@@ -157,6 +158,13 @@ export async function PATCH(req: Request) {
       patch.environmentProfile = body.environmentProfile;
     }
 
+    // ── CHAKRA SELF-REPORT (CHAKRA-1) — { root: 1..7, ... }; written via raw SQL
+    //    below (column may be unknown to a stale client — same as upiVpa).
+    let chakraSelfReportUpdate: object | undefined;
+    if ("chakraSelfReport" in body && body.chakraSelfReport && typeof body.chakraSelfReport === "object") {
+      chakraSelfReportUpdate = body.chakraSelfReport;
+    }
+
     // ── HEALTH (global, not per-drive)
     if ("health" in body && body.health && typeof body.health === "object") {
       const h = body.health as HealthInput;
@@ -182,7 +190,7 @@ export async function PATCH(req: Request) {
       }
     }
 
-    if (Object.keys(patch).length === 0 && upiVpaUpdate === undefined) {
+    if (Object.keys(patch).length === 0 && upiVpaUpdate === undefined && chakraSelfReportUpdate === undefined) {
       return NextResponse.json({ ok: true, message: "nothing_to_update" });
     }
 
@@ -196,9 +204,17 @@ export async function PATCH(req: Request) {
       await prisma.$executeRaw`UPDATE "Profile" SET "upiVpa" = ${upiVpaUpdate} WHERE "userId" = ${user.id}`;
     }
 
+    if (chakraSelfReportUpdate !== undefined) {
+      await prisma.$executeRaw`UPDATE "Profile" SET "chakraSelfReport" = ${JSON.stringify(chakraSelfReportUpdate)}::jsonb WHERE "userId" = ${user.id}`;
+    }
+
     return NextResponse.json({
       ok: true,
-      profile: { ...updated, ...(upiVpaUpdate !== undefined ? { upiVpa: upiVpaUpdate } : {}) },
+      profile: {
+        ...updated,
+        ...(upiVpaUpdate !== undefined ? { upiVpa: upiVpaUpdate } : {}),
+        ...(chakraSelfReportUpdate !== undefined ? { chakraSelfReport: chakraSelfReportUpdate } : {}),
+      },
     });
   } catch (err: any) {
     console.error("PATCH profile error:", err);

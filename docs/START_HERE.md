@@ -686,3 +686,6 @@ Optional env vars (sensible defaults — nothing required to add for a normal `n
 - `DOC_OCR_VISION_MODEL` — local Ollama vision model for scanned-page OCR, fallback only (no `OPENROUTER_API_KEY`). Default `llava:7b`.
 
 See `docs/modules/document-reader.md` for the full pipeline and `docs/modules/profile-sync.md` for the related chat→profile proposal flow.
+
+### Chakra Landing (CHAKRA-1)
+Self-layer dashboard: 7 chakras lit 0–100 by an openness score (0.6 platform + 0.4 self-report), unified Todo channel (`Todo.chakra`/`source`), per-chakra self-report slider on `Profile.chakraSelfReport`. New columns are read/written via **raw SQL** until a full `prisma generate` runs (stale-client pattern). Scoring is `lib/chakra/score.ts` (pure read); keys in `lib/chakra/keys.ts`; UI at `app/chakra/landing`. Parked scope (crown, initiative→todo, weekSchedule→todo, depth scoring) is in TECH_DEBT §27. **Full design: `docs/modules/chakra.md`.**

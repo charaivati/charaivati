@@ -227,6 +227,8 @@ model Profile {
   fundsProfile           Json?
   /// WeekSchedule — { slots: TimeSlot[], tasks: Task[] }
   weekSchedule           Json?
+  /// CHAKRA-1: per-chakra 1–7 self-report slider, e.g. { root: 5, sacral: 3, ... }
+  chakraSelfReport       Json?
   user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
@@ -1863,6 +1865,10 @@ model Todo {
   successThreshold String?
   /// Which market-sizing assumption this validates: "sam" | "som" | null (BIZDOC-5, replaces freq discriminator)
   assumptionKey    String?
+  /// CHAKRA-1: which chakra this todo belongs to: root|sacral|solar|heart|throat|third_eye|crown (validated in API, not DB)
+  chakra           String?
+  /// CHAKRA-1: where the todo came from: manual|validation|execution_plan|initiative (validated in API, not DB)
+  source           String?
   createdAt        DateTime      @default(now())
   user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   idea             BusinessIdea? @relation("IdeaTodos", fields: [ideaId], references: [id], onDelete: SetNull)
