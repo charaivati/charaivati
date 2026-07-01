@@ -13,6 +13,7 @@ import { CHAKRAS } from "../chakras";
 import { CHAKRA_KEYS, type ChakraKey } from "@/lib/chakra/keys";
 import { useTranslations } from "@/hooks/useTranslations";
 import { FigureBody } from "./figureBody";
+import { CHAKRA_SYMBOL } from "../chakraSymbols";
 
 // CHAKRA-5: glyphs share ONE vertical axis = the body's real spine (x≈510 in the
 // 0 0 1024 1024 trace space). y placed head→seat, root raised to sit ON the seat
@@ -254,14 +255,12 @@ export default function ChakraLanding() {
             const { x, y } = ANCHORS[key];
             return (
               <g key={key} ref={key === "root" ? rootRef : undefined} onClick={(e) => openAt(e, key)} style={{ cursor: "pointer" }}>
-                <circle cx={x} cy={y} r={46} fill={c.color} filter="url(#og)" style={{ opacity: 0.25 + s * 0.65 }} />
-                <circle cx={x} cy={y} r={24} fill={c.color} style={{ opacity: 0.25 + s * 0.55 }} />
-                <circle cx={x} cy={y} r={26} fill="none" stroke={c.color} strokeWidth={4} style={{ opacity: 0.4 + s * 0.6 }} />
-                {/* bija seed syllable — Devanagari with system-font fallback */}
-                <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={26} fill="#fff"
-                  style={{ fontFamily: '"Noto Sans Devanagari","Noto Serif Devanagari",system-ui,sans-serif', opacity: 0.55 + s * 0.45 }}>
-                  {c.bija}
-                </text>
+                {/* faint glow, then the real line-art yantra (symbols.svg) centred here */}
+                <circle cx={x} cy={y} r={26} fill={c.color} filter="url(#og)" style={{ opacity: 0.04 + s * 0.18 }} />
+                <g transform={`translate(${x} ${y}) scale(0.62)`} fill="none" stroke={c.color} strokeWidth={2.5}
+                  strokeLinejoin="round" style={{ opacity: 0.55 + s * 0.45 }}>
+                  {CHAKRA_SYMBOL[key]}
+                </g>
               </g>
             );
           })}

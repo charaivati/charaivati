@@ -2,6 +2,7 @@
 
 import { useMemo, useRef } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { motion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import * as THREE from "three";
@@ -184,6 +185,8 @@ function Panel({ chakra, index, progress }: { chakra: Chakra; index: number; pro
 }
 
 export default function ChakraThree() {
+  // CHAKRA-2: bare prototype — dev-only. Normal users land on the real view.
+  if (process.env.NODE_ENV === "production") redirect("/chakra/landing");
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
 

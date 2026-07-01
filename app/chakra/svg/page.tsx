@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { motion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { CHAKRAS, type Chakra } from "../chakras";
 
@@ -49,6 +50,8 @@ function Panel({ chakra, index, progress }: { chakra: Chakra; index: number; pro
 }
 
 export default function ChakraSvg() {
+  // CHAKRA-2: bare prototype — dev-only. Normal users land on the real view.
+  if (process.env.NODE_ENV === "production") redirect("/chakra/landing");
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end end"] });
 
