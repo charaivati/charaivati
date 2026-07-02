@@ -118,18 +118,52 @@ honouring its low-end-Android intent (MK approved the relaxation, 2026-07-02).
   openness average + 7 mini bars).
 - **Navigation** — fixed right-edge progress rail (root at bottom, mirroring
   the body), tap a dot or a glyph on the figure to scroll to that stage.
-- **Deep-links**: root→`/earn`, sacral→`/self?tab=social`,
-  solar→`/self?tab=learn`, heart→`/app/initiatives`, throat→`/society`,
-  third_eye→`/listen`, crown→disabled ("coming soon").
+- **Card CTA → middle layer (CHAKRA-UI-3)** — every stage card's button goes to
+  `/chakra/[key]` (including crown — its detail page has content even though
+  its action surface is parked). The card never links to an action surface
+  directly anymore.
 - **Dormant copy is "ready to awaken"** — hard requirement, never
   "blocked"/"broken". `/chakra/three` (Three.js) stays optional, never required.
 
+## Middle layer — `app/chakra/[key]/page.tsx` (CHAKRA-UI-3)
+
+Per-chakra detail page between the journey card and the action surface:
+journey card → `/chakra/[key]` → action page. Client component; the route
+param is validated with `isChakraKey()` (snake_case keys, e.g.
+`/chakra/third_eye`) and anything else `notFound()`s. Same theme as the
+journey (black, deterministic twinkling stars, the chakra's colour and a
+slow-spinning yantra header).
+
+Content, top to bottom: score ring + platform-vs-felt line + calm remark;
+**factor cards** — one per `ChakraDetail.signal` with value bar, a one-line
+description (`chakra-signal-desc-<key>` slugs), and a **"Work on this →"
+link into the existing module that moves it** (`SIGNAL_LINKS` in
+`app/chakra/meta.ts`: health/funds/completion→`/self` personal tab,
+friends/posts/chat→`/self?tab=social`, mastery→`/self?tab=learn`,
+action→`/earn`, initiatives/shared→`/app/initiatives`, voice→`/society`,
+reflection→`/listen`, todos→null — listed on the page itself); the 1–7
+self-report slider (same `PATCH /api/user/profile` write); this chakra's
+tagged todos; and the primary **"Go to {surface} →"** CTA using
+`DEEP_LINKS` (crown renders "Coming soon"). Skeleton pulse cards while
+`/api/chakra` loads.
+
+**Shared config** — `app/chakra/meta.ts` owns `DEEP_LINKS`, `REMARK_EN`,
+`SURFACE_EN`, `SIGNAL_EN`, `SIGNAL_DESC_EN`, `SIGNAL_LINKS`; both the landing
+journey and the detail pages import from it. Do not redefine these per-page.
+
+- **Deep-links (action surfaces, used by the detail page CTA)**: root→`/earn`,
+  sacral→`/self?tab=social`, solar→`/self?tab=learn`, heart→`/app/initiatives`,
+  throat→`/society`, third_eye→`/listen`, crown→disabled ("coming soon").
+
 ## i18n
 
-27 slugs (category `ui-chakra`) seeded by `prisma/seed-chakra-ui.js` (the
+43 slugs (category `ui-chakra`) seeded by `prisma/seed-chakra-ui.js` (the
 original 10 + `chakra-goto`/`chakra-scroll`/`chakra-overall`/`chakra-signals` +
-13 `chakra-signal-<key>` labels), English fallback when LibreTranslate is
-unreachable (TECH_DEBT §21). Client reads via `useTranslations()`.
+13 `chakra-signal-<key>` labels + CHAKRA-UI-3's
+`chakra-details`/`chakra-improve`/`chakra-journey` + 13
+`chakra-signal-desc-<key>` factor descriptions), English fallback when
+LibreTranslate is unreachable (TECH_DEBT §21). Client reads via
+`useTranslations()`.
 
 ## Verification
 

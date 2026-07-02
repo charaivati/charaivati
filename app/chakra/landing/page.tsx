@@ -18,6 +18,7 @@ import { CHAKRA_KEYS, type ChakraKey } from "@/lib/chakra/keys";
 import { useTranslations } from "@/hooks/useTranslations";
 import { FigureBody } from "./figureBody";
 import { CHAKRA_SYMBOL } from "../chakraSymbols";
+import { REMARK_EN, SURFACE_EN, SIGNAL_EN } from "../meta";
 
 // CHAKRA-5: glyphs share ONE vertical axis = the body's real spine (x≈510 in the
 // 0 0 1024 1024 trace space). y placed head→seat, root raised to sit ON the seat.
@@ -34,47 +35,15 @@ const ANCHORS: Record<ChakraKey, { x: number; y: number }> = {
 // viewBox constants the camera math depends on (must match the <svg> below).
 const VB = { x: 200, y: 100, w: 620, h: 1000 };
 
-// CHAKRA-2 corrected destinations. sacral = Self→Social TAB (not the Society
-// layer); solar = Self→Learning TAB. ?tab= keys verified in self/page.tsx.
-const DEEP_LINKS: Record<ChakraKey, string | null> = {
-  root: "/earn",
-  sacral: "/self?tab=social",
-  solar: "/self?tab=learn",
-  heart: "/app/initiatives",
-  throat: "/society",
-  third_eye: "/listen",
-  crown: null, // PARKED — Sahasrara not built (see TECH_DEBT.md)
-};
-
-// English fallbacks (real strings live in TabTranslation, category ui-chakra).
-// Remarks are calm one-liners — dormant reads as "ready to awaken", never broken.
-const REMARK_EN: Record<ChakraKey, string> = {
-  root: "Your foundation. Steady the ground beneath you.",
-  sacral: "Your flow. Let creativity and connection move.",
-  solar: "Your fire. Small wins build real momentum.",
-  heart: "Your compassion. Serving others opens this.",
-  throat: "Your voice. Speak and share what's true.",
-  third_eye: "Your insight. Reflection sharpens the inner gaze.",
-  crown: "Awareness beyond. Ready to awaken in time.",
-};
-const SURFACE_EN: Record<ChakraKey, string> = {
-  root: "Earning", sacral: "Social", solar: "Learning", heart: "Initiatives",
-  throat: "Society", third_eye: "Listen", crown: "",
-};
-// Sub-signal labels (keys come from lib/chakra/score.ts `ChakraSignal.key`).
-const SIGNAL_EN: Record<string, string> = {
-  health: "Health", funds: "Funds", action: "Action",
-  friends: "Friends", posts: "Posts", chat: "Conversations",
-  completion: "Follow-through", mastery: "Learning mastery",
-  initiatives: "Serving others", voice: "Public voice", shared: "Shared initiatives",
-  reflection: "Reflection", todos: "Tagged to-dos",
-};
+// CHAKRA-UI-3: DEEP_LINKS / REMARK_EN / SURFACE_EN / SIGNAL_EN moved to
+// app/chakra/meta.ts (shared with the /chakra/[key] detail pages). The card's
+// CTA now goes to the detail page (middle layer), which owns the action link.
 
 const T_SLUGS = [
-  "chakra-feel", "chakra-platform", "chakra-you", "chakra-coming",
+  "chakra-feel", "chakra-platform", "chakra-you",
   "chakra-todos", "chakra-awaken", "chakra-saved", "chakra-title", "chakra-sub",
-  "chakra-goto", "chakra-add-reflection", "chakra-scroll", "chakra-overall",
-  "chakra-signals",
+  "chakra-add-reflection", "chakra-scroll", "chakra-overall",
+  "chakra-signals", "chakra-details",
   ...Object.keys(SIGNAL_EN).map((k) => `chakra-signal-${k}`),
   ...CHAKRA_KEYS.map((k) => `chakra-remark-${k}`),
   ...CHAKRA_KEYS.map((k) => `chakra-surface-${k}`),
@@ -355,7 +324,6 @@ export default function ChakraLanding() {
           const d = scores?.[key];
           const list = todosByChakra.get(key) ?? [];
           const doneCount = list.filter((td) => td.completed).length;
-          const href = DEEP_LINKS[key];
           const active = idx === stage;
           const awakened = idx <= stage;
           const surface = t(`chakra-surface-${key}`, SURFACE_EN[key]);
@@ -471,18 +439,13 @@ export default function ChakraLanding() {
                   )}
                 </div>
 
-                {/* primary button — corrected deep-link, crown disabled */}
+                {/* primary button — CHAKRA-UI-3 middle layer: the per-chakra
+                    detail page owns the factors + the onward action link */}
                 <div className="mt-5">
-                  {href ? (
-                    <Link href={href} className="block w-full rounded-xl py-2.5 text-center text-sm font-medium"
-                      style={{ background: c.color, color: "#0b0b10" }}>
-                      {t("chakra-goto", "Go to")} {surface} →
-                    </Link>
-                  ) : (
-                    <span className="block w-full rounded-xl bg-white/5 py-2.5 text-center text-sm text-white/30">
-                      {t("chakra-coming", "Coming soon")}
-                    </span>
-                  )}
+                  <Link href={`/chakra/${key}`} className="block w-full rounded-xl py-2.5 text-center text-sm font-medium"
+                    style={{ background: c.color, color: "#0b0b10" }}>
+                    {t("chakra-details", "View details")} →
+                  </Link>
                 </div>
               </div>
 
