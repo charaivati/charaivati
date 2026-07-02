@@ -23,6 +23,25 @@ const STRINGS = [
   { slug: "chakra-open",     title: "Open",                               description: "Chakra card — deep-link button" },
   { slug: "chakra-coming",   title: "Coming soon",                        description: "Chakra card — disabled crown deep-link" },
   { slug: "chakra-saved",    title: "Saved ✓",                            description: "Chakra card — self-report saved confirmation" },
+  // CHAKRA-UI-2 — scroll-journey strings
+  { slug: "chakra-goto",     title: "Go to",                              description: "Chakra card — deep-link button prefix" },
+  { slug: "chakra-scroll",   title: "Scroll to rise",                     description: "Chakra journey — scroll hint on the root stage" },
+  { slug: "chakra-overall",  title: "Overall openness",                   description: "Chakra journey — crown-stage summary heading" },
+  { slug: "chakra-signals",  title: "What lights this",                   description: "Chakra card — signal breakdown heading" },
+  // CHAKRA-UI-2 — per-signal labels (keys from lib/chakra/score.ts ChakraSignal.key)
+  { slug: "chakra-signal-health",      title: "Health",              description: "Chakra signal — root" },
+  { slug: "chakra-signal-funds",       title: "Funds",               description: "Chakra signal — root" },
+  { slug: "chakra-signal-action",      title: "Action",              description: "Chakra signal — root (earning initiatives + goals)" },
+  { slug: "chakra-signal-friends",     title: "Friends",             description: "Chakra signal — sacral" },
+  { slug: "chakra-signal-posts",       title: "Posts",               description: "Chakra signal — sacral" },
+  { slug: "chakra-signal-chat",        title: "Conversations",       description: "Chakra signal — sacral" },
+  { slug: "chakra-signal-completion",  title: "Follow-through",      description: "Chakra signal — solar" },
+  { slug: "chakra-signal-mastery",     title: "Learning mastery",    description: "Chakra signal — solar" },
+  { slug: "chakra-signal-initiatives", title: "Serving others",      description: "Chakra signal — heart" },
+  { slug: "chakra-signal-voice",       title: "Public voice",        description: "Chakra signal — throat" },
+  { slug: "chakra-signal-shared",      title: "Shared initiatives",  description: "Chakra signal — throat" },
+  { slug: "chakra-signal-reflection",  title: "Reflection",          description: "Chakra signal — third eye" },
+  { slug: "chakra-signal-todos",       title: "Tagged to-dos",       description: "Chakra signal — any chakra with tagged todos" },
 ];
 
 async function translateLibre(text, source, target) {
