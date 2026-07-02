@@ -37,9 +37,21 @@ add them to a typed Prisma `where`/`select`/`create`.
 ## Scoring — `lib/chakra/score.ts`
 
 `computeChakraScores(userId)` → `Record<ChakraKey, { score, platform, self,
-platformOnly }>`. Pure read, no stored state. Blend: `0.6*platform +
+platformOnly, signals }>`. Pure read, no stored state. Blend: `0.6*platform +
 0.4*selfReport`; when a chakra has no self-report, `score = platform` and
 `platformOnly = true` (UI shows the gap as insight, never deficiency).
+
+**Signals (CHAKRA-UI-2)** — `signals: { key, value }[]` are the named
+sub-signals whose average IS the platform score; the UI renders them as
+breakdown bars, translating labels via `chakra-signal-<key>` slugs. Two signal
+additions over CHAKRA-1:
+
+- **root `action`** — "is the user acting on survival": earning initiatives
+  owned (store/service/fleet pages, full=2) + `AiGoal` rows (full=3), averaged.
+- **`todos` (any chakra)** — a chakra with ≥1 tagged todo gains a signal equal
+  to the completion % of its tagged todos, so the unified Todo channel directly
+  moves the light it is tagged to. Grouped via raw SQL (`Todo.chakra` is a
+  stale-client column).
 
 Platform signals (each normalized 0–100, floored at `DORMANT = 8` so empty never
 reads as 0/"broken"):
@@ -80,27 +92,44 @@ persisted via raw `UPDATE … SET "chakraSelfReport" = …::jsonb` (mirrors the
 `upiVpa` write). `GET /api/user/profile` returns it via the same raw SELECT that
 already augments `upiVpa`. No new route.
 
-## UI — `app/chakra/landing/page.tsx`
+## UI — `app/chakra/landing/page.tsx` (CHAKRA-UI-2 scroll journey)
 
-Client component. A static, score-lit seated silhouette (visual inspiration only
-— no chakra names/labels/poster text) over a scrollable list of 7 cards. Each
-card: an openness bar + bija glyph (glow keyed to score), and on tap a detail
-panel with the 1–7 self-report slider (showing platform-vs-felt gap), the
-chakra's tagged todos, and a deep-link.
+Client component. Seven full-viewport stages ascend root → crown over a pinned
+scene (starfield + water reflection + seated silhouette). An
+IntersectionObserver flips a discrete `stage` index when a section passes 55%
+visibility; **every visual change downstream is a CSS transition/keyframe — no
+per-frame scroll JS**. This supersedes CHAKRA-1's "fully static" rule while
+honouring its low-end-Android intent (MK approved the relaxation, 2026-07-02).
 
-- **Deep-links**: root→`/earn`, sacral→`/society`, solar→`/self`,
-  heart→`/app/initiatives`, throat→`/society`, third_eye→`/listen`,
-  crown→disabled ("coming soon").
-- **2D SVG is primary and static** (no per-scroll framer transforms) for low-end
-  Android; `/chakra/three` (Three.js) stays optional, never required.
+- **Camera** — the pinned figure gets a `translateY(…) scale(…)` transform
+  recomputed only on stage change/resize; the 0.9s transform transition IS the
+  pan. The active chakra lands above the card (mobile, 33vh) or beside it
+  (desktop, 46vh). The water line is derived from the same math (root glyph's
+  screen y) — no DOM measurement, and it transitions `top` with the pan.
+- **Awakening** — chakras at/below the active stage are "awakened" (glow +
+  yantra opacity ramp by score); the active one gets a breathing halo ring and
+  a slow yantra spin; spine segments light to the frontier and an energy pulse
+  rises root→active (CSS keyframes driven by a `--rise` var).
+  `prefers-reduced-motion` disables all ambient loops.
+- **Stage cards render inline** (the tap-popup was removed): score ring,
+  platform-vs-felt line, per-signal breakdown bars (`ChakraDetail.signals`),
+  calm remark, 1–7 self-report slider, tagged todos with a done count, and the
+  deep-link button. The crown stage doubles as the journey summary (overall
+  openness average + 7 mini bars).
+- **Navigation** — fixed right-edge progress rail (root at bottom, mirroring
+  the body), tap a dot or a glyph on the figure to scroll to that stage.
+- **Deep-links**: root→`/earn`, sacral→`/self?tab=social`,
+  solar→`/self?tab=learn`, heart→`/app/initiatives`, throat→`/society`,
+  third_eye→`/listen`, crown→disabled ("coming soon").
 - **Dormant copy is "ready to awaken"** — hard requirement, never
-  "blocked"/"broken".
+  "blocked"/"broken". `/chakra/three` (Three.js) stays optional, never required.
 
 ## i18n
 
-10 slugs (category `ui-chakra`) seeded by `prisma/seed-chakra-ui.js` — 160 rows
-(10 × 16 locales), English fallback when LibreTranslate is unreachable
-(TECH_DEBT §21). Client reads via `useTranslations()`.
+27 slugs (category `ui-chakra`) seeded by `prisma/seed-chakra-ui.js` (the
+original 10 + `chakra-goto`/`chakra-scroll`/`chakra-overall`/`chakra-signals` +
+13 `chakra-signal-<key>` labels), English fallback when LibreTranslate is
+unreachable (TECH_DEBT §21). Client reads via `useTranslations()`.
 
 ## Verification
 
