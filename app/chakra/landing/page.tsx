@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { CHAKRAS } from "../chakras";
 import { CHAKRA_KEYS, type ChakraKey } from "@/lib/chakra/keys";
 import { useTranslations } from "@/hooks/useTranslations";
@@ -67,6 +68,7 @@ const RING_R = 26;
 const RING_C = 2 * Math.PI * RING_R;
 
 export default function ChakraLanding() {
+  const router = useRouter();
   const t = useTranslations(T_SLUGS);
   const [scores, setScores] = useState<Scores | null>(null);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -280,7 +282,8 @@ export default function ChakraLanding() {
                 const active = idx === stage;
                 const { x, y } = ANCHORS[key];
                 return (
-                  <g key={key} onClick={() => goTo(idx)} style={{ cursor: "pointer" }}>
+                  // tapping the active glyph opens its detail page; others scroll to their stage
+                  <g key={key} onClick={() => (idx === stage ? router.push(`/chakra/${key}`) : goTo(idx))} style={{ cursor: "pointer" }}>
                     {/* soft glow, breathing halo when active, then the line-art yantra */}
                     <circle cx={x} cy={y} r={26} fill={c.color} filter="url(#og)"
                       style={{ opacity: awakened ? 0.08 + s * 0.3 : 0.02, transition: "opacity 1.1s ease" }} />
@@ -330,17 +333,16 @@ export default function ChakraLanding() {
           return (
             <section key={key} data-stage={idx}
               ref={(el) => { sectionRefs.current[idx] = el; }}
-              className="flex min-h-screen flex-col items-center justify-end pl-4 pr-9 pb-8 pt-16 lg:items-end lg:justify-center lg:pr-[9vw]">
+              className="relative flex min-h-screen flex-col items-center justify-start pl-4 pr-9 pb-8 pt-[40vh] lg:items-end lg:justify-center lg:pt-16 lg:pr-[9vw]">
               {idx === 0 && (
-                <header className="pointer-events-auto mb-auto w-full pt-2 text-center" style={{ animation: "chakraCardIn .5s ease-out" }}>
+                <header className="pointer-events-auto absolute top-14 left-0 right-0 text-center" style={{ animation: "chakraCardIn .5s ease-out" }}>
                   <h1 className="text-2xl font-semibold">{t("chakra-title", "Your inner spine")}</h1>
                   <p className="mt-1 text-sm text-white/50">{t("chakra-sub", "Where your energy is rising")}</p>
                 </header>
               )}
 
-              <div className="pointer-events-auto w-full max-w-sm rounded-2xl border p-5 backdrop-blur-md"
+              <div className="pointer-events-auto w-full max-w-sm overflow-y-auto rounded-2xl border p-5 backdrop-blur-md max-h-[52vh] lg:max-h-[64vh]"
                 style={{ borderColor: `${c.color}${active ? "66" : "26"}`, background: "rgba(8,8,14,0.62)",
-                  maxHeight: "60vh", overflowY: "auto",
                   boxShadow: active ? `0 0 44px -14px ${c.color}` : "none",
                   opacity: active ? 1 : 0.38,
                   transform: active ? "none" : "translateY(10px)",
