@@ -42,6 +42,24 @@ const STRINGS = [
   { slug: "chakra-signal-shared",      title: "Shared initiatives",  description: "Chakra signal — throat" },
   { slug: "chakra-signal-reflection",  title: "Reflection",          description: "Chakra signal — third eye" },
   { slug: "chakra-signal-todos",       title: "Tagged to-dos",       description: "Chakra signal — any chakra with tagged todos" },
+  // CHAKRA-UI-3 — per-chakra detail page (middle layer) strings
+  { slug: "chakra-details", title: "View details",   description: "Chakra journey card — CTA to the detail page" },
+  { slug: "chakra-improve", title: "Work on this",   description: "Chakra detail — per-factor link into its module" },
+  { slug: "chakra-journey", title: "Journey",        description: "Chakra detail — back link to the landing journey" },
+  // CHAKRA-UI-3 — per-factor descriptions
+  { slug: "chakra-signal-desc-health",      title: "Physical energy from your health profile — sleep, movement, vitals.", description: "Chakra factor desc — root" },
+  { slug: "chakra-signal-desc-funds",       title: "Financial ground from your funds profile.",                            description: "Chakra factor desc — root" },
+  { slug: "chakra-signal-desc-action",      title: "Earning initiatives and goals — steps you're taking for survival.",    description: "Chakra factor desc — root" },
+  { slug: "chakra-signal-desc-friends",     title: "Friendships you've built here.",                                       description: "Chakra factor desc — sacral" },
+  { slug: "chakra-signal-desc-posts",       title: "Moments and thoughts you've shared.",                                  description: "Chakra factor desc — sacral" },
+  { slug: "chakra-signal-desc-chat",        title: "Conversations you're part of.",                                        description: "Chakra factor desc — sacral" },
+  { slug: "chakra-signal-desc-completion",  title: "How many of your to-dos reach done.",                                  description: "Chakra factor desc — solar" },
+  { slug: "chakra-signal-desc-mastery",     title: "Average mastery across your courses.",                                 description: "Chakra factor desc — solar" },
+  { slug: "chakra-signal-desc-initiatives", title: "Initiatives you run that serve others.",                               description: "Chakra factor desc — heart" },
+  { slug: "chakra-signal-desc-voice",       title: "Posts you've shared publicly.",                                        description: "Chakra factor desc — throat" },
+  { slug: "chakra-signal-desc-shared",      title: "Initiatives you've opened to the world.",                              description: "Chakra factor desc — throat" },
+  { slug: "chakra-signal-desc-reflection",  title: "Time spent reflecting in Listen.",                                     description: "Chakra factor desc — third eye" },
+  { slug: "chakra-signal-desc-todos",       title: "To-dos tagged to this chakra — finishing them lights it.",             description: "Chakra factor desc — any" },
 ];
 
 async function translateLibre(text, source, target) {
