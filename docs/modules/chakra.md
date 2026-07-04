@@ -151,6 +151,17 @@ tagged todos; and the primary **"Go to {surface} →"** CTA using
 `SURFACE_EN`, `SIGNAL_EN`, `SIGNAL_DESC_EN`, `SIGNAL_LINKS`; both the landing
 journey and the detail pages import from it. Do not redefine these per-page.
 
+## Simple variant — `app/chakra/landing/simple/page.tsx` (CHAKRA-UI-4)
+
+`/chakra/landing/simple` is the monochrome, **zero-animation** twin of the
+landing: black & white only (no chakra colours), a plain static card list
+root→crown (white line-art yantras, score + white bar, platform-vs-felt,
+signal bars, remark, 1–7 slider, tagged todos), **no
+transitions/keyframes/camera/stars whatsoever**. Same data endpoints and the
+same "View details →" flow into `/chakra/[key]`; header links back to `/self`
+and across to the full journey (`chakra-journey` slug). No new i18n slugs —
+it reuses the existing `ui-chakra` set. The full journey page is unchanged.
+
 - **Deep-links (action surfaces, used by the detail page CTA)**: root→`/earn`,
   sacral→`/self?tab=social`, solar→`/self?tab=learn`, heart→`/app/initiatives`,
   throat→`/society`, third_eye→`/listen`, crown→disabled ("coming soon").
