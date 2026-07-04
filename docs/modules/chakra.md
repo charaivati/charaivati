@@ -151,16 +151,22 @@ tagged todos; and the primary **"Go to {surface} →"** CTA using
 `SURFACE_EN`, `SIGNAL_EN`, `SIGNAL_DESC_EN`, `SIGNAL_LINKS`; both the landing
 journey and the detail pages import from it. Do not redefine these per-page.
 
-## Simple variant — `app/chakra/landing/simple/page.tsx` (CHAKRA-UI-4)
+## Simple variant — `app/chakra/landing/simple/page.tsx` (CHAKRA-UI-4b)
 
-`/chakra/landing/simple` is the monochrome, **zero-animation** twin of the
-landing: black & white only (no chakra colours), a plain static card list
-root→crown (white line-art yantras, score + white bar, platform-vs-felt,
-signal bars, remark, 1–7 slider, tagged todos), **no
-transitions/keyframes/camera/stars whatsoever**. Same data endpoints and the
-same "View details →" flow into `/chakra/[key]`; header links back to `/self`
-and across to the full journey (`chakra-journey` slug). No new i18n slugs —
-it reuses the existing `ui-chakra` set. The full journey page is unchanged.
+`/chakra/landing/simple` is the **monochrome** twin of the landing that KEEPS
+the silhouette SVG and the scroll journey (same seven full-viewport stages,
+pinned figure, camera pan, IntersectionObserver stage flips, progress rail,
+inline cards, glyph taps) but drops all colour and every ambient/decorative
+animation: no starfield, no shooting stars, no water reflection, no breathing
+halo, no yantra spin, no rising energy pulse — white line-art only (the
+active glyph gets a static white ring instead of the breathing halo).
+Scroll-responsive transitions (camera pan, glyph/spine lighting, bar/ring
+fills) stay — **nothing moves while the page is at rest**. Same data
+endpoints and the same "View details →" flow into `/chakra/[key]`; header
+links back to `/self` and across to the full journey (`chakra-journey`
+slug). No new i18n slugs — it reuses the existing `ui-chakra` set. The full
+journey page is unchanged. (The first CHAKRA-UI-4 cut was a flat static
+list; MK asked for the figure + scrolling back, 2026-07-02.)
 
 - **Deep-links (action surfaces, used by the detail page CTA)**: root→`/earn`,
   sacral→`/self?tab=social`, solar→`/self?tab=learn`, heart→`/app/initiatives`,
