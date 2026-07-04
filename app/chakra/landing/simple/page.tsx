@@ -159,22 +159,25 @@ export default function ChakraLandingSimple() {
                 return <line key={key} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={WHITE}
                   strokeWidth={3} style={{ opacity: passed ? 0.15 + lit * 0.65 : 0.05, transition: "opacity 1s ease" }} />;
               })}
-              {VIS.map(({ key }, idx) => {
+              {VIS.map(({ key, c }, idx) => {
                 const s = scores ? scores[key].score / 100 : 0.05;
                 const awakened = idx <= stage;
                 const active = idx === stage;
                 const { x, y } = ANCHORS[key];
+                // minimal colour: only the ACTIVE chakra shows its colour; the
+                // rest of the figure stays quiet white line-art.
+                const tint = active ? c.color : WHITE;
                 return (
                   // tapping the active glyph opens its detail page; others scroll to their stage
                   <g key={key} onClick={() => (idx === stage ? router.push(`/chakra/${key}`) : goTo(idx))} style={{ cursor: "pointer" }}>
-                    <circle cx={x} cy={y} r={26} fill={WHITE} filter="url(#og)"
+                    <circle cx={x} cy={y} r={26} fill={tint} filter="url(#og)"
                       style={{ opacity: awakened ? 0.05 + s * 0.22 : 0.02, transition: "opacity 1.1s ease" }} />
                     {active && (
-                      <circle cx={x} cy={y} r={34} fill="none" stroke={WHITE} strokeWidth={1.5} opacity={0.5} />
+                      <circle cx={x} cy={y} r={34} fill="none" stroke={c.color} strokeWidth={1.5} opacity={0.55} />
                     )}
-                    <g transform={`translate(${x} ${y}) scale(0.62)`} fill="none" stroke={WHITE} strokeWidth={2.5}
+                    <g transform={`translate(${x} ${y}) scale(0.62)`} fill="none" stroke={tint} strokeWidth={2.5}
                       strokeLinejoin="round"
-                      style={{ opacity: awakened ? 0.55 + s * 0.45 : 0.14, transition: "opacity 1.1s ease" }}>
+                      style={{ opacity: awakened ? 0.55 + s * 0.45 : 0.14, transition: "opacity 1.1s ease, stroke .6s ease" }}>
                       {CHAKRA_SYMBOL[key]}
                     </g>
                   </g>
@@ -195,7 +198,7 @@ export default function ChakraLandingSimple() {
         {VIS.map(({ c }, idx) => (
           <button key={c.key} onClick={() => goTo(idx)} aria-label={c.sanskrit}
             className="h-3 w-3 rounded-full"
-            style={{ background: idx <= stage ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.15)",
+            style={{ background: idx === stage ? c.color : idx < stage ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.15)",
               transform: idx === stage ? "scale(1.5)" : "scale(1)",
               transition: "transform .3s ease, background .5s ease" }} />
         ))}
@@ -213,7 +216,7 @@ export default function ChakraLandingSimple() {
           return (
             <section key={key} data-stage={idx}
               ref={(el) => { sectionRefs.current[idx] = el; }}
-              className="relative flex min-h-screen flex-col items-center justify-start pl-4 pr-9 pb-8 pt-[40vh] lg:items-end lg:justify-center lg:pt-16 lg:pr-[9vw]">
+              className="relative flex min-h-screen flex-col items-center justify-start pl-4 pr-9 pb-8 pt-[40vh] lg:items-end lg:justify-center lg:pt-16 lg:pr-[20vw]">
               {idx === 0 && (
                 <header className="pointer-events-auto absolute top-14 left-0 right-0 text-center">
                   <h1 className="text-2xl font-semibold">{t("chakra-title", "Your inner spine")}</h1>
@@ -222,14 +225,15 @@ export default function ChakraLandingSimple() {
               )}
 
               <div className="pointer-events-auto w-full max-w-sm overflow-y-auto rounded-2xl border p-5 max-h-[52vh] lg:max-h-[64vh]"
-                style={{ borderColor: active ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)",
+                style={{ borderColor: active ? `${c.color}66` : "rgba(255,255,255,0.12)",
                   background: "rgba(8,8,10,0.85)",
                   opacity: active ? 1 : 0.38,
                   transition: "opacity .6s ease, border-color .8s ease" }}>
                 {/* header: bija + names + score ring */}
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/40 text-xl">{c.bija}</span>
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full border text-xl"
+                      style={{ borderColor: `${c.color}88`, background: `${c.color}18` }}>{c.bija}</span>
                     <div>
                       <div className="font-medium">{c.sanskrit}</div>
                       <div className="text-xs text-white/40">{surface ? `${surface} · ` : ""}{idx + 1} / 7</div>
@@ -237,7 +241,7 @@ export default function ChakraLandingSimple() {
                   </div>
                   <svg width="64" height="64" viewBox="0 0 64 64" className="shrink-0">
                     <circle cx="32" cy="32" r={RING_R} stroke="rgba(255,255,255,0.1)" strokeWidth="4" fill="none" />
-                    <circle cx="32" cy="32" r={RING_R} stroke={WHITE} strokeWidth="4" fill="none" strokeLinecap="round"
+                    <circle cx="32" cy="32" r={RING_R} stroke={c.color} strokeWidth="4" fill="none" strokeLinecap="round"
                       strokeDasharray={RING_C} strokeDashoffset={RING_C * (1 - (awakened ? (d?.score ?? 0) : 0) / 100)}
                       transform="rotate(-90 32 32)" style={{ transition: "stroke-dashoffset 1.2s ease .25s" }} />
                     <text x="32" y="37" textAnchor="middle" fill="#fff" fontSize="15" fontWeight="600">{d?.score ?? 0}</text>
@@ -264,8 +268,8 @@ export default function ChakraLandingSimple() {
                         <div key={sg.key} className="flex items-center gap-2">
                           <span className="w-28 shrink-0 text-xs text-white/50">{t(`chakra-signal-${sg.key}`, SIGNAL_EN[sg.key] ?? sg.key)}</span>
                           <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-                            <div className="h-full rounded-full bg-white/70"
-                              style={{ width: awakened ? `${sg.value}%` : "0%", transition: "width 1s ease .3s" }} />
+                            <div className="h-full rounded-full"
+                              style={{ width: awakened ? `${sg.value}%` : "0%", background: c.color, opacity: 0.85, transition: "width 1s ease .3s" }} />
                           </div>
                           <span className="w-7 shrink-0 text-right text-[10px] text-white/40">{sg.value}</span>
                         </div>
@@ -280,9 +284,9 @@ export default function ChakraLandingSimple() {
                     <div className="text-xs uppercase tracking-wider text-white/40">{t("chakra-overall", "Overall openness")}</div>
                     <div className="mt-1 text-2xl font-semibold">{overall}<span className="text-sm text-white/30"> / 100</span></div>
                     <div className="mt-2 flex gap-1.5">
-                      {VIS.map(({ key: k }) => (
-                        <span key={k} className="h-2 flex-1 rounded-full bg-white"
-                          style={{ opacity: 0.15 + ((scores?.[k].score ?? 0) / 100) * 0.85 }} />
+                      {VIS.map(({ key: k, c: cc }) => (
+                        <span key={k} className="h-2 flex-1 rounded-full"
+                          style={{ background: cc.color, opacity: 0.2 + ((scores?.[k].score ?? 0) / 100) * 0.8 }} />
                       ))}
                     </div>
                   </div>
@@ -292,13 +296,13 @@ export default function ChakraLandingSimple() {
                 <div className="mt-4">
                   <div className="mb-1 flex justify-between text-xs text-white/50">
                     <span>{t("chakra-feel", "How does this feel?")}</span>
-                    {saved === key && <span className="text-white">{t("chakra-saved", "Saved ✓")}</span>}
+                    {saved === key && <span style={{ color: c.color }}>{t("chakra-saved", "Saved ✓")}</span>}
                   </div>
                   <input type="range" min={1} max={7} step={1} value={report[key] ?? 4}
                     onChange={(e) => setReport({ ...report, [key]: Number(e.target.value) })}
                     onPointerUp={(e) => saveReport(key, Number((e.target as HTMLInputElement).value))}
                     onKeyUp={(e) => saveReport(key, Number((e.target as HTMLInputElement).value))}
-                    className="w-full" style={{ accentColor: "#fff" }} />
+                    className="w-full" style={{ accentColor: c.color }} />
                 </div>
 
                 {/* tagged todos */}
@@ -321,7 +325,8 @@ export default function ChakraLandingSimple() {
                 {/* CTA into the middle layer */}
                 <div className="mt-5">
                   <Link href={`/chakra/${key}`}
-                    className="block w-full rounded-xl border border-white/30 py-2.5 text-center text-sm font-medium text-white hover:bg-white/10">
+                    className="block w-full rounded-xl border py-2.5 text-center text-sm font-medium text-white hover:bg-white/10"
+                    style={{ borderColor: `${c.color}66` }}>
                     {t("chakra-details", "View details")} →
                   </Link>
                 </div>

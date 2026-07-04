@@ -153,20 +153,29 @@ journey and the detail pages import from it. Do not redefine these per-page.
 
 ## Simple variant — `app/chakra/landing/simple/page.tsx` (CHAKRA-UI-4b)
 
-`/chakra/landing/simple` is the **monochrome** twin of the landing that KEEPS
-the silhouette SVG and the scroll journey (same seven full-viewport stages,
-pinned figure, camera pan, IntersectionObserver stage flips, progress rail,
-inline cards, glyph taps) but drops all colour and every ambient/decorative
-animation: no starfield, no shooting stars, no water reflection, no breathing
-halo, no yantra spin, no rising energy pulse — white line-art only (the
-active glyph gets a static white ring instead of the breathing halo).
-Scroll-responsive transitions (camera pan, glyph/spine lighting, bar/ring
-fills) stay — **nothing moves while the page is at rest**. Same data
-endpoints and the same "View details →" flow into `/chakra/[key]`; header
-links back to `/self` and across to the full journey (`chakra-journey`
-slug). No new i18n slugs — it reuses the existing `ui-chakra` set. The full
-journey page is unchanged. (The first CHAKRA-UI-4 cut was a flat static
-list; MK asked for the figure + scrolling back, 2026-07-02.)
+`/chakra/landing/simple` is the **quiet, minimal-colour** twin of the landing
+that KEEPS the silhouette SVG and the scroll journey (same seven full-viewport
+stages, pinned figure, camera pan, IntersectionObserver stage flips, progress
+rail, inline cards, glyph taps) but drops every ambient/decorative animation:
+no starfield, no shooting stars, no water reflection, no breathing halo, no
+yantra spin, no rising energy pulse. Scroll-responsive transitions (camera
+pan, glyph/spine lighting, bar/ring fills) stay — **nothing moves while the
+page is at rest**.
+
+**Minimal colour** — the silhouette, spine, and awakened-but-inactive glyphs
+stay quiet white line-art; the chakra's `c.color` appears only as restrained
+accents: the ACTIVE glyph (fill + a static ring + yantra stroke), the score
+ring, signal bars, bija circle, active card border, active rail dot, slider,
+overall-summary bars, "Saved ✓", and the CTA border. So the page reads as
+mostly monochrome with just the current chakra's colour picked out.
+
+The desktop card sits right-of-centre (`lg:pr-[20vw]`) rather than hard against
+the right edge. Same data endpoints and the same "View details →" flow into
+`/chakra/[key]`; header links back to `/self` and across to the full journey
+(`chakra-journey` slug). No new i18n slugs — it reuses the existing
+`ui-chakra` set. The full journey page is unchanged. (History: the first
+CHAKRA-UI-4 cut was a flat static list → MK asked for the figure + scrolling
+back → then for minimal colour + the card pulled toward centre, 2026-07-02.)
 
 - **Deep-links (action surfaces, used by the detail page CTA)**: root→`/earn`,
   sacral→`/self?tab=social`, solar→`/self?tab=learn`, heart→`/app/initiatives`,
