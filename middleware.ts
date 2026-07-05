@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifySessionToken, COOKIE_NAME } from "@/lib/session";
 
-const PROTECTED_ROUTES = ["/self", "/nation", "/earth", "/society", "/admin"];
+// /chakra is protected since LANDING-SWITCH-1 made it the post-login landing —
+// its data (scores, todos, plans) is all user-scoped.
+const PROTECTED_ROUTES = ["/self", "/nation", "/earth", "/society", "/admin", "/chakra"];
 
 // Paths where neither the language gate nor auth gate should fire.
 // /api/* and /_next/* are excluded at the matcher level (see config below).

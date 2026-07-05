@@ -322,11 +322,12 @@ export default function ChakraLanding() {
         </div>
       </div>
 
-      <Link href="/self" className="fixed top-4 left-4 z-20 text-sm text-white/40 hover:text-white/80">← back</Link>
-      {/* EXECPLAN-5: landing toggle — same flow, two skins */}
-      <Link href="/self" className="fixed top-4 right-4 z-20 text-sm text-white/40 hover:text-white/80"
+      {/* LANDING-SWITCH-1: chakra is the post-login landing (philosophy);
+          /self is the Dashboard, reached from here. */}
+      <Link href="/self"
+        className="fixed top-4 right-4 z-20 rounded-xl border border-white/15 bg-white/5 px-3.5 py-1.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
         onClick={() => { try { localStorage.setItem("charaivati.landing", "canvas"); } catch {} }}>
-        ▦ Canvas view
+        Go to Dashboard →
       </Link>
 
       {/* Progress rail — root at bottom, crown at top, mirroring the body */}

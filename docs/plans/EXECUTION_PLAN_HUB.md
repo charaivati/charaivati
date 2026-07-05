@@ -110,4 +110,4 @@ The highest-leverage fix (G2).
 1. **Requirements generation**: extend skeleton step vs third AI step — recommend trying skeleton-extension first (one less round trip), fall back to a third step if quality drops.
 2. **Social placement**: inside Environment chip for now (per your note), split later if it earns its own block.
 3. **Context files**: EXECPLAN-6 needs `EXECUTION_PLAN.txt` (new) and a `STRUCTURE.txt` flow tweak — confirm you'll add these on the local drive when that prompt lands.
-4. **Toggle default**: which landing is default for new users — `/self` canvas (current) or chakra journey?
+4. **Toggle default**: ~~which landing is default for new users~~ — DECIDED (LANDING-SWITCH-1, 2026-07-05): the chakra journey IS the post-login landing; `/self` is the Dashboard reached via "Go to Dashboard". The first-screen AI drive/goal onboarding is obsoleted as an entry point but kept intact on the Dashboard. Experiment — revert = flip the two redirect defaults back.
