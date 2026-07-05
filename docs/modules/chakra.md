@@ -216,6 +216,45 @@ members see it read-only on `/community/[id]`.
   (admin-gated like every other field there). Member privacy: the plan never
   reads members' personal health profiles — it's a per-head planning figure.
 
+## Connection planning — `app/chakra/sacral/connection/page.tsx` (CHAKRA-ACTION-2)
+
+The sacral chakra's action surface for creativity and connection. Reached from
+`/chakra/sacral`'s **friends** factor "Work on this →" link (`SIGNAL_LINKS.friends`
+in `app/chakra/meta.ts` — `friends` is a sacral-only signal key per
+`lib/chakra/score.ts`, so repointing it is safe; every other signal key and
+`DEEP_LINKS.sacral` are unchanged). Client page, sacral-chakra themed, same
+shell pattern as the survival page (starfield, radial glow, back-link, "Saved ✓"
+flash). Three blocks, all riding EXISTING backends — no new write paths:
+
+1. **Hobbies & creativity** — a chip selector (12 fixed options) + a frequency
+   picker (`daily`/`few_per_week`/`weekly`/`rarely`), persisting to
+   `Profile.health.joy.hobbies` (`{ types: string[], frequency }`). Saves the
+   WHOLE `health` object via `PATCH /api/user/profile { health }` (debounced
+   800 ms) — same contract as `EditHealthModal`/the survival page's food block —
+   preserving `joy.hobbies` siblings (`sports`/`social`/`rest`) and every other
+   health field untouched. This is the **first first-class UI for editing
+   hobbies directly** — previously `joy.hobbies.types` was only ever written as
+   a side-effect of "doing"-drive goal creation in `SelfTab.tsx`
+   (`app/(with-nav)/self/tabs/SelfTab.tsx`); that side-effect write is
+   unchanged and now simply adds to the same list this page edits.
+2. **Friends** — `components/social/FriendRequestsBox.tsx` (default export,
+   incoming requests + accept/reject via `POST /api/friends/respond`) plus its
+   named export `InviteFriend` (`POST /api/invite`), rendered exactly as
+   `SocialTab.tsx` uses them. No new friend model or write path; note the
+   component's own `GET /api/user/friends` read (not `/api/friends`).
+3. **Circles** — `components/CirclesPanel.tsx` (default export, no props)
+   rendered directly, identical to its `SelfCanvas.tsx` usage. Its own
+   `/api/circles` CRUD + membership endpoints are fully self-contained.
+
+i18n: 10 `connection-*` slugs (category `ui-chakra`) seeded by
+`prisma/seed-connection-ui.js`, English fallback like the rest.
+
+**Known gaps** (see `TECH_DEBT.md`): hobbies have no chakra `signal` yet in
+`lib/chakra/score.ts` — a future prompt could wire a sacral `hobbies` signal if
+hobby richness should feed the score; and the `SelfTab.tsx` "doing"-drive
+side-effect write to `joy.hobbies.types` may eventually want reconciling now
+that this page is the canonical editor.
+
 ## Simple variant — `app/chakra/landing/simple/page.tsx` (CHAKRA-UI-4b)
 
 `/chakra/landing/simple` is the **quiet, minimal-colour** twin of the landing

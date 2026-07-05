@@ -61,3 +61,6 @@ TECH_DEBT.md
 # ship to production for the AI prompts to load); anything else here stays local.
 /ai-context/*
 !/ai-context/*.txt
+
+# local claude skills (not vendored)
+.claude/skills/
