@@ -9,6 +9,12 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q")?.toLowerCase() ?? "";
 
+  // Optional viewer — lets callers (e.g. /chakra/root/survival) show
+  // Join / Requested / Member per group. Anonymous callers get myStatus: null.
+  const token = getTokenFromRequest(req);
+  const payload = token ? await verifySessionToken(token) : null;
+  const viewerId = payload?.userId ?? null;
+
   const groups = await db.communityGroup.findMany({
     where: { page: { deletedAt: null } },
     select: {
@@ -37,6 +43,16 @@ export async function GET(req: Request) {
     for (const r of rows) slugMap[r.id] = r.slug;
   }
 
+  // Viewer's membership status per listed group
+  const statusMap: Record<string, string> = {};
+  if (viewerId && filtered.length) {
+    const memberships = await db.communityMembership.findMany({
+      where: { memberUserId: viewerId, groupId: { in: filtered.map((g) => g.id) } },
+      select: { groupId: true, status: true },
+    });
+    for (const m of memberships) statusMap[m.groupId] = m.status;
+  }
+
   return NextResponse.json({
     groups: filtered.map((g) => ({
       id: g.id,
@@ -46,6 +62,7 @@ export async function GET(req: Request) {
       logoUrl: g.logoUrl,
       objective: g.objective,
       memberCount: g._count.memberships,
+      myStatus: statusMap[g.id] ?? null,
     })),
   });
 }

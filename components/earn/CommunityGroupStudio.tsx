@@ -28,12 +28,23 @@ type Meeting = { id: string; title: string; date: string; location: string | nul
 
 type EmergencyContact = { name: string; phone: string; role: string };
 
+// SURVIVAL-1 — community food plan (CommunityGroup.foodPlan JSONB, raw SQL)
+type FoodPlan = {
+  extraHeads: number;      // dependents not on the platform (children, elders…)
+  perPersonKcal: number;   // planning figure, default 2000
+  bufferDays: number;      // days of food stock the group wants on hand
+  budgetPerHead: number;   // ₹ / person / month for food
+  notes?: string;
+  updatedAt?: string;
+};
+
 type Group = {
   id: string;
   name: string;
   logoUrl: string | null;
   objective: string | null;
   emergencyContacts: EmergencyContact[];
+  foodPlan: FoodPlan | null;
   boardMembers: BoardMember[];
   memberships: Membership[];
   milestones: Milestone[];
@@ -68,6 +79,15 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
   const [ecRole, setEcRole] = useState("");
   const [savingEc, setSavingEc] = useState(false);
 
+  // Food & survival plan (SURVIVAL-1)
+  const [fpExtraHeads, setFpExtraHeads] = useState(0);
+  const [fpKcal, setFpKcal] = useState(2000);
+  const [fpBuffer, setFpBuffer] = useState(7);
+  const [fpBudget, setFpBudget] = useState(0);
+  const [fpNotes, setFpNotes] = useState("");
+  const [savingFp, setSavingFp] = useState(false);
+  const [fpSaved, setFpSaved] = useState(false);
+
   // Milestone add
   const [msTitle, setMsTitle] = useState("");
   const [addingMs, setAddingMs] = useState(false);
@@ -95,6 +115,14 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
       setPendingMemberships(data.pendingMemberships ?? []);
       setEditName(data.group.name ?? "");
       setEditObjective(data.group.objective ?? "");
+      const fp: FoodPlan | null = data.group.foodPlan ?? null;
+      if (fp) {
+        setFpExtraHeads(fp.extraHeads ?? 0);
+        setFpKcal(fp.perPersonKcal ?? 2000);
+        setFpBuffer(fp.bufferDays ?? 7);
+        setFpBudget(fp.budgetPerHead ?? 0);
+        setFpNotes(fp.notes ?? "");
+      }
     } catch {
       setError("Failed to load group");
     } finally {
@@ -242,6 +270,31 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
     await saveEmergencyContacts(updated);
   }
 
+  async function saveFoodPlan() {
+    if (!group) return;
+    setSavingFp(true);
+    try {
+      const foodPlan: FoodPlan = {
+        extraHeads: fpExtraHeads, perPersonKcal: fpKcal, bufferDays: fpBuffer,
+        budgetPerHead: fpBudget, notes: fpNotes.trim() || undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      const res = await fetch(`/api/community-group/${group.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ foodPlan }),
+      });
+      if (res.ok) {
+        setGroup((g) => g ? { ...g, foodPlan } : g);
+        setFpSaved(true);
+        setTimeout(() => setFpSaved(false), 1500);
+      }
+    } finally {
+      setSavingFp(false);
+    }
+  }
+
   async function addMilestone() {
     if (!group || !msTitle.trim()) return;
     setAddingMs(true);
@@ -316,6 +369,26 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
   const approvedUsers = group.memberships.filter((m) => m.memberUser);
   const approvedGroups = group.memberships.filter((m) => m.memberGroup);
   const upcomingMeetings = group.meetings.filter((m) => new Date(m.date) >= new Date());
+
+  // Food plan math (SURVIVAL-1) — same deterministic split as the individual
+  // survival page (/chakra/root/survival): 55% kcal cereals, 15% pulses,
+  // 20% oils (9 kcal/g), 400 g veg & fruit per head per day.
+  const memberHeadCount = new Set([
+    ...group.boardMembers.map((b) => b.userId),
+    ...approvedUsers.map((m) => m.memberUser!.id),
+  ]).size;
+  const totalHeads = memberHeadCount + (fpExtraHeads || 0);
+  const totalKcal = totalHeads * (fpKcal || 0);
+  const cerealsKgDay = (totalKcal * 0.55) / 3.45 / 1000;
+  const pulsesKgDay = (totalKcal * 0.15) / 3.45 / 1000;
+  const oilKgDay = (totalKcal * 0.20) / 9 / 1000;
+  const vegKgDay = (totalHeads * 400) / 1000;
+  const foodRows: [string, number][] = [
+    ["Cereals (rice / atta)", cerealsKgDay],
+    ["Pulses / dal", pulsesKgDay],
+    ["Oils & fats", oilKgDay],
+    ["Vegetables & fruit", vegKgDay],
+  ];
 
   return (
     <div className="space-y-8">
@@ -547,6 +620,91 @@ export default function CommunityGroupStudio({ pageId }: { pageId: string }) {
             ))}
           </div>
         )}
+      </section>
+
+      {/* ── Food & Survival Plan (SURVIVAL-1) ── */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wide">Food &amp; Survival Plan</h2>
+        <p className="text-xs text-gray-500">
+          Plan food for the whole group. Members visible to the platform: {memberHeadCount} — add
+          dependents who aren&apos;t on Charaivati below.
+        </p>
+
+        <div className="p-4 rounded-xl bg-gray-900 border border-gray-800 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              ["Extra heads (dependents)", fpExtraHeads, setFpExtraHeads],
+              ["kcal / person / day", fpKcal, setFpKcal],
+              ["Buffer stock (days)", fpBuffer, setFpBuffer],
+              ["Food budget ₹ / head / month", fpBudget, setFpBudget],
+            ] as [string, number, (v: number) => void][]).map(([label, val, setter]) => (
+              <label key={label} className="block">
+                <span className="block text-[10px] text-gray-500 uppercase tracking-wider mb-1">{label}</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={val || ""}
+                  onChange={(e) => setter(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                  placeholder="0"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:border-sky-500 focus:outline-none"
+                />
+              </label>
+            ))}
+          </div>
+
+          {/* Computed requirement */}
+          <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+            <p className="text-xs text-gray-400 mb-2">
+              <span className="text-white font-semibold">{totalHeads}</span> people ·{" "}
+              <span className="text-white font-semibold">{totalKcal.toLocaleString("en-IN")}</span> kcal/day
+              {fpBudget > 0 && (
+                <> · budget <span className="text-white font-semibold">₹{(totalHeads * fpBudget).toLocaleString("en-IN")}</span>/month</>
+              )}
+            </p>
+            <table className="w-full" style={{ fontSize: "11px" }}>
+              <thead>
+                <tr className="text-gray-600 border-b border-gray-800">
+                  <th className="text-left py-1 font-medium uppercase tracking-wider">Item</th>
+                  <th className="text-right py-1 font-medium uppercase tracking-wider">Per day</th>
+                  <th className="text-right py-1 font-medium uppercase tracking-wider">{fpBuffer || 0}-day stock</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/50">
+                {foodRows.map(([label, kgDay]) => (
+                  <tr key={label}>
+                    <td className="py-1 text-gray-300">{label}</td>
+                    <td className="py-1 text-right text-gray-300 tabular-nums">{kgDay.toFixed(1)} kg</td>
+                    <td className="py-1 text-right text-gray-300 tabular-nums">{(kgDay * (fpBuffer || 0)).toFixed(1)} kg</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <textarea
+            value={fpNotes}
+            onChange={(e) => setFpNotes(e.target.value)}
+            placeholder="Notes — who buys, where from, storage, community kitchen days…"
+            rows={2}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:border-sky-500 focus:outline-none resize-none"
+          />
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={saveFoodPlan}
+              disabled={savingFp}
+              className="px-4 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium disabled:opacity-50 transition-colors"
+            >
+              {savingFp ? "Saving…" : "Save Plan"}
+            </button>
+            {fpSaved && <span className="text-xs text-emerald-400">Saved ✓</span>}
+            {group.foodPlan?.updatedAt && !fpSaved && (
+              <span className="text-[10px] text-gray-600">
+                Last saved {new Date(group.foodPlan.updatedAt).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* ── Milestones ── */}
