@@ -480,6 +480,30 @@ export async function POST(req: Request) {
       .catch(() => {});
   }
 
+  // ── Universal utility actions (clear chat / logout) ────────────────────────
+  // Strict-keyword-only, confirm-gated, no side effects until the user accepts
+  // the card. The main action block below is gated `!isAdmin`, so without this
+  // an admin's "clear chat"/"log out" falls through to the conversational model
+  // and the confirm card never appears (the actual bug: admin = ADMIN_EMAIL).
+  // ponytail: clear/logout only — friend/reminder/block stay admin-gated below.
+  if (text && !crisisActive && isAdmin) {
+    let utilAction: ListenAction | null = null;
+    let utilReply = "";
+    if (isClearChatRequest(text)) {
+      utilAction = { type: "clear_chat_confirm" };
+      utilReply = describeClearChatReply();
+    } else if (isLogoutRequest(text)) {
+      utilAction = { type: "logout_confirm" };
+      utilReply = describeLogoutReply();
+    }
+    if (utilReply) {
+      await (db as any).consultMessage.create({
+        data: { sessionId: session.id, role: "assistant", content: utilReply },
+      });
+      return NextResponse.json({ ok: true, reply: utilReply, consultStage: stage, crisis: false, action: utilAction });
+    }
+  }
+
   // ── Admin commands — intercepted BEFORE the conversational model call ──────
   // Deterministic, card-confirmed persona writes. Never reached for non-admins.
   if (isAdmin && text && !crisisActive) {
