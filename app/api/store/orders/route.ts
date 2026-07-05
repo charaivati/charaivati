@@ -182,6 +182,12 @@ export async function GET(req: NextRequest) {
     const wfMapAll: Record<string, boolean> = {};
     for (const r of wfRowsAll) wfMapAll[r.id] = r.requiresAttention;
 
+    const payRowsAll = allOrderIds.length > 0 ? await prisma.$queryRaw<
+      { id: string; paymentMethod: string; paymentStatus: string; paymentRef: string | null; paymentProofUrl: string | null }[]
+    >`SELECT id, "paymentMethod", "paymentStatus", "paymentRef", "paymentProofUrl" FROM "Order" WHERE id = ANY(${allOrderIds}::text[])` : [];
+    const payMapAll: Record<string, { paymentMethod: string; paymentStatus: string; paymentRef: string | null; paymentProofUrl: string | null }> = {};
+    for (const r of payRowsAll) payMapAll[r.id] = { paymentMethod: r.paymentMethod, paymentStatus: r.paymentStatus, paymentRef: r.paymentRef, paymentProofUrl: r.paymentProofUrl };
+
     const activeOSPsAll = allOrderIds.length > 0 ? await prisma.orderStepProgress.findMany({
       where: { orderId: { in: allOrderIds }, status: "active" },
       include: { step: { select: { name: true } } },
@@ -194,6 +200,10 @@ export async function GET(req: NextRequest) {
         store:             { ...o.store, slug: slugs[o.store.id] ?? null, deleted: !!o.store.deletedAt },
         invoiceSignedUrl:  signedMapAll[o.id] ?? null,
         requiresAttention: wfMapAll[o.id] ?? false,
+        paymentMethod:     payMapAll[o.id]?.paymentMethod ?? "cod",
+        paymentStatus:     payMapAll[o.id]?.paymentStatus ?? "unpaid",
+        paymentRef:        payMapAll[o.id]?.paymentRef ?? null,
+        paymentProofUrl:   payMapAll[o.id]?.paymentProofUrl ?? null,
         activeStep:        activeStepMapAll.has(o.id) ? { stepName: activeStepMapAll.get(o.id) } : null,
       }))
     );

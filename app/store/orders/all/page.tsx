@@ -1,7 +1,7 @@
 "use client";
 
 import { Component, useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 const A = {
   bg: "#E3E6E6", nav: "#131921", border: "#DDDDDD",
@@ -26,6 +26,10 @@ type Order = {
   partnerStatus?: string | null;
   invoiceUrl?: string | null;
   invoiceSignedUrl?: string | null;
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  paymentRef?: string | null;
+  paymentProofUrl?: string | null;
   items: OrderItem[];
   address: Address;
   user: { name: string | null; email: string | null };
@@ -222,6 +226,7 @@ function DeliveryNoteInline({ note, busy, onSave }: {
 }
 
 export default function AllOrdersPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const storeId = searchParams?.get("storeId") ?? null;
 
@@ -232,6 +237,19 @@ export default function AllOrdersPage() {
   const [filter, setFilter] = useState("all");
   const [updatingDelivery, setUpdatingDelivery] = useState<string | null>(null);
   const [poolByStoreId, setPoolByStoreId] = useState<Record<string, Pool>>({});
+  const [verifyingPay, setVerifyingPay] = useState<string | null>(null);
+
+  async function markPaymentReceived(orderId: string) {
+    if (verifyingPay === orderId) return;
+    setVerifyingPay(orderId);
+    try {
+      const r = await fetch(`/api/order/${orderId}/payment`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ paymentStatus: "verified" }),
+      });
+      if (r.ok) refreshOrders();
+    } finally { setVerifyingPay(null); }
+  }
 
   // Lightweight orders-only refresh — used by SSE handler (skips expensive pool reload)
   const refreshOrders = useCallback(async () => {
@@ -426,10 +444,10 @@ export default function AllOrdersPage() {
                 {storeId ? " for this store" : " across all stores"}
               </p>
             </div>
-            <a href="/app/app/orders" className="text-xs px-3 py-1.5 rounded-md"
+            <button onClick={() => router.back()} className="text-xs px-3 py-1.5 rounded-md"
               style={{ border: `1px solid ${A.border}`, color: A.textMuted }}>
               ← Back
-            </a>
+            </button>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {FILTER_TABS.map((tab) => (
@@ -520,9 +538,31 @@ export default function AllOrdersPage() {
                 </div>
                 <div className="text-right">
                   <div className="font-bold" style={{ color: A.text }}>₹{order.total.toLocaleString("en-IN")}</div>
-                  <div className="text-xs" style={{ color: A.textMuted }}>Cash on Delivery</div>
+                  <div className="text-xs" style={{ color: A.textMuted }}>
+                    {order.paymentMethod === "upi" ? "📲 Paid via UPI" : "💵 Cash on Delivery"}
+                  </div>
                 </div>
               </div>
+
+              {order.paymentMethod === "upi" && (
+                <div className="mb-4 px-3 py-2 rounded-lg flex flex-wrap items-center gap-3"
+                  style={{ background: order.paymentStatus === "verified" ? "#F0FDF4" : "#FFFBEB", border: `1px solid ${order.paymentStatus === "verified" ? "#86EFAC" : "#FDE68A"}` }}>
+                  <span className="text-xs font-semibold" style={{ color: order.paymentStatus === "verified" ? "#16A34A" : "#B45309" }}>
+                    {order.paymentStatus === "verified" ? "✓ Payment confirmed" : "⏳ Payment claimed — confirm in your UPI app"}
+                  </span>
+                  {order.paymentRef && <span className="text-xs font-mono" style={{ color: A.text }}>Ref: {order.paymentRef}</span>}
+                  {order.paymentProofUrl && (
+                    <a href={order.paymentProofUrl} target="_blank" rel="noreferrer" className="text-xs underline" style={{ color: A.accent }}>View screenshot</a>
+                  )}
+                  {order.paymentStatus !== "verified" && (
+                    <button onClick={() => markPaymentReceived(order.id)} disabled={verifyingPay === order.id}
+                      className="text-xs px-3 py-1 rounded-md font-semibold ml-auto"
+                      style={{ background: "#16A34A", color: "#fff", opacity: verifyingPay === order.id ? 0.6 : 1 }}>
+                      {verifyingPay === order.id ? "Saving…" : "Mark payment received ✓"}
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="md:col-span-1">
