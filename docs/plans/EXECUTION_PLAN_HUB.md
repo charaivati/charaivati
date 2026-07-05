@@ -1,7 +1,7 @@
 # EXECPLAN — Making the Execution Plan the Center of the Site
 
 Status: EXECPLAN-1 … 7 IMPLEMENTED on this branch (2026-07-05); EXECPLAN-8 deferred as planned. Workstream prefix: `EXECPLAN-`.
-Deviation from plan: EXECPLAN-2's "seed requirements.skills into the goal's skill list" was deferred — profile-goal ↔ AiGoal identity matching is fragile JSON surgery; the skills surface in the EXECPLAN-4 requirements strip instead. Revisit if a stable link between the two goal stores lands.
+Deviation from plan: EXECPLAN-2's "seed requirements.skills into the goal's skill list" was deferred — profile-goal ↔ AiGoal identity matching is fragile JSON surgery; the skills surface in the EXECPLAN-4 requirements strip instead. GOAL-UNIFY-1 (follow-up) later created the stable link (profile mirror entry id = AiGoal.id via `lib/goals/createGoalRecord.ts`), so the seed is now buildable for goals created after it.
 Author context: investigation of the current flow on 2026-07-05, branch `claude/site-flow-execution-plan-elliec`.
 
 ---
