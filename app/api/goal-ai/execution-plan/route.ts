@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import getServerUser from '@/lib/serverAuth';
 import { SECTIONS } from '@/lib/site/capabilityRegistry';
 import { ARCHETYPE_CHAKRA } from '@/lib/chakra/keys';
-import type { ExecutionPlan, PlanPhase, PlanTask } from '@/lib/site/executionPlanTypes';
+import type { ExecutionPlan, PlanPhase, PlanTask, PlanRequirements } from '@/lib/site/executionPlanTypes';
 import type { GoalArchetype, GoalMode } from '@prisma/client';
 
 const VALID_ARCHETYPES = new Set<string>(['LEARN', 'BUILD', 'EXECUTE', 'CONNECT']);
@@ -54,6 +54,45 @@ function validateTaskFill(raw: unknown): raw is { phases: { tasks: PlanTask[] }[
   return true;
 }
 
+// EXECPLAN-2: lenient — drop bad entries, return undefined if the block is unusable.
+// A missing/invalid requirements block must never fail the whole skeleton.
+function sanitizeRequirements(raw: unknown): PlanRequirements | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  const skills = Array.isArray(r.skills)
+    ? (r.skills as unknown[])
+        .filter((s): s is { name: string; status: string } =>
+          !!s && typeof s === 'object'
+          && typeof (s as Record<string, unknown>).name === 'string'
+          && !!((s as Record<string, unknown>).name as string).trim())
+        .slice(0, 6)
+        .map(s => ({ name: s.name.trim(), status: s.status === 'have' ? 'have' as const : 'learn' as const }))
+    : [];
+  let funds: PlanRequirements['funds'] = null;
+  if (r.funds && typeof r.funds === 'object') {
+    const f = r.funds as Record<string, unknown>;
+    if (typeof f.note === 'string' && f.note.trim()) {
+      funds = {
+        note: f.note.trim(),
+        businessNeeded: f.businessNeeded === true,
+        ...(typeof f.estimate === 'string' && f.estimate.trim() ? { estimate: f.estimate.trim() } : {}),
+      };
+    }
+  }
+  const strList = (v: unknown) => Array.isArray(v)
+    ? (v as unknown[]).filter((x): x is string => typeof x === 'string' && !!x.trim()).slice(0, 4).map(x => x.trim())
+    : [];
+  const environment = strList(r.environment);
+  const social = strList(r.social);
+  const support = r.support === 'consider_listen' ? 'consider_listen' as const : 'none' as const;
+  const layer = (['self', 'society', 'nation', 'earth'] as const).includes(r.layer as never)
+    ? (r.layer as PlanRequirements['layer']) : 'self';
+  if (skills.length === 0 && !funds && environment.length === 0 && social.length === 0 && support === 'none') {
+    return undefined; // nothing meaningful — omit rather than render an empty strip
+  }
+  return { skills, funds, environment, social, support, layer };
+}
+
 function validatePlan(raw: unknown): raw is ExecutionPlan {
   if (!validateSkeleton(raw)) return false;
   const p = raw as Record<string, unknown>;
@@ -87,6 +126,13 @@ Your job:
 4. Generate exactly 3 PHASES — Foundation, Growth, and a third named for the goal's outcome. Each has a title, durationWeeks, and graduationCriteria ("When you can X…"). No tasks yet.
 5. List relevantSections (keys from registry actually relevant to this goal).
 6. List honestLimitations (planned sections used, gaps in the platform).
+7. Identify REQUIREMENTS — what the goal needs beyond tasks. Health is deliberately NOT included (handled separately):
+   - skills: 2–5 skills, each { "name", "status": "have"|"learn" }, judged from the user's answers.
+   - funds: null if money isn't a real constraint; else { "estimate": "rough amount", "note": "why/for what", "businessNeeded": true|false }. businessNeeded = the goal needs a venture, funding pitch, or business case.
+   - environment: 0–3 short notes on place/surroundings changes that would help (moving, workspace, habit-breaking environment change). Empty array if none.
+   - social: 0–3 people needs (mentor, community, accountability partner). Empty array if none.
+   - support: "consider_listen" ONLY if the answers show emotional blockers (fear, grief, stuckness, confusion) that talking through would help first; else "none".
+   - layer: "self" unless the goal itself is a societal/political movement ("society"), national ("nation"), or global ("earth") mission.
 
 Return strict JSON — no tasks arrays:
 {
@@ -99,7 +145,15 @@ Return strict JSON — no tasks arrays:
     { "title": "...",        "durationWeeks": 12, "graduationCriteria": "..." }
   ],
   "relevantSections": ["self.time"],
-  "honestLimitations": []
+  "honestLimitations": [],
+  "requirements": {
+    "skills": [{ "name": "...", "status": "learn" }],
+    "funds": null,
+    "environment": [],
+    "social": [],
+    "support": "none",
+    "layer": "self"
+  }
 }`;
 
   const sectionsSummary = Object.values(SECTIONS).map((s) => ({
@@ -241,7 +295,7 @@ export async function POST(req: NextRequest) {
     const content = await chatComplete({
       model: process.env.GOAL_AI_PLAN_MODEL ?? 'openai/gpt-4o-mini',
       messages: buildSkeletonMessages(ctx),
-      maxTokens: 400,
+      maxTokens: 700,
       temperature: 0.5,
       jsonMode: true,
     });
@@ -259,6 +313,7 @@ export async function POST(req: NextRequest) {
         phases:               (skel.phases as Omit<PlanPhase, 'tasks'>[]).map(ph => ({ ...ph, tasks: [] })),
         relevantSections:     skel.relevantSections as string[],
         honestLimitations:    skel.honestLimitations as string[],
+        requirements:         sanitizeRequirements(skel.requirements),
         _partial:             true, // tasks not filled yet
       };
     } else if (!usedFallback) {
