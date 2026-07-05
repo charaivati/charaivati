@@ -122,7 +122,7 @@ function LandingPageInner() {
               setStatus("showPicker");
               return;
             }
-            router.replace("/self");
+            router.replace("/chakra/landing"); // LANDING-SWITCH-1: chakra is the post-login landing
             return;
           }
         }

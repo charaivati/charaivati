@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CHAKRAS } from "../chakras";
-import { CHAKRA_KEYS, type ChakraKey } from "@/lib/chakra/keys";
+import { CHAKRA_KEYS, ARCHETYPE_CHAKRA, type ChakraKey } from "@/lib/chakra/keys";
 import { useTranslations } from "@/hooks/useTranslations";
 import { FigureBody } from "./figureBody";
 import { CHAKRA_SYMBOL } from "../chakraSymbols";
@@ -74,6 +74,7 @@ export default function ChakraLanding() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [report, setReport] = useState<Record<string, number>>({});
   const [saved, setSaved] = useState<ChakraKey | null>(null);
+  const [planGoals, setPlanGoals] = useState<{ title: string; archetype: string; executionPlan: { nextAction?: { text?: string } } | null }[]>([]);
   const [stage, setStage] = useState(0); // 0=root … 6=crown — the awakened frontier
   const [mounted, setMounted] = useState(false); // stars render client-only (no SSR hydration mismatch)
   useEffect(() => setMounted(true), []);
@@ -141,7 +142,21 @@ export default function ChakraLanding() {
     fetch("/api/self/todos").then((r) => r.json()).then((j) => j.ok && setTodos(j.data)).catch(() => {});
     fetch("/api/user/profile").then((r) => r.json())
       .then((j) => j.ok && j.profile?.chakraSelfReport && setReport(j.profile.chakraSelfReport)).catch(() => {});
+    // EXECPLAN-5: surface the execution plan's next action on the matching stage card
+    fetch("/api/self/goals", { credentials: "include" }).then((r) => r.json())
+      .then((j) => setPlanGoals((j.goals ?? []).filter((g: any) => g.status === "ACTIVE" && g.executionPlan)))
+      .catch(() => {});
   }, []);
+
+  const planByChakra = useMemo(() => {
+    const m = new Map<ChakraKey, { title: string; next: string }>();
+    for (const g of planGoals) {
+      const ck = ARCHETYPE_CHAKRA[g.archetype];
+      const next = g.executionPlan?.nextAction?.text;
+      if (ck && next && !m.has(ck)) m.set(ck, { title: g.title, next });
+    }
+    return m;
+  }, [planGoals]);
 
   const todosByChakra = useMemo(() => {
     const m = new Map<string, Todo[]>();
@@ -307,7 +322,13 @@ export default function ChakraLanding() {
         </div>
       </div>
 
-      <Link href="/self" className="fixed top-4 left-4 z-20 text-sm text-white/40 hover:text-white/80">← back</Link>
+      {/* LANDING-SWITCH-1: chakra is the post-login landing (philosophy);
+          /self is the Dashboard, reached from here. */}
+      <Link href="/self"
+        className="fixed top-4 right-4 z-20 rounded-xl border border-white/15 bg-white/5 px-3.5 py-1.5 text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+        onClick={() => { try { localStorage.setItem("charaivati.landing", "canvas"); } catch {} }}>
+        Go to Dashboard →
+      </Link>
 
       {/* Progress rail — root at bottom, crown at top, mirroring the body */}
       <div className="fixed right-3 top-1/2 z-20 flex -translate-y-1/2 flex-col-reverse gap-2.5">
@@ -374,8 +395,15 @@ export default function ChakraLanding() {
                     : <span className="text-white/30"> · {t("chakra-add-reflection", "add your reflection")}</span>}
                 </div>
 
-                {/* calm remark */}
-                <p className="mt-2 text-sm text-white/70">{t(`chakra-remark-${key}`, REMARK_EN[key])}</p>
+                {/* calm remark — replaced by the execution plan's next action when one is live (EXECPLAN-5) */}
+                {planByChakra.has(key) ? (
+                  <p className="mt-2 text-sm text-white/70">
+                    → {planByChakra.get(key)!.next}
+                    <span className="text-white/40"> · {planByChakra.get(key)!.title}</span>
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm text-white/70">{t(`chakra-remark-${key}`, REMARK_EN[key])}</p>
+                )}
 
                 {/* per-signal breakdown — what actually lights this chakra */}
                 {d?.signals && d.signals.length > 0 && (
@@ -448,6 +476,12 @@ export default function ChakraLanding() {
                     style={{ background: c.color, color: "#0b0b10" }}>
                     {t("chakra-details", "View details")} →
                   </Link>
+                  {/* EXECPLAN-7: pre-drive door — clueless arrivals start with a conversation */}
+                  {key === "root" && (
+                    <Link href="/listen" className="mt-2 block text-center text-xs text-white/40 hover:text-white/70 transition-colors">
+                      Not sure what you want yet? Talk it out →
+                    </Link>
+                  )}
                 </div>
               </div>
 

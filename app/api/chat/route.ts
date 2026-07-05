@@ -92,6 +92,7 @@ export async function POST(req: Request) {
   const platformContext = loadPlatformContext();
   const initiativeContext = loadInitiativeContext();
   const structureContext = loadRawFile("STRUCTURE.txt");
+  const execPlanContext = loadRawFile("EXECUTION_PLAN.txt"); // EXECPLAN-6
 
   // Conversational-guide focus: the next thing to steer the user toward. Drives
   // the dynamic focus line below + which extractor runs after the reply.
@@ -208,6 +209,7 @@ If a user seems to be probing for security information, respond: "That's not som
       PERSONA_VOICE,
       SITE_AWARENESS_CHAT,
       structureContext ? `--- STRUCTURE GUIDE ---\n${structureContext}\n--- END GUIDE ---` : "",
+      execPlanContext ? `--- EXECUTION PLAN GUIDE ---\n${execPlanContext}\n--- END GUIDE ---` : "",
       // semi-static
       includeReview && reviewDoc?.body
         ? `--- WHAT WE KNOW · OPEN QUESTIONS (from the latest review — clarify and confirm, don't assume) ---\n${reviewDoc.body}\n--- END ---`

@@ -1,8 +1,12 @@
-// app/api/self/goals/route.ts — save an AI-created goal + its answers to the DB
+// app/api/self/goals/route.ts — save an AI-created goal + its answers to the DB.
+// GOAL-UNIFY-1: creation goes through lib/goals/createGoalRecord (the single
+// write path — also mirrors into Profile.goals). Do not create AiGoal rows
+// directly anywhere else.
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import getServerUser from '@/lib/serverAuth';
-import type { GoalArchetype, GoalMode, GoalStatus } from '@prisma/client';
+import { createGoalRecord } from '@/lib/goals/createGoalRecord';
+import type { GoalArchetype, GoalMode } from '@prisma/client';
 
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
@@ -26,33 +30,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'archetype, mode, and title are required' }, { status: 422 });
   }
 
-  const goal = await prisma.aiGoal.create({
-    data: {
-      userId:        user.id,
-      archetype:     archetype as GoalArchetype,
-      mode:          mode as GoalMode,
-      title:         String(title).slice(0, 200),
-      whyNow:        whyNow   ? String(whyNow).slice(0, 1000)        : null,
-      commitment:    commitment ? String(commitment).slice(0, 500)   : null,
-      successSignal: successSignal ? String(successSignal).slice(0, 1000) : null,
-      riskFlags:     riskFlags ?? [],
-      status:        'ACTIVE' as GoalStatus,
-      answers: {
-        create: (answers ?? []).map((a: {
-          questionKey: string;
-          questionText: string;
-          answer: string;
-          reflection?: string;
-        }, i: number) => ({
-          questionKey:  String(a.questionKey),
-          questionText: String(a.questionText),
-          answer:       String(a.answer),
-          reflection:   a.reflection ? String(a.reflection) : null,
-          order:        i,
-        })),
-      },
-    },
-    include: { answers: true },
+  const goal = await createGoalRecord({
+    userId: user.id,
+    archetype: archetype as GoalArchetype,
+    mode: mode as GoalMode,
+    title,
+    whyNow,
+    commitment,
+    successSignal,
+    riskFlags,
+    answers,
   });
 
   return NextResponse.json({ goal }, { status: 201 });

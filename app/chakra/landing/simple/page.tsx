@@ -188,9 +188,12 @@ export default function ChakraLandingSimple() {
         </div>
       </div>
 
+      {/* LANDING-SWITCH-1: /self is the Dashboard, reached from the landing */}
       <div className="fixed top-4 left-4 right-4 z-20 flex justify-between text-sm text-white/40">
-        <Link href="/self" className="hover:text-white/80">← back</Link>
         <Link href="/chakra/landing" className="hover:text-white/80">{t("chakra-journey", "Journey")} →</Link>
+        <Link href="/self" className="rounded-xl border border-white/15 bg-white/5 px-3.5 py-1.5 text-white/70 hover:bg-white/10 hover:text-white transition-colors">
+          Go to Dashboard →
+        </Link>
       </div>
 
       {/* Progress rail — root at bottom, crown at top, mirroring the body */}

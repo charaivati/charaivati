@@ -3,10 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { chatComplete } from '@/app/api/aiClient';
 import { buildReflectPrompt } from '@/lib/ai/goalPrompts';
 import getServerUser from '@/lib/serverAuth';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const limit = await checkRateLimit(`goalai:interview:${user.id}`, 120, 3600);
+  if (!limit.ok) return NextResponse.json({ error: 'Too many AI requests — try again later.' }, { status: 429 });
 
   const { archetype, mode, questionText, answer, priorAnswers, nextQuestionText } = await req.json();
 

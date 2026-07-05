@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import getServerUser from "@/lib/serverAuth";
 import { applyProfileProposal, ProfileProposal, HEALTH_FIELDS } from "@/lib/companion/profileSync";
+import { createGoalRecord, DRIVE_TO_ARCHETYPE } from "@/lib/goals/createGoalRecord";
 import type { DriveType } from "@/types/self";
 
 const VALID_DRIVE_TYPES: DriveType[] = ["learning", "helping", "building", "doing"];
@@ -53,6 +54,25 @@ export async function POST(req: NextRequest) {
 
   try {
     const profile = await applyProfileProposal(user.id, proposal);
+
+    // GOAL-UNIFY-1: an accepted goal proposal enters the same pipeline as every
+    // other goal — an AiGoal row (execution plans, chakra pages, GoalsExpanded).
+    // createGoalRecord's profile mirror dedupes against the entry
+    // applyProfileProposal just appended. Additive — the profile write above is
+    // the primary effect; a failure here must not fail the accept.
+    if (proposal.type === "goal") {
+      try {
+        await createGoalRecord({
+          userId: user.id,
+          archetype: DRIVE_TO_ARCHETYPE[proposal.payload.driveType] ?? "LEARN",
+          mode: "FOCUSED",
+          title: proposal.payload.statement.trim(),
+        });
+      } catch (e) {
+        console.error("[profile-proposal] AiGoal creation failed:", e);
+      }
+    }
+
     return NextResponse.json({ ok: true, profile });
   } catch (err) {
     console.error("[profile-proposal] apply failed:", err);

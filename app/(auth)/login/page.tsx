@@ -103,12 +103,14 @@ function AuthForm() {
     }
   }
 
+  // LANDING-SWITCH-1: default post-login destination is the chakra landing;
+  // /self (the Dashboard) is reached from there via "Go to Dashboard".
   let redirectTo =
   validateRedirect(initialRedirect) ||
   (sp?.get("container") === "app" ? "/app/home" : null) ||
-  "/self";
+  "/chakra/landing";
   if (redirectTo === "/login" || redirectTo.startsWith("/login?"))
-    redirectTo = "/self";
+    redirectTo = "/chakra/landing";
 
   useEffect(() => {
     try {

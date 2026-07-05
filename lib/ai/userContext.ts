@@ -20,6 +20,8 @@
 
 import { db } from "@/lib/db";
 import { computeEnergy } from "@/lib/self/energy";
+import { SECTIONS } from "@/lib/site/capabilityRegistry";
+import type { ExecutionPlan } from "@/lib/site/executionPlanTypes";
 import type { HealthProfile, EnvironmentProfile, WeekSchedule, FundsProfile } from "@/types/self";
 import { normalizePersonality, summarizePersonalityForComposer, type PersonalityData } from "@/lib/listener/personality";
 
@@ -57,7 +59,7 @@ function buildCloudBlock(opts: UserContextOptions): string {
 
 // ─── Local tier ──────────────────────────────────────────────────────────────
 async function buildLocalBlock(userId: string, opts: UserContextOptions): Promise<string> {
-  const [profile, pages, ucp, personalityRow] = await Promise.all([
+  const [profile, pages, ucp, personalityRow, planGoals] = await Promise.all([
     db.profile.findUnique({
       where: { userId },
       select: {
@@ -78,6 +80,13 @@ async function buildLocalBlock(userId: string, opts: UserContextOptions): Promis
       },
     }).catch(() => null),
     (db as any).personalityProfile.findUnique({ where: { userId } }).catch(() => null),
+    // EXECPLAN-6: latest active goals — first one with an execution plan feeds the ACTIVE PLAN block
+    db.aiGoal.findMany({
+      where: { userId, status: "ACTIVE" },
+      orderBy: { updatedAt: "desc" },
+      take: 3,
+      select: { title: true, currentPhaseIndex: true, executionPlan: true },
+    }).catch(() => [] as { title: string; currentPhaseIndex: number; executionPlan: unknown }[]),
   ]);
 
   // Cold-start mode: when user has no meaningful data, give explicit instruction (UCTX-2)
@@ -124,6 +133,12 @@ Avoid suggesting changes to their profile or goals — ask first.
     `Current section: ${currentSection}`,
   ];
 
+  // EXECPLAN-6: the execution plan is the center — tell the guide the user's
+  // exact next action and which page it lives on, so it can point, not roam.
+  // LOCAL TIER ONLY — never add plan detail to buildCloudBlock.
+  const planLine = summarizePlan(planGoals as { title: string; currentPhaseIndex: number; executionPlan: unknown }[]);
+  if (planLine) lines.push(planLine);
+
   const healthLine = summarizeHealth(profile?.health);
   if (healthLine) lines.push(`Health: ${healthLine}`);
   const skillsLine = summarizeSkills(profile?.generalSkills);
@@ -153,6 +168,37 @@ Avoid suggesting changes to their profile or goals — ask first.
 }
 
 // ─── Compact summaries ───────────────────────────────────────────────────────
+
+// EXECPLAN-6: one line about the most recent execution plan — phase, next
+// action + its resolved route, done/total tasks, and a requirements digest.
+function summarizePlan(goals: { title: string; currentPhaseIndex: number; executionPlan: unknown }[]): string {
+  const goal = goals.find((g) => g.executionPlan && typeof g.executionPlan === "object");
+  if (!goal) return "";
+  const plan = goal.executionPlan as ExecutionPlan;
+  if (!Array.isArray(plan.phases) || plan.phases.length === 0 || !plan.nextAction?.text) return "";
+  const idx = Math.max(0, Math.min(goal.currentPhaseIndex ?? 0, plan.phases.length - 1));
+  const phase = plan.phases[idx];
+  const allTasks = plan.phases.flatMap((ph) => ph.tasks ?? []);
+  const done = allTasks.filter((t) => t.done).length;
+  const route = plan.nextAction.sectionKey ? SECTIONS[plan.nextAction.sectionKey]?.route : null;
+  const parts = [
+    `Active plan: "${goal.title}" — phase ${idx + 1}/${plan.phases.length} (${phase.title})`,
+    `next action: ${plan.nextAction.text}${route ? ` (page: ${route})` : ""}`,
+  ];
+  if (allTasks.length > 0) parts.push(`${done}/${allTasks.length} tasks done`);
+  const req = plan.requirements;
+  if (req) {
+    const needs: string[] = [];
+    const learn = req.skills.filter((s) => s.status === "learn").map((s) => s.name);
+    if (learn.length) needs.push(`skills to learn: ${learn.join(", ")}`);
+    if (req.funds) needs.push(`funds: ${req.funds.note}${req.funds.businessNeeded ? " (needs a business case — /business)" : ""}`);
+    if (req.environment.length) needs.push(`environment: ${req.environment.join("; ")}`);
+    if (req.social.length) needs.push(`people: ${req.social.join("; ")}`);
+    if (req.support === "consider_listen") needs.push("emotional blockers — gently suggest /listen");
+    if (needs.length) parts.push(`needs — ${needs.join(" · ")}`);
+  }
+  return parts.join("; ");
+}
 function summarizeHealth(health: unknown): string {
   if (!health || typeof health !== "object") return "";
   const h = health as Record<string, unknown>;

@@ -280,14 +280,17 @@ function GoalsExpanded({ onClose, activeDrives }: {
             </div>
           )}
 
-          {/* Add goal */}
-          <div className="pt-1">
+          {/* Add goal + pre-drive door (EXECPLAN-7) */}
+          <div className="pt-1 flex items-center justify-between gap-3">
             <button type="button" onClick={() => setModal(tab)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-500/40
                 bg-indigo-500/8 text-xs text-indigo-300 hover:border-indigo-500/70 hover:text-indigo-200
                 transition-colors">
               ✦ Add goal
             </button>
+            <a href="/listen" className="text-xs text-gray-500 hover:text-indigo-300 transition-colors">
+              Not sure yet? Talk it out →
+            </a>
           </div>
         </div>
       </div>
@@ -535,9 +538,10 @@ function ExpandedPanel({
   setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
   onWeekScheduleChange, onFundsChange, onEnvironmentChange,
   timelineGoal, onTimelineModalClosed,
-  tMap,
+  tMap, onOpenPanel,
 }: {
   id: PartnerId; onClose: () => void;
+  onOpenPanel: (panel: string) => void;
   health: HealthProfile; goals: GoalEntry[];
   generalSkills: SkillEntry[]; skillsLoading: Record<string, boolean>;
   weekSchedule: WeekSchedule; fundsProfile: FundsProfile;
@@ -605,7 +609,11 @@ function ExpandedPanel({
         )}
         {id === "time"        && (
           <div className="space-y-2.5 p-5">
-            <GoalExecuteSection activeDrives={drives} profileGoals={goals} tMap={tMap} />
+            <GoalExecuteSection
+              activeDrives={drives} profileGoals={goals} tMap={tMap}
+              energyScore={energy.overall}
+              onOpenPanel={onOpenPanel}
+            />
             <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} title={tc("section-daily-tasks", "Daily tasks")} />
             <CollapsibleSection
               title={tc("section-project-timelines", "Project Timelines")}
@@ -692,11 +700,26 @@ export function SelfCanvas(props: SelfCanvasProps) {
   const [goalsExpanded, setGoalsExpanded] = useState(false);
   const [timelineGoal, setTimelineGoal]   = useState<{ id: string; title: string } | null>(null);
 
+  // EXECPLAN-1: ?panel= deep-link (from capabilityRegistry routes) auto-opens a partner panel
+  useEffect(() => {
+    try {
+      const panel = new URLSearchParams(window.location.search).get("panel");
+      if (panel && panel in PARTNER_CFG) setActivePartner(panel as PartnerId);
+    } catch {}
+  }, []);
+
   // Open Time panel when a new AI goal is created
   useEffect(() => {
     const handler = () => { setGoalsExpanded(false); setActivePartner("time"); };
     window.addEventListener("charaivati:goalCreated", handler);
     return () => window.removeEventListener("charaivati:goalCreated", handler);
+  }, []);
+
+  // EXECPLAN-7: the drive-set nudge (SelfTab) asks us to open goal creation
+  useEffect(() => {
+    const handler = () => setGoalsExpanded(true);
+    window.addEventListener("charaivati:open-goal-creation", handler);
+    return () => window.removeEventListener("charaivati:open-goal-creation", handler);
   }, []);
 
   useEffect(() => {
@@ -843,6 +866,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
         timelineGoal={timelineGoal}
         onTimelineModalClosed={() => setTimelineGoal(null)}
         tMap={tMap}
+        onOpenPanel={(p) => { if (p in PARTNER_CFG) setActivePartner(p as PartnerId); }}
       />
 
     </div>

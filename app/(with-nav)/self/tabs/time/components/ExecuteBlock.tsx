@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Pencil, Check, X, ChevronRight } from 'lucide-react';
 import { SECTIONS } from '@/lib/site/capabilityRegistry';
-import type { ExecutionPlan, PlanTask, PlanPhase } from '@/lib/site/executionPlanTypes';
+import type { ExecutionPlan, PlanTask, PlanPhase, PlanRequirements } from '@/lib/site/executionPlanTypes';
 import type { GoalArchetype } from '@prisma/client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -22,6 +22,10 @@ type Props = {
   goal: AiGoalWithPlan;
   onPlanUpdate: (plan: ExecutionPlan) => void;
   enriching?: boolean; // true while tasks are being generated (step 2 in flight)
+  /** EXECPLAN-4: open a SelfCanvas partner panel in place (canvas context only). */
+  onOpenPanel?: (panel: string) => void;
+  /** EXECPLAN-4: composite energy score 0–10 for the energy pill. */
+  energyScore?: number;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -32,6 +36,17 @@ const ARCHETYPE_LABELS: Record<GoalArchetype, string> = {
   EXECUTE: 'Execute',
   CONNECT: 'Connect',
 };
+
+// EXECPLAN-3: completion lives on the plan JSON (task.done) — derive the UI set from it
+function doneSetFromPlan(plan: ExecutionPlan): Set<string> {
+  const s = new Set<string>();
+  plan.phases.forEach((ph, pi) => ph.tasks?.forEach((t, ti) => { if (t.done) s.add(`${pi}-${ti}`); }));
+  return s;
+}
+
+function clampPhase(index: number, plan: ExecutionPlan): number {
+  return Math.max(0, Math.min(index, plan.phases.length - 1));
+}
 
 // ─── Section link helper ──────────────────────────────────────────────────────
 
@@ -159,21 +174,150 @@ function AdvanceModal({
   );
 }
 
+// ─── Requirements strip (EXECPLAN-4) ─────────────────────────────────────────
+// "What this goal needs" — each row links into the block that owns the data.
+// Inside SelfCanvas, onOpenPanel switches the partner panel in place; standalone
+// (TimeTab) it falls back to registry deep-links (?panel=).
+
+function PanelLink({ panel, onOpenPanel, children }: {
+  panel: string;
+  onOpenPanel?: (panel: string) => void;
+  children: React.ReactNode;
+}) {
+  const cls = 'text-xs text-indigo-400 hover:text-indigo-300 transition-colors whitespace-nowrap';
+  if (onOpenPanel) {
+    return <button type="button" onClick={() => onOpenPanel(panel)} className={cls}>{children}</button>;
+  }
+  return <Link href={`/self?tab=personal&panel=${panel}`} className={cls}>{children}</Link>;
+}
+
+const LAYER_BADGE: Record<string, string> = {
+  society: 'Society-level goal',
+  nation: 'Nation-level goal',
+  earth: 'Earth-level goal',
+};
+
+function RequirementsStrip({ req, onOpenPanel, energyScore }: {
+  req: PlanRequirements;
+  onOpenPanel?: (panel: string) => void;
+  energyScore?: number;
+}) {
+  const rowCls = 'flex items-start justify-between gap-3';
+  return (
+    <div className="px-5 py-4 border-b border-gray-800/80 space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">What this goal needs</p>
+        {req.layer && req.layer !== 'self' && (
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30">
+            {LAYER_BADGE[req.layer]}
+          </span>
+        )}
+      </div>
+
+      {req.skills.length > 0 && (
+        <div className={rowCls}>
+          <div className="flex items-start gap-2 min-w-0">
+            <span className="text-sm flex-shrink-0">🎯</span>
+            <div className="flex flex-wrap gap-1.5">
+              {req.skills.map((s, i) => (
+                <span key={i} className={`text-xs px-2 py-0.5 rounded-full border ${
+                  s.status === 'have'
+                    ? 'bg-green-500/10 text-green-300 border-green-500/30'
+                    : 'bg-gray-800 text-gray-300 border-gray-700'
+                }`}>
+                  {s.name}{s.status === 'have' ? ' ✓' : ' · learn'}
+                </span>
+              ))}
+            </div>
+          </div>
+          <PanelLink panel="skills" onOpenPanel={onOpenPanel}>Open Skills →</PanelLink>
+        </div>
+      )}
+
+      {req.funds && (
+        <div className="space-y-1.5">
+          <div className={rowCls}>
+            <div className="flex items-start gap-2 min-w-0">
+              <span className="text-sm flex-shrink-0">💰</span>
+              <p className="text-xs text-gray-300">
+                {req.funds.note}
+                {req.funds.estimate && <span className="text-gray-500"> · ~{req.funds.estimate}</span>}
+              </p>
+            </div>
+            <PanelLink panel="funds" onOpenPanel={onOpenPanel}>Open Funds →</PanelLink>
+          </div>
+          {req.funds.businessNeeded && (
+            <Link
+              href="/business/idea"
+              className="inline-flex items-center gap-1 ml-6 text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/30 hover:bg-amber-500/20 transition-colors"
+            >
+              Build the business case — evaluate, plan, pitch <ChevronRight className="w-3 h-3" />
+            </Link>
+          )}
+        </div>
+      )}
+
+      {(req.environment.length > 0 || req.social.length > 0) && (
+        <div className={rowCls}>
+          <div className="flex items-start gap-2 min-w-0">
+            <span className="text-sm flex-shrink-0">🌍</span>
+            <div className="space-y-1">
+              {req.environment.map((note, i) => (
+                <p key={`e${i}`} className="text-xs text-gray-300">{note}</p>
+              ))}
+              {req.social.map((note, i) => (
+                <p key={`s${i}`} className="text-xs text-gray-400">👥 {note}</p>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {req.environment.length > 0 && (
+              <PanelLink panel="environment" onOpenPanel={onOpenPanel}>Open Environment →</PanelLink>
+            )}
+            {req.social.length > 0 && (
+              <PanelLink panel="network" onOpenPanel={onOpenPanel}>Open Network →</PanelLink>
+            )}
+          </div>
+        </div>
+      )}
+
+      {req.support === 'consider_listen' && (
+        <Link
+          href="/listen"
+          className="flex items-start gap-2 p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/25 hover:bg-indigo-500/15 transition-colors"
+        >
+          <span className="text-sm flex-shrink-0">🕊️</span>
+          <span className="text-xs text-indigo-200 leading-relaxed">
+            If something feels heavy around this goal, talking it through can come first. Open Listen →
+          </span>
+        </Link>
+      )}
+
+      {typeof energyScore === 'number' && (
+        <div className="flex items-center justify-between pt-1 border-t border-gray-800/60">
+          <p className="text-xs text-gray-500">⚡ Every dimension above feeds your energy — <span className={energyScore >= 7 ? 'text-green-400' : energyScore >= 4 ? 'text-amber-400' : 'text-red-400'}>{energyScore}/10</span></p>
+          <PanelLink panel="energy" onOpenPanel={onOpenPanel}>Open Energy →</PanelLink>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
+export function ExecuteBlock({ goal, onPlanUpdate, enriching = false, onOpenPanel, energyScore }: Props) {
   const [plan, setPlan] = useState<ExecutionPlan>(goal.executionPlan);
-  const [phaseIndex, setPhaseIndex] = useState(goal.currentPhaseIndex);
-  const [doneTasks, setDoneTasks] = useState<Set<string>>(new Set());
+  const [phaseIndex, setPhaseIndex] = useState(() => clampPhase(goal.currentPhaseIndex, goal.executionPlan));
+  const [doneTasks, setDoneTasks] = useState<Set<string>>(() => doneSetFromPlan(goal.executionPlan));
   const [editMode, setEditMode] = useState(false);
   const [editDraft, setEditDraft] = useState<ExecutionPlan>(goal.executionPlan);
-  const [nextActionDone, setNextActionDone] = useState(false);
+  const [nextActionDone, setNextActionDone] = useState(goal.executionPlan.nextAction.done === true);
 
   // Sync when switching goals
   useEffect(() => {
-    setPhaseIndex(goal.currentPhaseIndex);
-    setDoneTasks(new Set());
-    setNextActionDone(false);
+    setPhaseIndex(clampPhase(goal.currentPhaseIndex, goal.executionPlan));
+    setDoneTasks(doneSetFromPlan(goal.executionPlan));
+    setNextActionDone(goal.executionPlan.nextAction.done === true);
     setPlan(goal.executionPlan);
     setEditDraft(goal.executionPlan);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +327,7 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
   useEffect(() => {
     if (!goal.executionPlan._partial) {
       setPlan(goal.executionPlan);
+      setDoneTasks(doneSetFromPlan(goal.executionPlan));
       if (!editMode) setEditDraft(goal.executionPlan);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,13 +344,45 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
     return `${phaseIdx}-${taskIdx}`;
   }
 
+  // EXECPLAN-3: completion persists on the plan JSON and syncs the mirrored Todo
+  function persistPlan(updated: ExecutionPlan) {
+    fetch(`/api/self/goals/${goal.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ executionPlan: updated }),
+    }).catch(e => console.error('[ExecuteBlock] persist plan failed', e));
+  }
+
   function toggleTask(phaseIdx: number, taskIdx: number) {
     const key = taskKey(phaseIdx, taskIdx);
+    const nowDone = !doneTasks.has(key);
     setDoneTasks(prev => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      nowDone ? next.add(key) : next.delete(key);
       return next;
     });
+    const updated: ExecutionPlan = {
+      ...plan,
+      phases: plan.phases.map((ph, pi) =>
+        pi !== phaseIdx ? ph : {
+          ...ph,
+          tasks: ph.tasks.map((t, ti) => ti !== taskIdx ? t : { ...t, done: nowDone }),
+        }
+      ),
+    };
+    setPlan(updated);
+    onPlanUpdate(updated);
+    persistPlan(updated);
+    const todoId = plan.phases[phaseIdx]?.tasks[taskIdx]?.todoId;
+    if (todoId) {
+      fetch(`/api/self/todos/${todoId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ completed: nowDone }),
+      }).catch(e => console.error('[ExecuteBlock] todo sync failed', e));
+    }
   }
 
   const allCurrentDone =
@@ -232,7 +409,7 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
         body: JSON.stringify({ currentPhaseIndex: phaseIndex + 1 }),
       });
       setPhaseIndex(i => i + 1);
-      setDoneTasks(new Set());
+      setDoneTasks(doneSetFromPlan(plan)); // keys are phase-scoped — keep persisted marks
       setShowAdvance(false);
     } catch (e) {
       console.error('[ExecuteBlock] advance phase failed', e);
@@ -368,6 +545,10 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
                     onClick={() => {
                       if (nextActionIsStandalone) {
                         setNextActionDone(true);
+                        const updated: ExecutionPlan = { ...plan, nextAction: { ...plan.nextAction, done: true } };
+                        setPlan(updated);
+                        onPlanUpdate(updated);
+                        persistPlan(updated);
                       } else {
                         const idx = currentPhase?.tasks.findIndex(t => t.text === nextAction.text) ?? -1;
                         if (idx >= 0) toggleTask(phaseIndex, idx);
@@ -382,6 +563,11 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
             </div>
           </div>
         </div>
+
+        {/* ── What this goal needs (EXECPLAN-4) ─────────────────────────── */}
+        {plan.requirements && (
+          <RequirementsStrip req={plan.requirements} onOpenPanel={onOpenPanel} energyScore={energyScore} />
+        )}
 
         {/* ── Current phase ──────────────────────────────────────────────── */}
         {currentPhase && (
