@@ -130,23 +130,33 @@ export default function SurvivalPlanPage() {
   useEffect(() => {
     fetch("/api/user/profile", { credentials: "include" })
       .then((r) => r.json())
+      .catch(() => null)
       .then((j) => {
-        if (!j.ok || !j.profile) return;
-        const p = j.profile;
+        // No silent early-return: a missing Profile row (new account) or a
+        // failed fetch must still bootstrap the expense groups, or the funds
+        // section renders with nothing editable while health (which uses
+        // defaults + an upserting PATCH) keeps working.
+        const p = j?.ok && j.profile ? j.profile : {};
         if (p.health) setHealth({ ...DEFAULT_HEALTH, ...p.health });
         const fp: FundsProfile = { ...DEFAULT_FUNDS, ...(p.fundsProfile ?? {}) };
+        if (!Array.isArray(fp.sources)) fp.sources = [];
         setFunds(fp);
         fundsRef.current = fp;
         // Bootstrap the full expense-group structure when none is saved yet, so
         // a later visit to the /self Funds panel sees the same familiar groups.
-        const goals: GoalEntry[] = p.goals ?? [];
-        const skills: SkillEntry[] = p.generalSkills ?? [];
-        setExpenseGroups(
-          fp.expenseGroups?.length ? fp.expenseGroups : buildInitialExpenseGroups(goals, skills, [])
+        const goals: GoalEntry[] = Array.isArray(p.goals) ? p.goals : [];
+        const skills: SkillEntry[] = Array.isArray(p.generalSkills) ? p.generalSkills : [];
+        const savedGroups = Array.isArray(fp.expenseGroups) ? fp.expenseGroups : [];
+        const base = savedGroups.length ? savedGroups : buildInitialExpenseGroups(goals, skills, []);
+        // Guarantee the survival groups exist even in legacy saved data that
+        // predates (or diverged from) the default group names.
+        const have = new Set(base.map((g) => g.group));
+        const missing = buildInitialExpenseGroups(goals, skills, []).filter(
+          (g) => SURVIVAL_GROUP_NAMES.includes(g.group) && !have.has(g.group)
         );
-      })
-      .catch(() => {})
-      .finally(() => setLoaded(true));
+        setExpenseGroups([...base, ...missing]);
+        setLoaded(true);
+      });
   }, []);
 
   function flashSaved() {
