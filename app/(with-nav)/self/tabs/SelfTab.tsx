@@ -240,6 +240,17 @@ export default function SelfTab({ profile }: { profile?: any }) {
         <div style={{ animation: "fadeSlideUp 600ms ease both" }}>
           <div className="space-y-5">
 
+            {/* ── Landing toggle (EXECPLAN-5) — same flow, chakra skin ── */}
+            <div className="flex justify-end -mb-3">
+              <a
+                href="/chakra/landing"
+                onClick={() => { try { localStorage.setItem("charaivati.landing", "chakra"); } catch {} }}
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                🪷 Chakra view →
+              </a>
+            </div>
+
             {/* ── Visual canvas ── */}
             {(s.filledGoals > 0 || skipped) && (
               <div ref={canvasRef} style={{ animation: "fadeSlideUp 500ms ease both" }}>

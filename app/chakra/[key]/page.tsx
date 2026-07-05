@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { notFound, useParams } from "next/navigation";
 import { CHAKRAS } from "../chakras";
-import { CHAKRA_KEYS, isChakraKey, type ChakraKey } from "@/lib/chakra/keys";
+import { CHAKRA_KEYS, isChakraKey, ARCHETYPE_CHAKRA, type ChakraKey } from "@/lib/chakra/keys";
 import { useTranslations } from "@/hooks/useTranslations";
 import { CHAKRA_SYMBOL } from "../chakraSymbols";
 import { DEEP_LINKS, REMARK_EN, SURFACE_EN, SIGNAL_EN, SIGNAL_DESC_EN, SIGNAL_LINKS } from "../meta";
@@ -30,6 +30,12 @@ const T_SLUGS = [
 type Signal = { key: string; value: number };
 type Detail = { score: number; platform: number; self: number | null; platformOnly: boolean; signals?: Signal[] };
 type Todo = { id: string; title: string; completed: boolean; chakra: string | null };
+// EXECPLAN-5: compact execution-plan view for goals whose archetype maps here
+type PlanGoal = {
+  id: string; title: string; archetype: string; status: string;
+  currentPhaseIndex: number;
+  executionPlan: { nextAction?: { text?: string }; phases?: { title: string }[] } | null;
+};
 
 // Deterministic starfield (Math.sin hash, not Math.random) so SSR/client match.
 const STARS = Array.from({ length: 34 }, (_, i) => {
@@ -52,6 +58,7 @@ function ChakraDetailInner({ chakraKey: key }: { chakraKey: ChakraKey }) {
   const c = CHAKRAS[CHAKRA_KEYS.indexOf(key)];
   const [detail, setDetail] = useState<Detail | null>(null);
   const [todos, setTodos] = useState<Todo[]>([]);
+  const [planGoals, setPlanGoals] = useState<PlanGoal[]>([]);
   const [report, setReport] = useState<Record<string, number>>({});
   const [saved, setSaved] = useState(false);
   const [mounted, setMounted] = useState(false); // stars client-only (no SSR hydration mismatch)
@@ -62,6 +69,11 @@ function ChakraDetailInner({ chakraKey: key }: { chakraKey: ChakraKey }) {
     fetch("/api/self/todos").then((r) => r.json()).then((j) => j.ok && setTodos(j.data)).catch(() => {});
     fetch("/api/user/profile").then((r) => r.json())
       .then((j) => j.ok && j.profile?.chakraSelfReport && setReport(j.profile.chakraSelfReport)).catch(() => {});
+    // EXECPLAN-5: active goals with plans whose archetype maps to this chakra
+    fetch("/api/self/goals", { credentials: "include" }).then((r) => r.json())
+      .then((j) => setPlanGoals(((j.goals ?? []) as PlanGoal[])
+        .filter((g) => g.status === "ACTIVE" && g.executionPlan && ARCHETYPE_CHAKRA[g.archetype] === key)))
+      .catch(() => {});
   }, [key]);
 
   const list = useMemo(() => todos.filter((td) => td.chakra === key), [todos, key]);
@@ -191,6 +203,39 @@ function ChakraDetailInner({ chakraKey: key }: { chakraKey: ChakraKey }) {
             onKeyUp={(e) => saveReport(Number((e.target as HTMLInputElement).value))}
             className="w-full" style={{ accentColor: c.color }} />
         </div>
+
+        {/* EXECPLAN-5: execution plans working on this chakra */}
+        {planGoals.length > 0 && (
+          <div className="mt-6">
+            <div className="mb-1 text-xs uppercase tracking-wider text-white/40">Execution plan</div>
+            <div className="space-y-2">
+              {planGoals.map((g) => {
+                const phases = g.executionPlan?.phases ?? [];
+                const phaseIdx = Math.max(0, Math.min(g.currentPhaseIndex, phases.length - 1));
+                return (
+                  <Link key={g.id} href={`/self?tab=time&goalId=${g.id}`}
+                    className="block rounded-xl border p-4 transition-colors hover:bg-white/[0.04]"
+                    style={{ borderColor: `${c.color}26`, background: "rgba(8,8,14,0.62)" }}>
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="text-sm font-medium">{g.title}</span>
+                      {phases.length > 0 && (
+                        <span className="text-[10px] whitespace-nowrap text-white/40">
+                          Phase {phaseIdx + 1}/{phases.length}
+                        </span>
+                      )}
+                    </div>
+                    {g.executionPlan?.nextAction?.text && (
+                      <p className="mt-1.5 text-xs text-white/60">→ {g.executionPlan.nextAction.text}</p>
+                    )}
+                    <span className="mt-2 inline-block text-xs font-medium" style={{ color: c.color }}>
+                      Open the plan →
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* tagged todos */}
         <div className="mt-6">
