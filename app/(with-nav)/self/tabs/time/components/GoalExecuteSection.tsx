@@ -58,9 +58,13 @@ export type GoalExecuteSectionProps = {
   profileGoals?: { id: string; statement: string; driveId: string }[];
   /** Translation map passed from SelfCanvas — keys are canvas slugs */
   tMap?: Record<string, string>;
+  /** EXECPLAN-4: open a SelfCanvas partner panel in place (canvas context only) */
+  onOpenPanel?: (panel: string) => void;
+  /** EXECPLAN-4: composite energy score 0–10 — drives the health-first gate banner */
+  energyScore?: number;
 };
 
-export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGoals, tMap }: GoalExecuteSectionProps) {
+export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGoals, tMap, onOpenPanel, energyScore }: GoalExecuteSectionProps) {
   const { goals, setGoals, pendingGoals, setPending, loading, fetchError, retry } = useActiveGoals();
   const { profile } = useProfile();
 
@@ -185,6 +189,23 @@ export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGo
 
   return (
     <div ref={sectionRef}>
+    {/* EXECPLAN-4: health gate — health comes before the plan; display-only, never blocks */}
+    {hasAny && typeof energyScore === 'number' && energyScore < 7 && (
+      <button
+        type="button"
+        onClick={() => onOpenPanel?.('health')}
+        className="w-full mb-2.5 flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border text-left transition-colors"
+        style={{
+          borderColor: energyScore < 4 ? 'rgba(248,113,113,0.35)' : 'rgba(251,191,36,0.3)',
+          background: energyScore < 4 ? 'rgba(127,29,29,0.25)' : 'rgba(120,53,15,0.2)',
+        }}
+      >
+        <span className="text-xs" style={{ color: energyScore < 4 ? '#fca5a5' : '#fcd34d' }}>
+          🍎 Health first — energy {energyScore}/10. Steady the foundation before pushing the plan.
+        </span>
+        <span className="text-xs text-gray-400 whitespace-nowrap">Open Health →</span>
+      </button>
+    )}
     <SectionCard>
       {/* Header */}
       <div
@@ -275,6 +296,8 @@ export function GoalExecuteSection({ goalId, activeDrives: drivesProp, profileGo
                 goal={(selectedGoal ?? displayGoal)!}
                 onPlanUpdate={handlePlanUpdate}
                 enriching={((selectedGoal ?? displayGoal)!.executionPlan as { _partial?: boolean })?._partial === true}
+                onOpenPanel={onOpenPanel}
+                energyScore={energyScore}
               />
             </div>
           )}

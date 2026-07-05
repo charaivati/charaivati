@@ -535,9 +535,10 @@ function ExpandedPanel({
   setHealth, onUpdateGeneralSkills, onUpdateGoalSkills, onSuggestSkills,
   onWeekScheduleChange, onFundsChange, onEnvironmentChange,
   timelineGoal, onTimelineModalClosed,
-  tMap,
+  tMap, onOpenPanel,
 }: {
   id: PartnerId; onClose: () => void;
+  onOpenPanel: (panel: string) => void;
   health: HealthProfile; goals: GoalEntry[];
   generalSkills: SkillEntry[]; skillsLoading: Record<string, boolean>;
   weekSchedule: WeekSchedule; fundsProfile: FundsProfile;
@@ -605,7 +606,11 @@ function ExpandedPanel({
         )}
         {id === "time"        && (
           <div className="space-y-2.5 p-5">
-            <GoalExecuteSection activeDrives={drives} profileGoals={goals} tMap={tMap} />
+            <GoalExecuteSection
+              activeDrives={drives} profileGoals={goals} tMap={tMap}
+              energyScore={energy.overall}
+              onOpenPanel={onOpenPanel}
+            />
             <TimeSection schedule={weekSchedule} goals={goals} onChange={onWeekScheduleChange} defaultOpen={true} title={tc("section-daily-tasks", "Daily tasks")} />
             <CollapsibleSection
               title={tc("section-project-timelines", "Project Timelines")}
@@ -851,6 +856,7 @@ export function SelfCanvas(props: SelfCanvasProps) {
         timelineGoal={timelineGoal}
         onTimelineModalClosed={() => setTimelineGoal(null)}
         tMap={tMap}
+        onOpenPanel={(p) => { if (p in PARTNER_CFG) setActivePartner(p as PartnerId); }}
       />
 
     </div>
