@@ -280,14 +280,17 @@ function GoalsExpanded({ onClose, activeDrives }: {
             </div>
           )}
 
-          {/* Add goal */}
-          <div className="pt-1">
+          {/* Add goal + pre-drive door (EXECPLAN-7) */}
+          <div className="pt-1 flex items-center justify-between gap-3">
             <button type="button" onClick={() => setModal(tab)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-indigo-500/40
                 bg-indigo-500/8 text-xs text-indigo-300 hover:border-indigo-500/70 hover:text-indigo-200
                 transition-colors">
               ✦ Add goal
             </button>
+            <a href="/listen" className="text-xs text-gray-500 hover:text-indigo-300 transition-colors">
+              Not sure yet? Talk it out →
+            </a>
           </div>
         </div>
       </div>
@@ -710,6 +713,13 @@ export function SelfCanvas(props: SelfCanvasProps) {
     const handler = () => { setGoalsExpanded(false); setActivePartner("time"); };
     window.addEventListener("charaivati:goalCreated", handler);
     return () => window.removeEventListener("charaivati:goalCreated", handler);
+  }, []);
+
+  // EXECPLAN-7: the drive-set nudge (SelfTab) asks us to open goal creation
+  useEffect(() => {
+    const handler = () => setGoalsExpanded(true);
+    window.addEventListener("charaivati:open-goal-creation", handler);
+    return () => window.removeEventListener("charaivati:open-goal-creation", handler);
   }, []);
 
   useEffect(() => {

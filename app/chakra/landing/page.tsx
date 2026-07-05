@@ -475,6 +475,12 @@ export default function ChakraLanding() {
                     style={{ background: c.color, color: "#0b0b10" }}>
                     {t("chakra-details", "View details")} →
                   </Link>
+                  {/* EXECPLAN-7: pre-drive door — clueless arrivals start with a conversation */}
+                  {key === "root" && (
+                    <Link href="/listen" className="mt-2 block text-center text-xs text-white/40 hover:text-white/70 transition-colors">
+                      Not sure what you want yet? Talk it out →
+                    </Link>
+                  )}
                 </div>
               </div>
 

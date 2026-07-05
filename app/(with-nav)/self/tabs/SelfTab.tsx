@@ -160,6 +160,21 @@ export default function SelfTab({ profile }: { profile?: any }) {
     setShowContent(s.drives.length > 0 || skipped);
   }, [s.drives.length, skipped]);
 
+  // EXECPLAN-7: when a drive proposal is accepted in chat/Listen and the user
+  // has no goals yet, nudge them once toward goal creation — closes the
+  // clueless → drive → goal → plan loop.
+  const [driveNudge, setDriveNudge] = useState(false);
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const hasDrives = Array.isArray(detail?.drives) && detail.drives.length > 0;
+      const hasGoals = Array.isArray(detail?.goals) && detail.goals.some((g: any) => g?.statement?.trim());
+      if (hasDrives && !hasGoals) setDriveNudge(true);
+    };
+    window.addEventListener("charaivati:profile-updated", handler);
+    return () => window.removeEventListener("charaivati:profile-updated", handler);
+  }, []);
+
   return (
     <div className="text-white space-y-5">
       <style>{`
@@ -231,6 +246,27 @@ export default function SelfTab({ profile }: { profile?: any }) {
           </div>
         )}
       </div>
+
+      {/* ── Drive-set nudge (EXECPLAN-7) ── */}
+      {driveNudge && !onboardingOpen && (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-indigo-500/30"
+          style={{ background: "rgba(49,46,129,0.25)", animation: "fadeSlideDown 400ms ease both" }}>
+          <span className="text-sm text-indigo-200">Drive set ✓ — shape your first goal?</span>
+          <div className="flex items-center gap-2">
+            <button type="button"
+              onClick={() => {
+                setDriveNudge(false);
+                try { window.dispatchEvent(new Event("charaivati:open-goal-creation")); } catch {}
+                setTimeout(() => canvasRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+              }}
+              className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-500 transition-colors">
+              Create a goal →
+            </button>
+            <button type="button" onClick={() => setDriveNudge(false)}
+              className="text-xs text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Canvas skeleton — fills blank space while profile loads ── */}
       {!s.profileReady && !onboardingOpen && <SelfTabSkeleton />}
