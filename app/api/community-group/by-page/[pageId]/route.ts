@@ -80,7 +80,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ pageId: 
         : [];
 
     const extra = await db.$queryRaw<{ emergencyContacts: unknown; bannerUrl: string | null; slug: string | null }[]>`SELECT "emergencyContacts", "bannerUrl", slug FROM "CommunityGroup" WHERE id = ${group.id}`;
-    return NextResponse.json({ ok: true, group: { ...group, bannerUrl: extra[0]?.bannerUrl ?? null, emergencyContacts: extra[0]?.emergencyContacts ?? [], slug: extra[0]?.slug ?? null }, viewerStatus, pendingMemberships });
+    // foodPlan (SURVIVAL-1) queried separately + resilient — column may not
+    // exist until the 20260705000000_add_community_food_plan migration runs.
+    let foodPlan: unknown = null;
+    try {
+      const fp = await db.$queryRaw<{ foodPlan: unknown }[]>`SELECT "foodPlan" FROM "CommunityGroup" WHERE id = ${group.id}`;
+      foodPlan = fp[0]?.foodPlan ?? null;
+    } catch {}
+    return NextResponse.json({ ok: true, group: { ...group, bannerUrl: extra[0]?.bannerUrl ?? null, emergencyContacts: extra[0]?.emergencyContacts ?? [], slug: extra[0]?.slug ?? null, foodPlan }, viewerStatus, pendingMemberships });
   } catch (err: any) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

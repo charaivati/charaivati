@@ -24,7 +24,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ groupI
   }
 
   try {
-    const { name, logoUrl, bannerUrl, objective, emergencyContacts } = await req.json();
+    const { name, logoUrl, bannerUrl, objective, emergencyContacts, foodPlan } = await req.json();
     const group = await db.communityGroup.update({
       where: { id: groupId },
       data: {
@@ -38,6 +38,10 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ groupI
     }
     if (emergencyContacts !== undefined) {
       await db.$executeRaw`UPDATE "CommunityGroup" SET "emergencyContacts" = ${JSON.stringify(emergencyContacts)}::jsonb WHERE id = ${groupId}`;
+    }
+    if (foodPlan !== undefined) {
+      // SURVIVAL-1 — same raw-SQL pattern as emergencyContacts
+      await db.$executeRaw`UPDATE "CommunityGroup" SET "foodPlan" = ${JSON.stringify(foodPlan)}::jsonb WHERE id = ${groupId}`;
     }
     const extra = await db.$queryRaw<{ emergencyContacts: unknown; bannerUrl: string | null }[]>`SELECT "emergencyContacts", "bannerUrl" FROM "CommunityGroup" WHERE id = ${groupId}`;
     return NextResponse.json({ ok: true, group: { ...group, bannerUrl: extra[0]?.bannerUrl ?? null, emergencyContacts: extra[0]?.emergencyContacts ?? [] } });

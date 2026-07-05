@@ -36,12 +36,12 @@ const EFFORT_CLS: Record<string, string> = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatINR(n: number): string {
+export function formatINR(n: number): string {
   if (!isFinite(n) || isNaN(n)) return "∞";
   return "₹" + Math.abs(Math.round(n)).toLocaleString("en-IN");
 }
 
-function sumGroups(groups: FundGroup[]): number {
+export function sumGroups(groups: FundGroup[]): number {
   return groups.reduce((a, g) => a + g.items.reduce((b, i) => b + (i.value || 0), 0), 0);
 }
 
@@ -163,7 +163,7 @@ function buildInitialIncomeGroups(goals: GoalEntry[], skills: SkillEntry[], page
   ];
 }
 
-function buildInitialExpenseGroups(goals: GoalEntry[], skills: SkillEntry[], pages: PageItem[]): FundGroup[] {
+export function buildInitialExpenseGroups(goals: GoalEntry[], skills: SkillEntry[], pages: PageItem[]): FundGroup[] {
   const hasHealthGoal = goals.some(g =>
     g.statement.toLowerCase().includes("health") ||
     g.statement.toLowerCase().includes("fit") ||
@@ -428,7 +428,7 @@ function AddItemRow({ onAdd }: { onAdd: (label: string) => void }) {
   );
 }
 
-function GroupColumn({
+export function GroupColumn({
   headerLabel,
   headerCls,
   groups,

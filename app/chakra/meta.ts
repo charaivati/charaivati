@@ -63,9 +63,11 @@ export const SIGNAL_DESC_EN: Record<string, string> = {
 
 // Where to work on each factor — existing surfaces only. `null` = the factor
 // is handled on the detail page itself (e.g. tagged todos are listed there).
+// SURVIVAL-1: root's health/funds factors route to the survival planning page
+// (/chakra/root/survival) — food requirement + survival funds + community.
 export const SIGNAL_LINKS: Record<string, string | null> = {
-  health: "/self",           // personal tab — health profile
-  funds: "/self",            // personal tab — funds profile
+  health: "/chakra/root/survival", // survival plan — food requirement (root-only signal)
+  funds: "/chakra/root/survival",  // survival plan — survival funds (root-only signal)
   action: "/earn",
   friends: "/self?tab=social",
   posts: "/self?tab=social",

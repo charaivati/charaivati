@@ -151,6 +151,71 @@ tagged todos; and the primary **"Go to {surface} →"** CTA using
 `SURFACE_EN`, `SIGNAL_EN`, `SIGNAL_DESC_EN`, `SIGNAL_LINKS`; both the landing
 journey and the detail pages import from it. Do not redefine these per-page.
 
+## Survival planning — `app/chakra/root/survival/page.tsx` (SURVIVAL-1)
+
+The root chakra's action surface for survival. Reached from `/chakra/root`'s
+**health** and **funds** factor "Work on this →" links (`SIGNAL_LINKS` in
+`app/chakra/meta.ts` — both are root-only signal keys; `action` still goes to
+`/earn`, and `DEEP_LINKS.root` is unchanged). Client page, root-chakra themed,
+auth-protected via the existing `/chakra` middleware prefix. Three blocks, all
+riding EXISTING backends — no new write paths:
+
+1. **Food requirement (individual)** — deterministic math-in-code (no AI call):
+   daily kcal from `health.healthPlan.health_targets.daily_calories_kcal` when
+   the AI health plan exists, else Mifflin-St Jeor (gender-neutral midpoint
+   constant −78, activity 1.3 + 0.05×sessions/week, cap 1.55), else 2000.
+   Quantity split: 55% kcal cereals / 15% pulses (3.45 kcal/g) / 20% oils
+   (9 kcal/g) + fixed 400 g/day veg & fruit, per-day and per-month. "Edit
+   details" opens the **existing `EditHealthModal`** and saves via the same
+   `PATCH /api/user/profile { health }` that `blocks/HealthBlock.tsx` uses — so
+   the `/self` dashboard reflects the same data with zero extra wiring.
+2. **Survival funds** — ONLY the `Housing` / `Living` / `Health` expense groups
+   of `Profile.fundsProfile` (`SURVIVAL_GROUP_NAMES` in the page). Everything
+   else (Transport, Lifestyle, Education, Financial…) deliberately stays on
+   other chakras' surfaces. Reuses `GroupColumn` + `buildInitialExpenseGroups`
+   + `sumGroups` + `formatINR`, now **exported** from `blocks/FundsBlock.tsx`.
+   Saves the WHOLE `fundsProfile` back (`PATCH /api/user/profile
+   { fundsProfile }`, debounced 800 ms) with `monthlyBurn` recomputed over all
+   expense groups — same contract as `FundsSection.saveAll`, so EnergyBlock and
+   the `/self` Funds panel stay consistent. When no expense groups are saved
+   yet the page bootstraps the full default structure (goals/skills from the
+   profile) so the `/self` panel later sees the familiar groups.
+3. **Community** — "food alone doesn't keep you standing": debounced search of
+   `GET /api/community-group?q=` (which now returns `myStatus` per group for
+   the authed viewer — additive), join via the existing
+   `POST /api/community-group/[groupId]/membership/request`, view link to
+   `/community/[slug|pageId]`, and **create a family group** using the exact
+   `/app/initiatives` backend pair (`POST /api/user/pages` with
+   `pageType: "community_group"` + `POST /api/community-group { pageId }`) —
+   then `router.replace` **straight to `/earn/initiative/[pageId]`** (the
+   community initiative page), deliberately NOT via `/app/home` or the
+   initiatives list.
+
+i18n: 36 `survival-*` slugs (category `ui-chakra`) seeded by
+`prisma/seed-survival-ui.js`, English fallback like the rest.
+
+### Community food plan (`CommunityGroup.foodPlan`)
+
+The community-initiative side of survival: the owner/board plans food for the
+WHOLE group in the Initiative Hub's Group tab
+(`components/earn/CommunityGroupStudio.tsx` § "Food & Survival Plan"), and
+members see it read-only on `/community/[id]`.
+
+- **Column**: `CommunityGroup.foodPlan JSONB` — migration
+  `20260705000000_add_community_food_plan` (apply via the P3006-safe path:
+  `prisma db execute --file …` + `migrate resolve --applied`). Read/written via
+  **raw SQL** like `emergencyContacts`/`bannerUrl` on the same table; the
+  by-page GET wraps the read in try/catch → `foodPlan: null` so nothing 500s
+  before the migration runs.
+- **Shape**: `{ extraHeads, perPersonKcal, bufferDays, budgetPerHead, notes?,
+  updatedAt? }`. Head count = unique board members + approved individual
+  members (computed live) + `extraHeads` (dependents not on the platform).
+- **Math** is the same deterministic split as the individual page — per-day and
+  N-day-buffer stock in kg, plus `heads × budgetPerHead` monthly budget.
+- **Write path**: `PATCH /api/community-group/[groupId] { foodPlan }`
+  (admin-gated like every other field there). Member privacy: the plan never
+  reads members' personal health profiles — it's a per-head planning figure.
+
 ## Simple variant — `app/chakra/landing/simple/page.tsx` (CHAKRA-UI-4b)
 
 `/chakra/landing/simple` is the **quiet, minimal-colour** twin of the landing

@@ -38,6 +38,16 @@ type Meeting = { id: string; title: string; date: string; location: string | nul
 
 type EmergencyContact = { name: string; phone: string; role: string };
 
+// SURVIVAL-1 — read-only view of the group's food plan (set in the studio)
+type FoodPlan = {
+  extraHeads: number;
+  perPersonKcal: number;
+  bufferDays: number;
+  budgetPerHead: number;
+  notes?: string;
+  updatedAt?: string;
+};
+
 type Group = {
   id: string;
   slug: string | null;
@@ -46,6 +56,7 @@ type Group = {
   bannerUrl: string | null;
   objective: string | null;
   emergencyContacts: EmergencyContact[];
+  foodPlan: FoodPlan | null;
   boardMembers: BoardMember[];
   memberships: Membership[];
   milestones: Milestone[];
@@ -427,6 +438,23 @@ export default function CommunityGroupPublicPage() {
   const upcomingMeetings = group.meetings.filter((m) => new Date(m.date) >= new Date());
   const isAdmin = viewerStatus === "admin";
 
+  // Food plan (SURVIVAL-1) — visible to members/admins; same math as the studio.
+  const fp = group.foodPlan;
+  const fpMemberHeads = new Set([
+    ...group.boardMembers.map((b) => b.user.id),
+    ...group.memberships.filter((m) => m.memberUser).map((m) => m.memberUser!.id),
+  ]).size;
+  const fpHeads = fp ? fpMemberHeads + (fp.extraHeads || 0) : 0;
+  const fpKcalTotal = fp ? fpHeads * (fp.perPersonKcal || 0) : 0;
+  const fpRows: [string, number][] = fp
+    ? [
+        ["Cereals (rice / atta)", (fpKcalTotal * 0.55) / 3.45 / 1000],
+        ["Pulses / dal", (fpKcalTotal * 0.15) / 3.45 / 1000],
+        ["Oils & fats", (fpKcalTotal * 0.20) / 9 / 1000],
+        ["Vegetables & fruit", (fpHeads * 400) / 1000],
+      ]
+    : [];
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
 
@@ -662,6 +690,45 @@ export default function CommunityGroupPublicPage() {
             <p className="text-sm text-gray-500">No members yet.</p>
           )}
         </section>
+
+        {/* ── Food & Survival Plan (SURVIVAL-1, members only) ── */}
+        {fp && (viewerStatus === "member" || viewerStatus === "admin") && (
+          <section className="space-y-3">
+            <h2 className="text-base font-bold text-sky-300 border-b border-gray-800 pb-2">Food &amp; Survival Plan</h2>
+            <div className="p-4 rounded-xl bg-gray-900 border border-gray-800 space-y-3">
+              <p className="text-sm text-gray-300">
+                <span className="text-white font-semibold">{fpHeads}</span> people ·{" "}
+                <span className="text-white font-semibold">{fpKcalTotal.toLocaleString("en-IN")}</span> kcal/day ·{" "}
+                {fp.bufferDays}-day buffer
+                {fp.budgetPerHead > 0 && (
+                  <> · ₹{(fpHeads * fp.budgetPerHead).toLocaleString("en-IN")}/month</>
+                )}
+              </p>
+              <table className="w-full" style={{ fontSize: "12px" }}>
+                <thead>
+                  <tr className="text-gray-600 border-b border-gray-800">
+                    <th className="text-left py-1 font-medium uppercase tracking-wider">Item</th>
+                    <th className="text-right py-1 font-medium uppercase tracking-wider">Per day</th>
+                    <th className="text-right py-1 font-medium uppercase tracking-wider">{fp.bufferDays}-day stock</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800/50">
+                  {fpRows.map(([label, kgDay]) => (
+                    <tr key={label}>
+                      <td className="py-1 text-gray-300">{label}</td>
+                      <td className="py-1 text-right text-gray-300 tabular-nums">{kgDay.toFixed(1)} kg</td>
+                      <td className="py-1 text-right text-gray-300 tabular-nums">{(kgDay * (fp.bufferDays || 0)).toFixed(1)} kg</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {fp.notes && <p className="text-xs text-gray-400 whitespace-pre-wrap">{fp.notes}</p>}
+              {fp.updatedAt && (
+                <p className="text-[10px] text-gray-600">Updated {new Date(fp.updatedAt).toLocaleDateString()}</p>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* ── Milestones ── */}
         {group.milestones.length > 0 && (
