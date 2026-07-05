@@ -5,6 +5,10 @@ export type PlanTask = {
   sectionKey: string | null;
   frequency?: 'daily' | 'weekly' | 'once' | string;
   archetype?: GoalArchetype;
+  // EXECPLAN-3 — stamped at generation time; absent on older plans.
+  id?: string;              // stable task identity
+  done?: boolean;           // persisted completion (source of truth for the UI)
+  todoId?: string | null;   // mirrored Todo row, kept in sync on toggle
 };
 
 export type PlanPhase = {

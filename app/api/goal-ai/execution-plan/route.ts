@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'crypto';
 import { chatComplete } from '@/app/api/aiClient';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { prisma } from '@/lib/prisma';
 import getServerUser from '@/lib/serverAuth';
 import { SECTIONS } from '@/lib/site/capabilityRegistry';
@@ -203,6 +205,10 @@ export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // EXECPLAN-3: both steps of one generation fit comfortably; 30/h stops runaway loops
+  const limit = await checkRateLimit(`goalai:plan:${user.id}`, 30, 3600);
+  if (!limit.ok) return NextResponse.json({ error: 'Too many plan generations — try again later.' }, { status: 429 });
+
   const body = await req.json().catch(() => null);
   if (!body?.goalId) return NextResponse.json({ error: 'goalId is required' }, { status: 400 });
 
@@ -261,28 +267,34 @@ export async function POST(req: NextRequest) {
       tasks: (!usedFallback && taskFill) ? (taskFill.phases[i]?.tasks ?? []) : [],
     }));
 
+    // CHAKRA-1 / EXECPLAN-3: mirror plan tasks into the unified Todo channel BEFORE
+    // saving the plan, so each task carries its todoId (two-way completion sync).
+    // source="execution_plan", chakra from the goal's archetype. Non-blocking —
+    // a failed mirror leaves todoId null, never fails plan generation.
+    const planChakra = ARCHETYPE_CHAKRA[ctx.archetype as string] ?? "solar";
+    for (const phase of mergedPhases) {
+      for (const task of phase.tasks ?? []) {
+        task.id = task.id ?? randomUUID();
+        task.done = false;
+        try {
+          const todo = await prisma.todo.create({
+            data: { userId: user.id, title: task.text, freq: task.frequency ?? null },
+          });
+          await prisma.$executeRaw`UPDATE "Todo" SET chakra = ${planChakra}, source = 'execution_plan' WHERE id = ${todo.id}`;
+          task.todoId = todo.id;
+        } catch (err) {
+          console.warn("[execution-plan] todo mirror failed", err);
+          task.todoId = null;
+        }
+      }
+    }
+
     const merged: ExecutionPlan = { ...existing, phases: mergedPhases, _partial: false };
 
     await prisma.aiGoal.update({
       where: { id: goalId },
       data: { executionPlan: merged as object },
     });
-
-    // CHAKRA-1: mirror plan tasks into the unified Todo channel. source="execution_plan",
-    // chakra derived from the goal's archetype. Non-blocking — never fail plan generation.
-    const planChakra = ARCHETYPE_CHAKRA[ctx.archetype as string] ?? "solar";
-    for (const phase of mergedPhases) {
-      for (const task of phase.tasks ?? []) {
-        try {
-          const todo = await prisma.todo.create({
-            data: { userId: user.id, title: task.text, freq: task.frequency ?? null },
-          });
-          await prisma.$executeRaw`UPDATE "Todo" SET chakra = ${planChakra}, source = 'execution_plan' WHERE id = ${todo.id}`;
-        } catch (err) {
-          console.warn("[execution-plan] todo mirror failed", err);
-        }
-      }
-    }
 
     return NextResponse.json({ plan: merged, fallback: usedFallback });
   }

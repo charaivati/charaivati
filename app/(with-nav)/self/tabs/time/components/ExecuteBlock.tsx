@@ -33,6 +33,17 @@ const ARCHETYPE_LABELS: Record<GoalArchetype, string> = {
   CONNECT: 'Connect',
 };
 
+// EXECPLAN-3: completion lives on the plan JSON (task.done) — derive the UI set from it
+function doneSetFromPlan(plan: ExecutionPlan): Set<string> {
+  const s = new Set<string>();
+  plan.phases.forEach((ph, pi) => ph.tasks?.forEach((t, ti) => { if (t.done) s.add(`${pi}-${ti}`); }));
+  return s;
+}
+
+function clampPhase(index: number, plan: ExecutionPlan): number {
+  return Math.max(0, Math.min(index, plan.phases.length - 1));
+}
+
 // ─── Section link helper ──────────────────────────────────────────────────────
 
 function SectionPill({ sectionKey }: { sectionKey: string | null }) {
@@ -163,17 +174,17 @@ function AdvanceModal({
 
 export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
   const [plan, setPlan] = useState<ExecutionPlan>(goal.executionPlan);
-  const [phaseIndex, setPhaseIndex] = useState(goal.currentPhaseIndex);
-  const [doneTasks, setDoneTasks] = useState<Set<string>>(new Set());
+  const [phaseIndex, setPhaseIndex] = useState(() => clampPhase(goal.currentPhaseIndex, goal.executionPlan));
+  const [doneTasks, setDoneTasks] = useState<Set<string>>(() => doneSetFromPlan(goal.executionPlan));
   const [editMode, setEditMode] = useState(false);
   const [editDraft, setEditDraft] = useState<ExecutionPlan>(goal.executionPlan);
-  const [nextActionDone, setNextActionDone] = useState(false);
+  const [nextActionDone, setNextActionDone] = useState(goal.executionPlan.nextAction.done === true);
 
   // Sync when switching goals
   useEffect(() => {
-    setPhaseIndex(goal.currentPhaseIndex);
-    setDoneTasks(new Set());
-    setNextActionDone(false);
+    setPhaseIndex(clampPhase(goal.currentPhaseIndex, goal.executionPlan));
+    setDoneTasks(doneSetFromPlan(goal.executionPlan));
+    setNextActionDone(goal.executionPlan.nextAction.done === true);
     setPlan(goal.executionPlan);
     setEditDraft(goal.executionPlan);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +194,7 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
   useEffect(() => {
     if (!goal.executionPlan._partial) {
       setPlan(goal.executionPlan);
+      setDoneTasks(doneSetFromPlan(goal.executionPlan));
       if (!editMode) setEditDraft(goal.executionPlan);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -199,13 +211,45 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
     return `${phaseIdx}-${taskIdx}`;
   }
 
+  // EXECPLAN-3: completion persists on the plan JSON and syncs the mirrored Todo
+  function persistPlan(updated: ExecutionPlan) {
+    fetch(`/api/self/goals/${goal.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ executionPlan: updated }),
+    }).catch(e => console.error('[ExecuteBlock] persist plan failed', e));
+  }
+
   function toggleTask(phaseIdx: number, taskIdx: number) {
     const key = taskKey(phaseIdx, taskIdx);
+    const nowDone = !doneTasks.has(key);
     setDoneTasks(prev => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      nowDone ? next.add(key) : next.delete(key);
       return next;
     });
+    const updated: ExecutionPlan = {
+      ...plan,
+      phases: plan.phases.map((ph, pi) =>
+        pi !== phaseIdx ? ph : {
+          ...ph,
+          tasks: ph.tasks.map((t, ti) => ti !== taskIdx ? t : { ...t, done: nowDone }),
+        }
+      ),
+    };
+    setPlan(updated);
+    onPlanUpdate(updated);
+    persistPlan(updated);
+    const todoId = plan.phases[phaseIdx]?.tasks[taskIdx]?.todoId;
+    if (todoId) {
+      fetch(`/api/self/todos/${todoId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ completed: nowDone }),
+      }).catch(e => console.error('[ExecuteBlock] todo sync failed', e));
+    }
   }
 
   const allCurrentDone =
@@ -232,7 +276,7 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
         body: JSON.stringify({ currentPhaseIndex: phaseIndex + 1 }),
       });
       setPhaseIndex(i => i + 1);
-      setDoneTasks(new Set());
+      setDoneTasks(doneSetFromPlan(plan)); // keys are phase-scoped — keep persisted marks
       setShowAdvance(false);
     } catch (e) {
       console.error('[ExecuteBlock] advance phase failed', e);
@@ -368,6 +412,10 @@ export function ExecuteBlock({ goal, onPlanUpdate, enriching = false }: Props) {
                     onClick={() => {
                       if (nextActionIsStandalone) {
                         setNextActionDone(true);
+                        const updated: ExecutionPlan = { ...plan, nextAction: { ...plan.nextAction, done: true } };
+                        setPlan(updated);
+                        onPlanUpdate(updated);
+                        persistPlan(updated);
                       } else {
                         const idx = currentPhase?.tasks.findIndex(t => t.text === nextAction.text) ?? -1;
                         if (idx >= 0) toggleTask(phaseIndex, idx);
