@@ -65,11 +65,14 @@ export const SIGNAL_DESC_EN: Record<string, string> = {
 // is handled on the detail page itself (e.g. tagged todos are listed there).
 // SURVIVAL-1: root's health/funds factors route to the survival planning page
 // (/chakra/root/survival) — food requirement + survival funds + community.
+// CHAKRA-ACTION-2: `friends` is sacral-exclusive (lib/chakra/score.ts), so it's
+// safe to repoint at the sacral connection page (/chakra/sacral/connection) —
+// hobbies + friends + circles. No other signal key touched.
 export const SIGNAL_LINKS: Record<string, string | null> = {
   health: "/chakra/root/survival", // survival plan — food requirement (root-only signal)
   funds: "/chakra/root/survival",  // survival plan — survival funds (root-only signal)
   action: "/earn",
-  friends: "/self?tab=social",
+  friends: "/chakra/sacral/connection", // connection plan — hobbies + friends + circles (sacral-only signal)
   posts: "/self?tab=social",
   chat: "/self?tab=social",
   completion: "/self",       // personal tab — todos
