@@ -692,6 +692,14 @@ export function SelfCanvas(props: SelfCanvasProps) {
   const [goalsExpanded, setGoalsExpanded] = useState(false);
   const [timelineGoal, setTimelineGoal]   = useState<{ id: string; title: string } | null>(null);
 
+  // EXECPLAN-1: ?panel= deep-link (from capabilityRegistry routes) auto-opens a partner panel
+  useEffect(() => {
+    try {
+      const panel = new URLSearchParams(window.location.search).get("panel");
+      if (panel && panel in PARTNER_CFG) setActivePartner(panel as PartnerId);
+    } catch {}
+  }, []);
+
   // Open Time panel when a new AI goal is created
   useEffect(() => {
     const handler = () => { setGoalsExpanded(false); setActivePartner("time"); };
