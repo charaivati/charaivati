@@ -92,9 +92,16 @@ model User {
   requestBroadcasts       RequestBroadcast[]   @relation("UserRequestBroadcasts")
   requestResponses        RequestResponse[]    @relation("UserRequestResponses")
   providerPresence        ProviderPresence?
+  homeUnitId              String?
+  homeUnitChangedAt       DateTime?
+  homeUnit                Unit?                @relation("UserHomeUnit", fields: [homeUnitId], references: [id])
+  issuesAuthored          Issue[]              @relation("UserIssues")
+  issueSupports           IssueSupport[]       @relation("UserIssueSupports")
+  issueConfirmations      IssueConfirmation[]  @relation("UserIssueConfirmations")
 
   @@index([email])
   @@index([phone])
+  @@index([homeUnitId])
 }
 
 /// *
@@ -2171,4 +2178,79 @@ model UserContext {
   updatedAt DateTime @updatedAt
 
   @@id([userId, kind])
+}
+
+/// Civic layer (CIVIC-1) — geographic membership unit.
+/// type: ward | panchayat | assembly | state | country — validated in API, not DB
+/// (freq/assumptionKey precedent). Self-relation parentId builds the chain
+/// ward/panchayat → assembly → state → country.
+model Unit {
+  id        String   @id @default(cuid())
+  type      String
+  name      String
+  parentId  String?
+  createdAt DateTime @default(now())
+  parent    Unit?    @relation("UnitParent", fields: [parentId], references: [id])
+  children  Unit[]   @relation("UnitParent")
+  residents User[]   @relation("UserHomeUnit")
+  issues    Issue[]
+
+  @@index([parentId])
+  @@index([type])
+}
+
+/// Civic issue — a local demand raised by a resident of a Unit.
+/// status lifecycle: proposed → active (ACTIVATION_THRESHOLD supporters) →
+/// complete (N confirmations, Prompt 3) | archived. scope: ward | assembly |
+/// nation | earth (derived from unit type). category is AI-classified later.
+model Issue {
+  id             String              @id @default(cuid())
+  unitId         String
+  authorId       String
+  title          String
+  body           String              @db.Text
+  scope          String              @default("ward")
+  status         String              @default("proposed")
+  category       String?
+  supporterCount Int                 @default(0)
+  resolvedAt     DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  unit           Unit                @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  author         User                @relation("UserIssues", fields: [authorId], references: [id], onDelete: Cascade)
+  supports       IssueSupport[]
+  confirmations  IssueConfirmation[]
+
+  @@index([unitId, status])
+  @@index([unitId, supporterCount])
+}
+
+/// One upvote per resident per issue. supporterCount on Issue is the
+/// denormalized counter, kept in the same transaction as row create/delete.
+model IssueSupport {
+  id        String   @id @default(cuid())
+  issueId   String
+  userId    String
+  createdAt DateTime @default(now())
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserIssueSupports", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, issueId])
+  @@index([issueId])
+}
+
+/// Completion confirmation (Prompt 3 flow) — an issue moves to complete only
+/// after N supporter confirmations, optionally with a photo. Model created in
+/// CIVIC-1 so the migration ships once.
+model IssueConfirmation {
+  id        String   @id @default(cuid())
+  issueId   String
+  userId    String
+  photoUrl  String?
+  createdAt DateTime @default(now())
+  issue     Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserIssueConfirmations", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, issueId])
+  @@index([issueId])
 }
