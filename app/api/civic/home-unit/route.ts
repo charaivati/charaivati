@@ -3,6 +3,23 @@ import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { HOME_UNIT_CHANGE_DAYS } from "@/lib/civic/constants";
 
+// GET /api/civic/home-unit — the caller's current home unit (bootstrap for
+// the Society Panchayat/Ward tab and the /local index redirect).
+export async function GET(req: NextRequest) {
+  const user = await getServerUser(req);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const me = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { homeUnit: { select: { id: true, type: true, name: true } } },
+  });
+
+  return NextResponse.json({
+    homeUnitId: me?.homeUnit?.id ?? null,
+    unit: me?.homeUnit ?? null,
+  });
+}
+
 // POST /api/civic/home-unit — set the caller's home unit (ward/panchayat only;
 // membership in higher units is derived via the parent chain). One home
 // location, changeable at most once per HOME_UNIT_CHANGE_DAYS — this is the

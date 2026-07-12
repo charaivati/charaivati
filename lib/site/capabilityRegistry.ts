@@ -181,12 +181,16 @@ export const SECTIONS: Record<string, SectionInfo> = {
   // ── Society ─────────────────────────────────────────────────────────────────
   'society.local_admin': {
     key: 'society.local_admin',
-    label: 'Local Administration',
+    label: 'Local Issues',
     layer: 'society',
-    status: 'planned',
-    route: null,
-    eta: 'Q3 2026',
-    interim: 'Use Self → Social to find neighbours working on similar issues',
+    status: 'scaffolded',
+    route: '/society',
+    liveFeatures: [
+      'ward/panchayat issue board (raise, upvote, ranked demand)',
+      'issue lifecycle: proposed → active → done/archived',
+      'home-area membership (resident-only participation)',
+    ],
+    plannedFeatures: ['AI duplicate merge', 'completion verification with photos', 'campaigns'],
   },
   'society.infrastructure': {
     key: 'society.infrastructure',
