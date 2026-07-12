@@ -4,19 +4,29 @@
 // issue board. Replaces the old GovernanceTabTemplate topic-grid stub (whose
 // "observations" were never persisted). Bootstrap: fetch the caller's home
 // unit → render their board; no home unit yet → render the picker.
+//
+// Address auto-placement: the picker runs with autoApply, so a user with a
+// saved address that confidently matches one ward/panchayat lands on their
+// board with zero clicks. HomeUnitSelect above the board is the correction
+// path — a dropdown to confirm or change (manual changes carry the 90-day lock).
 
 import { useEffect, useState } from "react";
 import IssueBoard from "@/components/civic/IssueBoard";
 import UnitPicker from "@/components/civic/UnitPicker";
+import HomeUnitSelect from "@/components/civic/HomeUnitSelect";
 
 export default function LocalTab() {
   const [homeUnitId, setHomeUnitId] = useState<string | null>(null);
+  const [autoPlaced, setAutoPlaced] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch("/api/civic/home-unit")
       .then((r) => (r.ok ? r.json() : { homeUnitId: null }))
-      .then((d) => setHomeUnitId(d.homeUnitId ?? null))
+      .then((d) => {
+        setHomeUnitId(d.homeUnitId ?? null);
+        setAutoPlaced(d.autoPlaced === true);
+      })
       .catch(() => setHomeUnitId(null))
       .finally(() => setLoading(false));
   }, []);
@@ -34,10 +44,30 @@ export default function LocalTab() {
   if (!homeUnitId) {
     return (
       <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-        <UnitPicker theme="dark" onSet={(id) => setHomeUnitId(id)} />
+        <UnitPicker
+          theme="dark"
+          autoApply
+          onSet={(id, meta) => {
+            setHomeUnitId(id);
+            setAutoPlaced(meta?.auto === true);
+          }}
+        />
       </div>
     );
   }
 
-  return <IssueBoard unitId={homeUnitId} theme="dark" />;
+  return (
+    <div>
+      <HomeUnitSelect
+        theme="dark"
+        homeUnitId={homeUnitId}
+        autoPlaced={autoPlaced}
+        onChanged={(id) => {
+          setHomeUnitId(id);
+          setAutoPlaced(false);
+        }}
+      />
+      <IssueBoard unitId={homeUnitId} theme="dark" />
+    </div>
+  );
 }

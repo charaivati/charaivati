@@ -37,6 +37,14 @@ export const COMPLETION_CONFIRMATIONS = 3;
 /** Home unit is changeable rarely — brigading protection. */
 export const HOME_UNIT_CHANGE_DAYS = 90;
 
+/**
+ * Address→unit suggestion score at or above which the client may place the
+ * home unit automatically (requires a unique top match). Auto-placement never
+ * starts the HOME_UNIT_CHANGE_DAYS lock — only a manual confirmation does —
+ * so a wrong guess is always immediately correctable.
+ */
+export const AUTO_PLACE_SCORE = 5;
+
 /** Issue scope derived from the unit it's raised in. */
 export function scopeForUnitType(type: string): IssueScope {
   if (type === "assembly") return "assembly";

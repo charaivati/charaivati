@@ -13,11 +13,11 @@ export async function GET(req: NextRequest) {
 
   const me = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { homeUnitId: true },
+    select: { homeUnitId: true, homeUnitChangedAt: true },
   });
 
   if (!me?.homeUnitId) {
-    return NextResponse.json({ homeUnitId: null, unit: null, chain: [] });
+    return NextResponse.json({ homeUnitId: null, unit: null, chain: [], autoPlaced: false });
   }
 
   // Walk parentId upward (chain depth is bounded by UNIT_TYPES).
@@ -38,6 +38,9 @@ export async function GET(req: NextRequest) {
     homeUnitId: me.homeUnitId,
     unit: chain[0] ?? null,
     chain,
+    // Placed from a saved address and never confirmed by the user — the
+    // change lock hasn't started, so the UI should offer an easy correction.
+    autoPlaced: me.homeUnitChangedAt === null,
   });
 }
 
@@ -45,11 +48,16 @@ export async function GET(req: NextRequest) {
 // membership in higher units is derived via the parent chain). One home
 // location, changeable at most once per HOME_UNIT_CHANGE_DAYS — this is the
 // brigading protection, do not loosen it for convenience.
+//
+// { auto: true } is the address-based auto-placement path: it only applies
+// when NO home unit is set yet, and it deliberately leaves homeUnitChangedAt
+// null so the change lock does not start from a machine guess — the user's
+// first manual pick stays free, and the lock starts from that confirmation.
 export async function POST(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { unitId } = await req.json().catch(() => ({}));
+  const { unitId, auto } = await req.json().catch(() => ({}));
   if (!unitId) return NextResponse.json({ error: "unitId required" }, { status: 400 });
 
   const [unit, me] = await Promise.all([
@@ -66,7 +74,32 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (me?.homeUnitId === unitId) return NextResponse.json({ ok: true, unchanged: true });
+  if (me && me.homeUnitId === unitId) {
+    // Manually confirming an auto-placed unit upgrades it to a real choice:
+    // the change lock starts now (auto-placement left homeUnitChangedAt null).
+    if (auto !== true && me.homeUnitChangedAt === null) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { homeUnitChangedAt: new Date() },
+      });
+      return NextResponse.json({ ok: true, homeUnitId: unitId, confirmed: true });
+    }
+    return NextResponse.json({ ok: true, unchanged: true });
+  }
+
+  if (auto === true) {
+    if (me?.homeUnitId) {
+      return NextResponse.json(
+        { error: "Home unit already set — auto-placement only applies to new users." },
+        { status: 409 }
+      );
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { homeUnitId: unitId }, // homeUnitChangedAt stays null — see above
+    });
+    return NextResponse.json({ ok: true, homeUnitId: unitId, auto: true });
+  }
 
   if (me?.homeUnitId && me.homeUnitChangedAt) {
     const nextAllowed =
