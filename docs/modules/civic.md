@@ -57,7 +57,10 @@ use the **typed** client, not `(prisma as any)`.
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/civic/units` | Home-unit picker list (`?type=` optional; defaults ward+panchayat) with parent names |
+| GET | `/api/civic/units` | Home-unit picker list (`?type=`, `?parentId=` optional; defaults ward+panchayat) with parent names, `status`, and resident counts for pending units |
+| POST | `/api/civic/units` | Propose a missing ward/panchayat (public-driven coverage): `{ name, type, parentId }`, parent must be assembly/parliamentary/state, dup-name 409 under same parent, `scanInput` check, `UNIT_PROPOSALS_PER_DAY` rate limit. Creates status `pending`; verifies automatically at `UNIT_VERIFY_RESIDENTS` residents (checked on home-unit set) |
+| GET | `/api/civic/ratings?unitId=X` | Area quality: fixed `AREA_PARAMETERS` (water, electricity, …), per-parameter `{avg, count}` + caller's own scores + `canRate` (resident) |
+| POST | `/api/civic/ratings` | `{ unitId, parameter, score 1–5 }` — resident-only upsert (one row per user × unit × parameter, updatable); returns the fresh average |
 | GET | `/api/civic/units/[unitId]` | Unit + parent chain + platform resident count + caller membership |
 | GET | `/api/civic/issues?unitId=&tab=open\|done\|archived` | Ranked (`supporterCount` desc). `open` includes `proposed` AND `active` — proposed issues must be visible to gather their first supporters |
 | POST | `/api/civic/issues` | `{ unitId, title, body }` — resident-only (403), `scanInput` BLOCK check, rate-limited 5/user/24h, author auto-supports (count starts 1) |
@@ -100,7 +103,30 @@ Registry: `society.local_admin` in `lib/site/capabilityRegistry.ts` is
 `scaffolded` with route `/society` — execution plans and both chatbots can now
 route users to the board (was `planned`/no route).
 
+## Public-driven units + area quality (CIVIC-3)
+
+- **Users create the unit dropdown, not seed data.** `UnitPicker`'s "Can't
+  find your area? Add it" posts to `/api/civic/units`; the proposer becomes
+  the first resident. Proposed units are `status: "pending"` ("unverified ·
+  N of 3" badge) and flip to `verified` automatically once
+  `UNIT_VERIFY_RESIDENTS` users have them as home — same validated-demand
+  logic as issue activation, and the 90-day home lock makes farming this
+  expensive. Address auto-placement never targets a pending unit.
+- **Area quality ratings**: `UnitRating` — every resident scores the fixed
+  `AREA_PARAMETERS` (water, electricity, roads, cleanliness, safety,
+  healthcare, education, internet) 1–5 for their home unit; scores are
+  updatable, resident-only (brigading protection as issues), and everyone in
+  the area sees the average. `components/civic/AreaRatings.tsx` renders the
+  card above the board (LocalTab dark, `/local/[unitId]` light).
+  Rollups (`/api/civic/rollup` → `ratings`) average rater-weighted across all
+  descendant wards, so assembly/state/nation/earth views show area quality via
+  `RollupBoard`'s AREA QUALITY grid with zero extra wiring.
+
 ## Seed
+
+`node prisma/seed-states.js` — idempotent scaffold for proposals: India + 28
+states + 8 UTs (stable ids `civic-state-<slug>`; matches seed-civic's Assam
+id). Wards/panchayats are deliberately NOT seeded — the public proposes them.
 
 `node prisma/seed-civic.js` — idempotent; India → Assam → Guwahati East → 2
 wards + 10 issues across the lifecycle states. Boards:

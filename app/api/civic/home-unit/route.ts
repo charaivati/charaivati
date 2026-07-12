@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
-import { HOME_UNIT_CHANGE_DAYS } from "@/lib/civic/constants";
+import { HOME_UNIT_CHANGE_DAYS, UNIT_VERIFY_RESIDENTS } from "@/lib/civic/constants";
+
+/** Community-proposed units verify once enough users call them home. */
+async function maybeVerifyUnit(unit: { id: string; status: string }) {
+  if (unit.status !== "pending") return;
+  const residents = await prisma.user.count({ where: { homeUnitId: unit.id } });
+  if (residents >= UNIT_VERIFY_RESIDENTS) {
+    await prisma.unit.update({ where: { id: unit.id }, data: { status: "verified" } });
+  }
+}
 
 // GET /api/civic/home-unit — the caller's current home unit plus its full
 // ancestor chain (ward → assembly → parliamentary → state → country). The
@@ -98,6 +107,7 @@ export async function POST(req: NextRequest) {
       where: { id: user.id },
       data: { homeUnitId: unitId }, // homeUnitChangedAt stays null — see above
     });
+    await maybeVerifyUnit(unit);
     return NextResponse.json({ ok: true, homeUnitId: unitId, auto: true });
   }
 
@@ -117,6 +127,7 @@ export async function POST(req: NextRequest) {
     where: { id: user.id },
     data: { homeUnitId: unitId, homeUnitChangedAt: new Date() },
   });
+  await maybeVerifyUnit(unit);
 
   return NextResponse.json({ ok: true, homeUnitId: unitId });
 }
