@@ -62,7 +62,8 @@ use the **typed** client, not `(prisma as any)`.
 | GET | `/api/civic/issues?unitId=&tab=open\|done\|archived` | Ranked (`supporterCount` desc). `open` includes `proposed` AND `active` — proposed issues must be visible to gather their first supporters |
 | POST | `/api/civic/issues` | `{ unitId, title, body }` — resident-only (403), `scanInput` BLOCK check, rate-limited 5/user/24h, author auto-supports (count starts 1) |
 | POST | `/api/civic/issues/[issueId]/support` | Toggle; resident-only; threshold promotion in the same transaction |
-| POST | `/api/civic/home-unit` | `{ unitId }` — ward/panchayat only; 90-day change lock (429 with days remaining) |
+| POST | `/api/civic/home-unit` | `{ unitId, auto? }` — ward/panchayat only; 90-day change lock (429 with days remaining). `auto: true` is address auto-placement: only when no home unit is set, leaves `homeUnitChangedAt` null so the lock does NOT start from a machine guess; the first manual pick/confirm starts it. GET returns `autoPlaced` (placed but never confirmed) |
+| GET | `/api/civic/suggest-unit` | Ranks ward/panchayat units against the caller's saved `Address` rows (name match on unit + ancestor chain vs city/state/line1, best-effort pincode→district/block/office enrichment via api.postalpincode.in). Returns `suggestions` + `autoPlaceScore` (`AUTO_PLACE_SCORE` in constants) |
 
 ## UI — three surfaces, one board component
 
@@ -72,8 +73,13 @@ use the **typed** client, not `(prisma as any)`.
 my area" CTA / go-to-your-area redirect), Active/Done/Archived tabs,
 raise-issue inline form (residents only), issue cards with rank number, status
 chip, upvote toggle, "N of ~M residents" line. Do not fork a second board.
-`components/civic/UnitPicker.tsx` is the manual home-unit picker (search +
-"This is my area" per row) — the fallback/only path until geo-resolution lands.
+`components/civic/UnitPicker.tsx` is the home-unit picker: address-based
+suggestion dropdown (pre-selected best match from `/api/civic/suggest-unit`)
+above the manual search list. With `autoApply` (Society LocalTab only) a
+unique match scoring ≥ `AUTO_PLACE_SCORE` places the user with zero clicks.
+`components/civic/HomeUnitSelect.tsx` is the correction path above the board:
+current area + change dropdown; shows a confirm/change hint while `autoPlaced`
+is true (auto-guesses never start the 90-day lock — confirm/manual change does).
 
 1. **`/society` "Panchayat/Ward" tab** (`app/(with-nav)/society/tabs/LocalTab.tsx`)
    — the desktop home. Bootstraps via `GET /api/civic/home-unit`: home unit set
@@ -140,7 +146,9 @@ read-only by construction — no raise/upvote controls above ward level.
 - No duplicate detection on create (Prompt 2 — the single most important AI
   feature here).
 - No mark-complete flow yet (Prompt 3) — `complete` rows only via seed today.
-- No archive/stale automation; no geo-resolution of location → unit (manual
-  picker is the fallback path and currently the only path).
+- No archive/stale automation. Geo-resolution v1 is address-NAME matching
+  (`/api/civic/suggest-unit`) — no lat/lng→boundary resolution yet even though
+  `Address.lat/lng` exist; unit coverage is still seed-scale, so most users
+  will see no suggestion until real ward/panchayat data lands.
 - `GET /api/civic/units` has no pagination — fine at seed scale, revisit when
   real ward data lands.
