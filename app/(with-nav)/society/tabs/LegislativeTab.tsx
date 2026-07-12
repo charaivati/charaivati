@@ -1,19 +1,11 @@
 "use client";
 
-import React from "react";
-import GovernanceTabTemplate from "./GovernanceTabTemplate";
+// CIVIC-2 — Legislative constituency view derives from the home ward's chain
+// and shows the assembly rollup. Replaced the GovernanceTabTemplate topic-grid
+// stub (its observations were never persisted).
 
-const topics = [
-  { id: "policyImplementation", label: "Policy Implementation" },
-  { id: "grievanceRedressal", label: "Grievance Redressal" },
-  { id: "health", label: "Healthcare Access" },
-  { id: "education", label: "School Quality" },
-  { id: "roads", label: "Constituency Roads" },
-  { id: "welfareDelivery", label: "Welfare Delivery" },
-  { id: "publicSafety", label: "Public Safety" },
-  { id: "localEconomy", label: "Local Economy" },
-];
+import ChainRollupTab from "@/components/civic/ChainRollupTab";
 
 export default function LegislativeTab() {
-  return <GovernanceTabTemplate governanceLevel="Legislative Constituency" topics={topics} />;
+  return <ChainRollupTab unitType="assembly" label="Legislative constituency" />;
 }

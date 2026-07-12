@@ -14,7 +14,8 @@ const prisma = new PrismaClient();
 const UNITS = [
   { id: "civic-country-india", type: "country", name: "India", parentId: null },
   { id: "civic-state-assam", type: "state", name: "Assam", parentId: "civic-country-india" },
-  { id: "civic-ac-ghy-east", type: "assembly", name: "Guwahati East", parentId: "civic-state-assam" },
+  { id: "civic-pc-gauhati", type: "parliamentary", name: "Gauhati", parentId: "civic-state-assam" },
+  { id: "civic-ac-ghy-east", type: "assembly", name: "Guwahati East", parentId: "civic-pc-gauhati" },
   { id: "civic-ward-chandmari", type: "ward", name: "Ward 12 — Chandmari", parentId: "civic-ac-ghy-east" },
   { id: "civic-ward-beltola", type: "ward", name: "Ward 30 — Beltola", parentId: "civic-ac-ghy-east" },
 ];

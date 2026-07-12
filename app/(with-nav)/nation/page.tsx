@@ -3,6 +3,8 @@
 import React, { Suspense, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useLayerContext } from "@/components/LayerContext";
+import { useCivicChain } from "@/hooks/useCivicChain";
+import RollupBoard from "@/components/civic/RollupBoard";
 
 const LegislatureTab = dynamic(() => import("./tabs/legislature"), { ssr: false });
 const ExecutiveTab = dynamic(() => import("./tabs/executive"), { ssr: false });
@@ -23,6 +25,12 @@ function NationPageContent() {
 
   const [country, setCountry] = useState<CountrySelection | null>(null);
   const [detected, setDetected] = useState<string | null>(null);
+
+  // CIVIC-2 — the home ward's chain fills the nation: country unit for the
+  // demands rollup, country name for the header (overrides the localStorage
+  // guess when present).
+  const { find: findInChain } = useCivicChain();
+  const chainCountry = findInChain("country");
 
 
   useEffect(() => {
@@ -74,9 +82,23 @@ function NationPageContent() {
         <h1 className="text-2xl font-bold mb-2">Nation</h1>
         <p className="text-sm text-gray-400">
           National governance and institutions
-          {detected && <span className="ml-2 text-gray-300">• {detected}</span>}
+          {(chainCountry?.name ?? detected) && (
+            <span className="ml-2 text-gray-300">• {chainCountry?.name ?? detected}</span>
+          )}
         </p>
       </div>
+
+      {/* CIVIC-2 — aggregated local demands across the country (derived from
+          the home ward's chain). Aggregation only — no national issue board. */}
+      {chainCountry && (
+        <div className="rounded-2xl border border-white/10 bg-black/30 p-5 mb-6">
+          <RollupBoard
+            unitId={chainCountry.id}
+            heading={`What ${chainCountry.name}'s local areas are demanding`}
+            subheading="The sum of every ward and panchayat board — demand rises from below."
+          />
+        </div>
+      )}
 
       {/* Tab Content */}
       <div className="space-y-6">
