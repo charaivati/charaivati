@@ -3,20 +3,41 @@ import { prisma } from "@/lib/prisma";
 import getServerUser from "@/lib/serverAuth";
 import { HOME_UNIT_CHANGE_DAYS } from "@/lib/civic/constants";
 
-// GET /api/civic/home-unit — the caller's current home unit (bootstrap for
-// the Society Panchayat/Ward tab and the /local index redirect).
+// GET /api/civic/home-unit — the caller's current home unit plus its full
+// ancestor chain (ward → assembly → parliamentary → state → country). The
+// chain is what lets one panchayat/ward selection fill every higher layer:
+// Society's Legislative/Parliamentary/State tabs, Nation's country view.
 export async function GET(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const me = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { homeUnit: { select: { id: true, type: true, name: true } } },
+    select: { homeUnitId: true },
   });
 
+  if (!me?.homeUnitId) {
+    return NextResponse.json({ homeUnitId: null, unit: null, chain: [] });
+  }
+
+  // Walk parentId upward (chain depth is bounded by UNIT_TYPES).
+  const chain: { id: string; type: string; name: string }[] = [];
+  let cursor: string | null = me.homeUnitId;
+  while (cursor) {
+    const u: { id: string; type: string; name: string; parentId: string | null } | null =
+      await prisma.unit.findUnique({
+        where: { id: cursor },
+        select: { id: true, type: true, name: true, parentId: true },
+      });
+    if (!u) break;
+    chain.push({ id: u.id, type: u.type, name: u.name });
+    cursor = u.parentId;
+  }
+
   return NextResponse.json({
-    homeUnitId: me?.homeUnit?.id ?? null,
-    unit: me?.homeUnit ?? null,
+    homeUnitId: me.homeUnitId,
+    unit: chain[0] ?? null,
+    chain,
   });
 }
 

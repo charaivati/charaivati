@@ -102,6 +102,39 @@ wards + 10 issues across the lifecycle states. Boards:
 `supporterCount` values have **no** backing `IssueSupport` rows (display test
 data only); real counts are transaction-kept by the API.
 
+## Chain-derived layers + rollups (CIVIC-2)
+
+**One panchayat/ward selection fills every higher layer.** `GET
+/api/civic/home-unit` returns the home unit's full ancestor `chain` (ward →
+assembly → parliamentary → state → country; `parliamentary` was added to
+`UNIT_TYPES` — string column, no migration needed). `hooks/useCivicChain.ts`
+(`find(type)`) is the client accessor — never ask the user to pick their
+assembly/state/country separately.
+
+**Rollups are the ONLY civic surface above ward level** (locked doctrine:
+Nation/Earth are aggregation — national issue lists become opinion shouting).
+`GET /api/civic/rollup?unitId=X` aggregates every descendant ward/panchayat
+(iterative parentId BFS — revisit as recursive CTE at scale);
+`?scope=earth` aggregates all wards planet-wide plus `countryCount`. Returns
+ward/resident counts, per-status issue counts, top-10 open demands, 5 recent
+completions. `components/civic/RollupBoard.tsx` renders it (stats row, TOP
+DEMANDS with links into `/local/[unitId]`, RECENTLY COMPLETED); it is
+read-only by construction — no raise/upvote controls above ward level.
+
+**Where each layer gets its content:**
+- Society Legislative/Parliamentary/State tabs → `components/civic/
+  ChainRollupTab.tsx` (unitType prop): chain unit found → rollup; no home
+  area → "set your home area first" pointer to the Panchayat/Ward tab; chain
+  missing that tier → honest "not mapped yet" card. These tabs REPLACED the
+  remaining GovernanceTabTemplate topic-grid stubs; StateTab keeps its
+  ManifestoSection ("Promises vs Reality") below the rollup.
+  `GovernanceTabTemplate`/`TopicGrid`/`GovernanceModal` now have no live
+  consumer except the orphaned `PanchayatTab.tsx` (dead code, untouched).
+- `/nation` → country rollup card above the institutional tabs; the header's
+  country name prefers the chain country over the localStorage guess.
+- `/earth` → "Local Action Worldwide" section (scope=earth) at the top of the
+  Collaborate/Act Now tab.
+
 ## Known gaps (deliberate, for later prompts)
 
 - No duplicate detection on create (Prompt 2 — the single most important AI
