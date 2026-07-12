@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
 
   // All units in one query → id map → ancestor names per home-eligible unit.
   const allUnits = await prisma.unit.findMany({
-    select: { id: true, type: true, name: true, parentId: true },
+    select: { id: true, type: true, name: true, parentId: true, status: true },
   });
   const byId = new Map(allUnits.map((u) => [u.id, u]));
   const eligible = allUnits.filter((u) => u.type === "ward" || u.type === "panchayat");
@@ -104,6 +104,7 @@ export async function GET(req: NextRequest) {
     id: string;
     type: string;
     name: string;
+    status: string;
     parentName: string | null;
     score: number;
     addressId: string;
@@ -153,6 +154,7 @@ export async function GET(req: NextRequest) {
         id: unit.id,
         type: unit.type,
         name: unit.name,
+        status: unit.status,
         parentName: ancestorsOf(unit)[0]?.name ?? null,
         score: best.score,
         addressId: best.addressId,

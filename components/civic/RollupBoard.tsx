@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { AREA_PARAMETERS } from "@/lib/civic/constants";
 
 const C = {
   border: "rgba(255,255,255,0.12)",
@@ -41,7 +42,14 @@ type Rollup = {
   counts: Record<string, number>;
   topIssues: RollupIssue[];
   recentDone: RollupIssue[];
+  ratings?: Record<string, { avg: number; count: number }>;
 };
+
+function ratingColor(avg: number): string {
+  if (avg >= 4) return "#34D399";
+  if (avg >= 3) return "#FBBF24";
+  return "#F87171";
+}
 
 function Stat({ value, label }: { value: number | string; label: string }) {
   return (
@@ -117,6 +125,46 @@ export default function RollupBoard({
         <Stat value={data.counts.complete ?? 0} label="completed" />
         <Stat value={data.residentCount} label="residents here" />
       </div>
+
+      {/* Area quality — rater-weighted averages across every local area here */}
+      {data.ratings && Object.keys(data.ratings).length > 0 && (
+        <>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, color: C.textMuted, marginBottom: 8 }}>
+            AREA QUALITY — RATED BY RESIDENTS
+          </div>
+          <div
+            style={{
+              display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+              gap: 8, marginBottom: 16,
+            }}
+          >
+            {AREA_PARAMETERS.filter((p) => data.ratings?.[p.key]).map((p) => {
+              const r = data.ratings![p.key];
+              return (
+                <div
+                  key={p.key}
+                  style={{
+                    background: C.surface, border: `0.5px solid ${C.border}`,
+                    borderRadius: 12, padding: "8px 10px",
+                  }}
+                >
+                  <div style={{ fontSize: 12, color: C.textMuted }}>
+                    {p.icon} {p.label}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 2 }}>
+                    <span style={{ fontSize: 17, fontWeight: 700, color: ratingColor(r.avg) }}>
+                      {r.avg.toFixed(1)}
+                    </span>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>
+                      / 5 · {r.count} rating{r.count === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Top demands */}
       <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, color: C.textMuted, marginBottom: 8 }}>

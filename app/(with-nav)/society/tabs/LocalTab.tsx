@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import IssueBoard from "@/components/civic/IssueBoard";
 import UnitPicker from "@/components/civic/UnitPicker";
 import HomeUnitSelect from "@/components/civic/HomeUnitSelect";
+import AreaRatings from "@/components/civic/AreaRatings";
 
 export default function LocalTab() {
   const [homeUnitId, setHomeUnitId] = useState<string | null>(null);
@@ -67,6 +68,7 @@ export default function LocalTab() {
           setAutoPlaced(false);
         }}
       />
+      <AreaRatings unitId={homeUnitId} theme="dark" />
       <IssueBoard unitId={homeUnitId} theme="dark" />
     </div>
   );

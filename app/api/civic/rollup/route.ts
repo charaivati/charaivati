@@ -68,10 +68,11 @@ export async function GET(req: NextRequest) {
       counts: { proposed: 0, active: 0, complete: 0, archived: 0 },
       topIssues: [],
       recentDone: [],
+      ratings: {},
     });
   }
 
-  const [residentCount, statusGroups, topIssues, recentDone] = await Promise.all([
+  const [residentCount, statusGroups, topIssues, recentDone, ratingGroups] = await Promise.all([
     prisma.user.count({ where: { homeUnitId: { in: wardIds } } }),
     prisma.issue.groupBy({
       by: ["status"],
@@ -90,10 +91,26 @@ export async function GET(req: NextRequest) {
       take: 5,
       include: { unit: { select: { id: true, name: true } } },
     }),
+    // Area quality — average of every resident rating across the descendant
+    // wards (rater-weighted, so a ward with 100 raters counts 100 voices).
+    prisma.unitRating.groupBy({
+      by: ["parameter"],
+      where: { unitId: { in: wardIds } },
+      _avg: { score: true },
+      _count: { _all: true },
+    }),
   ]);
 
   const counts: Record<string, number> = { proposed: 0, active: 0, complete: 0, archived: 0 };
   for (const g of statusGroups) counts[g.status] = g._count._all;
+
+  const ratings: Record<string, { avg: number; count: number }> = {};
+  for (const g of ratingGroups) {
+    ratings[g.parameter] = {
+      avg: Math.round((g._avg.score ?? 0) * 10) / 10,
+      count: g._count._all,
+    };
+  }
 
   const shape = (i: (typeof topIssues)[number]) => ({
     id: i.id,
@@ -114,5 +131,6 @@ export async function GET(req: NextRequest) {
     counts,
     topIssues: topIssues.map(shape),
     recentDone: recentDone.map(shape),
+    ratings,
   });
 }

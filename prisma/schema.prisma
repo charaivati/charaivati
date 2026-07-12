@@ -75,6 +75,8 @@ model User {
   stores                  Store[]
   publicKey               UserPublicKey?
   keyBackup               UserKeyBackup?       @relation("UserKeyBackup")
+  proposedUnits           Unit[]               @relation("UnitProposer")
+  unitRatings             UnitRating[]         @relation("UserUnitRatings")
   userTabs                UserTab[]            @relation("UserUserTabs")
   verificationTokens      VerificationToken[]
   votes                   Vote[]               @relation("UserVotes")
@@ -2204,19 +2206,44 @@ model UserContext {
 /// type: ward | panchayat | assembly | state | country — validated in API, not DB
 /// (freq/assumptionKey precedent). Self-relation parentId builds the chain
 /// ward/panchayat → assembly → state → country.
+/// status: "verified" | "pending" — community-proposed units start pending and
+/// verify automatically once UNIT_VERIFY_RESIDENTS users claim them as home.
 model Unit {
-  id        String   @id @default(cuid())
-  type      String
-  name      String
-  parentId  String?
-  createdAt DateTime @default(now())
-  parent    Unit?    @relation("UnitParent", fields: [parentId], references: [id])
-  children  Unit[]   @relation("UnitParent")
-  residents User[]   @relation("UserHomeUnit")
-  issues    Issue[]
+  id           String       @id @default(cuid())
+  type         String
+  name         String
+  parentId     String?
+  status       String       @default("verified")
+  proposedById String?
+  createdAt    DateTime     @default(now())
+  parent       Unit?        @relation("UnitParent", fields: [parentId], references: [id])
+  children     Unit[]       @relation("UnitParent")
+  proposedBy   User?        @relation("UnitProposer", fields: [proposedById], references: [id])
+  residents    User[]       @relation("UserHomeUnit")
+  issues       Issue[]
+  ratings      UnitRating[]
 
   @@index([parentId])
   @@index([type])
+}
+
+/// Area quality rating — one score (1–5) per resident per fixed parameter
+/// (water, electricity, roads… — AREA_PARAMETERS in lib/civic/constants.ts,
+/// validated in API, not DB). Residents rate their home unit; everyone in the
+/// area sees the average. Rollups average across descendant units.
+model UnitRating {
+  id        String   @id @default(cuid())
+  unitId    String
+  userId    String
+  parameter String
+  score     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  unit      Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserUnitRatings", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, unitId, parameter])
+  @@index([unitId, parameter])
 }
 
 /// Civic issue — a local demand raised by a resident of a Unit.
