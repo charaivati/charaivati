@@ -64,15 +64,35 @@ use the **typed** client, not `(prisma as any)`.
 | POST | `/api/civic/issues/[issueId]/support` | Toggle; resident-only; threshold promotion in the same transaction |
 | POST | `/api/civic/home-unit` | `{ unitId }` — ward/panchayat only; 90-day change lock (429 with days remaining) |
 
-## UI
+## UI — three surfaces, one board component
 
-`app/local/[unitId]/page.tsx` — client component, mobile-first, light app-shell
-palette. Header (breadcrumb, resident count, home badge / "This is my area"
-CTA / go-to-your-area redirect), Active/Done/Archived tabs, raise-issue inline
-form (residents only), issue cards with rank number, status chip, upvote
-toggle, "N of ~M residents" line. Skeletons in-page (client component — no
-`loading.tsx` needed per loading-states doctrine). Coexists with
-`app/(locality)/local/select-country` — static segment wins.
+**`components/civic/IssueBoard.tsx` is the one board implementation**
+(prop-driven, DiscoveryView precedent: `unitId`, `standalone?`, `theme:
+"light" | "dark"`). Header (breadcrumb, resident count, home badge / "This is
+my area" CTA / go-to-your-area redirect), Active/Done/Archived tabs,
+raise-issue inline form (residents only), issue cards with rank number, status
+chip, upvote toggle, "N of ~M residents" line. Do not fork a second board.
+`components/civic/UnitPicker.tsx` is the manual home-unit picker (search +
+"This is my area" per row) — the fallback/only path until geo-resolution lands.
+
+1. **`/society` "Panchayat/Ward" tab** (`app/(with-nav)/society/tabs/LocalTab.tsx`)
+   — the desktop home. Bootstraps via `GET /api/civic/home-unit`: home unit set
+   → `<IssueBoard theme="dark" />` for it; none → `<UnitPicker theme="dark" />`.
+   This REPLACED the old `GovernanceTabTemplate` topic-grid stub whose
+   "observations" only went to `console.log` (never persisted). The template
+   itself still serves the Legislative/Parliamentary/State tabs — only LocalTab
+   moved off it. `LayerContext.tsx` already maps `/local/*` → `layer-society-home`.
+2. **`/local/[unitId]`** — standalone/mobile deep-link wrapper (light,
+   full-page). Skeletons in-page (client component — no `loading.tsx` needed
+   per loading-states doctrine). Coexists with
+   `app/(locality)/local/select-country` — static segment wins.
+3. **`/local` index** — the stable "my local board" link target: redirects to
+   the caller's home board, shows the picker when unset, bounces
+   unauthenticated visitors to `/login?redirect=/local`.
+
+Registry: `society.local_admin` in `lib/site/capabilityRegistry.ts` is
+`scaffolded` with route `/society` — execution plans and both chatbots can now
+route users to the board (was `planned`/no route).
 
 ## Seed
 
