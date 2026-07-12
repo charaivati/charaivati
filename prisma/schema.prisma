@@ -74,6 +74,7 @@ model User {
   savedTagSets            SavedTagSet[]
   stores                  Store[]
   publicKey               UserPublicKey?
+  keyBackup               UserKeyBackup?       @relation("UserKeyBackup")
   userTabs                UserTab[]            @relation("UserUserTabs")
   verificationTokens      VerificationToken[]
   votes                   Vote[]               @relation("UserVotes")
@@ -982,14 +983,33 @@ model Post {
   @@index([slugTags])
 }
 
-/// ECDH public key for end-to-end encrypted chat
+/// ECDH public key for end-to-end encrypted chat.
+/// keyHistory keeps previous public keys (JSON array of JWK strings, newest
+/// first, capped) so friends can still decrypt messages that were encrypted
+/// against a key this user has since rotated away from.
 model UserPublicKey {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  publicKey  String
+  keyHistory String   @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Server-side backup of a user's chat keypair (private key + key history),
+/// encrypted with a per-user key derived from the server secret — same
+/// recoverable-encryption trade-off as ChatMessageBackup. This lets a user
+/// restore the same chat identity on a new device / cleared browser instead
+/// of rotating to a fresh keypair and losing old messages.
+model UserKeyBackup {
   id        String   @id @default(cuid())
   userId    String   @unique
-  publicKey String
+  encrypted String
+  iv        String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserKeyBackup", fields: [userId], references: [id], onDelete: Cascade)
 }
 
 /// Direct message conversation between two users

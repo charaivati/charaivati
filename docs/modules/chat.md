@@ -45,10 +45,11 @@ End-to-end encrypted direct messaging between two users. The server stores only 
 
 ## Runtime Flow
 
-### Key registration
-1. On first login or key rotation, client generates an ECDH P-256 keypair in-browser
-2. Client POSTs the public key (JWK) to `POST /api/keys`
-3. Server stores it in `UserPublicKey` linked to the user
+### Key registration & restore
+1. On startup `ensureKeyPair()` looks for a keypair in localStorage
+2. If localStorage is empty (new device, cleared/private browser), the client first tries `GET /api/keys/backup` and restores the account's existing keypair — a fresh keypair is generated only when no backup exists anywhere
+3. Client POSTs the public key (JWK) to `POST /api/keys`; when the key actually changes, the server archives the previous public key into `UserPublicKey.keyHistory`
+4. The keypair (+ private-key history) is backed up via `POST /api/keys/backup`, encrypted per-user with a server-derived key (`lib/server-crypto.ts`) — recoverable encryption, same trade-off as `ChatMessageBackup`
 
 ### Starting a conversation
 1. Client POSTs to `POST /api/chat/conversations` with target `userId`
@@ -97,9 +98,8 @@ Note: `lib/chat-crypto.ts` runs client-side. The server never calls these functi
 
 ## Risks & Fragile Areas
 - This is the most security-sensitive module in the codebase. Do not modify `lib/chat-crypto.ts` without a cryptography review.
-- If a user loses their private key (e.g. clears browser storage), they cannot decrypt past messages. There is no server-side recovery path for true E2E messages.
-- `ChatMessageBackup` undermines E2E for users who opt in — the server holds plaintext. The backup table should be clearly labeled as non-E2E in any user-facing UI.
-- Key rotation is not clearly defined. If a user generates a new keypair, old conversations encrypted with the old key become unreadable unless the app handles key history. TODO: Confirm key rotation behavior.
+- `ChatMessageBackup` and `UserKeyBackup` are recoverable by the server (per-user key derived from `CHAT_BACKUP_SECRET`) — this is deliberately NOT strict E2E so users don't lose history; label it honestly in any user-facing UI. Rotating `CHAT_BACKUP_SECRET` makes all existing backups unreadable.
+- Key rotation behavior: rotation is now rare (keys restore from `UserKeyBackup` on new devices). When it happens, the old private key is archived locally + in the server backup, and the old public key goes into `UserPublicKey.keyHistory`. `decryptWithFallback()` tries all combinations of own × friend key history, then falls back to `ChatMessageBackup`. Messages encrypted for a private key that was lost before any backup existed remain unrecoverable.
 - No message deletion logic observed at the API level. TODO: Confirm whether messages can be deleted and whether deletion is hard or soft.
 - Canonical ordering (`userAId < userBId`) is the same invariant as `Friendship`. They are independent tables — a DM conversation does not require a friendship. TODO: Verify whether friendship is enforced before DM creation.
 
