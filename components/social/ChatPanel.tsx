@@ -15,7 +15,6 @@ import {
   getFriendPublicKey,
   getSharedKey,
   encryptMessage,
-  decryptMessage,
   decryptWithFallback,
 } from "@/lib/chat-crypto";
 
@@ -562,7 +561,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
                   onClick={() => setSelectedMsg(m)}
                 >
                   <p className="whitespace-pre-wrap break-words">
-                    {m.failed ? "🔒 Encrypted with a previous key" : m.text}
+                    {m.failed ? "🔒 Can’t decrypt — sent before a key change" : m.text}
                   </p>
                   <p className={`text-[10px] mt-0.5 ${isMe ? "text-indigo-200" : "text-gray-500"}`}>
                     {timeLabel(m.createdAt)}
@@ -643,7 +642,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
             : "bg-gray-700/80 text-gray-100"
         }`}>
           <p className="whitespace-pre-wrap break-words">
-            {selectedMsg.failed ? "🔒 Encrypted with a previous key" : selectedMsg.text}
+            {selectedMsg.failed ? "🔒 Can’t decrypt — sent before a key change" : selectedMsg.text}
           </p>
         </div>
 
@@ -674,7 +673,7 @@ export default function ChatPanel({ myId }: { myId?: string }) {
                           : "bg-gray-700/60 text-gray-200"
                       }`}>
                         <p className="whitespace-pre-wrap break-words">
-                          {m.failed ? "🔒 Encrypted with a previous key" : m.text}
+                          {m.failed ? "🔒 Can’t decrypt — sent before a key change" : m.text}
                         </p>
                         <p className="text-[9px] mt-0.5 opacity-60">{timeLabel(m.createdAt)}</p>
                       </div>
