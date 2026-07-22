@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useEffect, useRef, useState, Suspense } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import TransportMap from "@/components/transport/TransportMap";
 
 // ── Stepper constants (read-only version) ─────────────────────────────────────
@@ -50,9 +50,12 @@ type OrderData = {
 type VehiclePos = { lat: number; lng: number; label: string; type: string };
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-export default function TrackOrderPage() {
+function TrackOrderInner() {
   const { id } = useParams<{ id: string }>();
   const router  = useRouter();
+  const searchParams = useSearchParams();
+  const fromStore = searchParams.get("from") === "store";
+  const backStoreId = searchParams.get("storeId");
 
   const [order,            setOrder]            = useState<OrderData | null>(null);
   const [loading,          setLoading]          = useState(true);
@@ -146,10 +149,10 @@ export default function TrackOrderPage() {
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-3 sticky top-0 z-10">
         <div className="flex items-center justify-between">
-          <a href="/app/orders?tab=my"
+          <a href={fromStore && backStoreId ? `/store/${backStoreId}/orders` : "/app/orders?tab=my"}
             className="text-sm font-medium text-gray-500 hover:text-gray-800"
             style={{ textDecoration: "none" }}>
-            ← My Orders
+            {fromStore && backStoreId ? "← Store Orders" : "← My Orders"}
           </a>
           <a href="/app/home"
             className="text-sm font-medium"
@@ -333,5 +336,17 @@ export default function TrackOrderPage() {
 
       </main>
     </div>
+  );
+}
+
+export default function TrackOrderPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+      </div>
+    }>
+      <TrackOrderInner />
+    </Suspense>
   );
 }
