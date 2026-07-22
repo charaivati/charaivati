@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import dynamic from "next/dynamic";
+import PurchaseOrderCard, { type Order as PurchaseOrder } from "@/components/store/PurchaseOrderCard";
 
 // Same live-tracking map the customer uses on /order/[id]/track — reused here for the
 // owner's post-dispatch view (OWNER-DELIV-VIEW-1). Dynamic import keeps Leaflet client-only.
@@ -794,7 +795,9 @@ function WorkflowSection({
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
-export default function StoreOrdersPage() {
+// ── Owner fulfillment console (unchanged below — gated behind the role check at the
+// bottom of this file so only the store owner ever sees it) ──────────────────────
+function OwnerOrdersConsole() {
   const { id } = useParams<{ id: string }>();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1309,4 +1312,112 @@ export default function StoreOrdersPage() {
       )}
     </div>
   );
+}
+
+// ── Customer view (non-owner) — "my orders at this one store" ─────────────────
+// Reuses PurchaseOrderCard (same one /store/account renders) against the now
+// buyer-scoped `/api/store/orders?storeId=` response for non-owners.
+type CustomerOrder = PurchaseOrder & { deliveryStatus?: string | null };
+
+function CustomerOrdersView({ storeId, storeName }: { storeId: string; storeName: string }) {
+  const [orders, setOrders] = useState<CustomerOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loggedIn, setLoggedIn] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/store/orders?storeId=${storeId}`, { credentials: "include" })
+      .then((r) => {
+        if (r.status === 401) { setLoggedIn(false); return []; }
+        return r.ok ? r.json() : [];
+      })
+      .then((data: CustomerOrder[]) => setOrders(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [storeId]);
+
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
+      <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+    </div>
+  );
+
+  if (!loggedIn) return (
+    <div className="min-h-screen flex items-center justify-center px-6" style={{ background: A.bg }}>
+      <div className="text-center">
+        <p className="text-sm mb-3" style={{ color: A.textMuted }}>Log in to see your orders here.</p>
+        <a href={`/login?redirect=${encodeURIComponent(`/store/${storeId}/orders`)}`}
+          className="text-xs px-4 py-2 rounded-md font-semibold"
+          style={{ background: A.accent, color: "#fff", textDecoration: "none" }}>
+          Log in →
+        </a>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen" style={{ background: A.bg }}>
+      <div className="sticky top-0 z-10 px-6 py-4 border-b bg-white" style={{ borderColor: A.border }}>
+        <div className="max-w-3xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-lg font-bold" style={{ color: A.text }}>
+              My Orders{storeName ? ` — ${storeName}` : ""}
+            </h1>
+            <p className="text-xs" style={{ color: A.textMuted }}>
+              {orders.length} order{orders.length === 1 ? "" : "s"} at this store
+            </p>
+          </div>
+          <a href="/app/orders?tab=my" className="text-xs px-3 py-1.5 rounded-md font-medium"
+            style={{ border: `1px solid ${A.border}`, color: A.textMuted, textDecoration: "none" }}>
+            See all my orders across stores →
+          </a>
+        </div>
+      </div>
+
+      <main className="max-w-3xl mx-auto px-6 py-6 space-y-4">
+        {orders.length === 0 ? (
+          <div className="text-center py-20">
+            <p className="text-2xl mb-2">📦</p>
+            <p className="text-sm mb-3" style={{ color: A.textMuted }}>No orders yet at this store.</p>
+            <a href={`/store/${storeId}`} className="text-xs font-medium" style={{ color: A.accent, textDecoration: "none" }}>
+              ← Back to store
+            </a>
+          </div>
+        ) : orders.map((order) => (
+          <div key={order.id}>
+            <PurchaseOrderCard order={order} />
+            {order.deliveryStatus === "out_for_delivery" && (
+              <a href={`/order/${order.id}/track?from=store&storeId=${storeId}`}
+                className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 mt-2 rounded-lg font-semibold"
+                style={{ background: "#0F766E", color: "#fff", textDecoration: "none" }}>
+                📍 Track order →
+              </a>
+            )}
+          </div>
+        ))}
+      </main>
+    </div>
+  );
+}
+
+// ── Entry point — decide owner console vs customer order-history view ─────────
+export default function StoreOrdersPage() {
+  const { id } = useParams<{ id: string }>();
+  const [store, setStore] = useState<{ isOwner: boolean; name: string } | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/store/${id}`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setStore({ isOwner: !!d?.isOwner, name: d?.name ?? "" }))
+      .catch(() => setStore({ isOwner: false, name: "" }));
+  }, [id]);
+
+  if (!store) return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: A.bg }}>
+      <div className="w-7 h-7 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+    </div>
+  );
+
+  return store.isOwner
+    ? <OwnerOrdersConsole />
+    : <CustomerOrdersView storeId={id} storeName={store.name} />;
 }

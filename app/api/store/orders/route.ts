@@ -219,11 +219,15 @@ export async function GET(req: NextRequest) {
       storeId = rows[0]?.id ?? storeId;
     }
     const store = await prisma.store.findUnique({ where: { id: storeId } });
-    if (!store || store.ownerId !== user.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!store) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
     storeId = store.id;
 
+    // Owner gets the full fulfillment console response (workflow/quotes/etc. below).
+    // A non-owner falls through to the buyer-scoped query at the bottom of this handler,
+    // filtered to just this store.
+    if (store.ownerId === user.id) {
     const storeMetaRows = await prisma.$queryRaw<{ slug: string | null; deletedAt: Date | null }[]>`
       SELECT slug, "deletedAt" FROM "Store" WHERE id = ${storeId} LIMIT 1
     `;
@@ -444,10 +448,11 @@ export async function GET(req: NextRequest) {
         })),
       };
     }));
+    }
   }
 
   const orders = await prisma.order.findMany({
-    where: { userId: user.id },
+    where: storeId ? { userId: user.id, storeId } : { userId: user.id },
     include: { store: { select: { id: true, name: true } }, address: true },
     orderBy: { createdAt: "desc" },
   });

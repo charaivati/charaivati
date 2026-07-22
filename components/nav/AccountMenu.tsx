@@ -135,7 +135,12 @@ export default function AccountMenu({ user, isGuest, pathname, onSignOut, t, sto
                 </a>
 
                 {storeContext && (
-                  <a href="/app/orders" style={itemStyle}>📦 My Orders</a>
+                  <a
+                    href={storeContext.isOwner ? "/app/orders" : `/store/${storeContext.storeId}/orders`}
+                    style={itemStyle}
+                  >
+                    📦 My Orders
+                  </a>
                 )}
 
                 {storeContext?.isOwner && storeContext.storeId && (

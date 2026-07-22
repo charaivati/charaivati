@@ -378,7 +378,7 @@ export default function QuickOrderModal({ open, onClose, storeId, storeName, ini
                 </p>
                 <p className="text-xs mt-0.5" style={{ color: A.textMuted }}>The store owner will contact you shortly.</p>
               </div>
-              <a href="/app/orders"
+              <a href={`/store/${storeId}/orders`}
                 className="inline-block text-xs font-semibold px-4 py-2 rounded-md"
                 style={{ background: A.accent, color: "#fff", textDecoration: "none" }}>
                 View my orders →
