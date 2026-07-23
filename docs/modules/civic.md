@@ -134,6 +134,19 @@ wards + 10 issues across the lifecycle states. Boards:
 `supporterCount` values have **no** backing `IssueSupport` rows (display test
 data only); real counts are transaction-kept by the API.
 
+`node prisma/seed-assembly.js` — real Assembly + Parliamentary constituency
+data (531 parliamentary, 4,040 assembly units), sourced from India's Local
+Government Directory (lgdirectory.gov.in) via the public mirror
+`ramSeraph/opendata`. CSV committed at `prisma/data/assembly_constituencies.csv`
+(no network dependency at seed time). Requires `seed-states.js` to have run
+first (links each parliamentary unit under its state). Idempotent (stable ids
+`civic-pc-<state>-<code>` / `civic-ac-<state>-<code>`, upserts) — safe to
+re-run. This fills the "Assembly: Not mapped" gap for `UnitPicker`'s proposal
+flow: **`UnitPicker` now has real assembly/parliamentary parent options
+nationwide, not just the Assam demo chain from `seed-civic.js`.** Wards and
+panchayats are still NOT seeded here — that layer stays public-driven per
+CIVIC-1 doctrine.
+
 ## Chain-derived layers + rollups (CIVIC-2)
 
 **One panchayat/ward selection fills every higher layer.** `GET
@@ -167,6 +180,21 @@ read-only by construction — no raise/upvote controls above ward level.
 - `/earth` → "Local Action Worldwide" section (scope=earth) at the top of the
   Collaborate/Act Now tab.
 
+## Shared location bar (CIVIC-4)
+
+`components/civic/LocationChainBar.tsx` renders once above all four Society
+tabs (`app/(with-nav)/society/page.tsx`, above the tab content div) — a
+Country / State / Assembly / Panchayat-Ward chip row via `useCivicChain()`.
+Country falls back to `"India"` (the only seeded country — see
+`prisma/seed-states.js`) even before a home unit is set; State/Assembly show
+`"Not set"`/`"Not mapped"` when the chain doesn't reach that tier yet.
+This is now the ONE canonical set/change control: no home unit → `UnitPicker`
+inline below the chips; home unit set → a "Change area" toggle reveals
+`HomeUnitSelect`. `LocalTab.tsx` no longer embeds its own picker — it only
+renders `AreaRatings`/`IssueBoard` for the resolved `homeUnitId`, with a
+pointer up to the bar when unset. `useCivicChain()` gained `autoPlaced` and a
+`reload()` so the bar can refresh after a change without a full page reload.
+
 ## Known gaps (deliberate, for later prompts)
 
 - No duplicate detection on create (Prompt 2 — the single most important AI
@@ -174,7 +202,14 @@ read-only by construction — no raise/upvote controls above ward level.
 - No mark-complete flow yet (Prompt 3) — `complete` rows only via seed today.
 - No archive/stale automation. Geo-resolution v1 is address-NAME matching
   (`/api/civic/suggest-unit`) — no lat/lng→boundary resolution yet even though
-  `Address.lat/lng` exist; unit coverage is still seed-scale, so most users
-  will see no suggestion until real ward/panchayat data lands.
-- `GET /api/civic/units` has no pagination — fine at seed scale, revisit when
-  real ward data lands.
+  `Address.lat/lng` exist; ward/panchayat coverage is still seed-scale (public
+  proposals only), so most users will see no suggestion until real ward data
+  lands. Assembly/parliamentary coverage is now real nationwide data (see
+  Seed above).
+- `GET /api/civic/units?type=assembly` has no pagination and now returns all
+  4,040 seeded rows unfiltered in one response — was fine at seed scale, is a
+  real payload now. See `TECH_DEBT.md` §29.
+- Wards/panchayats proposed **before** `seed-assembly.js` ran do not have an
+  assembly parent and will not retroactively gain one — a unit's `parentId`
+  is only resolved at proposal time. Expected, not a bug. See `TECH_DEBT.md`
+  §29.

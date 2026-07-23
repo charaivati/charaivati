@@ -151,7 +151,7 @@ export default function HeaderTabs({ onNavigate }: Props) {
       style={{ touchAction: "manipulation" }}
     >
       <div
-        className="overflow-x-auto no-scrollbar flex justify-center w-full"
+        className="overflow-x-auto no-scrollbar flex justify-start w-full"
         ref={scrollerRef}
         role="tablist"
         aria-label="Page tabs"

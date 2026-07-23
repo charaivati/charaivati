@@ -2,6 +2,7 @@
 import React from "react";
 import dynamic from "next/dynamic";
 import { useLayerContext } from "@/components/LayerContext";
+import LocationChainBar from "@/components/civic/LocationChainBar";
 
 const LocalTab = dynamic(() => import("./tabs/LocalTab"), { ssr: false });
 const LegislativeTab = dynamic(() => import("./tabs/LegislativeTab"), { ssr: false });
@@ -28,6 +29,8 @@ export default function SocietyPage() {
         <h1 className="text-2xl font-bold mb-2">Society</h1>
         <p className="text-sm text-gray-400">Governance topics and local civic responses</p>
       </div>
+
+      <LocationChainBar />
 
       <div className="space-y-6">
         {showLocal && <LocalTab />}

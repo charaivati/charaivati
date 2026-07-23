@@ -5,27 +5,34 @@
 // find("parliamentary") / find("state") / find("country") resolve the unit
 // whose rollup that layer's page should show.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export type ChainUnit = { id: string; type: string; name: string };
 
 export function useCivicChain() {
   const [chain, setChain] = useState<ChainUnit[] | null>(null);
   const [homeUnitId, setHomeUnitId] = useState<string | null>(null);
+  const [autoPlaced, setAutoPlaced] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetch("/api/civic/home-unit")
-      .then((r) => (r.ok ? r.json() : { homeUnitId: null, chain: [] }))
+  const load = useCallback(() => {
+    setLoading(true);
+    return fetch("/api/civic/home-unit")
+      .then((r) => (r.ok ? r.json() : { homeUnitId: null, chain: [], autoPlaced: false }))
       .then((d) => {
         setHomeUnitId(d.homeUnitId ?? null);
         setChain(d.chain ?? []);
+        setAutoPlaced(d.autoPlaced === true);
       })
       .catch(() => setChain([]))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    load();
+  }, [load]);
+
   const find = (type: string) => chain?.find((u) => u.type === type) ?? null;
 
-  return { loading, homeUnitId, chain: chain ?? [], find };
+  return { loading, homeUnitId, chain: chain ?? [], autoPlaced, find, reload: load };
 }

@@ -1,36 +1,16 @@
 "use client";
 
 // CIVIC-1 — the Society "Panchayat/Ward" tab is the desktop home of the local
-// issue board. Replaces the old GovernanceTabTemplate topic-grid stub (whose
-// "observations" were never persisted). Bootstrap: fetch the caller's home
-// unit → render their board; no home unit yet → render the picker.
-//
-// Address auto-placement: the picker runs with autoApply, so a user with a
-// saved address that confidently matches one ward/panchayat lands on their
-// board with zero clicks. HomeUnitSelect above the board is the correction
-// path — a dropdown to confirm or change (manual changes carry the 90-day lock).
+// issue board. Home-unit set/change now lives in the shared LocationChainBar
+// above the tabs (CIVIC-4) — this tab just needs the resolved id to render
+// the resident's board.
 
-import { useEffect, useState } from "react";
+import { useCivicChain } from "@/hooks/useCivicChain";
 import IssueBoard from "@/components/civic/IssueBoard";
-import UnitPicker from "@/components/civic/UnitPicker";
-import HomeUnitSelect from "@/components/civic/HomeUnitSelect";
 import AreaRatings from "@/components/civic/AreaRatings";
 
 export default function LocalTab() {
-  const [homeUnitId, setHomeUnitId] = useState<string | null>(null);
-  const [autoPlaced, setAutoPlaced] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/civic/home-unit")
-      .then((r) => (r.ok ? r.json() : { homeUnitId: null }))
-      .then((d) => {
-        setHomeUnitId(d.homeUnitId ?? null);
-        setAutoPlaced(d.autoPlaced === true);
-      })
-      .catch(() => setHomeUnitId(null))
-      .finally(() => setLoading(false));
-  }, []);
+  const { loading, homeUnitId } = useCivicChain();
 
   if (loading) {
     return (
@@ -44,30 +24,18 @@ export default function LocalTab() {
 
   if (!homeUnitId) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-        <UnitPicker
-          theme="dark"
-          autoApply
-          onSet={(id, meta) => {
-            setHomeUnitId(id);
-            setAutoPlaced(meta?.auto === true);
-          }}
-        />
+      <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
+        <h3 className="text-lg font-semibold">Set your home area above ↑</h3>
+        <p className="text-sm text-gray-300 mt-1">
+          Pick your ward or panchayat in the location bar above — your board
+          shows up here as soon as it&apos;s set.
+        </p>
       </div>
     );
   }
 
   return (
     <div>
-      <HomeUnitSelect
-        theme="dark"
-        homeUnitId={homeUnitId}
-        autoPlaced={autoPlaced}
-        onChanged={(id) => {
-          setHomeUnitId(id);
-          setAutoPlaced(false);
-        }}
-      />
       <AreaRatings unitId={homeUnitId} theme="dark" />
       <IssueBoard unitId={homeUnitId} theme="dark" />
     </div>
