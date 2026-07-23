@@ -504,7 +504,7 @@ function TopNav({
               <button onClick={() => { onAddressClick(); setOpen(false); }} style={{ marginLeft: 8, fontSize: 11, color: "#6366f1", border: "none", background: "none", cursor: "pointer" }}>Change</button>
             </div>
             <a href="/store/account" style={{ display: "block", padding: "10px 16px", fontSize: 12, color: A.text, textDecoration: "none" }}>{userName ? `Hello, ${userName.split(" ")[0]}` : "Hello, Sign in"}</a>
-            <a href="/store/account?tab=purchases" style={{ display: "block", padding: "10px 16px", fontSize: 12, color: A.text, textDecoration: "none" }}>Orders</a>
+            <a href={`/store/${storeId}/orders`} style={{ display: "block", padding: "10px 16px", fontSize: 12, color: A.text, textDecoration: "none" }}>Orders</a>
             {isOwner && <button onClick={() => { onToggleEdit(); setOpen(false); }} style={{ width: "100%", textAlign: "left", padding: "10px 16px", fontSize: 12, border: "none", background: "none", color: A.text }}>{editMode ? "Done" : "Edit Section"}</button>}
           </div>
         )}
@@ -538,7 +538,7 @@ function TopNav({
                 <div className="font-bold">My Account ▾</div>
               </a>
             )}
-            <a href="/store/account?tab=purchases" style={{ textDecoration: "none" }}
+            <a href={`/store/${storeId}/orders`} style={{ textDecoration: "none" }}
               className="leading-tight text-white text-xs hover:opacity-80">
               <div className="opacity-80">Returns &amp;</div>
               <div className="font-bold">Orders</div>

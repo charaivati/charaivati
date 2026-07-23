@@ -127,7 +127,7 @@ function StoreNav() {
             />
 
             <a
-              href="/store/account?tab=purchases"
+              href={isOwner ? "/store/account?tab=purchases" : `/store/${storeId}/orders`}
               style={{ textDecoration: "none" }}
               className="leading-tight text-white text-xs hover:opacity-80"
             >
