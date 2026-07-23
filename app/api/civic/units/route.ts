@@ -17,16 +17,26 @@ const NAME_MAX = 80;
 // Default lists home-eligible units (ward + panchayat) with their parent chain
 // names, status (pending = community-proposed, not yet verified) and, for
 // pending units, how many residents they have so the UI can show progress.
+// ?type=assembly&state=X scopes to one state's assembly constituencies
+// (assembly.parentId -> parliamentary, parliamentary.parentId -> state, so
+// this is a two-hop filter) — UNITS-STATE-SCOPE-BUILD-1, avoids shipping all
+// 4,040 seeded rows for a form that only needs one state's worth.
 export async function GET(req: NextRequest) {
   const user = await getServerUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const typeParam = req.nextUrl.searchParams.get("type");
   const parentId = req.nextUrl.searchParams.get("parentId");
+  const stateId = req.nextUrl.searchParams.get("state");
   const types = typeParam && isUnitType(typeParam) ? [typeParam] : ["ward", "panchayat"];
+  const scopeToState = typeParam === "assembly" && !!stateId;
 
   const units = await prisma.unit.findMany({
-    where: { type: { in: types }, ...(parentId ? { parentId } : {}) },
+    where: {
+      type: { in: types },
+      ...(parentId ? { parentId } : {}),
+      ...(scopeToState ? { parent: { parentId: stateId } } : {}),
+    },
     include: { parent: { include: { parent: true } } },
     orderBy: { name: "asc" },
   });

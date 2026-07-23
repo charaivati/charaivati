@@ -106,18 +106,24 @@ export default function UnitPicker({
       .catch(() => setSuggest(null));
   }, []);
 
-  // Load states + constituencies lazily when the propose form opens.
+  // Load states lazily when the propose form opens.
   useEffect(() => {
     if (!showPropose || states !== null) return;
     fetch("/api/civic/units?type=state")
       .then((r) => (r.ok ? r.json() : { units: [] }))
       .then((d) => setStates(d.units ?? []))
       .catch(() => setStates([]));
-    fetch("/api/civic/units?type=assembly")
+  }, [showPropose, states]);
+
+  // Load assembly constituencies scoped to the selected state only — the
+  // server does the parentId->parliamentary->state filtering (state param).
+  useEffect(() => {
+    if (!pStateId) return;
+    fetch(`/api/civic/units?type=assembly&state=${pStateId}`)
       .then((r) => (r.ok ? r.json() : { units: [] }))
       .then((d) => setAreas(d.units ?? []))
       .catch(() => setAreas([]));
-  }, [showPropose, states]);
+  }, [pStateId]);
 
   // Pre-select the best suggestion; auto-place when allowed, unambiguous and verified.
   useEffect(() => {
@@ -156,17 +162,6 @@ export default function UnitPicker({
         (u.parentName ?? "").toLowerCase().includes(needle)
     );
   }, [units, q]);
-
-  // States/constituency options for the propose form. Constituencies are
-  // filtered to the chosen state via parent/grandparent names (chain: state →
-  // parliamentary → assembly, so the state can be either of them).
-  const stateName = states?.find((s) => s.id === pStateId)?.name ?? null;
-  const areasForState = useMemo(() => {
-    if (!areas || !stateName) return [];
-    return areas.filter(
-      (a) => a.parentName === stateName || a.grandparentName === stateName
-    );
-  }, [areas, stateName]);
 
   async function pick(unitId: string) {
     if (saving || !unitId) return;
@@ -412,7 +407,7 @@ export default function UnitPicker({
               </div>
               <select
                 value={pStateId}
-                onChange={(e) => { setPStateId(e.target.value); setPAreaId(""); }}
+                onChange={(e) => { setPStateId(e.target.value); setPAreaId(""); setAreas(null); }}
                 style={inputStyle}
               >
                 <option value="">Select state…</option>
@@ -420,14 +415,14 @@ export default function UnitPicker({
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
-              {pStateId && areasForState.length > 0 && (
+              {pStateId && areas && areas.length > 0 && (
                 <select
                   value={pAreaId}
                   onChange={(e) => setPAreaId(e.target.value)}
                   style={inputStyle}
                 >
                   <option value="">Constituency (optional)…</option>
-                  {areasForState.map((a) => (
+                  {areas.map((a) => (
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>

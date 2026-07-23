@@ -57,7 +57,7 @@ use the **typed** client, not `(prisma as any)`.
 
 | Method | Route | Notes |
 |---|---|---|
-| GET | `/api/civic/units` | Home-unit picker list (`?type=`, `?parentId=` optional; defaults ward+panchayat) with parent names, `status`, and resident counts for pending units |
+| GET | `/api/civic/units` | Home-unit picker list (`?type=`, `?parentId=` optional; defaults ward+panchayat) with parent names, `status`, and resident counts for pending units. `?type=assembly&state=X` scopes to one state's constituencies via a two-hop filter (`assembly.parentId` → parliamentary, `parliamentary.parentId` → state) — UNITS-STATE-SCOPE-BUILD-1 |
 | POST | `/api/civic/units` | Propose a missing ward/panchayat (public-driven coverage): `{ name, type, parentId }`, parent must be assembly/parliamentary/state, dup-name 409 under same parent, `scanInput` check, `UNIT_PROPOSALS_PER_DAY` rate limit. Creates status `pending`; verifies automatically at `UNIT_VERIFY_RESIDENTS` residents (checked on home-unit set) |
 | GET | `/api/civic/ratings?unitId=X` | Area quality: fixed `AREA_PARAMETERS` (water, electricity, …), per-parameter `{avg, count}` + caller's own scores + `canRate` (resident) |
 | POST | `/api/civic/ratings` | `{ unitId, parameter, score 1–5 }` — resident-only upsert (one row per user × unit × parameter, updatable); returns the fresh average |
@@ -132,7 +132,11 @@ id). Wards/panchayats are deliberately NOT seeded — the public proposes them.
 wards + 10 issues across the lifecycle states. Boards:
 `/local/civic-ward-chandmari`, `/local/civic-ward-beltola`. Seeded
 `supporterCount` values have **no** backing `IssueSupport` rows (display test
-data only); real counts are transaction-kept by the API.
+data only); real counts are transaction-kept by the API. **This is optional
+dev/demo data, run manually, standalone from `seed.js`** — confirmed (WARD-
+BACKFILL-AUDIT-1, 2026-07-23) that it has never been run against production;
+the Chandmari/Beltola boards do not exist there. Don't assume they're live
+in any given environment without checking.
 
 `node prisma/seed-assembly.js` — real Assembly + Parliamentary constituency
 data (531 parliamentary, 4,040 assembly units), sourced from India's Local
@@ -206,9 +210,14 @@ pointer up to the bar when unset. `useCivicChain()` gained `autoPlaced` and a
   proposals only), so most users will see no suggestion until real ward data
   lands. Assembly/parliamentary coverage is now real nationwide data (see
   Seed above).
-- `GET /api/civic/units?type=assembly` has no pagination and now returns all
-  4,040 seeded rows unfiltered in one response — was fine at seed scale, is a
-  real payload now. See `TECH_DEBT.md` §29.
+- ~~`GET /api/civic/units?type=assembly` has no pagination...~~ **Resolved
+  (UNITS-STATE-SCOPE-BUILD-1)**: `UnitPicker`'s propose-area form now passes
+  `?state=<stateId>` once a state is picked, and the route filters
+  server-side (two-hop: `assembly.parentId` → parliamentary,
+  `parliamentary.parentId` → state) instead of shipping all 4,040 rows for
+  client-side filtering. The endpoint still has no `take`/`skip` pagination —
+  fine now that a real request returns one state's constituencies (tens, not
+  thousands) instead of the full nationwide set.
 - Wards/panchayats proposed **before** `seed-assembly.js` ran do not have an
   assembly parent and will not retroactively gain one — a unit's `parentId`
   is only resolved at proposal time. Expected, not a bug. See `TECH_DEBT.md`
